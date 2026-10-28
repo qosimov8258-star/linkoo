@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { MinusCircle, PlusCircle, Search } from "lucide-react"
+import { CircleMinus, CirclePlus, Search } from "lucide-react"
 
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
 import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
@@ -16,7 +16,6 @@ import {
   useClientName,
 } from "@/components/analytics/loyalty-card-dialogs"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
-import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { LoyaltyCardListResult, LoyaltyCardOptions, LoyaltyCardRow } from "@/lib/loyalty-card-types"
 
@@ -178,20 +177,21 @@ export function LoyaltyCardView() {
     </button>
   )
 
-  const head = "border border-[#efefef] px-5 py-2.5 text-left font-semibold"
+  const head = "h-[40px] border border-[#efefef] px-5 py-0 text-left text-[13px] font-semibold"
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Накопительная карта")}</span>
+    <main className="min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] flex-wrap items-center gap-4 px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Накопительная карта")}</span>
         </div>
       </header>
 
+      <div className="mx-[28px] mt-[15px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <ExpandedOverlay expanded={expanded}>
-        <section className="relative flex min-h-[55px] flex-wrap items-center gap-3 border-t border-[#efefef] px-6 py-2 md:px-9">
-          <div className="relative">
+        <section className="relative flex min-h-[55px] flex-wrap items-center gap-3 border-t border-[#efefef] pl-[30px] pr-[17px] py-2">
+          <div className="relative -mt-[8px]">
             <BalanceFilterChip
               count={filterCount}
               onOpen={() => setFilterOpen(true)}
@@ -210,7 +210,7 @@ export function LoyaltyCardView() {
             />
           </div>
           <form
-            className="mx-auto flex min-w-[160px] flex-1 items-center justify-center gap-1"
+            className="relative left-[29px] mx-auto mt-[3px] flex min-w-[160px] flex-1 items-center justify-center gap-1"
             onSubmit={(event) => {
               event.preventDefault()
               update({ search: searchDraft.trim(), page: 1 })
@@ -221,13 +221,13 @@ export function LoyaltyCardView() {
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={t("Поиск")}
               aria-label={t("Поиск")}
-              className="h-10 w-full max-w-[260px] border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none focus:border-[#4f70e7]"
+              className="h-10 w-full max-w-[256px] border-b border-[#e0e0e0] bg-transparent px-0 pt-[6px] text-[13px] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#4f70e7]"
             />
             <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#ccc]">
               <Search className="h-5 w-5" />
             </button>
           </form>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="relative -top-[2px] flex flex-wrap items-center gap-3">
             <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
             <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
           </div>
@@ -245,10 +245,10 @@ export function LoyaltyCardView() {
         )}
 
         <div className={`overflow-x-auto pb-8 ${loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[700px] border-collapse text-[14px] text-[#666]">
+          <table className="w-[calc(100%-45px)] min-w-[700px] border-collapse text-[13px] text-[#666]">
             <thead>
               <tr className="bg-white text-[#666]">
-                <th className={`${head} sticky left-0 z-[2] w-[300px] min-w-[300px] bg-white shadow-[5px_0_8px_-3px_#ccc]`}>{t("Клиент")}</th>
+                <th className={`${head} sticky left-0 z-[2] w-[300px] min-w-[300px] bg-white !px-[15px] shadow-[5px_0_8px_-3px_#ccc]`}>{t("Клиент")}</th>
                 {currencies.map((currency) => (
                   <th key={currency.code} className={head}>
                     {currency.label}
@@ -258,20 +258,20 @@ export function LoyaltyCardView() {
             </thead>
             <tbody>
               {rows.map((row, index) => {
-                const background = index % 2 ? "#ffffff" : "#F4F8FB"
+                const background = index % 2 ? "#F4F8FB" : "#ffffff"
                 return (
                   <tr key={row.id} style={{ background }} className="group h-10 cursor-pointer hover:!bg-[#e9f8ff] hover:font-semibold">
                     <td
-                      className="sticky left-0 z-[1] border-b border-r border-[#efefef] px-4 shadow-[5px_0_8px_-3px_#ccc]"
+                      className="sticky left-0 z-[1] border-b border-r border-[#efefef] px-[15px] shadow-[5px_0_8px_-3px_#ccc]"
                       style={{ background: "inherit" }}
                       onClick={() => openInfo(row)}
                     >
-                      <div className="relative flex min-h-[30px] w-[268px] items-center">
+                      <div className="relative flex min-h-[30px] w-[269px] items-center">
                         <span className={`truncate hover:text-[rgb(79,113,220)] ${row.exists ? "" : "italic text-[#999]"}`}>{clientName(row)}</span>
                         {canEdit && row.exists && (
-                          <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 bg-gradient-to-r from-transparent to-[#F4F8FB] pl-6 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                            {actionButton("Списать", <MinusCircle className="h-[22px] w-[22px] text-[#ff584b]" />, () => setDialog({ kind: "expense", row }))}
-                            {actionButton("Добавить", <PlusCircle className="h-[22px] w-[22px] text-[#8dc572]" />, () => setDialog({ kind: "add", row }))}
+                          <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 pl-6">
+                            {actionButton("Списать", <CircleMinus className="h-6 w-6 fill-[#ff584b] text-white" />, () => setDialog({ kind: "expense", row }))}
+                            {actionButton("Добавить", <CirclePlus className="h-6 w-6 fill-[#8dc572] text-white" />, () => setDialog({ kind: "add", row }))}
                           </div>
                         )}
                       </div>
@@ -280,7 +280,7 @@ export function LoyaltyCardView() {
                       const value = row.balances[currency.code] ?? 0
                       return (
                         <td key={currency.code} className="whitespace-nowrap border-b border-r border-[#efefef] px-5" onClick={() => openInfo(row)}>
-                          <span style={balanceStyle(value)}>{value ? formatMoney(value) : 0}</span>
+                          <span style={balanceStyle(value)}>{value ? String(value) : 0}</span>
                         </td>
                       )
                     })}
@@ -298,6 +298,7 @@ export function LoyaltyCardView() {
           </table>
         </div>
       </ExpandedOverlay>
+      </div>
 
       {state.client && (
         <LoyaltyInfoDialog

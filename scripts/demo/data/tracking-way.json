@@ -1,0 +1,377 @@
+{
+ "source": "reference market/way/ (2026-10-24), read-only",
+ "agents": [
+  {
+   "id": 299,
+   "name": "05,08,2025 (1)",
+   "color": "#f83b7f",
+   "lastActivity": "2025-08-15T10:10:00",
+   "battery": 40.0,
+   "lat": 41.2971953,
+   "lon": 69.2932446,
+   "groups": []
+  },
+  {
+   "id": 292,
+   "name": "xodim1 1",
+   "color": "#6770e6",
+   "lastActivity": "2025-09-02T18:56:00",
+   "battery": 31.0,
+   "lat": 41.3327948,
+   "lon": 69.218848,
+   "groups": []
+  },
+  {
+   "id": 288,
+   "name": "Zaynillo Sadullayev",
+   "color": "#fbb432",
+   "lastActivity": "2025-08-28T03:42:00",
+   "battery": 1.0,
+   "lat": 39.8185931,
+   "lon": 64.435304,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 259,
+   "name": "Salohiddin Agent Tashkent",
+   "color": "#4caf50",
+   "lastActivity": "2025-11-17T10:50:00",
+   "battery": 70.0,
+   "lat": 41.3346929,
+   "lon": 69.3269467,
+   "groups": []
+  },
+  {
+   "id": 193,
+   "name": "Тп 1 Исмоилов Гани",
+   "color": "#9c27b0",
+   "lastActivity": "2025-03-20T10:51:00",
+   "battery": 26.0,
+   "lat": 41.3062753,
+   "lon": 69.2887432,
+   "groups": []
+  },
+  {
+   "id": 188,
+   "name": "Admin Ritm",
+   "color": "#ffc107",
+   "lastActivity": "2026-10-22T10:33:00",
+   "battery": 40.0,
+   "lat": 41.334855,
+   "lon": 69.326889,
+   "groups": [
+    "merch",
+    "delivery",
+    "collector"
+   ]
+  },
+  {
+   "id": 201,
+   "name": "Samandar Abdurahmonov",
+   "color": "#f44336",
+   "lastActivity": "2026-05-11T16:41:00",
+   "battery": 33.0,
+   "lat": 41.3346666,
+   "lon": 69.326934,
+   "groups": []
+  },
+  {
+   "id": 200,
+   "name": "Admin Ritm44",
+   "color": "#03a9f4",
+   "lastActivity": "2025-11-26T18:45:00",
+   "battery": 66.0,
+   "lat": 41.3261351,
+   "lon": 69.3275937,
+   "groups": []
+  },
+  {
+   "id": 322,
+   "name": "agent2 2",
+   "color": "#00bcd4",
+   "lastActivity": "2025-09-30T10:45:00",
+   "battery": 42.0,
+   "lat": 41.3346406,
+   "lon": 69.3269711,
+   "groups": []
+  },
+  {
+   "id": 302,
+   "name": "agent 007",
+   "color": "#ffeb3b",
+   "lastActivity": "2025-11-20T22:21:00",
+   "battery": 100.0,
+   "lat": 41.299496,
+   "lon": 69.240073,
+   "groups": []
+  },
+  {
+   "id": 307,
+   "name": "Анвар Комилов",
+   "color": "#009688",
+   "lastActivity": null,
+   "battery": null,
+   "lat": 41.2795686,
+   "lon": 69.2523226,
+   "groups": []
+  },
+  {
+   "id": 232,
+   "name": "bobur axmadov",
+   "color": "#2196f3",
+   "lastActivity": "2025-09-26T09:44:00",
+   "battery": 25.0,
+   "lat": 41.334613,
+   "lon": 69.327035,
+   "groups": []
+  },
+  {
+   "id": 213,
+   "name": "Азизхон Супервайзер",
+   "color": "#cddc39",
+   "lastActivity": "2025-03-15T14:54:00",
+   "battery": 85.0,
+   "lat": 41.3060635,
+   "lon": 69.2886446,
+   "groups": []
+  },
+  {
+   "id": 236,
+   "name": "beyn kim",
+   "color": "#8bc34a",
+   "lastActivity": "2025-06-14T10:39:00",
+   "battery": 38.0,
+   "lat": 41.3061209,
+   "lon": 69.2886967,
+   "groups": []
+  },
+  {
+   "id": 219,
+   "name": "universal dostavshik",
+   "color": "#ff5722",
+   "lastActivity": "2026-02-23T17:26:00",
+   "battery": 90.0,
+   "lat": 41.334548,
+   "lon": 69.32695,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 195,
+   "name": "Админ 1",
+   "color": "#9e9e9e",
+   "lastActivity": "2025-09-04T11:27:00",
+   "battery": 55.0,
+   "lat": 41.3317452,
+   "lon": 69.3263059,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 257,
+   "name": "Salohiddin Dastavchik Tashkent",
+   "color": "#6770e6",
+   "lastActivity": "2025-08-04T14:23:00",
+   "battery": 76.0,
+   "lat": 41.2971513,
+   "lon": 69.2934694,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 308,
+   "name": "Feruz2 Bobokulov",
+   "color": "#fbb432",
+   "lastActivity": "2025-09-19T17:56:00",
+   "battery": 80.0,
+   "lat": 41.336306,
+   "lon": 69.325959,
+   "groups": []
+  },
+  {
+   "id": 309,
+   "name": "feruz bobokulov Bobokulov",
+   "color": "#4caf50",
+   "lastActivity": "2025-09-22T12:43:00",
+   "battery": 60.0,
+   "lat": 41.33472,
+   "lon": 69.326863,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 214,
+   "name": "Fozil Agent",
+   "color": "#9c27b0",
+   "lastActivity": "2026-06-12T15:58:00",
+   "battery": 5.0,
+   "lat": 41.3347503,
+   "lon": 69.3268666,
+   "groups": []
+  },
+  {
+   "id": 403,
+   "name": "Сотрудник Илхомжон Жураев",
+   "color": "#ffc107",
+   "lastActivity": "2026-06-25T13:43:00",
+   "battery": 2.0,
+   "lat": 41.3346349,
+   "lon": 69.3269288,
+   "groups": []
+  },
+  {
+   "id": 324,
+   "name": "Islom Yuldashev",
+   "color": "#f44336",
+   "lastActivity": "2025-10-08T10:07:00",
+   "battery": 87.0,
+   "lat": 41.3346472,
+   "lon": 69.3269743,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 353,
+   "name": "Ares are",
+   "color": "#03a9f4",
+   "lastActivity": "2026-02-11T12:02:00",
+   "battery": 93.0,
+   "lat": 10.9506933,
+   "lon": 106.8207802,
+   "groups": []
+  },
+  {
+   "id": 196,
+   "name": "Тп 1 Алиса",
+   "color": "#00bcd4",
+   "lastActivity": "2025-09-05T01:01:00",
+   "battery": 70.0,
+   "lat": 41.243458,
+   "lon": 69.173544,
+   "groups": [
+    "merch"
+   ]
+  },
+  {
+   "id": 217,
+   "name": "Otabek Komiljonov",
+   "color": "#ffeb3b",
+   "lastActivity": "2025-05-07T14:16:00",
+   "battery": 51.0,
+   "lat": 41.3060964,
+   "lon": 69.2886747,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 208,
+   "name": "Quvonchbek Admin",
+   "color": "#009688",
+   "lastActivity": "2025-02-07T14:45:00",
+   "battery": 51.0,
+   "lat": 41.306275,
+   "lon": 69.2886083,
+   "groups": [
+    "merch",
+    "delivery",
+    "collector"
+   ]
+  },
+  {
+   "id": 356,
+   "name": "AboMuslim Raximov",
+   "color": "#2196f3",
+   "lastActivity": "2025-12-31T13:22:00",
+   "battery": 85.0,
+   "lat": 41.322972,
+   "lon": 69.186547,
+   "groups": []
+  },
+  {
+   "id": 258,
+   "name": "Salohiddin Dastavchik Farg'ona",
+   "color": "#cddc39",
+   "lastActivity": "2025-12-24T22:12:00",
+   "battery": 100.0,
+   "lat": 41.295508,
+   "lon": 69.222582,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 204,
+   "name": "Temur Raupov",
+   "color": "#8bc34a",
+   "lastActivity": "2026-02-18T20:49:00",
+   "battery": 70.0,
+   "lat": 41.295443,
+   "lon": 69.222761,
+   "groups": []
+  },
+  {
+   "id": 297,
+   "name": "test1 asdsa",
+   "color": "#ff5722",
+   "lastActivity": "2025-11-04T16:54:00",
+   "battery": 96.0,
+   "lat": 41.3346243,
+   "lon": 69.3269492,
+   "groups": []
+  },
+  {
+   "id": 323,
+   "name": "van.agent2 2",
+   "color": "#f83b7f",
+   "lastActivity": "2025-09-30T11:17:00",
+   "battery": 38.0,
+   "lat": 41.334627,
+   "lon": 69.3269359,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 293,
+   "name": "xodim2 1",
+   "color": "#6770e6",
+   "lastActivity": "2025-08-29T16:40:00",
+   "battery": 90.0,
+   "lat": 41.2994957,
+   "lon": 69.2400742,
+   "groups": [
+    "delivery"
+   ]
+  },
+  {
+   "id": 294,
+   "name": "xodim3 1",
+   "color": "#fbb432",
+   "lastActivity": "2025-08-14T13:03:00",
+   "battery": 42.0,
+   "lat": 41.299496,
+   "lon": 69.240073,
+   "groups": []
+  },
+  {
+   "id": 212,
+   "name": "Хайрулло Доставщик",
+   "color": "#4caf50",
+   "lastActivity": "2025-12-03T22:52:00",
+   "battery": 80.0,
+   "lat": 41.3345958,
+   "lon": 69.326948,
+   "groups": [
+    "delivery"
+   ]
+  }
+ ]
+}

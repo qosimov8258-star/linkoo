@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useState, type ReactNode } from "react"
-import { ChevronDown, Pencil, X } from "lucide-react"
+import { X } from "lucide-react"
 
 import { FormField, MultiPick, inputClass } from "@/components/analytics/cash-management-shared"
+import { FilterCheck, FilterDate, FilterSelect, RefFilterPanel } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Demo StockTransfersFilter (c7 module 4340): "Показать фильтр" → popup with
@@ -47,25 +48,35 @@ export function transferFilterCount(filters: TransferFilters): number {
 }
 
 /** "Показать фильтр" / "Фильтр: N элемента" toggle shared by both pages. */
-export function FilterToggle({ count, open, onOpen, onClose, onClear }: { count: number; open: boolean; onOpen: () => void; onClose: () => void; onClear: () => void }) {
+export function FilterToggle({ count, open, onOpen, onClose, onClear, barWidth = 346.5 }: { count: number; open: boolean; onOpen: () => void; onClose: () => void; onClear: () => void; barWidth?: number }) {
   const { t } = useLanguage()
+  // The reference's applied-filter bar: a 347x48 grey block flush with the toolbar's left edge,
+  // the text 30px in, then two 48px icon buttons (edit, clear) at its right end.
   if (count > 0)
     return (
-      <div className="flex items-center gap-2 rounded-md bg-[#efefef] px-4 py-1.5 text-[#666]">
+      <div style={{ width: barWidth }} className="-ml-[5px] flex h-12 items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
         <span className="whitespace-nowrap">
           {t("Фильтр")}: {count} {t("элемента")}
         </span>
-        <button type="button" onClick={onOpen} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
-          <Pencil className="h-4 w-4" />
+        <button type="button" onClick={onOpen} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="ml-auto flex h-12 w-12 items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]">
+            <path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" />
+            <path fillOpacity=".36" d="M0 20h24v4H0z" />
+          </svg>
         </button>
-        <button type="button" onClick={onClear} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
-          <X className="h-4 w-4" />
+        <button type="button" onClick={onClear} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="flex h-12 w-12 items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]">
+            <path d="M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+          </svg>
         </button>
       </div>
     )
   return (
-    <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-1 whitespace-nowrap font-medium text-[rgb(79,113,220)]">
-      {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+    <button type="button" onClick={open ? onClose : onOpen} className="flex h-[16.3px] w-fit items-center whitespace-nowrap text-[13px] text-[#4f71dc]">
+      {t("Показать фильтр")}
+      <svg viewBox="6 2 12 20" className={`ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#4f71dc] transition ${open ? "rotate-180" : ""}`}>
+        <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+      </svg>
     </button>
   )
 }
@@ -166,11 +177,34 @@ function TransferFilterPopup({ filters, warehouses, onClose, onApply }: { filter
       <MultiPick label={t("На склад")} options={options} value={draft.toWarehouses} onChange={(toWarehouses) => set({ toWarehouses })} />
       <PeriodField label={t("Период создания")} from={draft.createdFrom} to={draft.createdTo} onChange={(createdFrom, createdTo) => set({ createdFrom, createdTo })} />
       <PeriodField label={t("Период доставки")} from={draft.deliveryFrom} to={draft.deliveryTo} onChange={(deliveryFrom, deliveryTo) => set({ deliveryFrom, deliveryTo })} />
-      <PeriodField label={t("Период приемки")} from={draft.acceptedFrom} to={draft.acceptedTo} onChange={(acceptedFrom, acceptedTo) => set({ acceptedFrom, acceptedTo })} />
+      <PeriodField label="Период приемки" from={draft.acceptedFrom} to={draft.acceptedTo} onChange={(acceptedFrom, acceptedTo) => set({ acceptedFrom, acceptedTo })} />
       <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
         <input type="checkbox" checked={draft.withCancelled} onChange={(event) => set({ withCancelled: event.target.checked })} className="h-4 w-4 accent-[rgb(79,113,220)]" />
         {t("Показать отмененные передачи")}
       </label>
     </FilterPopup>
+  )
+}
+
+/** The reference's 300px "Фильтр" drawer of the transfers list (rendered through RefToolbar's `filterPanel`). */
+export function TransferFilterPanel({ filters, warehouses, onClose, onApply }: { filters: TransferFilters; warehouses: string[]; onClose: () => void; onApply: (filters: TransferFilters) => void }) {
+  const { t } = useLanguage()
+  const [draft, setDraft] = useState<TransferFilters>(filters)
+  const set = (patch: Partial<TransferFilters>) => setDraft((current) => ({ ...current, ...patch }))
+  const submit = () => {
+    const [createdFrom, createdTo] = orderedPeriod(draft.createdFrom, draft.createdTo)
+    const [deliveryFrom, deliveryTo] = orderedPeriod(draft.deliveryFrom, draft.deliveryTo)
+    const [acceptedFrom, acceptedTo] = orderedPeriod(draft.acceptedFrom, draft.acceptedTo)
+    onApply({ ...draft, createdFrom, createdTo, deliveryFrom, deliveryTo, acceptedFrom, acceptedTo })
+  }
+  return (
+    <RefFilterPanel className="!w-[300px]" applyClassName="mt-[25px]" onClose={onClose} onApply={submit}>
+      <FilterSelect label={t("Со склада")} value={draft.fromWarehouses[0] ?? ""} onChange={(value) => set({ fromWarehouses: value ? [value] : [] })} options={warehouses} />
+      <FilterSelect label={t("На склад")} value={draft.toWarehouses[0] ?? ""} onChange={(value) => set({ toWarehouses: value ? [value] : [] })} options={warehouses} />
+      <FilterDate mui label={t("Период создания")} begin={draft.createdFrom} end={draft.createdTo} onChange={(createdFrom, createdTo) => set({ createdFrom, createdTo })} />
+      <FilterDate mui label={t("Период доставки")} begin={draft.deliveryFrom} end={draft.deliveryTo} onChange={(deliveryFrom, deliveryTo) => set({ deliveryFrom, deliveryTo })} />
+      <FilterDate mui label={t("Период приемки")} begin={draft.acceptedFrom} end={draft.acceptedTo} onChange={(acceptedFrom, acceptedTo) => set({ acceptedFrom, acceptedTo })} />
+      <FilterCheck compact label="Показать отмененные передачи" checked={draft.withCancelled} onChange={(withCancelled) => set({ withCancelled })} className="mt-[10px]" />
+    </RefFilterPanel>
   )
 }

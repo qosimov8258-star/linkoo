@@ -33,6 +33,7 @@ export type MoneyRequestsQuery = {
 }
 
 type RequestRow = {
+  num?: number
   id: number
   supplier_id: number
   supplier_name: string | null
@@ -53,8 +54,8 @@ async function hasTable(db: PgDb): Promise<boolean> {
   return ((await db.prepare("SELECT to_regclass('supplier_balance_transactions') IS NOT NULL AS ok").get()) as { ok: boolean }).ok
 }
 
-const SELECT = `SELECT t.id, t.supplier_id, s.name AS supplier_name, t.currency, t.amount::float8 AS amount, t.comment, t.status, t.created_by,
-    COALESCE(to_char(COALESCE(fin_ts(t.created_at, true), fin_ts(t.date)), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created_s,
+const SELECT = `SELECT t.id, (SELECT COUNT(*)::int FROM supplier_balance_transactions z WHERE z.kind = 'fund_request' AND z.id <= t.id) AS num, t.supplier_id, s.name AS supplier_name, t.currency, t.amount::float8 AS amount, t.comment, t.status, t.created_by,
+    COALESCE(to_char(COALESCE(fin_ts(t.created_at), fin_ts(t.date)), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created_s,
     t.responsible_user, t.approved_at, t.payment_id, sp.doc_no AS payment_doc, t.log
   FROM supplier_balance_transactions t LEFT JOIN suppliers s ON s.id = t.supplier_id
   LEFT JOIN supplier_payments sp ON sp.id = t.payment_id
@@ -78,6 +79,7 @@ function toRequest(row: RequestRow, balances: Map<string, { balance: number; res
   const currency = normCurrency(row.currency)
   return {
     id: row.id,
+    number: row.num,
     supplier: { id: row.supplier_id, name: row.supplier_name ?? "" },
     amount: roundMoney(Math.abs(num(row.amount))),
     currency,

@@ -23,6 +23,8 @@ export type PlanMoveFilters = {
   /** Тип продукта / Подкатегория (catalog). */
   typeParents: string[]
   subcategories: string[]
+  /** "in" = quantity > 0 (Приход), "out" = quantity < 0 (Расход), "" = all. */
+  direction: string
   from: string
   to: string
   search: string
@@ -38,10 +40,12 @@ const SORTS: Record<string, string> = {
   docNumber: "m.doc_no",
 }
 
-function orderBy(ordering: string): string {
+function orderBy(ordering: string, reference = false): string {
   const desc = ordering.startsWith("-")
   const expr = SORTS[desc ? ordering.slice(1) : ordering]
-  const tail = "m.day DESC, m.doc_type, m.doc_no DESC, m.item_key, m.kind"
+  // The reference list is ordered by its line id (newest first).
+  const tail = reference ? "m.ref_id DESC" : "m.day DESC, m.doc_type, m.doc_no DESC, m.item_key, m.kind"
+  if (reference && (ordering === "" || ordering === "-day")) return tail
   return expr ? `${expr} ${desc ? "DESC" : "ASC"}, ${tail}` : tail
 }
 
@@ -49,12 +53,21 @@ function nameKey(value: string): string {
   return value.replace(/[  ]/g, " ").replace(/\s+/g, " ").trim().toLowerCase()
 }
 
-type LedgerRow = { day: string; warehouse: string; item_key: string; qty: number; kind: string; doc_type: string; doc_id: number; doc_no: number; is_defect: number; total?: string | number }
+type LedgerRow = { day: string; warehouse: string; item_key: string; qty: number; kind: string; doc_type: string; doc_id: number; doc_no: number; is_defect: number; total?: string | number; ref_name?: string | null; ref_unit?: string | null; ref_time?: string | null }
+
+/** The reference's 2017 "Движение товаров" lines (scripts/demo/apply-next-movements.mjs); absent/empty = use the stock ledger. */
+async function hasReferenceMovements(db: PgDb): Promise<boolean> {
+  const exists = (await db.prepare("SELECT to_regclass('stock_movement_reference_rows') AS t").get()) as { t: string | null } | undefined
+  if (!exists?.t) return false
+  const row = (await db.prepare("SELECT COUNT(*)::int AS n FROM stock_movement_reference_rows").get()) as { n: number } | undefined
+  return Number(row?.n) > 0
+}
 
 export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPaging, db: PgDb = getDb()): Promise<PlanMovementResult> {
   const t = await stockTables(db)
+  const reference = await hasReferenceMovements(db)
   const [ledger, catalog, warehouseRows] = await Promise.all([
-    stockMovementsSql({}, db),
+    reference ? Promise.resolve({ sql: "SELECT NULL::text AS day WHERE false", params: {} }) : stockMovementsSql({}, db),
     getStockCatalog(db),
     t.has("warehouses") ? db.prepare("SELECT name FROM warehouses ORDER BY id").all() : Promise.resolve([]),
   ])
@@ -63,7 +76,8 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
   const result: PlanMovementResult = { count: 0, page, pageSize: paging.pageSize, results: [] }
 
   const params: Record<string, unknown> = { ...ledger.params }
-  const where = ["fin_key(m.warehouse) <> ''"]
+  // 'opening' = starting quantities (stock_opening_balances), not documents: they never appear as movements.
+  const where = ["fin_key(m.warehouse) <> ''", "m.kind <> 'opening'"]
   if (filters.warehouses.length) {
     where.push("fin_key(m.warehouse) IN (SELECT fin_key(w) FROM unnest(@pl_wh::text[]) AS w)")
     params.pl_wh = filters.warehouses
@@ -74,6 +88,7 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
     where.push("m.kind = ANY(@pl_kinds::text[])")
     params.pl_kinds = kinds
   }
+  if (filters.direction) where.push(filters.direction === "in" ? "m.qty > 0" : "m.qty < 0")
   if (filters.products.length) {
     where.push("m.item_key = ANY(@pl_items::text[])")
     params.pl_items = filters.products
@@ -107,16 +122,18 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
   }
 
   // № of a production line is its batch (party), as in the demo (d_parent_id).
-  const withParty = t.has("production_movements") && t.col("production_movements", "party_id")
-  const source = withParty
+  const withParty = !reference && t.has("production_movements") && t.col("production_movements", "party_id")
+  const source = reference
+    ? "SELECT ref_id, day, warehouse, item_key, qty, kind, doc_type, doc_id, doc_no, is_defect, ref_name, ref_unit, created_at FROM stock_movement_reference_rows"
+    : withParty
     ? `SELECT l.*, COALESCE(pm.party_id, l.doc_id) AS doc_no FROM (${ledger.sql}) l
          LEFT JOIN production_movements pm ON l.doc_type = 'production_movements' AND pm.id = l.doc_id`
     : `SELECT l.*, l.doc_id AS doc_no FROM (${ledger.sql}) l`
   const base = `FROM (${source}) m WHERE ${where.join(" AND ")}`
   const rows = (await db
     .prepare(
-      `SELECT m.day, m.warehouse, m.item_key, m.qty, m.kind, m.doc_type, m.doc_id, m.doc_no, m.is_defect, COUNT(*) OVER () AS total
-         ${base} ORDER BY ${orderBy(paging.ordering || "-day")} LIMIT @pl_limit OFFSET @pl_offset`,
+      `SELECT m.day, m.warehouse, m.item_key, m.qty, m.kind, m.doc_type, m.doc_id, m.doc_no, m.is_defect, ${reference ? "m.ref_name, m.ref_unit, m.created_at AS ref_time," : ""} COUNT(*) OVER () AS total
+         ${base} ORDER BY ${orderBy(paging.ordering || "-day", reference)} LIMIT @pl_limit OFFSET @pl_offset`,
     )
     .all({ ...params, pl_limit: pageSize, pl_offset: (page - 1) * pageSize })) as LedgerRow[]
   if (rows.length) result.count = Number(rows[0].total) || 0
@@ -143,11 +160,12 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
       docId: Number(row.doc_id),
       docNumber: Number(row.doc_no),
       key: row.item_key,
-      name: item?.name ?? orphan?.name ?? (row.item_key.startsWith("name:") ? row.item_key.slice(5) : row.item_key),
+      name: row.ref_name || item?.name || orphan?.name || (row.item_key.startsWith("name:") ? row.item_key.slice(5) : row.item_key),
       article: item?.article ?? "",
-      unit: item?.unit || orphan?.unit || "",
+      unit: row.ref_unit || item?.unit || orphan?.unit || "",
       qty: Math.round((Number(row.qty) || 0) * 1e6) / 1e6,
       isDefect: Number(row.is_defect) === 1,
+      ...(row.ref_time ? { time: row.ref_time.slice(11, 16) } : {}),
     }
   })
   return result

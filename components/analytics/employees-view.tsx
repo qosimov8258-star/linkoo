@@ -1,637 +1,354 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
-import { BarChart3, ChevronLeft, ChevronRight, FileText, ListChecks, MinusCircle, Pencil, PlusCircle, Search, Trash2, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
+import { BlockAllDialog, BulkChangeDialog } from "@/components/analytics/employees-bulk-dialogs"
+import { EmployeeDialog } from "@/components/analytics/employees-dialog"
+import type { Employee, EmployeeOptions } from "@/components/analytics/employees-data"
+import {
+  ConfirmDeleteDialog,
+  EmptyRows,
+  PageSizeSelect,
+  PagerArrow,
+  RowActions,
+  SortHead,
+  kitHead,
+  sortRows,
+  toggleOrdering,
+} from "@/components/analytics/settings-list-kit"
+import { FilterPick, Check, FilterChip, FilterLink, type Option } from "@/components/staff/staff-kit"
+import { RI, RefFilterPanel, RefImportDialog } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import type { Employee } from "./employees-data"
-import { useDirectoryNames } from "@/components/clients/use-directory"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
+// "Сотрудники" (demo #/users, Settings → Персонал; API main/crud/): Активный / Удаленные tabs, "+ Добавить пользователя",
+// Excel import, filter, grid № | Сотрудник | Логин | Права доступа (+ time restrictions in red) | Телефон | Должность | Статус,
+// ✎ / 🗑 on hover, the list-check icon switches to bulk selection (Изменить / Обновить с excel), the ⊖ icon blocks everyone.
+
+const IMPORT_ALIASES: Record<string, string> = {
+  "№": "id", id: "id",
   "имя": "firstName", "first name": "firstName",
   "фамилия": "lastName", "last name": "lastName",
-  "телефон": "phone", "phone": "phone",
-  "должность": "position", "position": "position",
-  "филиал": "branch", "branch": "branch",
+  "телефон": "phone", phone: "phone",
+  "должность": "job", position: "job", job: "job",
+  "филиал": "branch", "филиалы": "branch", branch: "branch",
   "код для интеграции": "integrationCode", "integration code": "integrationCode",
 }
+const TEMPLATE = ["Имя", "Фамилия", "Телефон", "Должность", "Филиал", "Код для интеграции"]
 
-type Draft = {
-  firstName: string
-  lastName: string
-  phone: string
-  integrationCode: string
-  position: string
-  branch: string
-  systemAccess: boolean
-  showInTracking: boolean
-  twoStepCheck: boolean
-  sessionLimit: boolean
-  gpsCheck: boolean
-  startPoint: boolean
-  organizations: string[]
-}
+const COLS = "139.25px 202.5px 202.5px 202.5px 202.5px 101.25px 1fr"
+const COLS_SELECT = "162px 199px 198px 198px 198px 99px 1fr"
 
-// Должность and Филиал come from the real directories (/api/job-positions,
-// /api/branches); the server refuses names that are not in them.
-function emptyDraft(positions: string[] = [], branches: string[] = []): Draft {
-  return {
-    firstName: "",
-    lastName: "",
-    phone: "",
-    integrationCode: "",
-    position: positions[0] ?? "",
-    branch: branches[0] ?? "",
-    systemAccess: true,
-    showInTracking: true,
-    twoStepCheck: false,
-    sessionLimit: false,
-    gpsCheck: true,
-    startPoint: false,
-    organizations: [],
-  }
-}
+const SELECT_ALL = "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z"
+const EYE_OFF = "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"
+const MINUS_BOX = "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z"
+const MINUS_CIRCLE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"
 
-function draftToInput(draft: Draft, active = true) {
-  return {
-    firstName: draft.firstName.trim(),
-    lastName: draft.lastName.trim(),
-    phone: draft.phone.trim(),
-    integrationCode: draft.integrationCode,
-    position: draft.position,
-    branch: draft.branch,
-    systemAccess: draft.systemAccess,
-    showInTracking: draft.showInTracking,
-    twoStepCheck: draft.twoStepCheck,
-    sessionLimit: draft.sessionLimit,
-    gpsCheck: draft.gpsCheck,
-    startPoint: draft.startPoint,
-    organizations: draft.organizations,
-    active,
-  }
-}
+type Filters = { accessRight: string; branch: string; zone: string; priceList: string; job: string; organization: string; supervisor: string; hasSupervisor: string }
+const NO_FILTERS: Filters = { accessRight: "", branch: "", zone: "", priceList: "", job: "", organization: "", supervisor: "", hasSupervisor: "" }
+
+const named = (list: Array<{ id: number; name: string }>): Option[] => list.map((item) => ({ value: String(item.id), label: item.name }))
 
 export function EmployeesView() {
   const { t } = useLanguage()
-  // The factory's own organizations (never another tenant's names).
-  const organizationNames = useDirectoryNames("organizations")
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState("")
+  const [employees, setEmployees] = useState<Employee[] | null>(null)
+  const [options, setOptions] = useState<EmployeeOptions | null>(null)
   const [tab, setTab] = useState<"active" | "deleted">("active")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [ordering, setOrdering] = useState<string[]>([])
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS)
+  const [draft, setDraft] = useState<Filters>(NO_FILTERS)
+  const [filterOpen, setFilterOpen] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
-  const [checkedIds, setCheckedIds] = useState<number[]>([])
-  const [editing, setEditing] = useState<Employee | "new" | null>(null)
-  const [draft, setDraft] = useState<Draft>(() => emptyDraft())
-  const [positions, setPositions] = useState<string[]>([])
-  const [branches, setBranches] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
+  const [selected, setSelected] = useState<number[]>([])
+  const [dialog, setDialog] = useState<{ employee: Employee | null } | null>(null)
+  const [deleting, setDeleting] = useState<Employee | null>(null)
+  const [dialogs, setDialogs] = useState<null | "import" | "update" | "bulk" | "block">(null)
   const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const pageSize = 25
+  const [importing, setImporting] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/employees")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить сотрудников")
-        return (await response.json()) as Employee[]
-      })
-      .then((data) => {
-        if (cancelled) return
-        setEmployees(data)
-        setLoadError("")
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError(t("Не удалось загрузить сотрудников с сервера"))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/employees", { cache: "no-store" })
+      if (!response.ok) throw new Error("load")
+      setEmployees((await response.json()) as Employee[])
+    } catch {
+      setEmployees([])
     }
   }, [])
-
+  useEffect(() => { void load() }, [load])
   useEffect(() => {
-    let cancelled = false
-    const names = (url: string) =>
-      fetch(url)
-        .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : []))
-        .then((rows) => rows.map((row) => row.name))
-        .catch(() => [] as string[])
-    void Promise.all([names("/api/job-positions"), names("/api/branches")]).then(([positionNames, branchNames]) => {
-      if (cancelled) return
-      setPositions(positionNames)
-      setBranches(branchNames)
+    void fetch("/api/employees/options", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<EmployeeOptions>) : null))
+      .then(setOptions)
+      .catch(() => undefined)
+  }, [])
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    const rows = (employees ?? []).filter((employee) => {
+      if (employee.active !== (tab === "active")) return false
+      if (needle && !`${employee.id} ${employee.name} ${employee.login} ${employee.phone}`.toLowerCase().includes(needle)) return false
+      if (filters.accessRight && String(employee.accessRightId) !== filters.accessRight) return false
+      if (filters.branch && !employee.branchIds.includes(Number(filters.branch))) return false
+      if (filters.priceList && !employee.priceListIds.includes(Number(filters.priceList))) return false
+      if (filters.job && String(employee.jobId) !== filters.job) return false
+      if (filters.organization && !employee.organizationIds.includes(Number(filters.organization))) return false
+      if (filters.supervisor && String(employee.supervisorId) !== filters.supervisor) return false
+      if (filters.hasSupervisor === "yes" && !employee.supervisorId) return false
+      if (filters.hasSupervisor === "no" && employee.supervisorId) return false
+      if (filters.zone) return false
+      return true
     })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    return sortRows(rows, ordering, { id: (employee) => employee.id, first_name: (employee) => employee.firstName.toLowerCase() })
+  }, [employees, tab, query, filters, ordering])
 
-  // A record may still hold a name that is not in the directory (created before
-  // the check); it stays selectable so the record can be saved unchanged.
-  const positionOptions = useMemo(() => (draft.position && !positions.includes(draft.position) ? [draft.position, ...positions] : positions), [positions, draft.position])
-  const branchOptions = useMemo(() => (draft.branch && !branches.includes(draft.branch) ? [draft.branch, ...branches] : branches), [branches, draft.branch])
-
-  const filtered = useMemo(
-    () =>
-      employees
-        .filter((employee) => (tab === "active" ? employee.active : !employee.active))
-        .filter((employee) => `${employee.id} ${employee.name} ${employee.login} ${employee.phone}`.toLowerCase().includes(query.toLowerCase())),
-    [employees, tab, query],
-  )
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const rows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const from = filtered.length ? (safePage - 1) * pageSize + 1 : 1
+  const to = Math.min(safePage * pageSize, filtered.length)
+  const filterCount = Object.values(filters).filter(Boolean).length
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  const hasSelection = selected.length > 0
 
-  function toggleChecked(id: number) {
-    setCheckedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+  function applyFilters() {
+    setFilters(draft)
+    setFilterOpen(false)
+    setPage(1)
+  }
+  function toggleSelected(id: number) {
+    setSelected((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]))
+  }
+  function togglePage() {
+    const ids = rows.map((employee) => employee.id)
+    const all = ids.length > 0 && ids.every((id) => selectedSet.has(id))
+    setSelected((current) => (all ? current.filter((id) => !ids.includes(id)) : [...current, ...ids.filter((id) => !selectedSet.has(id))]))
+  }
+  function switchTab(next: "active" | "deleted") {
+    setTab(next)
+    setPage(1)
+    setSelected([])
   }
 
-  async function patchEmployee(employee: Employee, patch: Partial<Employee>) {
-    const merged = { ...employee, ...patch }
+  async function remove(employee: Employee) {
     try {
-      const response = await fetch(`/api/employees/${employee.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName: merged.firstName,
-          lastName: merged.lastName,
-          phone: merged.phone,
-          integrationCode: merged.integrationCode,
-          position: merged.position,
-          branch: merged.branch,
-          systemAccess: merged.systemAccess,
-          showInTracking: merged.showInTracking,
-          twoStepCheck: merged.twoStepCheck,
-          sessionLimit: merged.sessionLimit,
-          gpsCheck: merged.gpsCheck,
-          startPoint: merged.startPoint,
-          organizations: merged.organizations,
-          active: merged.active,
-        }),
-      })
+      const response = await fetch(`/api/employees/${employee.id}${employee.active ? "" : "?permanent=1"}`, { method: "DELETE" })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(t(data.error || "Не удалось сохранить сотрудника"))
+        // 409 with the usage list while documents still reference the employee (labels are i18n keys).
+        const body = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+        const usage = body.usage?.map((item) => `${t(item.label)}: ${item.count}`).join(", ")
+        notify(`${t(body.error || "Не удалось удалить сотрудника")}${usage ? ` (${usage})` : ""}`)
         return
       }
-      const saved = (await response.json()) as Employee
-      setEmployees((current) => current.map((item) => (item.id === saved.id ? saved : item)))
+      setDeleting(null)
+      await load()
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
-  function bulkDeactivate() {
-    if (!checkedIds.length) {
-      setSelectMode((value) => !value)
-      return
-    }
-    checkedIds.forEach((id) => {
-      const employee = employees.find((item) => item.id === id)
-      if (employee) void patchEmployee(employee, { active: false })
-    })
-    setCheckedIds([])
-  }
-
-  function openCreate() {
-    setDraft(emptyDraft(positions, branches))
-    setEditing("new")
-  }
-
-  function openEdit(employee: Employee) {
-    setDraft({
-      firstName: employee.firstName,
-      lastName: employee.lastName,
-      phone: employee.phone,
-      integrationCode: employee.integrationCode,
-      position: employee.position,
-      branch: employee.branch,
-      systemAccess: employee.systemAccess,
-      showInTracking: employee.showInTracking,
-      twoStepCheck: employee.twoStepCheck,
-      sessionLimit: employee.sessionLimit,
-      gpsCheck: employee.gpsCheck,
-      startPoint: employee.startPoint,
-      organizations: employee.organizations,
-    })
-    setEditing(employee)
-  }
-
-  function remove(id: number) {
-    const employee = employees.find((item) => item.id === id)
-    if (employee) void patchEmployee(employee, { active: false })
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.firstName.trim() || !draft.lastName.trim() || !draft.phone.trim()) return
-    setSaving(true)
-    try {
-      if (editing !== "new" && editing) {
-        const response = await fetch(`/api/employees/${editing.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draftToInput(draft, editing.active)),
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(t(data.error || "Не удалось сохранить сотрудника"))
-          return
-        }
-        const saved = (await response.json()) as Employee
-        setEmployees((current) => current.map((employee) => (employee.id === editing.id ? saved : employee)))
-      } else {
-        const response = await fetch("/api/employees", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draftToInput(draft)),
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось создать сотрудника")
-          return
-        }
-        const saved = (await response.json()) as Employee
-        setEmployees((current) => [saved, ...current])
-      }
-      setEditing(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function toggleOrganization(org: string) {
-    setDraft((current) => ({ ...current, organizations: current.organizations.includes(org) ? current.organizations.filter((item) => item !== org) : [...current.organizations, org] }))
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("employees-template", [["Имя", "Фамилия", "Телефон", "Должность", "Филиал"]])
-  }
-
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-
-  async function saveImport() {
+  async function runImport(mode: "create" | "update") {
     if (!importFile) return
-    setImportSaving(true)
+    setImporting(true)
     try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert("Не удалось найти сотрудников для импорта в выбранном файле")
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const sheet = await readExcelRows(importFile)
+      if (!sheet.length) return notify(t("Не удалось найти сотрудников для импорта в выбранном файле"))
+      const fieldByIndex = mapHeaderColumns(sheet[0], IMPORT_ALIASES)
       const hasHeader = Array.from(fieldByIndex.values()).includes("firstName")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      const parsed: Draft[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
+      const body = (hasHeader ? sheet.slice(1) : sheet)
+        .map((row) => {
+          const record: Record<string, string> = {}
           row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
+            const field = hasHeader ? fieldByIndex.get(index) : (["firstName", "lastName", "phone", "job", "branch", "integrationCode"] as const)[index]
+            if (field) record[field] = String(cell ?? "").trim()
           })
-        } else {
-          record.firstName = row[0] ?? ""
-          record.lastName = row[1] ?? ""
-          record.phone = row[2] ?? ""
-          record.position = row[3] ?? ""
-          record.branch = row[4] ?? ""
-        }
-        if (!record.firstName || /^(имя|first name)$/i.test(record.firstName)) continue
-        parsed.push({
-          ...emptyDraft(positions, branches),
-          firstName: record.firstName,
-          lastName: record.lastName || "",
-          phone: record.phone || "",
-          position: record.position || (positions[0] ?? ""),
-          branch: record.branch || (branches[0] ?? ""),
-          integrationCode: record.integrationCode || "",
+          return { ...(record.id ? { id: Number(record.id) } : {}), firstName: record.firstName ?? "", lastName: record.lastName ?? "", phone: record.phone ?? "", job: record.job ?? "", branch: record.branch ?? "", integrationCode: record.integrationCode ?? "" }
         })
-      }
-
-      if (!parsed.length) {
-        window.alert("Не удалось найти сотрудников для импорта в выбранном файле")
-        return
-      }
-
-      const created: Employee[] = []
-      let failed = 0
-      let firstError = ""
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/employees", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(draftToInput(item)),
-          })
-          if (response.ok) created.push((await response.json()) as Employee)
-          else {
-            failed += 1
-            if (!firstError) firstError = ((await response.json().catch(() => ({}))) as { error?: string }).error ?? ""
-          }
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setEmployees((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}${firstError ? ` (${firstError})` : ""}`)
-    } finally {
-      setImportSaving(false)
-      setImportOpen(false)
+        .filter((row) => row.firstName || row.id)
+      if (!body.length) return notify(t("Не удалось найти сотрудников для импорта в выбранном файле"))
+      const response = await fetch("/api/employees/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode, rows: body }) })
+      const result = (await response.json().catch(() => ({}))) as { saved?: number; errors?: Array<{ row: number; message: string }>; error?: string }
+      if (!response.ok) return notify(t(result.error || "Не удалось импортировать сотрудников"))
+      if (result.errors?.length) notify(`${t("Сохранено")}: ${result.saved ?? 0} ${t("из")} ${body.length}\n${result.errors.slice(0, 10).map((item) => `${item.row}: ${t(item.message)}`).join("\n")}`)
+      setDialogs(null)
       setImportFile(null)
+      await load()
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setImporting(false)
     }
   }
+
+  const cols = selectMode ? COLS_SELECT : COLS
+  const head = (label: string) => <span>{t(label)}</span>
 
   return (
-    <main className="min-w-0 flex-1">
-      <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-        <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-          <PlusCircle className="h-4 w-4" /> {t("Добавить пользователя")}
+    <div className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <div className="relative flex h-[73px] items-center justify-between border-b border-[#efefef] pl-[20px] pr-[60px]">
+        <button type="button" onClick={() => setDialog({ employee: null })} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+          <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+          {t("Добавить пользователя")}
         </button>
-        <div className="ml-auto flex items-center gap-3">
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <BarChart3 className="h-4 w-4" /> {t("Импортировать")}
+        <div className="flex items-center gap-[18px]">
+          <button type="button" onClick={() => setDialogs("import")} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+            <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d={RI.chart} /></svg>
+            {t("Импортировать")}
           </button>
-          <div className="flex overflow-hidden rounded border border-[#4f71dc]">
-            <button type="button" onClick={() => { setTab("active"); setPage(1) }} className={`px-5 py-2.5 text-sm font-bold uppercase ${tab === "active" ? "bg-[#4f71dc] text-white" : "text-[#4f71dc]"}`}>
-              {t("Активный")}
-            </button>
-            <button type="button" onClick={() => { setTab("deleted"); setPage(1) }} className={`px-5 py-2.5 text-sm font-bold uppercase ${tab === "deleted" ? "bg-[#4f71dc] text-white" : "text-[#4f71dc]"}`}>
-              {t("Удаленные")}
-            </button>
+          <div className="flex h-[32px]">
+            <button type="button" onClick={() => switchTab("active")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "active" ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Активный")}</button>
+            <button type="button" onClick={() => switchTab("deleted")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "deleted" ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Удаленные")}</button>
           </div>
-          <button type="button" onClick={bulkDeactivate} aria-label={t("Деактивировать выбранных")} title={selectMode ? t("Деактивировать выбранных") : t("Выбрать сотрудников")} className={`rounded-full p-1 ${selectMode ? "text-red-500" : "text-slate-400"} hover:text-red-500`}>
-            <MinusCircle className="h-6 w-6" />
+          <button type="button" onClick={() => setDialogs("block")} aria-label={t("Ограничить доступ")} title={t("Ограничить доступ")} className="absolute right-[20px] top-[23.5px] flex h-[25px] w-[30px] items-start justify-center">
+            <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]"><path d={MINUS_CIRCLE} /></svg>
           </button>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-        <span className="text-[#4f71dc]">{t("Показать фильтр⌄")}</span>
-        <label className="relative w-64">
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-          <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-        </label>
-        <span className="ml-auto text-slate-500">25</span>
-        <span className="text-slate-500">
-          {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
+      <div className="relative flex h-[60px] items-center pr-[18px] pt-[10px]">
+        {hasSelection ? (
+          <span className="pl-[5px] text-[13px] font-bold">{t("Выбрано")}: {selected.length}</span>
+        ) : selectMode ? null : (
+          <>
+            <div className="w-[335px] pl-[5px]">
+              {filterCount > 0 ? (
+                <FilterChip count={filterCount} onEdit={() => { setDraft(filters); setFilterOpen(true) }} onClear={() => { setFilters(NO_FILTERS); setDraft(NO_FILTERS); setPage(1) }} />
+              ) : (
+                <FilterLink onClick={() => { setDraft(filters); setFilterOpen((open) => !open) }} />
+              )}
+            </div>
+            <label className="group/search relative -mt-[2px] block h-[48px] w-[294.3px]">
+              <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="relative h-full w-full bg-transparent pr-[34px] text-[13px] leading-[24px] outline-none placeholder:text-black/30" />
+              <span className="pointer-events-none absolute inset-x-0 bottom-[8px] h-px bg-[#e0e0e0]" />
+              <span className="pointer-events-none absolute inset-x-0 bottom-[8px] h-[2px] origin-center scale-x-0 bg-[#5d6474] transition-transform duration-[450ms] group-focus-within/search:scale-x-100" />
+              <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[268.2px] top-[12px] h-[24px] w-[24px] fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+            </label>
+          </>
+        )}
+        <div className="ml-auto flex items-center">
+          <PageSizeSelect numberClassName="text-[#333]" value={pageSize} onChange={(size) => { setPageSize(size); setPage(1) }} />
+          {selectMode && !hasSelection ? (
+            <span className="ml-[40px] flex h-[34px] items-center rounded-[3px] bg-[#4a4a4a] px-[20px] text-[13px] font-semibold text-white">{t("Выбрать из списка")}</span>
+          ) : (
+            <>
+              <span className="ml-[27px] mr-[10px] leading-[16.25px] text-[#5d6474]">{from} - {to} {t("из")} {filtered.length}</span>
+              <span className="flex gap-[5px]"><PagerArrow dir="prev" onClick={safePage > 1 ? () => setPage(safePage - 1) : undefined} />
+              <PagerArrow dir="next" onClick={safePage < pageCount ? () => setPage(safePage + 1) : undefined} /></span>
+            </>
+          )}
+          {hasSelection && (
+            <>
+              <button type="button" onClick={() => setDialogs("update")} className="ml-[29px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">{t("Обновить с excel")}</button>
+              <button type="button" onClick={() => setDialogs("bulk")} className="ml-[9px] flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] pl-[14px] pr-[18px] text-[13px] font-semibold text-white hover:brightness-95">
+                <svg viewBox="0 0 24 24" className="mr-[8px] h-[16px] w-[16px] fill-white"><path d={RI.edit} /></svg>
+                {t("Изменить")}
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => { if (hasSelection) setSelected([]); else { setSelectMode((current) => !current); setSelected([]) } }}
+            aria-label={t("Выбрать из списка")}
+            title={hasSelection ? t("Снять выделение") : t("Выбрать из списка")}
+            className="ml-[32px] flex h-6 w-6 items-center justify-center"
+          >
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={hasSelection ? MINUS_BOX : selectMode ? EYE_OFF : RI.checklist} /></svg>
+          </button>
+        </div>
+        {filterOpen && (
+          <div className="absolute left-0 top-[11px] z-30">
+            <RefFilterPanel narrow className="!w-[300px]" onClose={() => setFilterOpen(false)} onApply={applyFilters}>
+              <FilterPick label={t("Права доступа")} value={draft.accessRight} options={named(options?.accessRights ?? [])} onChange={(accessRight) => setDraft((d) => ({ ...d, accessRight }))} />
+              <FilterPick label={t("Филиалы")} value={draft.branch} options={named(options?.branches ?? [])} onChange={(branch) => setDraft((d) => ({ ...d, branch }))} />
+              <FilterPick label={t("Зона")} value={draft.zone} options={named(options?.zones ?? [])} onChange={(zone) => setDraft((d) => ({ ...d, zone }))} />
+              <FilterPick label={t("Прайс лист")} value={draft.priceList} options={named(options?.priceLists ?? [])} onChange={(priceList) => setDraft((d) => ({ ...d, priceList }))} />
+              <FilterPick label={t("Должность")} value={draft.job} options={named(options?.jobs ?? [])} onChange={(job) => setDraft((d) => ({ ...d, job }))} />
+              <FilterPick label={t("Организация")} value={draft.organization} options={named(options?.organizations ?? [])} onChange={(organization) => setDraft((d) => ({ ...d, organization }))} />
+              <FilterPick label={t("Супервайзер")} value={draft.supervisor} options={named(options?.employees ?? [])} onChange={(supervisor) => setDraft((d) => ({ ...d, supervisor }))} />
+              <FilterPick label={t("Есть супервайзер")} value={draft.hasSupervisor} options={[{ value: "yes", label: t("Да") }, { value: "no", label: t("Нет") }]} onChange={(hasSupervisor) => setDraft((d) => ({ ...d, hasSupervisor }))} />
+              <div className="h-[6px]" />
+            </RefFilterPanel>
+          </div>
+        )}
+      </div>
+
+      <div className={`${kitHead} !bg-[#5d6474]`} style={{ gridTemplateColumns: cols }}>
+        <span className="flex items-center pl-[22px]">
+          {selectMode && (
+            <button type="button" onClick={togglePage} aria-label={t("Выбрать все")} className="mr-[6px] flex h-6 w-6 items-center justify-center">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d={SELECT_ALL} /></svg>
+            </button>
+          )}
+          <span className={selectMode ? "" : "pl-[8px]"}><SortHead className="!font-semibold" label="№" field="id" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} /></span>
         </span>
-        <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
-          <ChevronLeft className="h-5 w-5 text-slate-400" />
-        </button>
-        <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
-          <ChevronRight className="h-5 w-5 text-slate-400" />
-        </button>
-        <ListChecks className="h-5 w-5 text-slate-400" />
+        <SortHead className="!font-semibold" label={t("Сотрудник")} field="first_name" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} />
+        {head("Логин")}
+        {head("Права доступа")}
+        {head("Телефон")}
+        {head("Должность")}
+        {head("Статус")}
       </div>
-
-      {loadError && <p className="px-5 pb-3 text-sm text-red-500">{loadError}</p>}
-
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1100px] text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              {selectMode && <th className="w-10 px-5 py-5" />}
-              <th className="px-9 py-5">№</th>
-              <th className="px-5 py-5">{t("Сотрудник")}</th>
-              <th className="px-5 py-5">{t("Логин")}</th>
-              <th className="px-5 py-5">{t("Права доступа")}</th>
-              <th className="px-5 py-5">{t("Телефон")}</th>
-              <th className="px-5 py-5">{t("Должность")}</th>
-              <th className="px-5 py-5">{t("Статус")}</th>
-              <th className="w-20" />
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((employee) => (
-              <tr key={employee.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                {selectMode && (
-                  <td className="px-5 py-4">
-                    <input type="checkbox" checked={checkedIds.includes(employee.id)} onChange={() => toggleChecked(employee.id)} />
-                  </td>
-                )}
-                <td className="px-9 py-4">{employee.id}</td>
-                <td className="px-5 py-4">{employee.name}</td>
-                <td className="px-5 py-4">{employee.login}</td>
-                <td className="px-5 py-4">
-                  {employee.role}
-                  {employee.extraPermission && (
-                    <>
-                      <br />
-                      <span className="text-red-500">{employee.extraPermission}</span>
-                    </>
-                  )}
-                </td>
-                <td className="px-5 py-4">{employee.phone}</td>
-                <td className="px-5 py-4">{employee.position}</td>
-                <td className="px-5 py-4">
-                  <span className={employee.active ? "" : "text-slate-400"}>{employee.active ? t("Активный") : t("Удален")}</span>
-                </td>
-                <td className="px-5 py-4">
-                  <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => openEdit(employee)} aria-label={t("Изменить")}>
-                      <Pencil className="h-5 w-5" />
-                    </button>
-                    <button type="button" onClick={() => remove(employee.id)} aria-label={t("Удалить")}>
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!loading && visible.length === 0 && (
-              <tr>
-                <td colSpan={selectMode ? 9 : 8} className="px-5 py-10 text-center text-slate-400">
-                  {t("Ничего не найдено")}
-                </td>
-              </tr>
+      {rows.map((employee) => (
+        <div key={employee.id} className="group relative grid min-h-[50px] items-center py-px after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8]" style={{ gridTemplateColumns: cols }}>
+          <span className="flex items-center pl-[22px]">
+            {selectMode && <span className="mr-[6px] shrink-0"><Check checked={selectedSet.has(employee.id)} onChange={() => toggleSelected(employee.id)} /></span>}
+            <span className={`leading-[16px] ${selectMode ? "" : "pl-[8px]"}`}>{employee.id}</span>
+          </span>
+          <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.name}</span>
+          <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.active ? employee.login : t("Не указано")}</span>
+          <span className="min-w-0 pr-6 leading-[16px]">
+            {employee.accessRight || t("Не выбрано")}
+            {employee.accesses.length > 0 && (
+              <span className="flex items-end text-[#f00]">
+                {employee.accesses.map((name, index) => <span key={name} className={index === 0 ? "min-w-0 pr-[4px]" : "shrink-0 whitespace-nowrap"}>{name}</span>)}
+              </span>
             )}
-          </tbody>
-        </table>
-      </div>
-
-      {editing !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[96vh] w-[700px] max-w-full flex-col bg-white text-[13px]">
-            <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
-              <b className="uppercase">{editing === "new" ? "Добавить сотрудника" : "Изменить сотрудника"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="flex-1 overflow-y-auto px-[30px] pb-[20px] pt-[20px]">
-              <div className="grid gap-6 md:grid-cols-[1fr_190px]">
-                <div className="space-y-[16px]">
-                  <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
-                    Имя <span className="text-red-500">*</span>
-                    <input required value={draft.firstName} onChange={(event) => setDraft((value) => ({ ...value, firstName: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
-                  </label>
-                  <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
-                    Фамилия <span className="text-red-500">*</span>
-                    <input required value={draft.lastName} onChange={(event) => setDraft((value) => ({ ...value, lastName: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
-                  </label>
-                  <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
-                    Телефон <span className="text-red-500">*</span>
-                    <input required value={draft.phone} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
-                  </label>
-                  <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
-                    Код для интеграции
-                    <input value={draft.integrationCode} onChange={(event) => setDraft((value) => ({ ...value, integrationCode: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
-                  </label>
-                </div>
-                <div className="flex h-[135px] flex-col items-center justify-center gap-2 self-start border-2 border-dashed border-slate-200 text-center text-sm text-slate-400">
-                  <FileText className="h-6 w-6" />
-                  Добавьте фото
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-6 md:grid-cols-2">
-                <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
-                  Должность <span className="text-red-500">*</span>
-                  <select value={draft.position} onChange={(event) => setDraft((value) => ({ ...value, position: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                    <option value="">Не указано</option>
-                    {positionOptions.map((item) => (
-                      <option key={item}>{item}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
-                  Филиалы <span className="text-red-500">*</span>
-                  <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                    <option value="">Не указано</option>
-                    {branchOptions.map((item) => (
-                      <option key={item}>{item}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="mt-6 flex flex-wrap gap-8">
-                <label className="flex items-center gap-2 text-sm font-medium">
-                  <input type="checkbox" checked={draft.systemAccess} onChange={(event) => setDraft((value) => ({ ...value, systemAccess: event.target.checked }))} className="h-5 w-5" />
-                  Доступ к системе
-                </label>
-                <label className="flex items-center gap-2 text-sm font-medium">
-                  <input type="checkbox" checked={draft.showInTracking} onChange={(event) => setDraft((value) => ({ ...value, showInTracking: event.target.checked }))} className="h-5 w-5" />
-                  Показывать в отслеживании
-                </label>
-                <label className="flex items-center gap-2 text-sm font-medium">
-                  <input type="checkbox" checked={draft.twoStepCheck} onChange={(event) => setDraft((value) => ({ ...value, twoStepCheck: event.target.checked }))} className="h-5 w-5" />
-                  Двухэтапная проверка
-                </label>
-              </div>
-              {/* The sign-in account tied to this employee (Права доступа → Пользователи):
-                  "Доступ к системе" off or a deactivated employee blocks its sign-in. */}
-              <p className="mt-2 text-[12px] text-slate-500">
-                {editing !== "new" && editing.login ? (
-                  <>
-                    {t("Учетная запись")}: <b data-no-translate>{editing.login}</b>
-                    {!draft.systemAccess && <span className="block text-rose-600">{t("Без доступа к системе пользователь не сможет войти, его сессии будут завершены.")}</span>}
-                  </>
-                ) : (
-                  t("Нет учетной записи. Привяжите пользователя в разделе «Права доступа → Пользователи».")
-                )}
-              </p>
-
-              <label className="mt-4 flex items-center gap-2 text-sm font-medium">
-                <input type="checkbox" checked={draft.sessionLimit} onChange={(event) => setDraft((value) => ({ ...value, sessionLimit: event.target.checked }))} className="h-5 w-5" />
-                Поставить ограничения на сессию (может работать только на одном устройстве)
-              </label>
-
-              <label className="mt-5 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDraft((value) => ({ ...value, gpsCheck: !value.gpsCheck }))}
-                  className={`h-6 w-11 rounded-full transition-colors ${draft.gpsCheck ? "bg-[#4f71dc]" : "bg-slate-300"}`}
-                >
-                  <span className={`block h-5 w-5 translate-x-0.5 rounded-full bg-white transition-transform ${draft.gpsCheck ? "translate-x-[22px]" : ""}`} />
-                </button>
-                <span className={`text-sm font-semibold ${draft.gpsCheck ? "text-[#4f71dc]" : "text-slate-600"}`}>Проверка GPS включена</span>
-              </label>
-
-              <label className="mt-3 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDraft((value) => ({ ...value, startPoint: !value.startPoint }))}
-                  className={`h-6 w-11 rounded-full transition-colors ${draft.startPoint ? "bg-[#4f71dc]" : "bg-slate-300"}`}
-                >
-                  <span className={`block h-5 w-5 translate-x-0.5 rounded-full bg-white transition-transform ${draft.startPoint ? "translate-x-[22px]" : ""}`} />
-                </button>
-                <span className="text-sm">
-                  Указать исходную точку
-                  <br />
-                  <span className="text-xs text-slate-400">Для автоматического формирования маршрута</span>
-                </span>
-              </label>
-
-              <p className="mb-3 mt-6 text-sm italic text-slate-500">
-                {t("Организации")}<span className="text-red-500">*</span>
-              </p>
-              <div className="grid max-h-64 gap-x-6 gap-y-2 overflow-y-auto border-t pt-3 sm:grid-cols-3">
-                {[...new Set([...organizationNames, ...draft.organizations])].map((org, index) => (
-                  <label key={`${org}-${index}`} className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={draft.organizations.includes(org)} onChange={() => toggleOrganization(org)} />
-                    <span className="truncate">{org}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
-              <button type="submit" disabled={saving} className="h-9 px-[16px] text-[12px] font-bold uppercase text-[#1ea1f2] hover:opacity-80 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
+          </span>
+          <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.phone || "-"}</span>
+          <span className="min-w-0 truncate pr-2 leading-[16px]" title={employee.job}>{employee.job}</span>
+          <span className="leading-[16px]">{employee.active ? t("Активный") : t("Неактивный")}</span>
+          <RowActions right={64} gap={8} onEdit={() => setDialog({ employee })} onDelete={() => setDeleting(employee)} />
         </div>
-      )}
+      ))}
+      {employees && rows.length === 0 && <EmptyRows />}
 
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
-                1. Скачать шаблон
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
-          </div>
-        </div>
+      {dialog && options && (
+        <EmployeeDialog
+          key={dialog.employee?.id ?? "new"}
+          employee={dialog.employee}
+          options={options}
+          onClose={() => setDialog(null)}
+          onSaved={() => { setDialog(null); void load(); void fetch("/api/employees/options", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((data) => data && setOptions(data)) }}
+        />
       )}
-    </main>
+      {deleting && <ConfirmDeleteDialog name={`${t("Сотрудник")}: ${deleting.name}`} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
+      {dialogs === "import" && (
+        <RefImportDialog
+          file={importFile}
+          onFile={setImportFile}
+          onTemplate={() => downloadExcelTable("employees-template", [TEMPLATE.map((label) => t(label))])}
+          onSave={() => void runImport("create")}
+          onClose={() => { setDialogs(null); setImportFile(null) }}
+          saving={importing}
+        />
+      )}
+      {dialogs === "update" && (
+        <RefImportDialog
+          file={importFile}
+          onFile={setImportFile}
+          onTemplate={() => downloadExcelTable("employees-update", [["№", ...TEMPLATE].map((label) => t(label)), ...(employees ?? []).filter((employee) => selectedSet.has(employee.id)).map((employee) => [String(employee.id), employee.firstName, employee.lastName, employee.phone, employee.job, "", employee.integrationCode])])}
+          onSave={() => void runImport("update")}
+          onClose={() => { setDialogs(null); setImportFile(null) }}
+          saving={importing}
+        />
+      )}
+      {dialogs === "bulk" && options && <BulkChangeDialog ids={selected} options={options} onClose={() => setDialogs(null)} onDone={() => { setDialogs(null); setSelected([]); void load() }} />}
+      {dialogs === "block" && <BlockAllDialog onClose={() => setDialogs(null)} onDone={() => { setDialogs(null); void load() }} />}
+    </div>
   )
 }

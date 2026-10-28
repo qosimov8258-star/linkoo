@@ -2,9 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react"
 
-import { SearchSelect, inputClass } from "@/components/analytics/cash-management-shared"
+import { SearchSelect } from "@/components/analytics/cash-management-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { DictionaryFormShell, Field, ImageField, requestErrors, useOrganizationOptions } from "./dictionaries-shared"
+import { DictionaryFormShell, Field, dictionaryInputClass, ImageField, requestErrors, useOrganizationOptions } from "./dictionaries-shared"
 import type { DictionaryErrorBody } from "./dictionaries-data"
 import { BRANDS_API, type BrandDetail, type BrandPayload } from "./brands-data"
 
@@ -47,7 +47,7 @@ export function BrandFormDialog({ brandId, onClose, onSaved }: { brandId: number
   function validate(value: Draft): Partial<Record<FieldName, string>> {
     const errors: Partial<Record<FieldName, string>> = {}
     if (!value.name.trim()) errors.name = REQUIRED
-    if (organizations.required && !value.organization) errors.organization = REQUIRED
+    if (organizations.required && !value.organization && !(isEdit && stored && !stored.organization)) errors.organization = REQUIRED
     return errors
   }
 
@@ -94,7 +94,8 @@ export function BrandFormDialog({ brandId, onClose, onSaved }: { brandId: number
   }
 
   return (
-    <DictionaryFormShell
+    <DictionaryFormShell bodyMinHeight={460}
+      width={400}
       title={isEdit ? t("Изменить бренд") : t("Добавить бренд")}
       busy={saving || (!draft && !loadError)}
       saving={saving}
@@ -105,22 +106,22 @@ export function BrandFormDialog({ brandId, onClose, onSaved }: { brandId: number
     >
       {draft && (
         <>
-          <Field label={t("Наименование")} required error={fieldError("name")}>
+          <Field label={t("Наименование")} filled={Boolean(draft.name)} required error={fieldError("name")}>
             <input
               autoFocus
               aria-label={t("Наименование")}
               value={draft.name}
               maxLength={255}
               onChange={(event) => change({ name: event.target.value }, "name")}
-              className={`${inputClass} ${fieldError("name") ? "border-[#e57373]" : ""}`}
+              className={`${dictionaryInputClass} ${fieldError("name") ? "border-[#e57373]" : ""}`}
             />
           </Field>
-          <Field label={t("Организация")} required={organizations.required} error={fieldError("organization")}>
+          <Field select className="mt-[34px]" label={t("Организация")} filled={Boolean(draft.organization)} required={organizations.required} error={fieldError("organization")}>
             <SearchSelect
+              variant="underline"
               value={draft.organization}
               onChange={(value) => change({ organization: value }, "organization")}
               options={organizations.options}
-              placeholder={t("Не указано")}
               loading={organizations.loading}
               invalid={Boolean(fieldError("organization"))}
             />

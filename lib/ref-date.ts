@@ -15,3 +15,13 @@ export function refDateTime(value: Date | string | number | null | undefined): s
   const date = value instanceof Date ? value : new Date(typeof value === "string" ? (value as string).replace(" ", "T") : (value as number))
   return `${day}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
 }
+
+const GENITIVE_TO_SHORT: Record<string, string> = {
+  января: "янв.", февраля: "февр.", марта: "мар.", апреля: "апр.", мая: "мая", июня: "июня",
+  июля: "июля", августа: "авг.", сентября: "сент.", октября: "окт.", ноября: "нояб.", декабря: "дек.",
+}
+
+/** "23 октября 2026" -> "23 окт. 2026": the reference lists print moment's short Russian months (DD MMM YYYY). */
+export function shortRuDate(value: string): string {
+  return value.replace(/(\d{1,2}) (января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?= \d{4})/g, (_, day: string, month: string) => `${day} ${GENITIVE_TO_SHORT[month]}`)
+}

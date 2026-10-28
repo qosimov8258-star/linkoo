@@ -1,9 +1,10 @@
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
-import { Filter, X } from "lucide-react"
+import { useMemo, useState } from "react"
+import { Filter } from "lucide-react"
 
-import { MultiSelect } from "@/components/analytics/client-balance-filters"
+import { DateRangePicker } from "@/components/dashboard/date-range-picker"
+import { RefMultiField, type RefOption } from "@/components/ref/multi-field"
 import type { CashQuery } from "@/components/analytics/cash/use-cash"
 import {
   DEBT_BUCKETS,
@@ -129,40 +130,58 @@ export function OrderDebtFilterButton({ filters, onOpen }: { filters: OrderDebtF
   const scope = [...filters.division, ...filters.branch]
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <button type="button" onClick={onOpen} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-        <Filter className="h-4 w-4" /> {t("Фильтр")} / {countFilters(filters)}
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg><span className="pl-2">{t("Фильтр")} / {countFilters(filters)}</span>
       </button>
       <span className="font-semibold text-[#4f70e7]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
     </div>
   )
 }
 
-const fieldClass = "h-10 w-full rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]"
+const MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
+const shortDay = (iso: string) => `${iso.slice(8, 10)} ${MONTHS[Number(iso.slice(5, 7)) - 1] ?? ""} ${iso.slice(0, 4)}`
+const CALENDAR = "M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z"
 
-function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
+/** A date range field ("Период создания" …): 10px label, value or "Укажите дату", opens the range picker. */
+function RangeField({ label, from, to, onChange }: { label: string; from: string; to: string; onChange: (from: string, to: string) => void }) {
   const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const today = new Date().toISOString().slice(0, 10)
   return (
-    <div className={`flex min-w-0 flex-col gap-1 ${wide ? "md:col-span-2" : ""}`}>
-      <span className="text-sm text-[#586174]">{t(label)}</span>
-      {children}
+    <div className="relative h-[54px]">
+      <button type="button" onClick={() => setOpen((value) => !value)} className="absolute inset-0 border-b border-[#e0e0e0] text-left">
+        <span className="absolute left-0 top-[7px] text-[10px] leading-3 text-black">{t(label)}</span>
+        <svg viewBox="0 0 24 24" className="absolute left-[240px] top-[6px] h-[14px] w-[14px] fill-[#c4c4c4]" aria-hidden>
+          <path d={CALENDAR} />
+        </svg>
+        <span className="absolute inset-x-0 top-[28px] text-[13px] leading-[18px] text-black">{from || to ? `${shortDay(from || to)} - ${shortDay(to || from)}` : t("Укажите дату")}</span>
+      </button>
+      {(from || to) && (
+        <button type="button" aria-label={t("Очистить")} onClick={() => onChange("", "")} className="absolute bottom-[8px] right-0 z-10 flex h-5 w-5 items-center justify-center text-[18px] leading-none text-[#999]">
+          ×
+        </button>
+      )}
+      {open && (
+        <DateRangePicker
+          positionClassName="left-0 top-[58px]"
+          begin={from || to || today}
+          end={to || from || today}
+          onClose={() => setOpen(false)}
+          onApply={(begin, end) => {
+            onChange(begin, end)
+            setOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }
 
-function DayRange({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
-  return (
-    <span className="flex items-center gap-2">
-      <input type="date" value={from} onChange={(event) => onChange(event.target.value, to)} className={`${fieldClass} min-w-0 px-2`} />
-      <span className="text-[#586174]">—</span>
-      <input type="date" value={to} onChange={(event) => onChange(from, event.target.value)} className={`${fieldClass} min-w-0 px-2`} />
-    </span>
-  )
-}
+const asOptions = (values: string[]): RefOption[] => values.map((value) => ({ value, label: value }))
+// The demo lists the two released statuses (codes 2 and 3) under their own names.
+const STATUS_LABELS: Record<string, string> = { "В пути": "Передан доставщику", "Доставлено": "Доставлен" }
 
-type Option = { value: string; label: string }
-const names = (values: string[]): Option[] => values.map((value) => ({ value, label: value }))
-
-/** The demo filter popup (fields in the demo order); edits a draft, "Применить" applies it. */
+/** The demo filter panel (fields in the demo order); edits a draft, "Применить" applies it. */
 export function OrderDebtFilterDialog({
   filters,
   options,
@@ -179,120 +198,99 @@ export function OrderDebtFilterDialog({
   const { t } = useLanguage()
   const [draft, setDraft] = useState<OrderDebtFilters>(filters)
   const set = <K extends keyof OrderDebtFilters>(field: K, value: OrderDebtFilters[K]) => setDraft((current) => ({ ...current, [field]: value }))
-  const withSelected = (values: string[] | undefined, selected: string[]) => names([...new Set([...(values ?? []), ...selected])])
+  const withSelected = (values: string[] | undefined, selected: string[]) => asOptions([...new Set([...(values ?? []), ...selected])])
   const typeOptions = useMemo(() => {
-    const list = names(options?.clientTypes ?? [])
+    const list = asOptions(options?.clientTypes ?? [])
     if (options?.untyped) list.push({ value: NO_CLIENT_TYPE, label: t("Не указано") })
     for (const value of draft.marketTypeParent) if (!list.some((option) => option.value === value)) list.push({ value, label: value === NO_CLIENT_TYPE ? t("Не указано") : value })
     return list
   }, [options, draft.marketTypeParent, t])
-  const statusOptions = withSelected(options?.statuses, draft.status).map((option) => ({ ...option, label: t(option.label) }))
+  const statusOptions = ["В пути", "Доставлено"].map((value) => ({ value, label: t(STATUS_LABELS[value]) }))
   const bucketOptions = DEBT_BUCKETS.map((bucket) => {
     const label = bucketLabel(bucket, config)
     return { value: bucket, label: fillTemplate(t(label.key), label.values) }
   })
+  const row = "absolute left-[30px] right-[30px] grid grid-cols-4 gap-x-[10px]"
+  const day = (value: string) => value.replace(/\D/g, "")
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/30 px-4 py-10" onClick={onClose}>
+    <>
+      <div className="fixed inset-x-0 bottom-0 top-[50px] z-[99] bg-black/[0.13]" onClick={onClose} />
       <form
-        className="w-full max-w-[860px] rounded-lg bg-white shadow-xl"
-        onClick={(event) => event.stopPropagation()}
+        className="fixed left-[30px] right-[30px] top-[131px] z-[100] h-[426px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
         onSubmit={(event) => {
           event.preventDefault()
           onApply(draft)
         }}
       >
-        <div className="flex items-center justify-between border-b border-[#e1e5eb] px-6 py-4">
-          <h2 className="text-lg font-bold text-[#17233b]">{t("Фильтр")}</h2>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#586174]">
-            <X className="h-5 w-5" />
-          </button>
+        <h2 className="absolute left-[30px] top-[20px] text-[14px] font-semibold leading-[18px] text-[#333]">{t("Фильтр")}</h2>
+        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="absolute right-[20px] top-[19px]">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]"><path d="M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
+        </button>
+
+        <div className={row} style={{ top: 64 }}>
+          <RefMultiField label="Филиалы" options={withSelected(options?.branches, draft.branch)} value={draft.branch} onChange={(value) => set("branch", value)} />
+          <RefMultiField label="Организация" options={withSelected(options?.organizations, draft.division)} value={draft.division} onChange={(value) => set("division", value)} />
+          <RefMultiField label="Заказ оформил" options={withSelected(options?.users, draft.user)} value={draft.user} onChange={(value) => set("user", value)} />
+          <RefMultiField label="Доставщик" options={withSelected(options?.deliveryMen, draft.deliveryMan)} value={draft.deliveryMan} onChange={(value) => set("deliveryMan", value)} />
         </div>
-        <div className="grid grid-cols-1 gap-4 px-6 py-5 md:grid-cols-2 lg:grid-cols-4">
-          <Field label="Филиалы">
-            <MultiSelect value={draft.branch} options={withSelected(options?.branches, draft.branch)} onChange={(value) => set("branch", value)} />
-          </Field>
-          <Field label="Организация">
-            <MultiSelect value={draft.division} options={withSelected(options?.organizations, draft.division)} onChange={(value) => set("division", value)} />
-          </Field>
-          <Field label="Заказ оформил">
-            <MultiSelect value={draft.user} options={withSelected(options?.users, draft.user)} onChange={(value) => set("user", value)} />
-          </Field>
-          <Field label="Доставщик">
-            <MultiSelect value={draft.deliveryMan} options={withSelected(options?.deliveryMen, draft.deliveryMan)} onChange={(value) => set("deliveryMan", value)} />
-          </Field>
-          <Field label="Тип клиента">
-            <MultiSelect value={draft.marketTypeParent} options={typeOptions} onChange={(value) => set("marketTypeParent", value)} />
-          </Field>
-          <Field label="Зона">
-            <MultiSelect value={draft.zone} options={withSelected(options?.zones, draft.zone)} onChange={(value) => set("zone", value)} />
-          </Field>
-          <Field label="Статус заказа">
-            <MultiSelect value={draft.status} options={statusOptions} onChange={(value) => set("status", value)} />
-          </Field>
-          <Field label="Тип оплаты">
-            <select value={draft.paymentType} onChange={(event) => set("paymentType", event.target.value as OrderDebtFilters["paymentType"])} className={fieldClass}>
-              <option value="">{t("Все")}</option>
-              <option value="cash">{t("Наличными")}</option>
-              <option value="bank">{t("Перечислением")}</option>
-            </select>
-          </Field>
-          <Field label="Есть задолженность за период">
-            <select value={draft.marketDebtType} onChange={(event) => set("marketDebtType", event.target.value as OrderDebtFilters["marketDebtType"])} className={fieldClass}>
-              <option value="">{t("Все")}</option>
-              {bucketOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Прошло дней с последней оплаты">
-            <span className="grid grid-cols-2 gap-2">
-              <input
-                inputMode="numeric"
-                value={draft.minPaymentDays}
-                onChange={(event) => set("minPaymentDays", event.target.value.replace(/\D/g, ""))}
-                placeholder={t("От (дней)")}
-                aria-label={t("От (дней)")}
-                className={fieldClass}
-              />
-              <input
-                inputMode="numeric"
-                value={draft.paymentDays}
-                onChange={(event) => set("paymentDays", event.target.value.replace(/\D/g, ""))}
-                placeholder={t("До (дней)")}
-                aria-label={t("До (дней)")}
-                className={fieldClass}
-              />
-            </span>
-          </Field>
-          <Field label="Период создания">
-            <DayRange from={draft.createdFromDate} to={draft.createdToDate} onChange={(from, to) => setDraft((current) => ({ ...current, createdFromDate: from, createdToDate: to }))} />
-          </Field>
-          <Field label="Дата доставки">
-            <DayRange from={draft.deliveryFromDate} to={draft.deliveryToDate} onChange={(from, to) => setDraft((current) => ({ ...current, deliveryFromDate: from, deliveryToDate: to }))} />
-          </Field>
-          <Field label="Период даты оплаты">
-            <DayRange from={draft.paymentFromDate} to={draft.paymentToDate} onChange={(from, to) => setDraft((current) => ({ ...current, paymentFromDate: from, paymentToDate: to }))} />
-          </Field>
-          <Field label="Период реализации">
-            <DayRange from={draft.acceptedFromDate} to={draft.acceptedToDate} onChange={(from, to) => setDraft((current) => ({ ...current, acceptedFromDate: from, acceptedToDate: to }))} />
-          </Field>
-          <label className="flex items-center gap-2 pt-6 text-[14px] text-[#17233b]">
-            <input type="checkbox" checked={draft.withWrongDebt} onChange={(event) => set("withWrongDebt", event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
-            {t("Требуется перерасчет")}
-          </label>
+        <div className={row} style={{ top: 131 }}>
+          <RefMultiField label="Тип клиента" options={typeOptions} value={draft.marketTypeParent} onChange={(value) => set("marketTypeParent", value)} />
+          <RefMultiField label="Статус подтверждения клиента" options={[]} value={[]} onChange={() => {}} />
+          <RefMultiField label="Зона" options={withSelected(options?.zones, draft.zone)} value={draft.zone} onChange={(value) => set("zone", value)} />
+          <RefMultiField label="Статус заказа" options={statusOptions} value={draft.status} onChange={(value) => set("status", value)} />
         </div>
-        <div className="flex justify-between gap-3 border-t border-[#e1e5eb] px-6 py-4">
-          <button type="button" onClick={() => setDraft({ ...EMPTY_ORDER_DEBT_FILTERS })} className="h-10 rounded-md px-4 font-semibold text-[#4f70e7] hover:bg-[#f2f5f8]">
-            {t("Очистить")}
-          </button>
-          <button type="submit" className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white">
-            {t("Применить")}
-          </button>
+        <span className="absolute text-[13px] leading-[16px] text-[#666]" style={{ top: 192, left: "calc(75% - 7.5px)" }}>
+          {t("Прошло дней с последней оплаты")}
+        </span>
+        <div className={row} style={{ top: 203 }}>
+          <RefMultiField label="Тип оплаты (транзакции)" options={[]} value={[]} onChange={() => {}} />
+          <RefMultiField
+            label="Тип оплаты"
+            multiple={false}
+            options={[
+              { value: "cash", label: t("Наличные") },
+              { value: "bank", label: t("Перечисление") },
+            ]}
+            value={draft.paymentType ? [draft.paymentType] : []}
+            onChange={(value) => set("paymentType", (value[0] ?? "") as OrderDebtFilters["paymentType"])}
+          />
+          <RefMultiField label="Есть задолженность за период" multiple={false} options={bucketOptions} value={draft.marketDebtType ? [draft.marketDebtType] : []} onChange={(value) => set("marketDebtType", (value[0] ?? "") as OrderDebtFilters["marketDebtType"])} />
+          <div className="grid grid-cols-2 gap-x-[16px]">
+            {(
+              [
+                ["minPaymentDays", "От (дней)"],
+                ["paymentDays", "До (дней)"],
+              ] as const
+            ).map(([field, label]) => (
+              <label key={field} className="relative block h-[54px] border-b border-[#e0e0e0]">
+                {draft[field] && <span className="absolute left-0 top-[7px] text-[10px] leading-3 text-black">{t(label)}</span>}
+                <input
+                  inputMode="numeric"
+                  value={draft[field]}
+                  onChange={(event) => set(field, day(event.target.value))}
+                  placeholder={t(label)}
+                  aria-label={t(label)}
+                  className={`absolute inset-x-0 h-[18px] bg-transparent text-[13px] leading-[18px] text-black outline-none placeholder:font-semibold placeholder:text-black ${draft[field] ? "top-[26px]" : "top-[28px] font-semibold"}`}
+                />
+              </label>
+            ))}
+          </div>
         </div>
+        <div className={row} style={{ top: 272 }}>
+          <RangeField label="Период создания" from={draft.createdFromDate} to={draft.createdToDate} onChange={(from, to) => setDraft((current) => ({ ...current, createdFromDate: from, createdToDate: to }))} />
+          <RangeField label="Дата доставки" from={draft.deliveryFromDate} to={draft.deliveryToDate} onChange={(from, to) => setDraft((current) => ({ ...current, deliveryFromDate: from, deliveryToDate: to }))} />
+          <RangeField label="Период даты оплаты" from={draft.paymentFromDate} to={draft.paymentToDate} onChange={(from, to) => setDraft((current) => ({ ...current, paymentFromDate: from, paymentToDate: to }))} />
+          <RangeField label="Период реализации" from={draft.acceptedFromDate} to={draft.acceptedToDate} onChange={(from, to) => setDraft((current) => ({ ...current, acceptedFromDate: from, acceptedToDate: to }))} />
+        </div>
+        <label className="absolute left-[30px] top-[341px] flex h-[20px] cursor-pointer items-center text-[13px] font-semibold text-[#333]">
+          <input type="checkbox" checked={draft.withWrongDebt} onChange={(event) => set("withWrongDebt", event.target.checked)} className="mr-[10px] h-[16px] w-[16px] accent-[#5d6474]" />
+          {t("Требуется перерасчет")}
+        </label>
+        <button type="submit" className="absolute left-[30px] right-[30px] top-[371px] h-9 rounded-[3px] bg-[#71ce87] text-[13px] font-semibold uppercase text-white">
+          {t("Применить")}
+        </button>
       </form>
-    </div>
+    </>
   )
 }

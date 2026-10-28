@@ -66,19 +66,19 @@ export function StockMoveCards({ sum, loading, showOthers }: { sum: MoveSumResul
   const quantity = (card: Card) => `${formatMoney(shown(sum?.qty, card), 3)} ${unit}`
   const amount = (card: Card) => `${formatMoney(shown(sum?.value, card), 2)} ${currency}`
   return (
-    <section className={`px-4 pb-4 sm:px-6 md:px-9 ${loading ? "opacity-60" : ""}`}>
-      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-5">
+    <section className={`pb-[34.5px] pt-[25px] ${loading ? "opacity-60" : ""}`}>
+      <div className="grid grid-cols-1 gap-y-4 sm:grid-cols-2 lg:grid-cols-5">
         {CARD_COLUMNS.map((column, index) => (
-          <div key={index} className={`flex flex-col gap-4 ${index === CARD_COLUMNS.length - 1 ? "lg:items-end lg:text-right" : ""}`}>
+          <div key={index} className={`flex flex-col gap-[10px] ${index === CARD_COLUMNS.length - 1 ? "lg:items-end lg:text-right" : ""}`}>
             {column.map((card) => (
               <div key={card.field}>
-                <p className="text-[#666]">{t(card.label)}</p>
+                <p className="text-[13px] leading-[16.3px] text-[#666]">{t(card.label)}</p>
                 {money ? (
-                  <p className="text-[16px] font-semibold text-[#17233b]">
-                    {amount(card)} <span className="text-[13px] font-medium text-[#586174]">({quantity(card)})</span>
+                  <p className="text-[16px] font-semibold leading-5 text-[#333]">
+                    {amount(card)} <span className="text-[13px] font-normal text-[#666]">({quantity(card)})</span>
                   </p>
                 ) : (
-                  <p className="text-[16px] font-semibold text-[#17233b]">{quantity(card)}</p>
+                  <p className="text-[16px] font-semibold leading-5 text-[#333]">{quantity(card)}</p>
                 )}
               </div>
             ))}

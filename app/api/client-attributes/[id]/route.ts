@@ -3,12 +3,13 @@ import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
 import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
-import { deleteClientAttribute, updateClientAttribute } from "@/lib/client-attributes-repo"
+import { CLIENT_ATTRIBUTE_FIELD_TYPES, deleteClientAttribute, updateClientAttribute } from "@/lib/client-attributes-repo"
 
 const clientAttributeSchema = z.object({
   name: z.string().trim().min(1).max(255, "Не более 255 символов"),
-  fieldType: z.enum(["Выбор вариантов", "Текстовое поле", "Цифровое поле"]).optional(),
+  fieldType: z.enum(CLIENT_ATTRIBUTE_FIELD_TYPES as [string, ...string[]]).optional(),
   required: z.boolean().optional(),
+  cacheNumber: z.number().int().nullable().optional(),
 })
 
 type RouteParams = { params: Promise<{ id: string }> }
@@ -26,6 +27,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     name: parsed.data.name,
     fieldType: parsed.data.fieldType ?? "Выбор вариантов",
     required: parsed.data.required ?? false,
+    cacheNumber: parsed.data.cacheNumber ?? null,
   })
   if (!attribute) return NextResponse.json({ error: "Атрибут не найден" }, { status: 404 })
   return NextResponse.json(attribute)

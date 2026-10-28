@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Columns3 } from "lucide-react"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
@@ -18,7 +18,7 @@ import type { MoveRow } from "@/lib/stock-movement-report"
 function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
   if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
   if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+  return null
 }
 
 const formatQty = (value: number) => (value ? formatMoney(value, 3) : "0")
@@ -55,86 +55,82 @@ export function StockMoveTable({
     </button>
   )
   const clickableCells = groupBy === "product"
+  // The reference grid: a 260px name column, 122px groups (the "order" group is 200px) in the quantity mode,
+  // 200px groups in the price mode (two 100px columns); 29px header rows, rows of at least 31px.
+  const colTemplate = columns.map((column) => (sub === 2 ? "minmax(200px,1fr)" : `minmax(100px,${column.field === "order" ? 200 : 122.3}fr)`)).join(" ")
+  const template = { gridTemplateColumns: `260px ${colTemplate}` }
+  const subTemplate = { gridTemplateColumns: `repeat(${sub}, minmax(0, 1fr))` }
+  const head = "min-w-0 border-b border-r border-[#efefef] bg-[#f0f4f9] text-center text-[13px] font-semibold text-[#374557]"
+  const cell = "min-w-0 border-b border-r border-[#efefef] px-[5px] py-[7px] leading-[16.3px]"
   return (
     <div className={`overflow-x-auto ${loading ? "opacity-60" : ""}`}>
-      <table className="w-full border-collapse text-[14px]">
-        <thead className="sticky top-0 z-[1] bg-[#4f71dc] text-white">
-          <tr>
-            <th rowSpan={2} className="sticky left-0 z-[2] min-w-[260px] border border-[#6d8ae3] bg-[#4f71dc] px-4 py-2 text-left font-semibold">
-              {sortHeader("name", t(MOVE_GROUP_TITLES[groupBy]))}
-            </th>
-            {columns.map((column) => (
-              <th key={column.field} colSpan={sub} className="border border-[#6d8ae3] px-3 py-2 text-center font-semibold">
-                {t(column.label)}
-              </th>
-            ))}
-          </tr>
-          <tr>
-            {columns.map((column) => (
-              <ColumnSubHeaders key={column.field} field={column.field} withValue={withValue} sortHeader={sortHeader} />
-            ))}
-          </tr>
-        </thead>
-        <tbody>
+      <div className="min-w-[1000px] border border-black/10 text-[13px] text-[#333]">
+        <div style={template} className="grid">
+          <div className={`${head} h-[30px]`} />
+          {columns.map((column) => (
+            <div key={column.field} className={`${head} h-[30px] truncate px-[5px] leading-[29px]`} title={t(column.label)}>
+              {t(column.label)}
+            </div>
+          ))}
+        </div>
+        <div style={template} className="relative z-10 grid [box-shadow:0_4px_14px_rgba(0,0,0,0.15)]">
+          <div className={`${head} flex h-[29px] items-center justify-center`}>
+            {sortHeader("name", t(MOVE_GROUP_TITLES[groupBy]))}
+          </div>
+          {columns.map((column) => (
+            <div key={column.field} style={subTemplate} className="grid">
+              <ColumnSubHeaders field={column.field} withValue={withValue} sortHeader={sortHeader} headClass={head} />
+            </div>
+          ))}
+        </div>
+        <div>
           {rows.map((row, index) => {
-            const background = index % 2 ? "#F4F8FB" : "#ffffff"
+            const background = index % 2 ? "bg-[#f4f8fb]" : "bg-white"
             return (
-              <tr key={row.key || "—"} style={{ background }}>
-                <td className="sticky left-0 border-b border-r border-[#efefef] px-4 py-2" style={{ background }}>
-                  <button type="button" onClick={() => onRowClick(row)} className="flex flex-col items-start text-left hover:font-semibold hover:text-[#4f71dc]">
-                    <span>{row.name || t("Не указано")}</span>
-                    {groupBy === "product" && (row.article || row.unit) && (
-                      <span className="text-[12px] font-semibold text-[#71ce87]">
-                        {row.article}
-                        {row.article && row.unit ? " · " : ""}
-                        {row.unit ? t(row.unit) : ""}
-                      </span>
-                    )}
+              <div key={row.key || "—"} style={template} className={`grid ${background}`}>
+                <div className={`${cell} flex items-center`}>
+                  <button type="button" onClick={() => onRowClick(row)} className="flex min-w-0 flex-col items-start text-left hover:text-[#4f71dc]">
+                    <span className="break-words">{row.name || t("Не указано")}</span>
+                    {groupBy === "product" && row.article && <span className="font-semibold text-[#71ce87]">{row.article}</span>}
                   </button>
-                </td>
+                </div>
                 {columns.map((column) => {
                   const qty = shownMoveValue(column, row.qty[column.field])
                   const value = shownMoveValue(column, row.value?.[column.field] ?? 0)
-                  const linkable = clickableCells && !column.valueOnly && column.field !== "begin" && column.field !== "end" && qty !== 0
+                  const linkable = clickableCells && !column.valueOnly && column.field !== "begin" && column.field !== "end"
                   return (
-                    <Fragment key={column.field}>
-                      <td className="whitespace-nowrap border-b border-r border-[#efefef] px-3 py-2">
+                    <div key={column.field} style={subTemplate} className="grid">
+                      <div className={`${cell} whitespace-nowrap ${background}`}>
                         {column.valueOnly ? (
                           ""
                         ) : linkable ? (
-                          <button type="button" onClick={() => onCellClick(row, column.field)} className="text-[#4f71dc] hover:underline">
+                          <button type="button" onClick={() => onCellClick(row, column.field)} className="text-[#129fdd] hover:underline">
                             {formatQty(qty)}
                           </button>
                         ) : (
                           formatQty(qty)
                         )}
-                      </td>
-                      {withValue && <td className="whitespace-nowrap border-b border-r border-[#efefef] px-3 py-2">{formatValue(value)}</td>}
-                    </Fragment>
+                      </div>
+                      {withValue && <div className={`${cell} whitespace-nowrap`}>{formatValue(value)}</div>}
+                    </div>
                   )
                 })}
-              </tr>
+              </div>
             )
           })}
-          {!rows.length && (
-            <tr>
-              <td colSpan={1 + columns.length * sub} className="px-4 py-16 text-center text-[#9aa3b6]">
-                {loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+          {!rows.length && <div className="px-4 py-16 text-center text-[#9aa3b6]">{loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}</div>}
+        </div>
+      </div>
     </div>
   )
 }
 
-function ColumnSubHeaders({ field, withValue, sortHeader }: { field: MoveField; withValue: boolean; sortHeader: (key: string, label: string) => ReactNode }) {
+function ColumnSubHeaders({ field, withValue, sortHeader, headClass }: { field: MoveField; withValue: boolean; sortHeader: (key: string, label: string) => ReactNode; headClass: string }) {
   const { t } = useLanguage()
   return (
     <>
-      <th className="border border-[#6d8ae3] px-3 py-1.5 text-left text-[13px] font-medium">{sortHeader(field, t("Кол-во"))}</th>
-      {withValue && <th className="border border-[#6d8ae3] px-3 py-1.5 text-left text-[13px] font-medium">{sortHeader(`${field}.value`, t("Стоимость"))}</th>}
+      <div className={`${headClass} flex h-[29px] items-center justify-center`}>{sortHeader(field, t("Кол-во"))}</div>
+      {withValue && <div className={`${headClass} flex h-[29px] items-center justify-center`}>{sortHeader(`${field}.value`, t("Стоимость"))}</div>}
     </>
   )
 }

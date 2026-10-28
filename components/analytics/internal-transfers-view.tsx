@@ -2,17 +2,16 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { ArrowDown, ArrowUp, ArrowUpDown, Download, Plus, RefreshCw, Search } from "lucide-react"
+import { ArrowDown, ArrowUp } from "lucide-react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { TransferDetailPanel } from "@/components/analytics/internal-transfers-detail"
-import { EMPTY_TRANSFER_FILTERS, TransferFilterBar, type TransferFilters } from "@/components/analytics/internal-transfers-filter"
+import { EMPTY_TRANSFER_FILTERS, FilterToggle, TransferFilterPanel, transferFilterCount, type TransferFilters } from "@/components/analytics/internal-transfers-filter"
 import { TransferFormDialog } from "@/components/analytics/internal-transfers-form"
 import { TransferInvoices } from "@/components/analytics/internal-transfers-print"
 import { TransferStatusLabel, docDate, formatSum, formatWeight, transfersListSheet } from "@/components/analytics/internal-transfers-shared"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefCard, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { Transfer, TransferListResult, TransferOptions } from "@/lib/internal-transfers-types"
@@ -24,8 +23,6 @@ import type { Transfer, TransferListResult, TransferOptions } from "@/lib/intern
 // Excel, Скачать все); rows with checkboxes: № | Со склада | На склад | Создал |
 // Дата создания | Дата доставки | Сумма (+ weight) | Статус. A row opens its
 // detail in place; "Добавить" creates. Data: /api/internal-transfers/**.
-
-const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
 
 type ViewState = { search: string; ordering: string; page: number; pageSize: number; filters: TransferFilters; detailId: number | null }
 
@@ -99,7 +96,7 @@ function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
 function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
   if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
   if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+  return null
 }
 
 export function InternalTransfersView() {
@@ -110,8 +107,11 @@ export function InternalTransfersView() {
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
   // undefined = closed, null = create, transfer = edit.
-  const [form, setForm] = useState<Transfer | null | undefined>(undefined)
+  // The reference opens the create form from ?openCreateDialog=true.
+  const [form, setForm] = useState<Transfer | null | undefined>(() => (searchParams.get("openCreateDialog") === "true" ? null : undefined))
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  // Like the reference the checkbox column only appears after the "Выбрать из списка" icon is pressed.
+  const [selectMode, setSelectMode] = useState(false)
   const [printing, setPrinting] = useState<Transfer[] | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [detailVersion, setDetailVersion] = useState(0)
@@ -157,7 +157,7 @@ export function InternalTransfersView() {
 
   const sort = (key: string) => update({ ordering: state.ordering === key ? `-${key}` : state.ordering === `-${key}` ? "" : key, page: 1 })
   const sortHeader = (key: string, label: ReactNode) => (
-    <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 font-semibold">
+    <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 text-left font-semibold">
       {label}
       <SortIcon ordering={state.ordering} sortKey={key} />
     </button>
@@ -201,76 +201,96 @@ export function InternalTransfersView() {
   const allOnPage = rows.length > 0 && rows.every((row) => selected.has(row.id))
 
   const warehouseNames = (options.data?.warehouses ?? []).map((warehouse) => warehouse.name)
-  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
-  const td = "px-3 py-3 align-middle"
+  const th = "whitespace-nowrap px-2 py-0 text-left font-semibold"
+  const td = "px-2 py-[7px] align-middle leading-[16.25px]"
   const menuItem = "block w-full px-4 py-2 text-left text-[13px] hover:bg-[#f2f5f8]"
+  const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
+  const from = data?.count ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = Math.min(state.page * state.pageSize, data?.count ?? 0)
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Передачи между складами")}</h1>
-        </div>
-        {canEdit && (
-          <button type="button" onClick={() => setForm(null)} title={t("Добавить передачу")} className="inline-flex h-[34px] items-center gap-1.5 rounded-sm bg-[#71ce87] px-4 text-[14px] font-semibold text-white shadow-sm hover:brightness-95">
-            <Plus className="h-[18px] w-[18px]" /> {t("Добавить")}
-          </button>
-        )}
-      </header>
+    <RefPage>
+      <RefHeader title={t("Передачи между складами")}>
+        {canEdit && <span className="mr-[8px] flex"><RefButton green icon={RI.add} label={t("Добавить")} onClick={() => setForm(null)} /></span>}
+      </RefHeader>
 
-      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
-          <TransferFilterBar
-            filters={state.filters}
-            open={filterOpen}
-            onOpen={() => setFilterOpen(true)}
-            onClose={() => setFilterOpen(false)}
-            onClear={() => {
-              setFilterOpen(false)
-              update({ filters: { ...EMPTY_TRANSFER_FILTERS }, page: 1, detailId: null })
-            }}
-            onApply={(filters) => {
-              setFilterOpen(false)
-              update({ filters, page: 1, detailId: null })
-            }}
-            warehouses={warehouseNames}
-          />
-          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
-            <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder={t("Поиск")} aria-label={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-          </label>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            {selected.size > 0 && (
-              <button type="button" onClick={() => setSelected(new Set())} className="text-[13px] text-[#586174] hover:underline">
-                {t("Выбрано")}: {selected.size} ✕
-              </button>
-            )}
-            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize, detailId: null })} />
-            <button type="button" onClick={list.reload} title={t("Обновить список")} aria-label={t("Обновить список")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
-              <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
-            </button>
-            <div ref={menuRef} className="relative">
-              <button type="button" onClick={() => setMenuOpen((open) => !open)} title={t("Скачать")} aria-label={t("Скачать")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
-                <Download className="h-5 w-5" />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 top-full z-[40] mt-1 min-w-[240px] rounded-md border border-[#e1e5eb] bg-white py-2 shadow-lg">
-                  <p className="px-4 pb-1 text-[13px] font-semibold">{t("Накладные по передачам")}</p>
-                  <button type="button" className={menuItem} onClick={() => void download("invoices")}>
-                    {t("Накладные по передачам")} ({selected.size || rows.length})
-                  </button>
-                  <button type="button" className={menuItem} onClick={() => void download("selected")}>
-                    {t("Выбранные передачи")} ({selected.size || rows.length})
-                  </button>
-                  <button type="button" className={menuItem} onClick={() => void download("all")}>
-                    {t("Скачать все")}
-                  </button>
-                </div>
+      <RefCard>
+        <RefToolbar
+          linkFilter="flush"
+          filterOpen={filterOpen}
+          filterPanel={
+            <TransferFilterPanel
+              filters={state.filters}
+              warehouses={warehouseNames}
+              onClose={() => setFilterOpen(false)}
+              onApply={(filters) => {
+                setFilterOpen(false)
+                update({ filters, page: 1, detailId: null })
+              }}
+            />
+          }
+          leftSlot={
+            <FilterToggle
+              count={transferFilterCount(state.filters)}
+              open={filterOpen}
+              onOpen={() => setFilterOpen(true)}
+              onClose={() => setFilterOpen(false)}
+              onClear={() => {
+                setFilterOpen(false)
+                update({ filters: { ...EMPTY_TRANSFER_FILTERS }, page: 1, detailId: null })
+              }}
+            />
+          }
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(pageSize) => update({ pageSize, page: 1, detailId: null })}
+          from={from}
+          to={to}
+          total={data?.count ?? 0}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page, detailId: null })}
+          icons={
+            <>
+              {selected.size > 0 && (
+                <button type="button" onClick={() => setSelected(new Set())} className="mr-2 text-[13px] text-[#586174] hover:underline">
+                  {t("Выбрано")}: {selected.size} ✕
+                </button>
               )}
-            </div>
-          </div>
-        </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectMode((on) => !on)
+                  setSelected(new Set())
+                }}
+                title={t("Выбрать из списка")}
+                aria-label={t("Выбрать из списка")}
+                className="flex h-12 w-12 items-center justify-center"
+              >
+                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${selectMode ? "fill-[#4f71dc]" : "fill-[#5d6474]"}`}><path d={RI.checklist} /></svg>
+              </button>
+              <div ref={menuRef} className="relative">
+                <button type="button" onClick={() => setMenuOpen((open) => !open)} title={t("Скачать")} aria-label={t("Скачать")} className="flex h-12 w-12 items-center justify-center">
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.download} /></svg>
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 top-full z-[40] mt-1 min-w-[240px] rounded-md border border-[#e1e5eb] bg-white py-2 shadow-lg">
+                    <p className="px-4 pb-1 text-[13px] font-semibold">{t("Накладные по передачам")}</p>
+                    <button type="button" className={menuItem} onClick={() => void download("invoices")}>
+                      {t("Накладные по передачам")} ({selected.size || rows.length})
+                    </button>
+                    <button type="button" className={menuItem} onClick={() => void download("selected")}>
+                      {t("Выбранные передачи")} ({selected.size || rows.length})
+                    </button>
+                    <button type="button" className={menuItem} onClick={() => void download("all")}>
+                      {t("Скачать все")}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          }
+        />
 
         {list.error && (
           <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
@@ -283,11 +303,15 @@ export function InternalTransfersView() {
           </div>
         )}
 
-        <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[1080px] border-collapse text-[14px]">
-            <thead>
-              <tr className="border-b border-[#e1e5eb]">
-                <th className="w-10 pl-6">
+        <div className={`${state.detailId ? "" : "overflow-x-auto"} ${list.loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[1080px] table-fixed border-collapse text-[13px]">
+            <colgroup>
+              {selectMode && <col style={{ width: 40 }} />}
+              {[10.35, 15.86, 15.86, 15.86, 7.93, 7.93, 15.86, 10.35].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}
+            </colgroup>
+            <thead className="bg-[#5d6474] text-[13px] font-semibold text-[#fff]">
+              <tr className="h-[50px]">
+                {selectMode && <th className="w-10 pl-[30px]">
                   <input
                     type="checkbox"
                     checked={allOnPage}
@@ -301,15 +325,15 @@ export function InternalTransfersView() {
                     }
                     className="h-4 w-4 accent-[rgb(79,113,220)]"
                   />
-                </th>
-                <th className={`${th} w-[7%]`}>{sortHeader("id", "№")}</th>
-                <th className={`${th} w-[15%]`}>{t("Со склада")}</th>
-                <th className={`${th} w-[15%]`}>{t("На склад")}</th>
-                <th className={`${th} w-[13%]`}>{sortHeader("created_by", t("Создал"))}</th>
-                <th className={`${th} w-[11%]`}>{sortHeader("created_date", t("Дата создания"))}</th>
-                <th className={`${th} w-[11%]`}>{sortHeader("date_delivery", t("Дата доставки"))}</th>
-                <th className={`${th} w-[13%]`}>{sortHeader("total_price", t("Сумма"))}</th>
-                <th className={`${th} pr-6`}>{sortHeader("status", t("Статус"))}</th>
+                </th>}
+                <th className={`${th} w-[10.35%]`}><span className="ml-[22px] inline-block">{sortHeader("id", "№")}</span></th>
+                <th className={`${th} w-[15.86%]`}>{t("Со склада")}</th>
+                <th className={`${th} w-[15.86%]`}>{t("На склад")}</th>
+                <th className={`${th} w-[15.86%]`}>{sortHeader("created_by", t("Создал"))}</th>
+                <th className={`${th} w-[7.93%] !whitespace-normal leading-[18px] [&>*]:block [&>*]:max-h-[36px] [&>*]:overflow-hidden`}>{sortHeader("created_date", t("Дата создания"))}</th>
+                <th className={`${th} w-[7.93%] !whitespace-normal leading-[18px] [&>*]:relative [&>*]:-top-[1.6px] [&>*]:block [&>*]:max-h-[36px] [&>*]:overflow-hidden`}>{sortHeader("date_delivery", t("Дата доставки"))}</th>
+                <th className={`${th} w-[15.86%]`}>{sortHeader("total_price", t("Сумма"))}</th>
+                <th className={`${th} w-[10.35%]`}>{sortHeader("status", t("Статус"))}</th>
               </tr>
             </thead>
             <tbody>
@@ -317,27 +341,29 @@ export function InternalTransfersView() {
                 const open = state.detailId === row.id
                 return (
                   <Fragment key={row.id}>
-                    <tr onClick={() => update({ detailId: open ? null : row.id })} className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
-                      <td className="pl-6" onClick={(event) => event.stopPropagation()}>
-                        <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggle(row.id)} aria-label={`№ ${row.id}`} className="h-4 w-4 accent-[rgb(79,113,220)]" />
-                      </td>
-                      <td className={`${td} font-semibold`}>{row.id}</td>
-                      <td className={td}>{row.fromWarehouse}</td>
-                      <td className={td}>{row.toWarehouse}</td>
-                      <td className={td}>{row.createdBy || t("Не указано")}</td>
-                      <td className={`${td} whitespace-nowrap`}>{docDate(row.createdAt, language)}</td>
-                      <td className={`${td} whitespace-nowrap`}>{docDate(row.deliveredAt, language)}</td>
-                      <td className={`${td} whitespace-nowrap`}>
-                        {formatSum(row.amount)}
-                        <span className="block text-[#4f71dc]">{formatWeight(row.weight, t("кг"))}</span>
-                      </td>
-                      <td className={`${td} pr-6`}>
-                        <TransferStatusLabel status={row.status} />
-                      </td>
-                    </tr>
+                    {!open && (
+                      <tr onClick={() => update({ detailId: open ? null : row.id })} className={`h-[50px] cursor-pointer bg-[linear-gradient(to_right,#d5d5d5_2px,transparent_2px)] bg-[length:8px_2px] bg-[position:0_100%] bg-repeat-x ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
+                        {selectMode && <td className="pl-6" onClick={(event) => event.stopPropagation()}>
+                          <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggle(row.id)} aria-label={`№ ${row.id}`} className="h-4 w-4 accent-[rgb(79,113,220)]" />
+                        </td>}
+                        <td className={td}><span className="ml-[30px]">{row.id}</span></td>
+                        <td className={td}><span data-no-translate>{row.fromWarehouse}</span></td>
+                        <td className={td}><span data-no-translate>{row.toWarehouse}</span></td>
+                        <td className={td}>{row.createdBy || t("Не указано")}</td>
+                        <td className={`${td} whitespace-nowrap`}>{docDate(row.createdAt, language)}</td>
+                        <td className={`${td} whitespace-nowrap`}>{docDate(row.deliveredAt, language)}</td>
+                        <td className={`${td} whitespace-nowrap`}>
+                          {formatSum(row.amount)}
+                          <span className="block text-[#4f71dc]">{formatWeight(row.weight, t("кг"))}</span>
+                        </td>
+                        <td className={`${td} pr-[38px]`}>
+                          <TransferStatusLabel status={row.status} wrap />
+                        </td>
+                      </tr>
+                    )}
                     {open && (
                       <tr>
-                        <td colSpan={9} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
+                        <td colSpan={selectMode ? 9 : 8} className="bg-[#f2f5f8] p-0">
                           <TransferDetailPanel
                             key={`${row.id}-${detailVersion}`}
                             id={row.id}
@@ -356,7 +382,7 @@ export function InternalTransfersView() {
               })}
               {!rows.length && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-16 text-center text-[#9aa3b6]">
+                  <td colSpan={selectMode ? 9 : 8} className="px-4 py-16 text-center text-[#9aa3b6]">
                     {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
                   </td>
                 </tr>
@@ -364,7 +390,7 @@ export function InternalTransfersView() {
             </tbody>
           </table>
         </div>
-      </section>
+      </RefCard>
 
       {form !== undefined && (
         <TransferFormDialog
@@ -383,6 +409,6 @@ export function InternalTransfersView() {
       )}
       {printing && <TransferInvoices transfers={printing} warehouses={options.data?.warehouses ?? []} onClose={closePrint} />}
       <CashSnackbar message={message} onClose={closeSnackbar} />
-    </main>
+    </RefPage>
   )
 }

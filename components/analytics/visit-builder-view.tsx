@@ -15,8 +15,10 @@ import {
 } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
-import { csvText } from "@/lib/csv"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { downloadExcelTable } from "@/lib/excel-export"
+import type { BuilderResult } from "@/lib/report-builder-repo"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 
 const columns = [
@@ -30,7 +32,7 @@ const columns = [
   "Strike Rate, %",
   "Отказано",
   "Первая активность",
-  "Последняя активность",
+  "Последная активность",
 ]
 
 const groupings = [
@@ -51,15 +53,15 @@ const groupings = [
 
 const salesColumns = [
   "АКБ заказа", "Вес продуктов заказа", "Вес продуктов возврата", "Вес продуктов факт",
-  "Кол. продуктов заказа", "Кол. продуктов возврата", "Кол. продуктов факт",
-  "Кол. блоков заказа", "Кол. блоков возврата", "Кол. блоков факт",
-  "Кол. бонусов заказа", "Кол. бонусов возврата", "Кол. бонусов факт",
-  "Кол. оформленных заказов", "Кол. оформленных возвратов", "Прибыль от продаж",
+  "Колв. продуктов заказа", "Колв. продуктов возврата", "Колв. продуктов факт",
+  "Колв. блоков заказа", "Колв. блоков возврата", "Колв. блоков факт",
+  "Колв. бонусов заказа", "Колв. бонусов возврата", "Колв. бонусов факт",
+  "Колв. оформленных заказов", "Колв. оформленных возвратов", "Прибыль от продаж",
   "Наценка Заказа (%)", "Сумма заказов", "Сумма возвратов", "Сумма факт",
   "Сумма заказов, SUM", "Сумма возвратов, SUM", "Сумма факт, SUM",
   "Сумма до переоценки заказов", "Сумма до переоценки возвратов",
   "Сумма до переоценки факт", "Себестоимость заказа", "Себестоимость возврата",
-  "Себестоимость факт", "Ассортимент",
+  "Cебестоимость факт", "Ассортимент",
 ]
 
 const salesGroupings = [
@@ -78,7 +80,7 @@ const salesGroupings = [
   "Тип оплаты", "Тип сделки", "Филиал", "Цена", "Цена до переоценки",
   "Код сотрудника", "Номер сервиса", "Марка", "Формат", "Группа портфель",
   "Группа ассортимент", "Группа продукт", "Группа марк", "Группа родитель",
-  "Номер телефона", "Полное наименование", "Модель транспорта",
+  "Номер телефона", "Польное наименование", "Модель транспорта",
   "Номер транспорта", "Водитель транспорта",
 ]
 
@@ -118,33 +120,18 @@ function monthEnd() {
   return inputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
 }
 
-const SHORT_MONTHS = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
-
-function shortDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number)
-  return `${String(day).padStart(2, "0")} ${SHORT_MONTHS[month - 1]} ${year}`
-}
 
 export const INFO_ITEMS = new Set([
   "Выполнение плана, %", "Strike Rate, %", "Отказано",
   "Вес продуктов заказа", "Вес продуктов возврата", "Вес продуктов факт",
-  "Кол. бонусов заказа", "Кол. бонусов возврата", "Кол. бонусов факт",
+  "Колв. бонусов заказа", "Колв. бонусов возврата", "Колв. бонусов факт",
   "Прибыль от продаж", "Наценка Заказа (%)",
   "Документ №", "Документ Тип", "Документ Отв.агент", "Документ Отв.агент (Имя)",
   "Документ Отв.агент (Фамилия)", "Документ Супервайзер", "Документ Аудиторы",
 ])
 
-function downloadFile(filename: string, content: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }))
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
 export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | "sales" }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const isSales = variant === "sales"
   const availableColumns = isSales ? salesColumns : columns
   const availableGroupings = isSales ? salesGroupings : groupings
@@ -164,6 +151,10 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const [from, setFrom] = useState(monthStart)
   const [to, setTo] = useState(monthEnd)
   const [reportReady, setReportReady] = useState(false)
+  const [result, setResult] = useState<BuilderResult | null>(null)
+  const [running, setRunning] = useState(false)
+  const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({})
   const [savedReports, setSavedReports] = useState<SavedReport[]>(initialReports)
   const [reportsOpen, setReportsOpen] = useState(false)
   const [reportQuery, setReportQuery] = useState("")
@@ -208,6 +199,46 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     setReportReady(false)
   }
 
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/report-builder?kind=${isSales ? "sales" : "visits"}`)
+      .then((response) => (response.ok ? (response.json() as Promise<Record<string, string[]>>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setFilterOptions(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [isSales])
+
+  async function generate(): Promise<BuilderResult | null> {
+    if (selectedColumns.length === 0) {
+      setMessage(t("Выберите хотя бы одну колонку"))
+      return null
+    }
+    setRunning(true)
+    try {
+      const filters = isSales ? filterValues : { "Пользователь": user, "Статус": status, "Зона": zone }
+      const response = await fetch("/api/report-builder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: isSales ? "sales" : "visits", tab: activeTab, from, to, columns: selectedColumns, vertical: verticalGroups, horizontal: horizontalGroups, filters, showTotals }),
+      })
+      const data = (await response.json().catch(() => null)) as (BuilderResult & { error?: string }) | null
+      if (!response.ok || !data || data.error) {
+        setMessage(data?.error ?? t("Не удалось сформировать отчет"))
+        return null
+      }
+      setResult(data)
+      setReportReady(true)
+      setMessage(data.unsupported.length ? `${t("Отчет успешно сформирован")}. ${t("Нет данных для")}: ${data.unsupported.map((item) => t(item)).join(", ")}` : t("Отчет успешно сформирован"))
+      return data
+    } finally {
+      setRunning(false)
+    }
+  }
+
   function saveReport() {
     const nextId = Math.max(...savedReports.map((report) => report.id), 0) + 1
     const savedReport = {
@@ -221,14 +252,11 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     setMessage(t("Настройки отчета сохранены"))
   }
 
-  function downloadReport() {
-    const header = [...verticalGroups, ...horizontalGroups, ...selectedColumns].map((item) => t(item))
-    const row = [
-      ...verticalGroups.map(() => user || t("Все пользователи")),
-      ...horizontalGroups.map(() => zone || t("Все зоны")),
-      ...selectedColumns.map((_, index) => String(index === 0 ? 104 : 0)),
-    ]
-    downloadFile(isSales ? "sales-builder.csv" : "visit-builder.csv", `\uFEFF${csvText([header, row])}`, "text/csv;charset=utf-8")
+  async function downloadReport() {
+    const data = reportReady && result ? result : await generate()
+    if (!data) return
+    const totals = data.totals ? [data.totals.map((cell, index) => (index === 0 && cell === "Итого" ? t("Итого") : cell))] : []
+    downloadExcelTable(t(isSales ? "Отчет по продажам" : "Конструктор"), [data.headers.map((item) => t(item)), ...data.rows, ...totals])
   }
 
   const shownColumns = availableColumns.filter((item) => item.toLowerCase().includes(columnQuery.toLowerCase()))
@@ -268,12 +296,12 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]">
+      <div className="pl-[28px] pr-[38px]">
         <RefHeader title={t(isSales ? "Отчет по продажам" : "Конструктор")}>
           <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {(isSales ? ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"] : ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]).map((tab) => (
               <button key={tab} type="button" onClick={() => { setActiveTab(tab); setReportReady(false) }} className={`h-[30px] px-4 text-[13px] font-medium uppercase transition-colors ${activeTab === tab ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>
-                {t(tab)}
+                <span data-no-translate>{tab}</span>
               </button>
             ))}
           </div>
@@ -282,25 +310,25 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 
       <section className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
-          <button type="button" onClick={saveReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-            <Bookmark className="mr-3 h-[18px] w-[18px] fill-white" /> {t("Сохранить")}
+          <button type="button" onClick={saveReport} className="flex h-[36px] items-center rounded-[5px] bg-[#4f71dc] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+            <Bookmark className="mr-[7px] h-[18px] w-[18px] fill-white" /> {t("Сохранить")}
           </button>
-          <button type="button" onClick={() => setReportsOpen(true)} className="flex h-[38px] items-center rounded-[3px] bg-[#ff8a6f] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-            <FileBox className="mr-3 h-[18px] w-[18px] fill-white" /> {t("Отчеты")}
+          <button type="button" onClick={() => setReportsOpen(true)} className="flex h-[36px] items-center rounded-[5px] bg-[#ff8a6f] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+            <FileBox className="mr-[7px] h-[18px] w-[18px] fill-white" /> {t("Отчеты")}
           </button>
-          <button type="button" onClick={downloadReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-            <Download className="mr-3 h-[18px] w-[18px]" /> {t("Скачать")}
+          <button type="button" onClick={downloadReport} className="flex h-[36px] items-center rounded-[5px] bg-[#4db6ac] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+            <Download className="mr-[7px] h-[18px] w-[18px]" /> {t("Скачать")}
           </button>
           <div className="ml-auto flex flex-wrap items-center gap-[19px]">
             <span className="relative text-[12px] font-bold text-[#4f71dc]">
-              {t(`${shortDate(from)} - ${shortDate(to)}`)}
+              {formatDateText(from, language, { withTime: false })} - {formatDateText(to, language, { withTime: false })}
               <input type="date" aria-label={t("Дата от")} value={from} max={to} onChange={(event) => event.target.value && setFrom(event.target.value)} className="absolute left-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
               <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && setTo(event.target.value)} className="absolute right-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
             </span>
             <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
-              {t(settingsVisible ? "СКРЫТЬ НАСТРОЙКИ ▲" : "ПОКАЗАТЬ НАСТРОЙКИ ▼")}
+              <span data-no-translate>{settingsVisible ? "СКРЫТЬ НАСТРОЙКИ ▲" : "ПОКАЗАТЬ НАСТРОЙКИ ▼"}</span>
             </button>
-            <button type="button" disabled={invalid} onClick={() => { if (selectedColumns.length === 0) { setMessage(t("Выберите хотя бы одну колонку")); return } setReportReady(true); setMessage(t("Отчет успешно сформирован")) }} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95 disabled:opacity-50">
+            <button type="button" disabled={invalid || running} onClick={() => void generate()} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95 disabled:opacity-50">
               {t("СФОРМИРОВАТЬ ОТЧЕТ")}
             </button>
           </div>
@@ -317,16 +345,16 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
             <OptionColumn title="Колонки" placeholder="Поиск колонки..." query={columnQuery} onQuery={setColumnQuery} items={shownColumns} selected={selectedColumns} onToggle={(item) => toggle(item, setSelectedColumns)} info />
             <OptionColumn title="Вертикальная группировка" placeholder="Поиск вертикальных группировки..." query={verticalQuery} onQuery={setVerticalQuery} items={shownVertical} selected={verticalGroups} onToggle={(item) => toggle(item, setVerticalGroups)} info />
             <OptionColumn title="Горизонтальная группировка" placeholder="Поиск горизонтальных группировки..." query={horizontalQuery} onQuery={setHorizontalQuery} items={shownHorizontal} selected={horizontalGroups} onToggle={(item) => toggle(item, setHorizontalGroups)} info />
-            <div className="px-[20px] pb-[20px] pt-[20px]">
-              <h2 className="text-[15px] font-bold leading-[18px]">{t("Фильтр")}</h2>
-              <label className="mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-medium">
+            <div className="pb-[20px] pl-[23px] pr-[17px] pt-[20px]">
+              <h2 className="text-[15px] font-semibold leading-[18.75px]">{t("Фильтр")}</h2>
+              <label className="mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-semibold leading-5 text-black">
                 <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className={CHECKBOX} />
                 {t("Показать итоги")}
               </label>
-              {isSales ? salesFilters.map((label) => <FilterSelect key={label} label={label} value="" onChange={() => undefined} options={["Все", "Выбрано"]} />) : <>
-                <FilterSelect label="Пользователь" value={user} onChange={setUser} options={users} />
-                <FilterSelect label="Статус" value={status} onChange={setStatus} options={statuses} />
-                <FilterSelect label="Зона" value={zone} onChange={setZone} options={zones} />
+              {isSales ? salesFilters.map((label) => <FilterSelect key={label} label={label} value={filterValues[label] ?? ""} onChange={(value) => { setFilterValues((current) => ({ ...current, [label]: value })); setReportReady(false) }} options={filterOptions[label] ?? []} />) : <>
+                <FilterSelect label="Пользователь" value={user} onChange={(value) => { setUser(value); setReportReady(false) }} options={filterOptions["Пользователь"]?.length ? filterOptions["Пользователь"] : users} />
+                <FilterSelect label="Статус" value={status} onChange={(value) => { setStatus(value); setReportReady(false) }} options={statuses} />
+                <FilterSelect label="Зона" value={zone} onChange={(value) => { setZone(value); setReportReady(false) }} options={filterOptions["Зона"]?.length ? filterOptions["Зона"] : zones} />
               </>}
               {extraFilters.map((filter, index) => (
                 <div key={index} className="mt-4 flex items-center gap-2">
@@ -337,22 +365,28 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
                 </div>
               ))}
               <button type="button" onClick={() => setExtraFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
-                {t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ")}
+                <span data-no-translate>ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР</span>
               </button>
             </div>
           </div>
         )}
 
-        {reportReady && (
+        {reportReady && result && (
           <div className="overflow-x-auto p-6">
             <h2 className="mb-4 text-xl font-bold">{t("Сформированный отчет")} · {t(activeTab)}</h2>
-            <table className="w-full min-w-[720px] border-collapse">
-              <thead><tr className="bg-navy text-white">{[...verticalGroups, ...horizontalGroups, ...selectedColumns].map((item) => <th key={item} className="border border-white/20 px-4 py-3 text-left">{t(item)}</th>)}</tr></thead>
-              <tbody>
-                <tr>{verticalGroups.map((item) => <td key={item} className="border px-4 py-3">{user || t("Все пользователи")}</td>)}{horizontalGroups.map((item) => <td key={item} className="border px-4 py-3">{zone || t("Все зоны")}</td>)}{selectedColumns.map((item, index) => <td key={item} className="border px-4 py-3 text-right">{index === 0 ? 104 : 0}</td>)}</tr>
-                {showTotals && <tr className="bg-slate-100 font-bold"><td colSpan={verticalGroups.length + horizontalGroups.length || 1} className="border px-4 py-3">{t("Итого")}</td>{selectedColumns.map((item, index) => <td key={item} className="border px-4 py-3 text-right">{index === 0 ? 104 : 0}</td>)}</tr>}
-              </tbody>
-            </table>
+            {result.rows.length === 0 ? (
+              <p className="py-10 text-center text-slate-500">{t("По вашему запросу ничего не найдено")}</p>
+            ) : (
+              <table className="w-full min-w-[720px] border-collapse">
+                <thead><tr className="bg-navy text-white">{result.headers.map((item, index) => <th key={`${item}-${index}`} className="border border-white/20 px-4 py-3 text-left">{t(item)}</th>)}</tr></thead>
+                <tbody>
+                  {result.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className={`border px-4 py-3 ${typeof cell === "number" ? "text-right" : ""}`}>{typeof cell === "number" ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(cell) : cell}</td>)}</tr>
+                  ))}
+                  {result.totals && <tr className="bg-slate-100 font-bold">{result.totals.map((cell, cellIndex) => <td key={cellIndex} className={`border px-4 py-3 ${typeof cell === "number" ? "text-right" : ""}`}>{typeof cell === "number" ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(cell) : typeof cell === "string" && cell === "Итого" ? t("Итого") : cell}</td>)}</tr>}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </section>
@@ -437,16 +471,16 @@ export const CHECKBOX =
 function OptionColumn({ title, placeholder, query, onQuery, items, selected, onToggle, info = false }: { title: string; placeholder: string; query: string; onQuery: (value: string) => void; items: string[]; selected: string[]; onToggle: (item: string) => void; info?: boolean }) {
   const { t } = useLanguage()
   return (
-    <div className="px-[20px] pb-[30px] pt-[20px]">
-      <h2 className="text-[15px] font-bold leading-[18px]">{t(title)}</h2>
+    <div className="px-[20px] pb-[30px] pt-[18px]">
+      <h2 className="text-[15px] font-semibold leading-[18.75px]">{t(title)}</h2>
       <label className="relative mt-[11px] block">
         <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t(placeholder)} className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]" />
         <Search className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />
       </label>
-      <div className="mt-[14px]">
+      <div className="mt-[11px]">
         {items.map((item) => (
-          <label key={item} className="flex min-h-[30px] cursor-pointer items-center gap-[9px] text-[13px] font-medium">
-            <input type="checkbox" checked={selected.includes(item)} onChange={() => onToggle(item)} className={CHECKBOX} />
+          <label key={item} className={`flex ${info && INFO_ITEMS.has(item) ? "min-h-[34px]" : "min-h-[30px]"} cursor-pointer items-center gap-[9px] text-[13px] font-semibold`}>
+            <input type="checkbox" checked={selected.includes(item)} onChange={() => onToggle(item)} className={`${CHECKBOX} ml-[3px]`} />
             {t(item)}
             {info && INFO_ITEMS.has(item) && <Info className="h-[18px] w-[18px] text-[#555]" />}
           </label>

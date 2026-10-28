@@ -36,6 +36,7 @@ x AS (
   LEFT JOIN expense_categories ec ON o.category_kind = 'expense' AND ec.id = o.category_id
   LEFT JOIN ecx en ON ec.id IS NULL AND fin_key(o.category_name) <> '' AND en.k = fin_key(o.category_name)
   WHERE NOT o.deleted AND o.verified AND o.amount < 0 AND o.op NOT IN (1, 2)
+    AND (NOT @listMode::boolean OR NOT o.internal)
 )`
 
 const ISO_TS = `COALESCE(to_char(x.ts, 'YYYY-MM-DD"T"HH24:MI:SS'), '')`
@@ -224,7 +225,8 @@ function finishList(
 
 function listParams(filters: ExpenseReportFilters, base: string) {
   // Only the shared filters: the report search applies to the row name, not to the operations.
-  return buildParams({ from: filters.from, to: filters.to, branches: filters.branches, organizations: filters.organizations }, base, [])
+  // listMode: the report reads the same archive as the cash list (reference rows + operations created after the import); internal categories are not reported, like in the demo app.
+  return buildParams({ from: filters.from, to: filters.to, branches: filters.branches, organizations: filters.organizations, listMode: true }, base, [])
 }
 
 /** "Расходы по категориям": one row per expense category (flat, the operation's own category). */
@@ -235,7 +237,7 @@ export async function categoryExpenseReport(query: ExpenseReportFilters & Expens
     .prepare(
       `${EXPENSE_CTE}
        SELECT x.xkey AS key, MAX(x.xcid) AS cid, MAX(x.xname) AS name, x.cur, SUM(x.xbase) AS base, bool_or(x.base_amount IS NULL) AS missing
-       FROM x GROUP BY x.xkey, x.cur`,
+       FROM x WHERE NOT (@listMode::boolean AND x.xkey = 'none') GROUP BY x.xkey, x.cur`,
     )
     .all(listParams(query, cc.base))) as Array<{ key: string; cid: number | null; name: string | null; cur: string; base: number; missing: boolean }>
   const groups = new Map<string, { id: number | null; name: string; amount: number }>()

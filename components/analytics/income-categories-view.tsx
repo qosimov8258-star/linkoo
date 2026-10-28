@@ -25,12 +25,12 @@ export function IncomeCategoriesView({ embedded = false }: { embedded?: boolean 
 function IncomeCategoriesGrid() {
   const { language } = useLanguage()
   const columns: CategoryColumn<IncomeCategory>[] = [
-    { key: "name", title: "Наименование", width: "w-[25%]", className: "font-medium break-words", render: (row) => row.name },
-    { key: "options", title: "Параметры", width: "w-[41%]", render: (row) => <CategoryOptionChips options={row.options} /> },
+    { key: "name", title: "Наименование", width: "3fr", className: "break-words", render: (row) => row.name },
+    { key: "options", title: "Параметры", width: "5fr", render: (row) => <CategoryOptionChips options={row.options} /> },
     {
-      key: "created_date",
+      key: "created_date", indent: true,
       title: "Дата создания",
-      width: "w-[25%]",
+      width: "2fr",
       ordering: "created_date",
       className: "whitespace-nowrap",
       render: (row) => (row.createdDate ? formatCategoryDate(row.createdDate, language) : ""),

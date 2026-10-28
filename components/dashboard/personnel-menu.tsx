@@ -4,6 +4,12 @@ import Link from "next/link"
 
 import { MENU_BOX, MENU_COLUMN, MENU_HEADING, MENU_ITEM, MENU_LINK } from "./menu-style"
 
+// The reference keeps the 20px bottom gap on the box (not on the columns), so
+// column dividers stop above it, and the last row of a column has no rule.
+const BOX = `${MENU_BOX} pb-5`
+const COLUMN = MENU_COLUMN.replace("pb-5", "pb-0")
+const ITEM = `${MENU_ITEM} last:border-b-0`
+
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type MenuItem = { label: string; href: string }
@@ -56,11 +62,11 @@ function LinkColumn({
 }) {
   const { t } = useLanguage()
   return (
-    <div className={MENU_COLUMN}>
+    <div className={COLUMN}>
       <h3 className={MENU_HEADING}>{t(title)}</h3>
       <ul className="flex flex-col">
         {items.map((item) => (
-          <li key={item.label} className={MENU_ITEM}>
+          <li key={item.label} className={ITEM}>
             <Link
               href={item.href}
               onClick={() => onSelect(item.label)}
@@ -82,7 +88,7 @@ export function PersonnelMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
       onMouseLeave={onMouseLeave}
       className="w-max"
     >
-      <div className={MENU_BOX}>
+      <div className={BOX}>
         <LinkColumn title="Персонал" items={personnel} onSelect={onSelect} />
         <LinkColumn title="KPI" items={kpi} onSelect={onSelect} />
         <LinkColumn title="Контроль" items={control} onSelect={onSelect} />

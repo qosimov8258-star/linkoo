@@ -211,7 +211,7 @@ export const REF_TABLE_COLUMNS: Record<string, { n: number; w: (number | null)[]
    null
   ]
  },
- "/analytics/work-attendance": {
+ "/analytics/work-attendance-unused": {
   "n": 34,
   "w": [
    null,
@@ -360,13 +360,15 @@ export const REF_TABLE_COLUMNS: Record<string, { n: number; w: (number | null)[]
    null
   ]
  },
+ "/analytics/repricing": { "n": 6, "w": [145, 346, 346, 231, 230, null] },
+ "/analytics/internal-transfers": { "n": 8, "w": [137, 231, 231, 230, 116, 115, 231, null] },
  "/analytics/write-offs": {
   "n": 5,
   "w": [
-   103,
-   412,
-   206,
-   206,
+   145,
+   461,
+   231,
+   231,
    null
   ]
  },

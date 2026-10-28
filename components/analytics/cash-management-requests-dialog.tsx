@@ -1,10 +1,7 @@
 "use client"
 
 import { Fragment, useEffect, useState } from "react"
-import { ChevronDown, ChevronRight } from "lucide-react"
-
 import { cashMutate, useMoneyRequests } from "@/components/analytics/cash/use-cash"
-import { supplierHref } from "@/components/analytics/cash-management-details"
 import { CashModal, ConfirmDialog, EmptyBlock, ErrorBlock, LoadingBlock, MiniPager, formatCash, formatCashDate, mutationError } from "@/components/analytics/cash-management-shared"
 import { MONEY_REQUEST_STATUS_LABELS, type MoneyRequest } from "@/lib/cash/types"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -55,22 +52,38 @@ export function CashRequestsDialog({
   }
 
   return (
-    <CashModal title={t("Запрос средств")} onClose={onClose} size="lg" headerExtra={data ? <MiniPager page={page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} /> : null}>
+    <CashModal title={t("Запрос средств")} onClose={onClose} size="lg" top={50}>
       {loading && !data && <LoadingBlock />}
       {loadError && <ErrorBlock error={loadError} onRetry={reload} />}
       {data && !data.rows.length && <EmptyBlock text="Запросы отсутствуют" />}
+      {data && (
+        <div className="-mt-[15px] flex h-[50px] items-center justify-end gap-6 border-b border-[#efefef] text-[13px] text-black">
+          <span className="flex items-center gap-1">
+            {PAGE_SIZE}
+            <span className="ml-1 block h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[#bdbdbd]" />
+          </span>
+          <MiniPager page={page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} />
+        </div>
+      )}
       {data && data.rows.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] text-[14px]">
+          <table className="w-full min-w-[680px] table-fixed text-[13px]">
+            <colgroup>
+              <col style={{ width: 239 }} />
+              <col style={{ width: 239 }} />
+              <col style={{ width: 159 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 103 }} />
+              <col />
+            </colgroup>
             <thead>
-              <tr className="bg-[#626b7e] text-left text-white">
-                <th className="w-8 px-2 py-3" />
-                <th className="px-3 py-3 font-semibold">{t("Поставщик")}</th>
-                <th className="px-3 py-3 font-semibold">{t("Комментарий")}</th>
-                <th className="px-3 py-3 font-semibold">{t("Создал")}</th>
-                <th className="px-3 py-3 font-semibold">{t("Дата")}</th>
-                <th className="px-3 py-3 text-right font-semibold">{t("Сумма")}</th>
-                <th className="w-32 px-3 py-3" />
+              <tr className="border-b border-dotted border-[#d9e0e5] text-left text-black">
+                <th className="py-[17px] pr-3 font-bold">{t("Поставщик")}</th>
+                <th className="px-3 py-[17px] font-bold">{t("Комментарий")}</th>
+                <th className="px-3 py-[17px] font-bold">{t("Создал")}</th>
+                <th className="px-3 py-[17px] font-bold">{t("Дата")}</th>
+                <th className="px-3 py-[17px] font-bold">{t("Сумма")}</th>
+                <th className="w-12 px-3 py-[17px]" />
               </tr>
             </thead>
             <tbody>
@@ -78,28 +91,27 @@ export function CashRequestsDialog({
                 const open = expanded === request.id
                 return (
                   <Fragment key={request.id}>
-                    <tr onClick={() => setExpanded(open ? null : request.id)} className={`cursor-pointer border-b border-dashed border-[#d8dee7] hover:bg-[#f2f5f8] ${open ? "bg-[#f2f5f8]" : ""}`}>
-                      <td className="px-2 py-3 text-[#9aa3b6]">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
-                      <td className="px-3 py-3">
-                        <a href={supplierHref(request.supplier.id, request.supplier.name)} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="text-[#4f70e7] hover:underline">
-                          {request.supplier.name}
-                        </a>
-                      </td>
-                      <td className="px-3 py-3">{request.comment || t("Нет описания")}</td>
-                      <td className="px-3 py-3">{request.createdBy || request.responsibleUser || "—"}</td>
-                      <td className="px-3 py-3 whitespace-nowrap">{formatCashDate(request.createdAt, language)}</td>
-                      <td className="px-3 py-3 text-right font-semibold whitespace-nowrap">{formatCash(request.amount, request.currency)}</td>
-                      <td className="px-3 py-3 text-right">
+                    <tr onClick={() => setExpanded(open ? null : request.id)} className={`h-[45px] cursor-pointer border-b border-dotted border-[#d9e0e5] ${open ? "bg-[#f7f9fb]" : ""}`}>
+                      <td className="py-0 pr-3">{request.supplier.name}</td>
+                      <td className="px-3 py-0">{request.comment || t("Нет описания")}</td>
+                      <td className="px-3 py-0">{request.createdBy || request.responsibleUser || "—"}</td>
+                      <td className="px-3 py-0 whitespace-nowrap">{formatCashDate(request.createdAt, language)}</td>
+                      <td className="px-0 py-0 text-right">{formatCash(request.amount, request.currency)}</td>
+                      <td className="px-3 py-0 text-right">
                         {canWrite && (
                           <button
                             type="button"
+                            title={t("Оплатить")}
+                            aria-label={t("Оплатить")}
                             onClick={(event) => {
                               event.stopPropagation()
                               onPay(request)
                             }}
-                            className="rounded-md bg-[#71ce87] px-4 py-1.5 font-semibold text-white hover:brightness-95"
+                            className="inline-flex h-9 w-9 items-center justify-center text-[#5d6474] hover:text-black"
                           >
-                            {t("Оплатить")}
+                            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden>
+                              <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
+                            </svg>
                           </button>
                         )}
                       </td>

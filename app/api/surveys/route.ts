@@ -11,7 +11,7 @@ export async function GET() {
   return NextResponse.json(await listSurveys())
 }
 
-// POST /api/surveys {name, active?, organizationId, clientTypeId?, comment?} — the organization is
+// POST /api/surveys {name, active?, organizationId, clientTypeId?, comment?, orderNo?, flags?, questions?} — the organization is
 // required and must exist (400 "Выберите организацию" / "Организация не найдена"); a given client
 // type must exist (400 "Тип клиента не найден"). The Excel import may send {organization, storeType}
 // names instead.

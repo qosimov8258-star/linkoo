@@ -1,52 +1,39 @@
 "use client"
 
-import { ToggleRow } from "@/components/analytics/catalog-ui"
-import { ChangeEvent, FormEvent, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { CatalogHeader, CheckBox, HoverActions, ImportDialog, LineField, LineSelect, Modal, SaveButton, dottedRow } from "@/components/analytics/catalog-ui"
+import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { CatalogHeader, HoverActions, LineField, LineSelect, Modal, SaveButton, ToggleRow, dottedRow } from "@/components/analytics/catalog-ui"
+import { DictionaryDeleteDialog } from "@/components/analytics/dictionaries-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-type Attribute = { id: number; name: string; fieldType: string; required: boolean }
+type Attribute = { id: number; name: string; fieldType: string; required: boolean; cacheNumber: number | null }
 
-const fieldTypeOptions = ["Выбор вариантов", "Текстовое поле", "Цифровое поле"]
-
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "название": "name", "наименование": "name", "name": "name",
-  "тип поля": "fieldType", "тип": "fieldType", "field type": "fieldType",
-  "обязательный": "required", "обязательно": "required", "required": "required",
-}
-
-function parseRequired(value: string) {
-  return /^(да|yes|true|1|обязательно|обязательный)$/i.test(value.trim())
-}
+const fieldTypeOptions = ["Цифровое поле", "Дата выборки", "Текстовое поле", "Выбор вариантов"]
+const cacheOptions = Array.from({ length: 10 }, (_, index) => String(index + 1))
+const emptyDraft = { name: "", fieldType: "", cacheNumber: "", required: false }
 
 export function AttributesView({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage()
   const [items, setItems] = useState<Attribute[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [cacheAttr, setCacheAttr] = useState("")
   const [editing, setEditing] = useState<Attribute | null>(null)
-  const [draft, setDraft] = useState({ name: "", fieldType: "Выбор вариантов", required: false })
+  const [deleting, setDeleting] = useState<Attribute | null>(null)
+  const [draft, setDraft] = useState(emptyDraft)
   const [saving, setSaving] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [notice, setNotice] = useState<SnackbarMessage | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
     fetch("/api/client-attributes")
       .then(async (response) => {
         if (!response.ok) throw new Error("Не удалось загрузить атрибуты")
         return (await response.json()) as Attribute[]
       })
       .then((data) => {
-        if (cancelled) return
-        setItems(data)
-        setLoadError("")
+        if (!cancelled) setItems(data)
       })
       .catch(() => {
         if (!cancelled) setLoadError(t("Не удалось загрузить атрибуты с сервера"))
@@ -57,158 +44,99 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function open(attribute?: Attribute) { setEditing(attribute ?? { id: 0, name: "", fieldType: "Выбор вариантов", required: false }); setDraft(attribute ? { name: attribute.name, fieldType: attribute.fieldType, required: attribute.required } : { name: "", fieldType: "Выбор вариантов", required: false }) }
+  function open(attribute?: Attribute) {
+    setError("")
+    setEditing(attribute ?? { id: 0, name: "", fieldType: "", required: false, cacheNumber: null })
+    setDraft(attribute ? { name: attribute.name, fieldType: attribute.fieldType, cacheNumber: attribute.cacheNumber === null ? "" : String(attribute.cacheNumber), required: attribute.required } : emptyDraft)
+  }
 
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.name.trim()) return
+  const valid = draft.name.trim() !== "" && draft.fieldType !== ""
+
+  async function save() {
+    if (!editing || !valid) return
     setSaving(true)
+    setError("")
     try {
-      const isEdit = !!editing?.id
-      const response = await fetch(isEdit ? `/api/client-attributes/${editing!.id}` : "/api/client-attributes", {
+      const isEdit = editing.id > 0
+      const response = await fetch(isEdit ? `/api/client-attributes/${editing.id}` : "/api/client-attributes", {
         method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: draft.name.trim(), fieldType: draft.fieldType, required: draft.required }),
+        body: JSON.stringify({ name: draft.name.trim(), fieldType: draft.fieldType, required: draft.required, cacheNumber: draft.cacheNumber ? Number(draft.cacheNumber) : null }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось сохранить атрибут"))
+        setError(data.error ? t(data.error) : t("Не удалось сохранить атрибут"))
         return
       }
       const saved = (await response.json()) as Attribute
       setItems((list) => (isEdit ? list.map((item) => (item.id === saved.id ? saved : item)) : [...list, saved]))
       setEditing(null)
+      setNotice({ text: "Успешно сохранено", tone: "success" })
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      setError(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
   }
 
-  async function remove(id: number) {
-    try {
-      const response = await fetch(`/api/client-attributes/${id}`, { method: "DELETE" })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось удалить атрибут"))
-        return
-      }
-      setItems((list) => list.filter((row) => row.id !== id))
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("attributes-template", [[t("Название"), t("Тип поля"), t("Обязательный")]])
-  }
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-      const parsed: { name: string; fieldType: string; required: boolean }[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.name = row[0] ?? ""
-          record.fieldType = row[1] ?? ""
-          record.required = row[2] ?? ""
-        }
-        if (!record.name) continue
-        parsed.push({
-          name: record.name.trim(),
-          fieldType: fieldTypeOptions.includes(record.fieldType) ? record.fieldType : fieldTypeOptions[0],
-          required: parseRequired(record.required || ""),
-        })
-      }
-      if (!parsed.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-      const created: Attribute[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/client-attributes", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(item),
-          })
-          if (response.ok) created.push((await response.json()) as Attribute)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setItems((list) => [...list, ...created])
-      if (failed) window.alert(`${t("Импортировано")} ${created.length} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`)
-    } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
-    }
-  }
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white px-[30px] text-[13px] text-[#333]">
       {/* Inside the settings layout the page names itself, like the reference's settings pages. */}
       {embedded && <h1 className="pt-[22px] text-[18px] font-bold leading-[22px] text-[#5d6474]">{t("Атрибуты")}</h1>}
-      <CatalogHeader
-        addLabel={t("добавить атрибуты")}
-        onAdd={() => open()}
-        from={items.length ? 1 : 0}
-        to={items.length}
-        total={items.length}
-      />
+      <CatalogHeader tight addLabel={t("добавить атрибуты")} onAdd={() => open()} from={items.length ? 1 : 0} to={items.length} total={items.length} />
       {loadError && <p className="pt-3 text-red-500">{loadError}</p>}
-      <div className={`grid grid-cols-[485px_364px_1fr] ${dottedRow} h-[50px] items-center pt-[3px] font-bold`}>
+      <div className={`grid grid-cols-[485px_364px_1fr] ${dottedRow} h-[50px] items-center pt-[3px] font-semibold`}>
         <span>{t("Название")}</span><span>{t("Тип поля")}</span><span>{t("Обязательный к заполнению")}</span>
       </div>
       {loading ? (
         <p className="py-10 text-center text-slate-400">{t("Загрузка...")}</p>
       ) : (
         items.map((item) => (
-          <div key={item.id} className={`group relative grid h-[50px] grid-cols-[485px_364px_1fr] items-center ${dottedRow} hover:bg-[#f8f9fb]`}>
+          <div key={item.id} className={`group relative grid h-[50px] grid-cols-[485px_364px_1fr] items-center pt-[4px] ${dottedRow} hover:bg-[#f2f5f8]`}>
             <span className="pr-4">{item.name}</span>
             <span>{t(item.fieldType)}</span>
             <span>{t(item.required ? "Обязательный" : "Не обязательный")}</span>
-            <HoverActions offset={70} onEdit={() => open(item)} onDelete={() => void remove(item.id)} />
+            <HoverActions offset={48} onEdit={() => open(item)} onDelete={() => setDeleting(item)} />
           </div>
         ))
       )}
 
       {editing && (
         <Modal
-          title={editing.id ? t("Изменение атрибута") : t("Добавление атрибута")}
+          title={editing.id ? t("Изменить атрибут") : t("Добавление атрибута")}
           onClose={() => setEditing(null)}
-          footer={<SaveButton disabled={saving || !draft.name.trim()} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
+          width={700}
+          bodyClassName="px-[30px] pb-[21px] pt-[43px]"
+          footer={<SaveButton disabled={saving || !valid} onClick={() => void save()}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
         >
           <LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
-          <div className="mt-[34px]"><LineSelect tall label={t("Тип поля")} required value={draft.fieldType} onChange={(value) => setDraft({ ...draft, fieldType: value })} options={fieldTypeOptions} onClear={() => setDraft({ ...draft, fieldType: "" })} /></div>
-          <div className="mt-[20px]"><LineSelect tall label={t("Кэш-атрибут магазина")} value={cacheAttr} onChange={setCacheAttr} options={[t("Не указано"), t("Тип магазина"), t("Канал продаж")]} /></div>
-          <div className="mt-[18px]"><ToggleRow checked={draft.required} onChange={(value) => setDraft({ ...draft, required: value })} label={t("Обязательный к заполнению")} /></div>
-          <p className="mt-[14px] text-[12px] leading-[16px] text-[#e5484d]">{t("После создания/изменения атрибутов пожалуйста заново авторизуйтесь в системе чтобы данные кеша очистились. Пожалуйста скажите про это агентам тоже.")}</p>
+          <div className="mt-[26px]"><LineSelect tall label={t("Тип поля")} required value={draft.fieldType ? t(draft.fieldType) : ""} onChange={(value) => setDraft({ ...draft, fieldType: fieldTypeOptions.find((option) => t(option) === value) ?? value })} options={fieldTypeOptions.map((option) => t(option))} onClear={() => setDraft({ ...draft, fieldType: "" })} /></div>
+          <div className="mt-[11px]"><LineSelect tall label={t("Кэш-атребут магазина")} value={draft.cacheNumber} onChange={(cacheNumber) => setDraft({ ...draft, cacheNumber })} options={cacheOptions} /></div>
+          <div className="mt-[11px]"><ToggleRow checked={draft.required} onChange={(value) => setDraft({ ...draft, required: value })} label={t("Обязательно к заполнению")} /></div>
+          <p className="mt-[16px] text-[13px] leading-[16px] text-[#e5484d]">{t("После создания/изменения атрибутов пожалуйста заново авторизуйтесь в системе чтобы данные кеша очистились. Пожалуйста скажите про это агентам тоже.")}</p>
+          {error && <p className="mt-[8px] text-[12px] text-[#e5484d]">{error}</p>}
         </Modal>
       )}
 
-      {importOpen && <ImportDialog file={importFile} onFile={setImportFile} onTemplate={downloadTemplate} onSave={saveImport} saving={importSaving} onClose={() => { setImportOpen(false); setImportFile(null) }} />}
+      {deleting && (
+        <DictionaryDeleteDialog
+          api="/api/client-attributes"
+          id={deleting.id}
+          name={`${t("Атрибут")}: ${deleting.name}`}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setItems((list) => list.filter((item) => item.id !== deleting.id))
+            setDeleting(null)
+            setNotice({ text: "Успешно удалено", tone: "success" })
+          }}
+          onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      <CashSnackbar message={notice} onClose={() => setNotice(null)} />
     </div>
   )
 }

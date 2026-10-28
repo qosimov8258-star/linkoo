@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { FileSpreadsheet, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, ConfirmDialog, mutationError, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { ItemDetailPanel, RequestDetailPanel } from "@/components/analytics/inventory-management-detail"
@@ -25,7 +23,7 @@ import {
   type ViewState,
 } from "@/components/analytics/inventory-management-shared"
 import { ChecksTable, ItemsTable, LogsTable, RequestsTable, TotalsBar } from "@/components/analytics/inventory-management-tables"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
@@ -53,31 +51,7 @@ import {
 // Excel", "Импортировать", "Добавить". Data: /api/inventory-items/**; the URL
 // keeps the state.
 
-const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
 const REQUEST_TABS: Array<InventoryRequestStatus | ""> = [...INVENTORY_REQUEST_STATUSES, ""]
-
-function TabBar<T extends string>({ tabs, value, label, onChange }: { tabs: readonly T[]; value: T; label: (tab: T) => string; onChange: (tab: T) => void }) {
-  return (
-    <div role="tablist" className="flex overflow-x-auto border-b border-[#e1e5eb] bg-white">
-      {tabs.map((tab) => {
-        const active = tab === value
-        return (
-          <button
-            key={tab || "all"}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(tab)}
-            className={`relative h-10 min-w-max flex-1 px-4 text-[14px] ${active ? "font-semibold text-[#17233b]" : "text-[#586174] hover:bg-[#f7f9fc]"}`}
-          >
-            {label(tab)}
-            {active && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-[rgb(79,113,220)]" />}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 export function InventoryManagementView() {
   const { t, language } = useLanguage()
@@ -86,8 +60,11 @@ export function InventoryManagementView() {
   const [state, setState] = useState<ViewState>(() => stateFromParams(new URLSearchParams(searchParams.toString())))
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [dialog, setDialog] = useState<"create" | "import" | "request" | "bulk" | null>(null)
+  // The reference opens "Добавление инвентаря" from ?openCreateDialog=true.
+  const [dialog, setDialog] = useState<"create" | "import" | "request" | "bulk" | null>(() => (searchParams.get("openCreateDialog") === "true" ? "create" : null))
   const [selected, setSelected] = useState<number[]>([])
+  // Like the reference the checkbox column appears only after the "Выбрать из списка" icon is pressed.
+  const [selectMode, setSelectMode] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkError, setBulkError] = useState("")
   const [detailVersion, setDetailVersion] = useState(0)
@@ -199,104 +176,102 @@ export function InventoryManagementView() {
     reloadAll()
   }
 
-  const headerButton = "inline-flex h-[34px] items-center gap-1.5 rounded-sm px-4 text-[14px] font-semibold text-white shadow-sm hover:brightness-95 disabled:opacity-50"
   const loading = list.loading
   const failed = Boolean(list.error)
+  const tabLabels = INVENTORY_TABS.map((tab) => INVENTORY_TAB_LABELS[tab])
+  const requestLabels = REQUEST_TABS.map((tab) => (tab ? INVENTORY_REQUEST_STATUS_LABELS[tab] : "Все"))
+  const pageCount = Math.max(1, Math.ceil(count / Math.max(1, state.pageSize)))
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Работа с инвентарем")}</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          {group !== "request" ? (
-            <>
-              <button type="button" onClick={() => void downloadExcel()} disabled={!list.data} className={`${headerButton} bg-[rgb(79,113,220)]`}>
-                <FileSpreadsheet className="h-[18px] w-[18px]" /> {t("Скачать Excel")}
-              </button>
-              {canEdit && (
-                <>
-                  <button type="button" onClick={() => setDialog("import")} className={`${headerButton} bg-[rgb(79,113,220)]`}>
-                    <Upload className="h-[18px] w-[18px]" /> {t("Импортировать")}
-                  </button>
-                  <button type="button" onClick={() => setDialog("create")} title={t("Добавить инвентарь")} className={`${headerButton} bg-[#71ce87]`}>
-                    <Plus className="h-[18px] w-[18px]" /> {t("Добавить")}
-                  </button>
-                </>
-              )}
-            </>
-          ) : (
-            canEdit && (
-              <button type="button" onClick={() => setDialog("request")} className={`${headerButton} bg-[#71ce87]`}>
-                <Plus className="h-[18px] w-[18px]" /> {t("Новый запрос")}
-              </button>
-            )
-          )}
-        </div>
-      </header>
+    <RefPage>
+      <RefHeader title={t("Работа с инвентарем")}>
+        {group !== "request" ? (
+          <>
+            <RefButton icon={RI.chart} label={t("Скачать Excel")} onClick={() => void downloadExcel()} disabled={!list.data} />
+            {canEdit && (
+              <>
+                <RefButton icon={RI.chart} label={t("Импортировать")} onClick={() => setDialog("import")} />
+                <RefButton green icon={RI.add} label={t("Добавить")} onClick={() => setDialog("create")} />
+              </>
+            )}
+          </>
+        ) : (
+          canEdit && <RefButton green icon={RI.add} label={t("Новый запрос")} onClick={() => setDialog("request")} />
+        )}
+      </RefHeader>
 
-      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
-        <TabBar tabs={INVENTORY_TABS} value={activeTab(state.status)} label={(tab) => t(INVENTORY_TAB_LABELS[tab])} onChange={changeTab} />
+      <RefCard>
+        <RefTabs
+          labels={tabLabels}
+          value={INVENTORY_TAB_LABELS[activeTab(state.status)]}
+          onChange={(label) => changeTab(INVENTORY_TABS.find((tab) => INVENTORY_TAB_LABELS[tab] === label) ?? INVENTORY_TABS[0])}
+        />
         {group === "request" && (
-          <TabBar
-            tabs={REQUEST_TABS}
-            value={state.requestStatus}
-            label={(tab) => (tab ? t(INVENTORY_REQUEST_STATUS_LABELS[tab]) : t("Все"))}
-            onChange={(requestStatus) => update({ requestStatus, page: 1, detailId: null })}
+          <RefTabs
+            labels={requestLabels}
+            value={state.requestStatus ? INVENTORY_REQUEST_STATUS_LABELS[state.requestStatus] : "Все"}
+            onChange={(label) => update({ requestStatus: REQUEST_TABS.find((tab) => (tab ? INVENTORY_REQUEST_STATUS_LABELS[tab] : "Все") === label) ?? "", page: 1, detailId: null })}
           />
         )}
 
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
-          <InventoryFilterBar
-            status={state.status}
-            filters={state.filters}
-            options={options.data}
-            open={filterOpen}
-            onOpen={() => setFilterOpen(true)}
-            onClose={() => setFilterOpen(false)}
-            onClear={clearFilters}
-            onApply={(filters) => {
-              setFilterOpen(false)
-              setSelected([])
-              update({ filters, page: 1, detailId: null })
-            }}
-          />
-          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
-            <input
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              placeholder={t("Поиск")}
-              aria-label={t("Поиск")}
-              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
-            />
-            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-          </label>
-          {canEdit && group === "items" && selected.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                setBulkError("")
-                setDialog("bulk")
-              }}
-              className="inline-flex h-[32px] items-center gap-1.5 rounded-sm bg-[#fa8072] px-3 text-[13px] font-semibold text-white hover:brightness-95"
-            >
-              <Trash2 className="h-4 w-4" /> {t("Удалить")} ({selected.length})
-            </button>
-          )}
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <BalancePagination page={state.page} pageSize={state.pageSize} count={count} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize, detailId: null })} />
-            <button type="button" onClick={reloadAll} title={t("Обновить список")} aria-label={t("Обновить список")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
-              <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-        </div>
-
         {group === "items" && <TotalsBar totals={totals.data} loading={totals.loading} />}
 
+        <RefToolbar
+          leftSlot={
+            <InventoryFilterBar
+              status={state.status}
+              filters={state.filters}
+              options={options.data}
+              open={filterOpen}
+              onOpen={() => setFilterOpen(true)}
+              onClose={() => setFilterOpen(false)}
+              onClear={clearFilters}
+              onApply={(filters) => {
+                setFilterOpen(false)
+                setSelected([])
+                update({ filters, page: 1, detailId: null })
+              }}
+            />
+          }
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(size) => update({ page: 1, pageSize: size, detailId: null })}
+          from={count ? (state.page - 1) * state.pageSize + 1 : 0}
+          to={Math.min(state.page * state.pageSize, count)}
+          total={count}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page, detailId: null })}
+          icons={
+            canEdit ? (
+              <RefIconButton
+                path={RI.checklist}
+                label={t("Выбрать из списка")}
+                color={selectMode ? "#4f71dc" : "#666"}
+                onClick={() => {
+                  setSelectMode((on) => !on)
+                  setSelected([])
+                }}
+              />
+            ) : undefined
+          }
+          extra={
+            canEdit && group === "items" && selected.length > 0 ? (
+              <RefButton
+                red
+                icon={RI.trash}
+                label={`${t("Удалить")} (${selected.length})`}
+                onClick={() => {
+                  setBulkError("")
+                  setDialog("bulk")
+                }}
+              />
+            ) : undefined
+          }
+        />
+
         {list.error && (
-          <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
+          <div className="flex flex-wrap items-center gap-3 bg-white px-6 py-3 text-[#e57373]">
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
@@ -306,7 +281,7 @@ export function InventoryManagementView() {
           </div>
         )}
 
-        <div className={`overflow-x-auto ${loading ? "opacity-60" : ""}`}>
+        <div className={loading ? "opacity-60" : ""}>
           {group === "items" && (
             <ItemsTable
               rows={items.data?.results ?? []}
@@ -314,7 +289,7 @@ export function InventoryManagementView() {
               onSort={sort}
               selected={selected}
               onSelect={setSelected}
-              selectable={canEdit}
+              selectable={canEdit && selectMode}
               detailId={state.detailId}
               onRow={toggleRow}
               loading={loading}
@@ -354,7 +329,7 @@ export function InventoryManagementView() {
             />
           )}
         </div>
-      </section>
+      </RefCard>
 
       {dialog === "create" && (
         <ItemFormDialog
@@ -405,7 +380,7 @@ export function InventoryManagementView() {
       )}
 
       <CashSnackbar message={message} onClose={closeSnackbar} />
-    </main>
+    </RefPage>
   )
 }
 

@@ -48,22 +48,24 @@ export function CashBalanceSummary({
   onMetricClick?: (field: string) => void
 }) {
   const { t } = useLanguage()
+  // The reference lists the currencies alphabetically by label (Euro, SUM, USD).
+  const sortedCurrencies = [...currencies].sort((a, b) => currencyLabel(a).localeCompare(currencyLabel(b)))
   return (
-    <section className={`grid grid-cols-1 gap-[10px] px-6 py-5 sm:grid-cols-2 md:px-9 lg:grid-cols-4 ${loading ? "opacity-60" : ""}`}>
+    <section className={`grid grid-cols-1 gap-[10px] px-[30px] py-5 sm:grid-cols-2 lg:grid-cols-4 ${loading ? "opacity-60" : ""}`}>
       {COLUMNS.map((metrics, index) => (
         <div key={index} className={`flex flex-col gap-[10px] ${index === COLUMNS.length - 1 ? "lg:text-right" : ""}`}>
           {metrics.map((metric) => {
             const content = (
               <>
                 <span className="block text-[13px] font-medium text-[#17233b]">{t(metric.label)}</span>
-                {currencies.map((code) => (
+                {sortedCurrencies.map((code) => (
                   <span key={code} className="block" style={metric.color ? { color: metric.color } : undefined}>
                     {formatMoney(totals[code]?.[metric.field] ?? 0)} {currencyLabel(code)}
                   </span>
                 ))}
               </>
             )
-            const boxClass = "rounded-[2px] border border-[#efefef] px-[15px] py-[10px] text-[16px] font-semibold text-[#17233b]"
+            const boxClass = "rounded-[2px] border border-[#efefef] px-[15px] py-[10px] text-[16px] font-semibold leading-[20px] text-[#17233b]"
             const clickable = Boolean(onMetricClick && metric.color)
             return clickable ? (
               <button

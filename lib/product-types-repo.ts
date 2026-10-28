@@ -77,10 +77,10 @@ export async function listProductTypes(): Promise<ProductType[]> {
   return (await allRows(await dictionariesDb())).map(rowToType)
 }
 
-/** The tree grid: top-level types (searched, sorted, paged) with their children. Default order = Порядок, name. */
+/** The tree grid: top-level types (searched, sorted, paged) with their children. Default order = name (the demo ignores its "order" field here). */
 export async function listProductTypeTree(query: DictionaryListQuery): Promise<ProductTypeTreeResult> {
   const types = (await allRows(await dictionariesDb())).map(rowToType)
-  const tree = filterTree(buildTree<ProductType, ProductTypeNode>(types, query.ordering), query.search)
+  const tree = filterTree(buildTree<ProductType, ProductTypeNode>(types, query.ordering || "name"), query.search)
   const start = (query.page - 1) * query.pageSize
   return { count: tree.length, results: tree.slice(start, start + query.pageSize) }
 }
@@ -158,7 +158,9 @@ async function validate(tx: PgDb, id: number | null, fields: Fields, currentOrga
     )
     .get({ name: fields.name, parentId: fields.parentId, exceptId: id })
   if (duplicate) throw fieldError("name", DUPLICATE)
-  fields.organization = await resolveOrganization(tx, fields.organization, currentOrganization)
+  // A stored type without an organization (demo data) keeps none, so editing it stays possible.
+  const legacyEmpty = currentOrganization !== undefined && currentOrganization !== null && !currentOrganization.trim()
+  fields.organization = !fields.organization && legacyEmpty ? "" : await resolveOrganization(tx, fields.organization, currentOrganization)
   return parentName
 }
 

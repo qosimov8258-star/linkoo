@@ -82,6 +82,7 @@ export function parseMoveFilters(params: URLSearchParams): Parsed<PlanMoveFilter
       products: list(params, "product"),
       typeParents: list(params, "typeParent"),
       subcategories: list(params, "subcategory"),
+      direction: ["in", "out"].includes(params.get("direction") ?? "") ? (params.get("direction") as string) : "",
       ...dates.value,
       search: (params.get("search") ?? "").trim(),
     },

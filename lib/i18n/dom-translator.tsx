@@ -3,7 +3,10 @@
 import { useLayoutEffect } from "react"
 
 import { useLanguage } from "./language-context"
-import { isUntranslated, translate } from "./translate"
+import { usePathname } from "next/navigation"
+
+import { REFERENCE_RUSSIAN_TEXTS } from "./reference-russian-texts"
+import { isUntranslated, setKeepRussianMonths, translate } from "./translate"
 import type { LanguageCode } from "./types"
 
 const CYRILLIC = /[А-Яа-яЁё]/
@@ -15,6 +18,7 @@ const originals = new WeakMap<Node, string>()
 const written = new WeakMap<Node, string>()
 const attrOriginals = new WeakMap<Element, Record<string, string>>()
 const attrWritten = new WeakMap<Element, Record<string, string>>()
+const hydratedElements = new WeakSet<Element>()
 
 // Browser dialogs aren't DOM text, so alert/confirm/prompt are wrapped once and
 // translate whatever message they receive into the current language.
@@ -60,24 +64,55 @@ function reportMissing(language: LanguageCode, text: string) {
  * Walks the DOM, translates any text/attribute found in the dictionary and
  * remembers the original so switching back to Russian restores it.
  */
+// Pages where the reference prints dates with Russian month names while the uz interface is on (measured on
+// the live reference: every date cell of these lists is Russian, none Latin).
+const REFERENCE_RU_DATE_ROUTES = [
+  "/tracking",
+  "/analytics/supplier-returns",
+  "/analytics/receipt-transfer-plan",
+  "/analytics/customer-payments",
+  "/analytics/supplier-payments",
+  "/analytics/returns",
+  "/analytics/sessions",
+  "/analytics/currencies",
+  "/analytics/surveys",
+]
+
 export function DomTranslator() {
   const { language } = useLanguage()
+  const pathname = usePathname() ?? ""
 
   // A layout effect: the first pass runs right after hydration, before the
   // browser paints again, so hydrated screens never flash their Russian literals.
   useLayoutEffect(() => {
     currentLanguage = language
+    setKeepRussianMonths(language === "uz" && REFERENCE_RU_DATE_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`)))
     patchDialogs()
 
+    // Server HTML of a Suspense boundary that React has not hydrated yet has no fiber key. Rewriting its text
+    // would make hydration fail ("server rendered text didn't match the client"), so it is skipped and picked
+    // up by the delayed passes below once React has attached to it.
+    const hydrated = (element: Element) => {
+      if (hydratedElements.has(element)) return true
+      const ok = Object.keys(element).some((key) => key.startsWith("__reactFiber$"))
+      if (ok) hydratedElements.add(element)
+      return ok
+    }
     const skipped = (node: Node) => {
       const element = node.nodeType === 1 ? (node as Element) : node.parentElement
-      return !element || !!element.closest(SKIP)
+      return !element || !!element.closest(SKIP) || !hydrated(element)
     }
+
+    // Texts the reference prints in Russian on this page although they are in its dictionary.
+    const routeTable = language === "uz" || language === "en" ? REFERENCE_RUSSIAN_TEXTS[language] : {}
+    const routeKey = Object.keys(routeTable).find((route) => pathname === route || pathname.startsWith(`${route}/`))
+    const keepRussian = new Set(routeKey ? routeTable[routeKey] : [])
 
     const convert = (source: string) => {
       const lead = source.match(/^\s*/)?.[0] ?? ""
       const trail = source.match(/\s*$/)?.[0] ?? ""
       const core = source.trim()
+      if (keepRussian.has(core.replace(/\s+/g, " "))) return source
       return core ? lead + translate(language, core) + trail : source
     }
 
@@ -126,7 +161,7 @@ export function DomTranslator() {
     const walk = (root: Node) => {
       if (root.nodeType === 3) return handleText(root as Text)
       if (root.nodeType !== 1) return
-      if (skipped(root)) return
+      if ((root as Element).closest(SKIP)) return
       handleElement(root as Element)
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT)
       let node = walker.nextNode()
@@ -184,12 +219,22 @@ export function DomTranslator() {
       })
     observe()
 
+    // Late hydration of Suspense boundaries changes no DOM, so the observer never sees it: sweep again.
+    const sweeps = [250, 700, 1500, 3000, 6000].map((delay) =>
+      window.setTimeout(() => {
+        observer.disconnect()
+        walk(document.body)
+        observe()
+      }, delay),
+    )
+
     return () => {
       titleObserver.disconnect()
       observer.disconnect()
+      sweeps.forEach((id) => window.clearTimeout(id))
       if (frame) cancelAnimationFrame(frame)
     }
-  }, [language])
+  }, [language, pathname])
 
   return null
 }

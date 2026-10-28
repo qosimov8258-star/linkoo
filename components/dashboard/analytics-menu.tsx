@@ -37,6 +37,9 @@ function menuEntry(slug: string, label: string, fallbackHref: string): MenuEntry
   if (slug === "old-report-builder") return { label, href: "/analytics/old-report-builder" }
   if (slug === "trend-builder") return { label, href: "/analytics/trend-builder" }
   if (slug === "product-profit") return { label, href: "/analytics/product-profit" }
+  if (slug === "coverage-analysis") return { label, href: `/analytics/coverage-analysis?beginDate=${todayIso()}&endDate=${todayIso()}&fetchFirstTime=true` }
+  if (slug === "material-report") return { label, href: "/analytics/stock-by-date?toggle=price&pageSize=25" }
+  if (slug === "goods-movement") return { label, href: "/analytics/receipt-transfer-plan?tab=movement" }
   if (slug === "agent-profit") return { label, href: "/analytics/agent-profit" }
   if (slug === "product-type-profit") return { label, href: "/analytics/product-type-profit" }
   if (slug === "report-list") return { label, href: "/analytics/report-list" }
@@ -46,6 +49,11 @@ function menuEntry(slug: string, label: string, fallbackHref: string): MenuEntry
     label,
     href: report?.href ?? fallbackHref,
   }
+}
+
+const todayIso = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 }
 
 const warehouseHref = "/analytics/warehouse-logistics"
@@ -85,7 +93,7 @@ const resourceMenuGroups: Record<string, ResourceMenuGroup[]> = {
     {
       title: "Дополнительные инструменты",
       items: [
-        menuEntry("coverage-analysis", "Анализ охвата", "/analytics/coverage-analysis"),
+        menuEntry("coverage-analysis", "Анализ охвата", `/analytics/coverage-analysis?beginDate=${todayIso()}&endDate=${todayIso()}&fetchFirstTime=true`),
         { label: "Клиенты на карте", href: "/tracking?view=clients" },
         { label: "Отслеживание", href: "/tracking?view=agents" },
         menuEntry("attendance", "Посещаемость", "/analytics/attendance"),
@@ -153,7 +161,7 @@ const resourceMenuGroups: Record<string, ResourceMenuGroup[]> = {
     {
       title: "Дополнительные инструменты",
       items: [
-        menuEntry("store-reconciliation-bot", "Сверка через бот", financeHref),
+        menuEntry("account-reconciliation", "Сверка через бот", financeHref),
         menuEntry("loyalty-card", "Накопительная карта", financeHref),
         menuEntry("debt-limits", "Установка ограничение на долги", financeHref),
       ],

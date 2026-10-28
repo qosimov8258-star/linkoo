@@ -1,14 +1,15 @@
 "use client"
 
 import { useMemo, useRef, useState } from "react"
-import { Download, Pencil, Plus, Trash2, Upload, Users } from "lucide-react"
+import { Check, Pencil, Trash2 } from "lucide-react"
 
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
+import { MaterialCheckbox } from "@/components/analytics/cash-material"
 import { RateBlock } from "@/components/analytics/cash-management-operation-dialog"
 import {
   CashModal,
   FormField,
-  PrimaryButton,
+  MaterialDateTime,
   SearchSelect,
   formatCash,
   inputClass,
@@ -75,7 +76,11 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
 
   const [date, setDate] = useState(() => nowLocalIso().slice(0, 16))
   const [branch, setBranch] = useState("")
-  const [cashboxId, setCashboxId] = useState("")
+  // The reference opens with the "naqd" cashbox selected and no category chosen.
+  const [cashboxId, setCashboxId] = useState(() => {
+    const preset = cashboxes.find((item) => item.name.trim().toLowerCase() === "naqd")
+    return preset ? String(preset.id) : ""
+  })
   const [categoryId, setCategoryId] = useState("")
   const [debtCurrency, setDebtCurrency] = useState("")
   const [responsibleId, setResponsibleId] = useState("")
@@ -87,6 +92,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
   const [entry, setEntry] = useState({ clientId: "", clientName: "", contractId: "", amount: "", organization: "", date: "", comment: "" })
   const [entryError, setEntryError] = useState("")
   const [agentOpen, setAgentOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -100,7 +106,9 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
   const cashCurrency = cashbox ? normCurrency(cashbox.currency, base) : ""
   const debt = debtCurrency && debtCurrency !== cashCurrency ? debtCurrency : ""
   const total = rows.reduce((sum, row) => sum + Math.max(0, parseAmount(row.amount)), 0)
-  const categoryValue = categoryId || (categories[0] ? String(categories[0].id) : "")
+  // Shown empty like the reference; an untouched category is saved as the first one (the server needs it).
+  const categoryValue = categoryId
+  const categoryToSave = categoryId || (categories[0] ? String(categories[0].id) : "")
 
   const contractOptions = (clientName: string): PickOption[] =>
     clientName ? contracts.map((contract) => ({ value: String(contract.id), label: `${t("Договор №")}: ${contract.fullNumber}`, hint: contract.hint })) : []
@@ -244,7 +252,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
       date: isDate ? undefined : date,
       cashboxId: Number(cashboxId),
       branch: branch || undefined,
-      categoryId: categoryValue ? Number(categoryValue) : undefined,
+      categoryId: categoryToSave ? Number(categoryToSave) : undefined,
       isVerified,
       responsibleId: responsibleId ? Number(responsibleId) : undefined,
       debtCurrency: debt || undefined,
@@ -269,22 +277,20 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
     <CashModal
       title={t("Групповой приход")}
       onClose={onClose}
-      size="full"
+      size="screen"
       footer={
         <>
-          {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <PrimaryButton busy={busy} onClick={submit}>
+          {error && <span className="text-[13px] text-[#f44336]">{error}</span>}
+          <button type="button" disabled={busy} onClick={submit} className="ml-auto mr-[16px] h-9 text-[13px] font-semibold uppercase text-[#129fdd] hover:underline disabled:opacity-60">
             {t("Сохранить")}
-          </PrimaryButton>
+          </button>
         </>
       }
     >
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="flex flex-col gap-3">
+      <div className="flex min-h-0 flex-1">
+        <div className="flex w-[450px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-[#efefef] px-[30px] pb-6 pt-[20px]">
           {!isDate && (
-            <FormField label={t("Дата создания")}>
-              <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} />
-            </FormField>
+            <MaterialDateTime label={t("Дата создания")} value={date} onChange={setDate} />
           )}
           <FormField label={t("Филиал")}>
             <SearchSelect value={branch} onChange={setBranch} options={branches.map((item) => ({ value: item.name, label: item.name }))} placeholder={t("Филиал")} />
@@ -304,26 +310,13 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
             <SearchSelect value={categoryValue} onChange={setCategoryId} options={categories.map((item) => ({ value: String(item.id), label: item.name }))} placeholder={t("Категория прихода")} allowClear={false} />
           </FormField>
           <FormField label={t("Индивидуальная покрытия долга")}>
-            <select value={debtCurrency} onChange={(event) => setDebtCurrency(event.target.value)} className={inputClass}>
-              <option value="">{t("Не указано")}</option>
-              {codes.map((code) => (
-                <option key={code} value={code}>
-                  {currencyLabel(code)}
-                </option>
-              ))}
-            </select>
+            <SearchSelect value={debtCurrency} onChange={setDebtCurrency} options={codes.map((code) => ({ value: code, label: currencyLabel(code) }))} placeholder={t("Не указано")} />
           </FormField>
           <FormField label={t("Ответственный персонал")}>
             <SearchSelect value={responsibleId} onChange={setResponsibleId} options={employees.map((item) => ({ value: String(item.id), label: item.name }))} placeholder={t("Ответственный персонал")} />
           </FormField>
-          <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-            <input type="checkbox" checked={isVerified} onChange={(event) => setIsVerified(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
-            {t("Подтвержденный приход (Я получил деньги)")}
-          </label>
-          <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-            <input type="checkbox" checked={isDate} onChange={(event) => setIsDate(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
-            {t("Разные даты для каждой оплаты")}
-          </label>
+          <MaterialCheckbox checked={isVerified} onChange={setIsVerified} label={t("Подтвержденный приход (Я получил деньги)")} />
+          <MaterialCheckbox checked={isDate} onChange={setIsDate} label={t("Разные даты для каждой оплаты")} />
           {cashCurrency && (
             <RateBlock
               base={base}
@@ -337,17 +330,18 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
               onChange={(next) => setRate((current) => ({ ...current, ...next }))}
             />
           )}
-          <p className="text-[15px] font-semibold text-[#17233b]">
-            {t("Общая сумма")}: {formatCash(total, cashCurrency || base)}
+          <p className="mt-1 text-[14px] text-black">
+            {t("Общая сумма")}: <b className="text-[16px] font-semibold text-[#0e9fe0]">{formatCash(total, cashCurrency || base)}</b>
           </p>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <h3 className="mr-auto text-[16px] font-semibold text-[#17233b]">{t("Список")}</h3>
+        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+          <div className="flex h-[68px] shrink-0 items-center gap-[30px] px-[30px]">
+            <span className="text-[13px] text-[#555]">{t("Список")}</span>
             <div className="relative">
-              <button type="button" onClick={() => setAgentOpen((current) => !current)} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#4f70e7] px-3 text-[13px] font-semibold text-[#4f70e7]">
-                <Users className="h-4 w-4" /> {t("Показать клиентов по агенту")}
+              <button type="button" onClick={() => setAgentOpen((current) => !current)} className="flex h-[34px] w-[260px] items-center justify-between border-b border-[#e8e8e8] text-[13px] font-semibold text-black">
+                {t("Показать клиентов по агенту")}
+                <span className="block h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[#9e9e9e]" />
               </button>
               {agentOpen && (
                 <div className="absolute right-0 top-full z-[20] mt-1 max-h-72 w-64 overflow-y-auto rounded-md border border-[#e1e5eb] bg-white py-1 shadow-lg">
@@ -361,11 +355,8 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
                 </div>
               )}
             </div>
-            <button type="button" onClick={() => fileRef.current?.click()} disabled={importing} className="inline-flex h-9 items-center gap-2 rounded-md bg-[#4caf72] px-3 text-[13px] font-semibold text-white disabled:opacity-50">
-              <Upload className="h-4 w-4" /> {importing ? t("Загрузка...") : t("Импортировать c Excel")}
-            </button>
-            <button type="button" onClick={() => downloadExcelTable("group-payment-template", [TEMPLATE_HEADERS.map((label) => t(label))])} className="inline-flex h-9 items-center gap-1 text-[13px] font-semibold text-[#4caf72] hover:underline">
-              <Download className="h-4 w-4" /> {t("Шаблон")}
+            <button type="button" onClick={() => setImportOpen((current) => !current)} disabled={importing} className="ml-auto mr-[16px] h-9 text-[13px] font-medium uppercase text-black hover:underline disabled:opacity-50">
+              {importing ? t("Загрузка...") : t("Импортировать c Excel")}
             </button>
             <input
               ref={fileRef}
@@ -379,7 +370,21 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-2 rounded-md bg-[#f7f9fc] p-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1.3fr)_auto]">
+          {importOpen && (
+            <div className="flex h-[48px] shrink-0 items-center justify-between border-y border-[#efefef] px-[17px] text-[13px] uppercase text-black">
+              <button type="button" onClick={() => downloadExcelTable("group-payment-template", [TEMPLATE_HEADERS.map((label) => t(label))])} className="hover:underline">
+                1. {t("Загрузить шаблон")}
+              </button>
+              <button type="button" onClick={() => fileRef.current?.click()} className="hover:underline">
+                2. {t("Заполните Excel и загрузите")}
+              </button>
+              <button type="button" onClick={() => setImportOpen(false)} className="hover:underline">
+                3. {t("Подтвердить")}
+              </button>
+            </div>
+          )}
+
+          <div className="mb-3 grid shrink-0 grid-cols-[minmax(0,230px)_minmax(0,150px)_minmax(0,230px)_minmax(0,232px)_auto] items-end gap-[16px] bg-[#f0f4f7] px-[38px] py-[17px]">
             <FormField label={t("Клиент")} required>
               <SearchSelect
                 value={entry.clientId}
@@ -393,9 +398,6 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
                 loading={clients.loading}
                 placeholder={t("Клиент")}
               />
-            </FormField>
-            <FormField label={t("Контракт")}>
-              <SearchSelect value={entry.contractId} onChange={(value) => setEntry((current) => ({ ...current, contractId: value }))} options={contractOptions(entry.clientName)} placeholder={t("Контракт")} disabled={!entry.clientId} />
             </FormField>
             <FormField label={t("Сумма")} required>
               <input
@@ -413,12 +415,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
             <FormField label={t("Организация")}>
               <SearchSelect value={entry.organization} onChange={(value) => setEntry((current) => ({ ...current, organization: value }))} options={organizationOptions} placeholder={t("Организация")} />
             </FormField>
-            {isDate && (
-              <FormField label={t("Дата создания")}>
-                <input type="date" value={entry.date} onChange={(event) => setEntry((current) => ({ ...current, date: event.target.value }))} className={inputClass} />
-              </FormField>
-            )}
-            <FormField label={t("Комментарий")} className={isDate ? "" : "sm:col-span-2 xl:col-span-4"}>
+            <FormField label={t("Комментарий")}>
               <input
                 value={entry.comment}
                 onChange={(event) => setEntry((current) => ({ ...current, comment: event.target.value }))}
@@ -428,18 +425,17 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
                 className={inputClass}
               />
             </FormField>
-            <div className="flex items-end">
-              <button type="button" onClick={applyEntry} className="inline-flex h-10 items-center gap-1 rounded-md bg-[#4f71dc] px-4 font-semibold text-white hover:brightness-95">
-                <Plus className="h-4 w-4" /> {t("Применить")}
-              </button>
-            </div>
-            {entryError && <span className="text-[12px] text-[#e57373] sm:col-span-2">{entryError}</span>}
+            <button type="button" onClick={applyEntry} aria-label={t("Применить")} title={t("Применить")} className="flex h-[34px] w-9 items-center justify-center text-[#4f71dc] hover:brightness-90">
+              <Check className="h-6 w-6" strokeWidth={2} />
+            </button>
+            {entryError && <span className="col-span-5 text-[12px] text-[#f44336]">{entryError}</span>}
           </div>
 
-          <div className="overflow-x-auto">
+          {rows.length > 0 && (
+          <div className="overflow-x-auto px-[30px]">
             <table className="w-full min-w-[760px] text-[13px]">
               <thead>
-                <tr className="bg-[#edf2f7] text-left text-[#253653]">
+                <tr className="border-b border-dotted border-[#d9e0e5] text-left font-bold text-black">
                   <th className="px-2 py-2">№</th>
                   <th className="px-2 py-2">{t("Клиент")}</th>
                   <th className="px-2 py-2">{t("Контракт")}</th>
@@ -452,7 +448,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
               </thead>
               <tbody>
                 {rows.map((row, index) => (
-                  <tr key={row.key} className="border-b border-[#e1e5eb]">
+                  <tr key={row.key} className="border-b border-dotted border-[#d9e0e5]">
                     <td className="px-2 py-1.5">{index + 1}</td>
                     <td className="px-2 py-1.5">{row.clientName}</td>
                     <td className="px-2 py-1.5">{row.contractLabel || "—"}</td>
@@ -490,16 +486,10 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
                     </td>
                   </tr>
                 ))}
-                {!rows.length && (
-                  <tr>
-                    <td colSpan={isDate ? 8 : 7} className="px-2 py-8 text-center text-[#9aa3b6]">
-                      {t("Список пуст")}
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
+          )}
 
           {notFounds.length > 0 && (
             <div className="rounded-md border border-[#f3c4c4] bg-[#fff8f8] p-3">

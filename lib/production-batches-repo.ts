@@ -155,6 +155,8 @@ export type PartyFilters = {
   dateTo?: string
   finishedFrom?: string
   finishedTo?: string
+  createdFrom?: string
+  createdTo?: string
 }
 
 export async function listParties(filters: PartyFilters = {}): Promise<ProductionParty[]> {
@@ -177,15 +179,33 @@ export async function listParties(filters: PartyFilters = {}): Promise<Productio
     where.push("p.date <= ?")
     params.push(filters.dateTo)
   }
-  // ISO instants of the viewer's local day bounds, so "finished on the 8th"
-  // means the 8th in their time zone, not in UTC.
-  if (filters.finishedFrom) {
-    where.push("p.finished_at <> '' AND p.finished_at >= ?")
-    params.push(filters.finishedFrom)
+  // ISO instants of the viewer's local day bounds, so "created on the 8th" means the 8th in their
+  // time zone, not in UTC. Like the reference, the "finished" range only narrows finished batches:
+  // batches still in progress stay in the list. Stored times mix "Z" and "+05:00" offsets, so compare instants.
+  // A bound that is no real instant ("2026-02-30T…") is no filter, instead of failing in Postgres.
+  const instant = (value: string | undefined) => {
+    const time = value ? Date.parse(value) : Number.NaN
+    return Number.isFinite(time) ? new Date(time).toISOString() : null
   }
-  if (filters.finishedTo) {
-    where.push("p.finished_at <> '' AND p.finished_at <= ?")
-    params.push(filters.finishedTo)
+  const createdFrom = instant(filters.createdFrom)
+  const createdTo = instant(filters.createdTo)
+  const finishedFrom = instant(filters.finishedFrom)
+  const finishedTo = instant(filters.finishedTo)
+  if (createdFrom) {
+    where.push("NULLIF(p.created_at, '')::timestamptz >= ?::timestamptz")
+    params.push(createdFrom)
+  }
+  if (createdTo) {
+    where.push("NULLIF(p.created_at, '')::timestamptz <= ?::timestamptz")
+    params.push(createdTo)
+  }
+  if (finishedFrom) {
+    where.push("(p.finished_at = '' OR p.finished_at::timestamptz >= ?::timestamptz)")
+    params.push(finishedFrom)
+  }
+  if (finishedTo) {
+    where.push("(p.finished_at = '' OR p.finished_at::timestamptz <= ?::timestamptz)")
+    params.push(finishedTo)
   }
   for (const [key, direction] of [[filters.madeKey, "made"], [filters.rawKey, "raw"]] as const) {
     const [kind, id] = (key ?? "").split(":")
@@ -241,7 +261,8 @@ export async function getPartyDetail(id: number): Promise<PartyDetail | null> {
   const party = await getParty(id)
   if (!party) return null
   const db = await getProductionDb()
-  const booked = ((await db.prepare(`${MOVEMENT_SELECT} WHERE m.party_id = ? ORDER BY m.id DESC`).all(id)) as MovementRow[]).map(toMovement)
+  // Oldest line first, as the reference lists a batch's lines.
+  const booked = ((await db.prepare(`${MOVEMENT_SELECT} WHERE m.party_id = ? ORDER BY m.id`).all(id)) as MovementRow[]).map(toMovement)
   const movements = await withLedgerCosts(db, booked)
   const made = movements.filter((row) => row.direction === "made" && !row.isDefect)
   const raw = movements.filter((row) => row.direction === "raw" && !row.isDefect)
@@ -305,7 +326,7 @@ async function partyLines(db: PgDb, partyId: number): Promise<PartyLine[]> {
 
 /** Cancelling takes the batch's output (good and defective units) back out of
  * the warehouse and returns its raw materials, so the output must still be there. */
-async function ensureCancellable(db: PgDb, lines: PartyLine[]) {
+async function ensureCancellable(db: PgDb, lines: PartyLine[], prefix = "Не возможно отменить. ") {
   const byWarehouse = new Map<string, { warehouse: string; needs: StockNeed[] }>()
   for (const line of lines) {
     const amount = Number(line.amount) || 0
@@ -318,7 +339,7 @@ async function ensureCancellable(db: PgDb, lines: PartyLine[]) {
     byWarehouse.set(textKey(line.warehouse), group)
   }
   for (const group of byWarehouse.values()) {
-    if (textKey(group.warehouse)) await ensureAvailable(db, group.warehouse, group.needs, "Не возможно отменить. ")
+    if (textKey(group.warehouse)) await ensureAvailable(db, group.warehouse, group.needs, prefix)
   }
 }
 
@@ -356,6 +377,26 @@ export async function updateParty(id: number, input: { stageId: number; status: 
     return "ok" as const
   })
   return result === "ok" ? (await getParty(id))! : result
+}
+
+/** Only batches still in progress or cancelled can be deleted (a finished one can only be
+ * cancelled); their movements go with them. A batch in progress already moved stock (its raw
+ * lines left the warehouse, its output came in), so deleting it is the same undo as
+ * cancelling it: it must leave no warehouse negative on any day (409 otherwise). A cancelled
+ * batch no longer counts in the stock or the cost ledger. */
+export async function deleteParty(id: number): Promise<"ok" | "not_found" | "finished"> {
+  await getProductionDb()
+  return withTransaction(async (db) => {
+    // Lock order (C1): the stock locks of every warehouse the batch touched, before the batch's row lock.
+    await lockWarehousesOf(db, "SELECT DISTINCT warehouse FROM production_movements WHERE party_id = @id", { id })
+    const current = await lockParty(db, id)
+    if (!current) return "not_found" as const
+    if (current.status === "finished") return "finished" as const
+    if (current.status === "pending") await ensureCancellable(db, await partyLines(db, id), "Не возможно удалить. ")
+    await db.prepare("DELETE FROM production_movements WHERE party_id = ?").run(id)
+    await db.prepare("DELETE FROM production_parties WHERE id = ?").run(id)
+    return "ok" as const
+  })
 }
 
 /** The value of everything the batch consumed (raw lines, spoiled raw

@@ -3,6 +3,7 @@ import "server-only"
 import type { Product } from "@/components/analytics/products-data"
 import { parseItemPrices } from "@/lib/item-prices"
 import { catalogDb } from "@/lib/products-schema"
+import { shortRuDate } from "@/lib/ref-date"
 import { withCostOfGoods } from "@/lib/stock/costs"
 
 // The default (legacy) shape of GET /api/products, POST and PUT responses: one array of
@@ -49,6 +50,8 @@ function rowToProduct(row: Row): Product {
     markedProduct: flag(row.marked_product),
     limitPrice: flag(row.limit_price),
     group: text(row.product_group),
+    boxUnit: text(row.box_unit).trim(),
+    boxAmount: num(row.box_amount),
     ikpu: text(row.ikpu),
     invoiceUnitCode: text(row.invoice_unit_code),
     vat: text(row.vat) || "Без НДС",
@@ -67,7 +70,7 @@ function rowToProduct(row: Row): Product {
     cost: num(row.cost),
     priceMin: num(row.price_min),
     priceMax: num(row.price_max),
-    priceUpdatedDate: text(row.price_updated_date) || "Не установлена",
+    priceUpdatedDate: shortRuDate(text(row.price_updated_date)) || "Не установлена",
   }
 }
 

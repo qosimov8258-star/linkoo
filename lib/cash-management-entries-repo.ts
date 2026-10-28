@@ -1,3 +1,4 @@
+import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { z } from "zod"
@@ -117,9 +118,10 @@ async function toOperationInput(body: CashManagementEntryBody): Promise<CashOper
 export async function listCashManagementEntries(cashboxId?: number): Promise<CashManagementEntry[]> {
   const db = getDb()
   await ensureCashSchema(db)
+  const branch = await selectedBranchName()
   const rows = isDbId(cashboxId)
-    ? ((await db.prepare("SELECT * FROM cash_management_entries WHERE cashbox_id = @id AND is_deleted = 0 ORDER BY id DESC").all({ id: cashboxId })) as Row[])
-    : ((await db.prepare("SELECT * FROM cash_management_entries WHERE is_deleted = 0 ORDER BY id DESC").all()) as Row[])
+    ? ((await db.prepare("SELECT * FROM cash_management_entries WHERE cashbox_id = @id AND is_deleted = 0 AND (@branch::text = '' OR branch = @branch) ORDER BY id DESC").all({ id: cashboxId, branch })) as Row[])
+    : ((await db.prepare("SELECT * FROM cash_management_entries WHERE is_deleted = 0 AND (@branch::text = '' OR branch = @branch) ORDER BY id DESC").all({ branch })) as Row[])
   return rows.map(rowToEntry)
 }
 

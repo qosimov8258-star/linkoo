@@ -33,6 +33,9 @@ export type Product = {
   showInBot: boolean
   markedProduct: boolean
   limitPrice: boolean
+  /** Box ("коробка") the product is packed in and how many units it holds (the supply form shows the box count). */
+  boxUnit?: string
+  boxAmount?: number
   group: string
   ikpu: string
   invoiceUnitCode: string

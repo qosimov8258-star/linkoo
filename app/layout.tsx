@@ -6,12 +6,15 @@ import { TopNav } from '@/components/dashboard/top-nav'
 import { BrandCornerLogo } from '@/components/dashboard/brand-corner-logo'
 import { getCurrentUser } from '@/lib/current-user'
 import { getServerLanguage } from '@/lib/i18n/server'
+import { ConfirmHost } from '@/components/ref/confirm-host'
+import { AlertHost } from '@/components/ref/alert-host'
 import { translate } from '@/lib/i18n/translate'
 import { routeTitle } from '@/lib/route-titles'
 import { SESSION_COOKIE, verifySession } from '@/lib/session'
 import { SessionGuard } from '@/lib/session-guard'
 import { TableFitter } from '@/components/ref/table-fitter'
 import { TableSorter } from '@/components/ref/table-sorter'
+import { TitleTooltips } from '@/components/ref/title-tooltips'
 import { DomTranslator } from '@/lib/i18n/dom-translator'
 import { LanguageProvider } from '@/lib/i18n/language-context'
 import './globals.css'
@@ -77,10 +80,10 @@ export default async function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&subset=cyrillic,latin&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&subset=cyrillic,latin&display=swap"
         />
       </head>
-      <body className="font-sans antialiased">
+      <body className="font-sans">
         <LanguageProvider initialLanguage={language}>
           <div className="min-h-screen bg-[#f2f5f8]">
             <TopNav />
@@ -91,6 +94,9 @@ export default async function RootLayout({
           <DomTranslator />
           <TableSorter />
           <TableFitter />
+          <TitleTooltips />
+          <ConfirmHost />
+          <AlertHost />
         </LanguageProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

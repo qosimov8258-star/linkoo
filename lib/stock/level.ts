@@ -57,7 +57,9 @@ async function loadContext(db: PgDb): Promise<Context> {
   const tables = await stockTables(db)
   const [catalog, itemCosts] = await Promise.all([loadStockCatalog(db, tables), getWarehouseItemCosts({}, db)])
   const { costs, byWarehouse, costOf: costIn } = itemCosts
-  const [balances, pending, cc] = await Promise.all([computeStockBalances({}, db, catalog, costs, byWarehouse), computeStockPending({}, db), loadCurrencyContext(db)])
+  const [rawBalances, pending, cc] = await Promise.all([computeStockBalances({}, db, catalog, costs, byWarehouse), computeStockPending({}, db), loadCurrencyContext(db)])
+  // The reference's "Остаток" never flags production defects separately (Брак is always 0 there and they stay in the total).
+  const balances = rawBalances.map((row) => ({ ...row, defects: 0 }))
   const branchOf = new Map<string, string>()
   if (tables.has("warehouses")) {
     const rows = (await db.prepare("SELECT name, branch FROM warehouses ORDER BY id").all()) as Array<{ name: string; branch: string | null }>
@@ -186,7 +188,7 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
     line.transit += row.transit
   }
 
-  const orphanKeys = [...acc.entries()].filter(([key, item]) => !byKey.has(key) && (item.total || item.reserved || item.transit || item.stocks.size)).map(([key]) => key)
+  const orphanKeys = [...acc.entries()].filter(([key, item]) => !byKey.has(key) && (item.total || item.reserved || item.transit)).map(([key]) => key)
   const orphans = orphanKeys.length ? await orphanItems(orphanKeys, db, ctx.tables) : new Map<string, { name: string; unit: string }>()
 
   const priceList = query.priceList.trim()
@@ -209,7 +211,15 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
   const units = new Set<string>()
   const byUnit = new Map<string, StockLevelUnitTotal>()
   const rows: StockLevelRow[] = []
-  const keys = [...ctx.catalog.map((item) => item.key), ...orphanKeys]
+  // Inventory items (products.is_inventory, shown on their own pages) are not stock until they hold some; the reference's list leaves them out.
+  const inventoryKeys = ctx.tables.col("products", "is_inventory")
+    ? new Set(((await db.prepare("SELECT id FROM products WHERE COALESCE(is_inventory, 0) = 1").all()) as Array<{ id: number }>).map((row) => `product:${row.id}`))
+    : new Set<string>()
+  const keys = [...ctx.catalog.map((item) => item.key), ...orphanKeys].filter((key) => {
+    if (!inventoryKeys.has(key)) return true
+    const held = acc.get(key)
+    return Boolean(held && (held.total || held.reserved || held.transit))
+  })
   for (const key of keys) {
     const item = byKey.get(key)
     const orphan = orphans.get(key)

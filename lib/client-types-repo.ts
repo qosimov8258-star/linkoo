@@ -15,9 +15,11 @@ export type ClientType = {
   name: string
   supplier: string
   date: string
+  parentId: number | null
+  innRequired: boolean
 }
 
-type Row = { id: number; name: string; supplier: string; created_at: string }
+type Row = { id: number; name: string; supplier: string; created_at: string; parent_id: number | null; inn_required: number }
 
 export class ClientTypeError extends Error {
   constructor(
@@ -29,7 +31,7 @@ export class ClientTypeError extends Error {
   }
 }
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 declare global {
   var __linkoClientTypesSchema: { version: number; ready: Promise<void> } | undefined
@@ -47,6 +49,8 @@ async function ensureSchema(): Promise<void> {
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        ALTER TABLE client_types ADD COLUMN IF NOT EXISTS parent_id INTEGER;
+        ALTER TABLE client_types ADD COLUMN IF NOT EXISTS inn_required INTEGER NOT NULL DEFAULT 0;
       `)
       // Case-insensitive unique names; skipped while an older database still
       // holds twins (the API refuses new ones either way).
@@ -77,10 +81,10 @@ function dateLabel(iso: string): string {
 }
 
 function rowToClientType(row: Row): ClientType {
-  return { id: row.id, name: row.name, supplier: row.supplier, date: dateLabel(row.created_at) }
+  return { id: row.id, name: row.name, supplier: row.supplier, date: dateLabel(row.created_at), parentId: row.parent_id ?? null, innRequired: !!row.inn_required }
 }
 
-export type ClientTypeInput = { name: string; supplier: string }
+export type ClientTypeInput = { name: string; supplier: string; parentId: number | null; innRequired: boolean }
 
 export function parseClientTypeInput(body: unknown): ClientTypeInput | null {
   if (!body || typeof body !== "object") return null
@@ -88,7 +92,8 @@ export function parseClientTypeInput(body: unknown): ClientTypeInput | null {
   const name = typeof value.name === "string" ? value.name.trim() : ""
   if (!name) return null
   const supplier = typeof value.supplier === "string" && value.supplier.trim() ? value.supplier.trim() : "Не указано"
-  return { name, supplier }
+  const parentId = typeof value.parentId === "number" && Number.isInteger(value.parentId) ? value.parentId : null
+  return { name, supplier, parentId, innRequired: value.innRequired === true }
 }
 
 // Clients (and KPI tasks) store the type NAME.
@@ -102,7 +107,12 @@ const REFERENCES = [
 
 export async function listClientTypes(): Promise<ClientType[]> {
   await ensureSchema()
-  return ((await getDb().prepare("SELECT * FROM client_types ORDER BY id DESC").all()) as Row[]).map(rowToClientType)
+  const rows = ((await getDb().prepare("SELECT * FROM client_types").all()) as Row[]).map(rowToClientType)
+  // Like the reference hierarchy: by name (case-insensitive), every child right after its parent.
+  const byName = (a: ClientType, b: ClientType) => a.name.toLowerCase().localeCompare(b.name.toLowerCase(), "en") || a.id - b.id
+  const ids = new Set(rows.map((row) => row.id))
+  const roots = rows.filter((row) => row.parentId === null || !ids.has(row.parentId)).sort(byName)
+  return roots.flatMap((root) => [root, ...rows.filter((row) => row.parentId === root.id).sort(byName)])
 }
 
 export async function getClientType(id: number): Promise<ClientType | null> {
@@ -128,7 +138,7 @@ export async function createClientType(input: ClientTypeInput): Promise<ClientTy
     const id = await withTransaction(async (tx) => {
       await tx.prepare("LOCK TABLE client_types IN SHARE ROW EXCLUSIVE MODE").run()
       await assertNameFree(tx, input.name, 0)
-      const result = await tx.prepare("INSERT INTO client_types (name, supplier) VALUES (@name, @supplier)").run(input)
+      const result = await tx.prepare("INSERT INTO client_types (name, supplier, parent_id, inn_required) VALUES (@name, @supplier, @parentId, @innRequired)").run({ ...input, innRequired: input.innRequired ? 1 : 0 })
       return Number(result.lastInsertRowid)
     })
     return (await getClientType(id))!
@@ -147,7 +157,7 @@ export async function updateClientType(id: number, input: ClientTypeInput): Prom
       const current = (await tx.prepare("SELECT * FROM client_types WHERE id = ?").get(id)) as Row | undefined
       if (!current) return false
       if (nameKey(current.name) !== nameKey(input.name)) await assertNameFree(tx, input.name, id)
-      await tx.prepare("UPDATE client_types SET name = @name, supplier = @supplier, updated_at = datetime('now') WHERE id = @id").run({ ...input, id })
+      await tx.prepare("UPDATE client_types SET name = @name, supplier = @supplier, parent_id = @parentId, inn_required = @innRequired, updated_at = datetime('now') WHERE id = @id").run({ ...input, innRequired: input.innRequired ? 1 : 0, id })
       // Another type with the same key (older twins) keeps the clients on its name.
       const twins = (await tx.prepare(`SELECT COUNT(*)::int AS n FROM client_types WHERE ${keySql("name")} = ${keySql("?::text")} AND id <> ?`).get(current.name, id)) as { n: number }
       if (!twins.n) await cascadeNameRename(tx, await existingReferences(tx, REFERENCES), current.name, input.name)

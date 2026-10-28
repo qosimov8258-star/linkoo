@@ -1,11 +1,13 @@
 import "server-only"
 
+import { getFieldSummary, type FieldSummary } from "@/lib/agent-visits-repo"
 import { customerPaymentTotals } from "@/lib/cash/customer-payments"
 import { acceptedReturnTotals } from "@/lib/client-returns-repo"
 import { getDb } from "@/lib/db"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { orderCountedSql } from "@/lib/finance/sources"
 import { ensureOrdersSchema } from "@/lib/orders-repo"
+import { selectedBranchName } from "@/lib/selected-branch"
 
 // Home dashboard (/) cards, computed from the same cores as the money and
 // order pages, per currency (never one "primary" currency), by LOCAL day
@@ -20,6 +22,8 @@ import { ensureOrdersSchema } from "@/lib/orders-repo"
 // - АКБ: distinct clients of the counted orders.
 // - Продажи в Штуках / Блоках / Весе: Σ quantity of the counted orders' lines,
 //   Σ quantity / products.box_amount, Σ quantity × products.weight (kg).
+// - field: the attendance tiles (employee-days of Посещаемость) and the share of
+//   successful visits (field activity), see lib/agent-visits-repo.ts getFieldSummary.
 
 export type CurrencyAmount = { value: number; currency: string }
 
@@ -31,6 +35,7 @@ export type DashboardSummary = {
   returns: CurrencyAmount[]
   akb: number
   units: { pieces: number; blocks: number; weight: number }
+  field: FieldSummary
   orderStatusCounts: {
     shipped: number
     inTransit: number
@@ -53,8 +58,10 @@ export async function getDashboardSummary(begin: string, end: string): Promise<D
   await ensureFinanceSchema(db)
   const baseRow = (await db.prepare("SELECT code FROM currencies ORDER BY is_base DESC, id LIMIT 1").get()) as { code: string } | undefined
   const base = baseRow?.code ?? "SUM"
-  const params = { from: begin, to: end, base }
-  const counted = `o.id IN (SELECT o.id FROM orders o WHERE ${orderCountedSql("o")} AND ${ORDER_DAY} BETWEEN @from::date AND @to::date)`
+  // The branch picked in the top bar limits the orders ("" = all branches).
+  const branch = await selectedBranchName()
+  const params = { from: begin, to: end, base, branch }
+  const counted = `o.id IN (SELECT o.id FROM orders o WHERE ${orderCountedSql("o")} AND ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text))`
 
   const [salesRows, unitRow, akbRow, statusRows, payments, returns] = await Promise.all([
     db
@@ -86,7 +93,7 @@ export async function getDashboardSummary(begin: string, end: string): Promise<D
       )
       .get(params) as Promise<{ n: number } | undefined>,
     db
-      .prepare(`SELECT o.status, COUNT(*)::int AS n FROM orders o WHERE ${ORDER_DAY} BETWEEN @from::date AND @to::date GROUP BY 1`)
+      .prepare(`SELECT o.status, COUNT(*)::int AS n FROM orders o WHERE ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text) GROUP BY 1`)
       .all(params) as Promise<Array<{ status: string; n: number }>>,
     customerPaymentTotals({ from: begin, to: end, tab: "all" }),
     acceptedReturnTotals(begin, end, db),
@@ -102,6 +109,7 @@ export async function getDashboardSummary(begin: string, end: string): Promise<D
     payments: payments.totals.map((row) => ({ currency: row.currency, value: round(row.total) })).filter((row) => row.value !== 0),
     returns: returns.totals.map((row) => ({ currency: row.currency, value: row.amount })),
     akb: akbRow?.n ?? 0,
+    field: await getFieldSummary(begin, end),
     units: {
       pieces: round(unitRow?.pieces ?? 0, 3),
       blocks: round(unitRow?.blocks ?? 0, 2),

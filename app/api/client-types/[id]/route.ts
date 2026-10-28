@@ -8,6 +8,8 @@ import { requireRole } from "@/lib/rbac"
 const clientTypeSchema = z.object({
   name: nameField("Укажите название типа клиента", 200),
   supplier: textField(200).optional(),
+  parentId: z.number().int().nullable().optional(),
+  innRequired: z.boolean().optional(),
 })
 
 type RouteParams = { params: Promise<{ id: string }> }
@@ -30,7 +32,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
   if (parsed.error) return parsed.error
 
   try {
-    const clientType = await updateClientType(id, { name: parsed.data.name, supplier: parsed.data.supplier || "Не указано" })
+    const clientType = await updateClientType(id, {
+      name: parsed.data.name,
+      supplier: parsed.data.supplier || "Не указано",
+      parentId: parsed.data.parentId ?? null,
+      innRequired: parsed.data.innRequired ?? false,
+    })
     if (!clientType) return NextResponse.json(NOT_FOUND, { status: 404 })
     return NextResponse.json(clientType)
   } catch (error) {

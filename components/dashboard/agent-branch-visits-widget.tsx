@@ -33,14 +33,15 @@ const BRANCH_COLUMNS = [
   "% внепланового визита",
   "Рез.визит",
   "Отказ",
-  "Среднее",
+  "Ср.чек",
+  "Srike rate",
 ]
 
 const GROUPINGS = ["По товарам", "По брендам", "По категориям", "По клиентам"]
 const MEASURES = ["Факт продажи", "Факт АКБ", "Факт"]
 const ORDER_DATES = ["По дате создания", "По дате доставки"]
 
-type Person = { id: number; firstName: string; lastName: string; position: string }
+type Person = { id: number; firstName: string; lastName: string; position: string; branchIds?: number[] }
 
 function SortHead({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
@@ -92,6 +93,36 @@ function ShowMore({ expanded, onClick }: { expanded: boolean; onClick: () => voi
   )
 }
 
+function isoDay(value: string): number {
+  const [year, month, day] = value.split("-").map(Number)
+  return Date.UTC(year, month - 1, day) / 86400000
+}
+
+type BranchTotals = { sales: number; plan: number; completion: number; akb: number; visited: number; notVisited: number; outside: number; outsidePct: number; orderCount: number; refusals: number; average: number; strike: number }
+
+/** One row of the branch table: pale-red/green percent pills for the route and strike-rate cells like the reference. */
+function BranchCells({ label, values, dark = false }: { label: string; values: BranchTotals; dark?: boolean }) {
+  const cell = `px-[17px] py-3 font-bold ${dark ? "border-r border-[#666]" : "border-r border-[#8fa8e8]"}`
+  const pill = (value: number, good: boolean) => <span className={`rounded px-2 py-1 ${good ? "bg-[#d4f5e0] text-[#2e9e5b]" : "bg-[#ffd9d9] text-[#e57373]"}`}>{value}%</span>
+  return (
+    <>
+      <td className={cell}>{label}</td>
+      <td className={cell}>{values.sales}</td>
+      <td className={cell}>{values.plan}</td>
+      <td className={cell}>{pill(values.completion, values.completion > 50)}</td>
+      <td className={cell}>{values.akb}</td>
+      <td className={cell}>{values.visited}</td>
+      <td className={cell}>{values.notVisited}</td>
+      <td className={cell}>{values.outside}</td>
+      <td className={cell}>{pill(values.outsidePct, false)}</td>
+      <td className={cell}>{values.orderCount}</td>
+      <td className={cell}>{values.refusals}</td>
+      <td className={cell}>{values.average}</td>
+      <td className={cell}>{pill(values.strike, values.strike > 50)}</td>
+    </>
+  )
+}
+
 function useOrders() {
   const [orders, setOrders] = useState<OrderLite[]>([])
   useEffect(() => {
@@ -107,6 +138,23 @@ function useOrders() {
     }
   }, [])
   return orders
+}
+
+function useBranchNames() {
+  const [names, setNames] = useState<Map<number, string>>(new Map())
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/branches")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data: Array<{ id: number; name: string }>) => {
+        if (!cancelled && Array.isArray(data)) setNames(new Map(data.map((branch) => [branch.id, branch.name])))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return names
 }
 
 function useEmployees() {
@@ -179,7 +227,42 @@ function AxisChart({ values }: { values: number[] }) {
   )
 }
 
-export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true }: { showTrends?: boolean; showCouriers?: boolean }) {
+type VisitStats = { agents: VisitStatRow[]; problems: number }
+type VisitStatRow = {
+  name: string
+  firstVisit: string
+  lastVisit: string
+  plan: number
+  visited: number
+  outside: number
+  orders: number
+  refusals: number
+  notVisited: number
+  akb: number
+  routeCompletion: number
+  sales: number
+}
+
+function useVisitStats(begin: string, end: string) {
+  const [stats, setStats] = useState<VisitStats>({ agents: [], problems: 0 })
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/agent-visits?view=stats&begin=${begin}&end=${end}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: VisitStats | null) => {
+        if (!cancelled && data) setStats(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [begin, end])
+  return stats
+}
+
+const formatSum = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/[\u00a0\u202f]/g, " ")} SUM`
+
+export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true, begin, end }: { showTrends?: boolean; showCouriers?: boolean; begin: string; end: string }) {
   const { t } = useLanguage()
   const [tab, setTab] = useState<"all" | "one">("all")
   const [grouping, setGrouping] = useState(GROUPINGS[0])
@@ -190,43 +273,71 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
   const [agentsExpanded, setAgentsExpanded] = useState(false)
   const [couriersExpanded, setCouriersExpanded] = useState(false)
   const people = useEmployees()
+  const branchNames = useBranchNames()
   const orders = useOrders()
+  const stats = useVisitStats(begin, end)
 
-  const total = orders.length
+  // Like the reference, every block below follows the selected date range.
+  const beginDay = isoDay(begin)
+  const endDay = isoDay(end)
+  const rangedOrders = useMemo(
+    () =>
+      orders.filter((order) => {
+        const day = orderDay(order.created)
+        return day !== null && day >= beginDay && day <= endDay
+      }),
+    [orders, beginDay, endDay],
+  )
   const byProduct = useMemo(() => {
     const map = new Map<string, number>()
-    for (const order of orders) map.set(order.product || "—", (map.get(order.product || "—") ?? 0) + 1)
+    for (const order of rangedOrders) if (order.status !== "Отменен") map.set(order.product || "—", (map.get(order.product || "—") ?? 0) + 1)
     return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-  }, [orders])
-  const cancelled = orders.filter((order) => order.status === "Отменен").length
-  const agentCount = new Set(orders.map((order) => order.agent)).size
-  const akbClients = new Set(orders.map((order) => order.client)).size
+  }, [rangedOrders])
+  const cancelled = rangedOrders.filter((order) => order.status === "Отменен").length
   const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0)
+  const visitTotals = stats.agents.reduce(
+    (sum, row) => ({ plan: sum.plan + row.plan, visited: sum.visited + row.visited, outside: sum.outside + row.outside, notVisited: sum.notVisited + row.notVisited }),
+    { plan: 0, visited: 0, outside: 0, notVisited: 0 },
+  )
+  const cellValue = (row: VisitStatRow, key: string) => {
+    switch (key) {
+      case "firstVisit": return row.firstVisit
+      case "lastVisit": return row.lastVisit
+      case "visitPlan": return String(row.plan)
+      case "visited": return String(row.visited)
+      case "orders": return String(row.orders)
+      case "refusals": return String(row.refusals)
+      case "notVisited": return String(row.notVisited)
+      case "akb": return String(row.akb)
+      case "routeCompletion": return `${row.routeCompletion}%`
+      case "sales": return formatSum(row.sales)
+      default: return ""
+    }
+  }
   const dailyCounts = useMemo(() => {
     const days = orders.map((order) => orderDay(order.created)).filter((day): day is number => day !== null)
-    const last = days.length ? Math.max(...days) : 0
+    const last = endDay
     const counts = Array(10).fill(0) as number[]
     for (const day of days) {
       const slot = 9 - (last - day)
       if (slot >= 0 && slot <= 9) counts[slot] += 1
     }
     return counts
-  }, [orders])
+  }, [orders, endDay])
 
   const courierStats = (name: string) => {
-    const own = orders.filter((order) => order.agent === name)
+    const own = rangedOrders.filter((order) => order.agent === name)
     const shipped = own.filter((order) => order.status === "В пути" || order.status === "Доставлено").length
     const delivered = own.filter((order) => order.status === "Доставлено").length
     const returned = own.filter((order) => order.status === "Отменен").length
     return { shipped, delivered, returned }
   }
-  const totalShipped = orders.filter((order) => order.status === "В пути" || order.status === "Доставлено").length
-  const totalDelivered = orders.filter((order) => order.status === "Доставлено").length
+  const totalShipped = rangedOrders.filter((order) => order.status === "В пути" || order.status === "Доставлено").length
+  const totalDelivered = rangedOrders.filter((order) => order.status === "Доставлено").length
 
-  // Orders per agent over the 10 days ending at the most recent order.
+  // Orders per agent over the 10 days ending at the end of the selected range.
   const trends = useMemo(() => {
-    const days = orders.map((order) => orderDay(order.created)).filter((day): day is number => day !== null)
-    const last = days.length ? Math.max(...days) : 0
+    const last = endDay
     const byAgent = new Map<string, { sales: number[]; clients: Set<string>[] }>()
     for (const order of orders) {
       const day = orderDay(order.created)
@@ -239,7 +350,42 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
       byAgent.set(order.agent, entry)
     }
     return byAgent
-  }, [orders])
+  }, [orders, endDay])
+
+  // Branch table: visit stats of the range grouped by the agent's branch.
+  const branchRows = useMemo(() => {
+    // An agent is listed under the first branch of his access list, like the reference.
+    const branchOf = new Map(people.map((person) => [`${person.firstName} ${person.lastName}`.trim(), branchNames.get(person.branchIds?.[0] ?? -1) || "—"]))
+    const groups = new Map<string, VisitStatRow[]>()
+    for (const row of stats.agents) {
+      const branch = branchOf.get(row.name) || "—"
+      groups.set(branch, [...(groups.get(branch) ?? []), row])
+    }
+    const summarize = (rows: VisitStatRow[]) => {
+      const sum = (pick: (row: VisitStatRow) => number) => rows.reduce((value, row) => value + pick(row), 0)
+      const plan = sum((row) => row.plan)
+      const visited = sum((row) => row.visited)
+      const outside = sum((row) => row.outside)
+      const orderCount = sum((row) => row.orders)
+      const sales = sum((row) => row.sales)
+      const attended = visited + outside
+      return {
+        sales,
+        plan,
+        completion: pct(visited, plan),
+        akb: sum((row) => row.akb),
+        visited,
+        notVisited: sum((row) => row.notVisited),
+        outside,
+        outsidePct: pct(outside, attended),
+        orderCount,
+        refusals: sum((row) => row.refusals),
+        average: orderCount ? Math.round(sales / orderCount) : 0,
+        strike: pct(orderCount, attended),
+      }
+    }
+    return { rows: [...groups.entries()].map(([branch, rows]) => ({ branch, ...summarize(rows) })), total: summarize(stats.agents) }
+  }, [people, stats, branchNames])
 
   const visibleColumns = COLUMN_DEFS.filter((column) => visibleColumnKeys.includes(column.key))
   const fullName = (person: Person) => `${person.firstName} ${person.lastName}`.trim()
@@ -250,11 +396,11 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
   return (
     <div className="space-y-5">
       <div className={`${CARD_CLASS} flex overflow-hidden`}>
-        <SummaryBox value={String(agentCount)} label="Активные" tone="green" />
-        <SummaryBox value={`${total - cancelled} / ${total} (${pct(total - cancelled, total)}%)`} label="Визиты по маршруту" tone="neutral" />
-        <SummaryBox value={`${cancelled} / ${total} (${pct(cancelled, total)}%)`} label="Не посещено" tone="neutral" />
-        <SummaryBox value={`0 / ${total} (0%)`} label="Вне маршрута" tone="neutral" />
-        <SummaryBox value={String(cancelled)} label="Проблемные" tone="red" />
+        <SummaryBox value={String(stats.agents.length)} label="Активные" tone="green" />
+        <SummaryBox value={`${visitTotals.visited} / ${visitTotals.plan} (${pct(visitTotals.visited, visitTotals.plan)}%)`} label="Визиты по маршруту" tone="neutral" />
+        <SummaryBox value={`${visitTotals.notVisited} / ${visitTotals.plan} (${pct(visitTotals.notVisited, visitTotals.plan)}%)`} label="Не посещено" tone="neutral" />
+        <SummaryBox value={`${visitTotals.outside} / ${visitTotals.visited + visitTotals.outside} (${pct(visitTotals.outside, visitTotals.visited + visitTotals.outside)}%)`} label="Вне маршрута" tone="neutral" />
+        <SummaryBox value={String(stats.problems)} label="Проблемные" tone="red" />
       </div>
 
       <div className={`${CARD_CLASS} overflow-x-auto pb-5`}>
@@ -267,7 +413,16 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
               ))}
             </tr>
           </thead>
-          <tbody />
+          <tbody>
+            {stats.agents.map((row) => (
+              <tr key={row.name} className="border-t border-dotted border-[#ddd]">
+                <td className="whitespace-nowrap px-[17px] py-[10px] font-semibold">{row.name}</td>
+                {visibleColumns.map((column) => (
+                  <td key={column.key} className="whitespace-nowrap px-[17px] py-[10px]">{cellValue(row, column.key)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
         </table>
       </div>
 
@@ -297,19 +452,13 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
               </tr>
             </thead>
             <tbody>
+              {branchRows.rows.map((row) => (
+                <tr key={row.branch} className="bg-[#a9c1fb]">
+                  <BranchCells label={row.branch} values={row} />
+                </tr>
+              ))}
               <tr className="bg-[#454545] text-white">
-                <td className="border-r border-[#666] px-[17px] py-3 font-bold">{t("Итого")}</td>
-                {BRANCH_COLUMNS.slice(1).map((column, index) => (
-                  <td key={column} className="border-r border-[#666] px-[17px] py-3 font-bold">
-                    {index === 2 ? (
-                      <span className={`rounded px-2 py-1 ${pct(total - cancelled, total) > 50 ? "bg-[#d4f5e0] text-[#2e9e5b]" : "bg-[#ffd9d9] text-[#e57373]"}`}>{pct(total - cancelled, total)}%</span>
-                    ) : index === 7 ? (
-                      <span className="rounded bg-[#d4f5e0] px-2 py-1 text-[#2e9e5b]">0%</span>
-                    ) : (
-                      [total, total, null, akbClients, total - cancelled, cancelled, 0, null, totalDelivered, cancelled, agentCount ? Math.round(total / agentCount) : 0][index]
-                    )}
-                  </td>
-                ))}
+                <BranchCells label={t("Итого")} values={branchRows.total} dark />
               </tr>
             </tbody>
           </table>
@@ -371,10 +520,10 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
         <div className={`${CARD_CLASS} overflow-hidden`}>
           <div className="grid grid-cols-4 border-b border-[#efefef] text-center">
             {[
-              { value: String(total - cancelled), label: "Посещено", color: "#333" },
-              { value: String(akbClients), label: "АКБ", color: "#81c784" },
-              { value: String(cancelled), label: "Отказали", color: "#e57373" },
-              { value: `${pct(totalDelivered, total)}%`, label: "Эф.маршрута", color: "#333" },
+              { value: String(visitTotals.visited + visitTotals.outside), label: "Посещено", color: "#333" },
+              { value: String(branchRows.total.akb), label: "АКБ", color: "#81c784" },
+              { value: String(branchRows.total.refusals), label: "Отказали", color: "#e57373" },
+              { value: `${branchRows.total.completion}%`, label: "Эф.маршрута", color: "#333" },
             ].map((cell) => (
               <div key={cell.label} className="border-r border-[#efefef] py-4 last:border-r-0">
                 <div className="text-[18px] leading-6" style={{ color: cell.color }}>{cell.value}</div>

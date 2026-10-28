@@ -280,12 +280,13 @@ export function SupplierBalanceView() {
     return nameCell(
       row,
       editable && (
-        <>
+        <span className="-my-[6px] flex">
           <button
             type="button"
             title={t("Добавить расход поставщику")}
             aria-label={t("Добавить расход поставщику")}
             onClick={stop(() => update({ openCreateDialog: "true", provider: row.id }))}
+            className="flex h-9 w-9 items-center justify-center"
           >
             <CircleMinus className="h-6 w-6 fill-[#ff584b] text-white" />
           </button>
@@ -294,10 +295,11 @@ export function SupplierBalanceView() {
             title={t("Добавить приход поставщику")}
             aria-label={t("Добавить приход поставщику")}
             onClick={stop(() => update({ openAddDialog: "true", provider: row.id }))}
+            className="flex h-9 w-9 items-center justify-center"
           >
             <CirclePlus className="h-6 w-6 fill-[#8dc572] text-white" />
           </button>
-        </>
+        </span>
       ),
     )
   }
@@ -308,26 +310,25 @@ export function SupplierBalanceView() {
     : undefined
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Баланс поставщиков")}</span>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс поставщиков")}</span>
         </div>
       </header>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button type="button" onClick={openFilter} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-          <Filter className="h-4 w-4" /> {t("Фильтр")}
-          {filterCount > 0 ? ` / ${filterCount}` : ""}
+      <section className="flex flex-wrap items-center gap-4 px-[30px] pb-[10px] pt-5">
+        <button type="button" onClick={openFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+          <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg><span className="pl-2">{t("Фильтр")}{filterCount > 0 ? ` / ${filterCount}` : ""}</span>
         </button>
         {urlFrom && (
-          <span className="font-semibold text-[#4f70e7]">
+          <span className="text-[13px] font-semibold text-[#4f71dc]">
             {formatDotDate(from)} - {formatDotDate(to)}
           </span>
         )}
-        <span className="text-[#4f70e7]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
+        <span className="text-[13px] font-semibold text-[#4f71dc]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
         <div className="ml-auto">
           <BalanceDownloadMenu disabled={downloading} items={[{ label: "Скачать все", onClick: downloadAll }]} />
         </div>
@@ -335,18 +336,18 @@ export function SupplierBalanceView() {
 
       {list.error && <p className="px-6 pb-4 text-[#e57373] md:px-9">{t(list.error)}</p>}
 
-      <BalanceSummaryCards boxes={SUMMARY_BOXES} totals={list.data?.totals ?? {}} currencies={visible} loading={list.loading} />
+      <BalanceSummaryCards digits={3} compact hideCurrency boxes={SUMMARY_BOXES} totals={list.data?.totals ?? {}} currencies={visible} loading={list.loading} />
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
-          <div className="flex overflow-hidden rounded-sm">
+        <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] pb-[8px] pt-[17px]">
+          <div className="flex">
             {TOGGLES.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => item.id !== toggle && update({ toggle: item.id === "balance" ? null : item.id, ordering: null, page: null })}
-                className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${
-                  toggle === item.id ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] bg-white text-[#4f71dc]"
+                className={`h-8 px-4 text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${
+                  toggle === item.id ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"
                 }`}
               >
                 {t(item.name)}
@@ -365,9 +366,9 @@ export function SupplierBalanceView() {
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={t("Поиск")}
-              className="w-full bg-transparent text-center text-[15px] font-medium outline-none placeholder:text-[#17233b]"
+              className="w-full bg-transparent text-left text-[13px] font-bold outline-none placeholder:font-bold placeholder:text-[#17233b]"
             />
-            <button type="submit" aria-label={t("Поиск")} className="text-[#9aa3b6] hover:text-[#4f70e7]">
+            <button type="submit" aria-label={t("Поиск")} className="sr-only">
               <Search className="h-4 w-4" />
             </button>
           </form>
@@ -385,11 +386,12 @@ export function SupplierBalanceView() {
 
         <div className="pb-10">
           <BalanceTable
+          fixedWidth={100}
+              inset
             rows={rows}
             groups={groups}
             currencies={visible}
             first={{ label: "Поставщик", width: 220, sortKey: "name", render: renderName }}
-            headerTone="blue"
             ordering={ordering}
             onOrderingChange={(next) => update({ ordering: next })}
             sortCycle="asc-first"

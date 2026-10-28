@@ -1,7 +1,9 @@
 import "server-only"
 
 import { accountOfEmployee, ensureUserEmployeeLink, lockAccessChanges, otherAdminsWithAccess, revokeEmployeeSessions } from "@/lib/auth-employee"
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { hashPassword } from "@/lib/auth"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { ensureEmployeesSchema } from "@/lib/employees-schema"
 import {
   cascadeNameRename,
   existingReferences,
@@ -11,63 +13,122 @@ import {
   usageOf,
   type Usage,
 } from "@/lib/platform-refs"
-import type { Employee } from "@/components/analytics/employees-data"
+import { selectedBranchName } from "@/lib/selected-branch"
 import type { Role } from "@/lib/session"
+import { detachSubscriptions } from "@/lib/subscriptions-repo"
+import type { Employee, EmployeeInput } from "@/components/analytics/employees-data"
+
+// Сотрудники. References are ids resolved against their own tables (branches, organizations,
+// job position, access right, supervisor / delivery man). A sign-in account (users) may be linked
+// to an employee through users.employee_id (lib/auth-employee.ts): the employee then decides
+// whether the account may sign in, so deactivating the employee or turning "Доступ к системе" off
+// is guarded (not oneself, an administrator only by an administrator, never the last one) and
+// ends the account's sessions. A rename is carried into every record that stores the name.
 
 type Row = {
   id: number
   first_name: string
   last_name: string
+  /** Login typed in the employee form ("" while "Доступ к системе" is off). */
+  login: string
   /** Login of the linked sign-in account (users.employee_id), or null. */
   user_login?: string | null
   phone: string
   integration_code: string
   position: string
-  branch: string
   system_access: number
   show_in_tracking: number
   two_step_check: number
   session_limit: number
   gps_check: number
   start_point: number
-  organizations: string
   active: number
+  access_right_id: number | null
+  job_id: number | null
+  branch_ids: string
+  organization_ids: string
+  details: string
+  access_right_name: string | null
+  job_name: string | null
 }
 
-/** Stored organizations (a JSON array of names; anything else reads as none). */
-function parseOrganizations(raw: string | null | undefined): string[] {
+type Details = Partial<{
+  supervisorId: number | null
+  deliveryManId: number | null
+  auditAgentIds: number[]
+  stockIds: number[]
+  requestStockIds: number[]
+  priceListIds: number[]
+  marketPriceListIds: number[]
+  currencyIds: number[]
+  locationPointIds: number[]
+  cashboxIds: number[]
+  requestCashboxIds: number[]
+  accesses: Array<{ name: string }>
+}>
+
+const SELECT = `
+  SELECT e.*, ar.name AS access_right_name, jp.name AS job_name,
+         (SELECT u.username FROM users u WHERE u.employee_id = e.id ORDER BY u.id LIMIT 1) AS user_login
+  FROM employees e
+  LEFT JOIN access_rights ar ON ar.id = e.access_right_id
+  LEFT JOIN job_positions jp ON jp.id = e.job_id`
+
+function parse<T>(text: string | null | undefined, fallback: T): T {
   try {
-    const parsed = JSON.parse(raw || "[]") as unknown
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []
+    return (JSON.parse(text || "null") as T | null) ?? fallback
   } catch {
-    return []
+    return fallback
   }
 }
 
+/** The lazy columns of employees (lib/employees-schema.ts) and users.employee_id, prepared outside any
+ * request transaction (DDL never runs inside one). Called before a transaction is opened. */
+async function ensureSchema(): Promise<void> {
+  await ensureUserEmployeeLink()
+  await outsideTransaction(() => ensureEmployeesSchema())
+}
+
 function rowToEmployee(row: Row): Employee {
-  const organizations = parseOrganizations(row.organizations)
+  const details = parse<Details>(row.details, {})
+  const accessRight = row.access_right_name ?? ""
+  const job = row.job_name ?? ""
   return {
     id: row.id,
-    name: fullName(row),
-    // The real login of the account linked in Права доступа → Пользователи
-    // (empty while none is): employees.login only ever held a generated name
-    // no account carried.
-    login: row.user_login ?? "",
-    role: row.position,
-    phone: row.phone,
-    position: row.position,
-    active: row.active === 1,
     firstName: row.first_name,
     lastName: row.last_name,
+    name: fullName(row),
+    // The login of the account linked in Права доступа → Пользователи (the one that really signs in);
+    // otherwise the login typed in the employee form.
+    login: row.user_login || row.login || "",
+    phone: row.phone,
     integrationCode: row.integration_code,
-    branch: row.branch,
+    accessRightId: row.access_right_id,
+    accessRight,
+    jobId: row.job_id,
+    job,
+    active: row.active === 1,
     systemAccess: row.system_access === 1,
     showInTracking: row.show_in_tracking === 1,
     twoStepCheck: row.two_step_check === 1,
     sessionLimit: row.session_limit === 1,
     gpsCheck: row.gps_check === 1,
     startPoint: row.start_point === 1,
-    organizations,
+    branchIds: parse<number[]>(row.branch_ids, []),
+    organizationIds: parse<number[]>(row.organization_ids, []),
+    supervisorId: details.supervisorId ?? null,
+    deliveryManId: details.deliveryManId ?? null,
+    auditAgentIds: details.auditAgentIds ?? [],
+    stockIds: details.stockIds ?? [],
+    requestStockIds: details.requestStockIds ?? [],
+    priceListIds: details.priceListIds ?? [],
+    marketPriceListIds: details.marketPriceListIds ?? [],
+    currencyIds: details.currencyIds ?? [],
+    locationPointIds: details.locationPointIds ?? [],
+    cashboxIds: details.cashboxIds ?? [],
+    requestCashboxIds: details.requestCashboxIds ?? [],
+    accesses: (details.accesses ?? []).map((item) => item.name),
+    position: accessRight || job ? `${accessRight}|${job}` : "",
   }
 }
 
@@ -76,35 +137,7 @@ function fullName(row: { first_name: string; last_name: string }): string {
   return `${(row.first_name ?? "").trim()} ${(row.last_name ?? "").trim()}`.trim()
 }
 
-export type EmployeeInput = {
-  firstName: string
-  lastName: string
-  phone: string
-  integrationCode: string
-  position: string
-  branch: string
-  systemAccess: boolean
-  showInTracking: boolean
-  twoStepCheck: boolean
-  sessionLimit: boolean
-  gpsCheck: boolean
-  startPoint: boolean
-  organizations: string[]
-  active: boolean
-}
-
 export type EmployeeUsage = Usage
-
-/** Validation / conflict errors with the HTTP status the routes answer. */
-export class EmployeeError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly usage?: EmployeeUsage[],
-  ) {
-    super(message)
-  }
-}
 
 // --- references -----------------------------------------------------------------
 // By id (block a delete; the companion name column, if any, follows a rename):
@@ -218,122 +251,22 @@ async function cascadeEmployeeRename(db: PgDb, id: number, oldName: string, newN
   if (!shared) await cascadeNameRename(db, nameRefs, oldName, newName)
 }
 
-// --- branch / position must exist ----------------------------------------------------
-async function tableExists(db: PgDb, table: string): Promise<boolean> {
-  const row = (await db.prepare("SELECT to_regclass(?) IS NOT NULL AS ok").get(table)) as { ok: boolean }
-  return row.ok
-}
-
-/** The canonical spelling of an existing branch / job position, or an error. */
-async function resolveName(db: PgDb, table: "branches" | "job_positions", value: string, notFound: string): Promise<string> {
-  const name = value.trim()
-  if (!name) return ""
-  if (await tableExists(db, table)) {
-    const row = (await db
-      .prepare(`SELECT name FROM ${table} WHERE ${keySql("name")} = ${keySql("?::text")} ORDER BY id LIMIT 1`)
-      .get(name)) as { name: string } | undefined
-    if (row) return row.name
-  }
-  throw new EmployeeError(`${notFound}: ${name}`, 400)
-}
-
-const NOT_SET = new Set(["", "не указано", "не указан", "—", "-"])
-
-/** Организации must be organizations of the directory (case- and space-insensitive,
- * stored in their own spelling, each once). On an update the organizations the
- * employee already has are kept as they are (renamed or removed since). */
-async function resolveOrganizations(db: PgDb, values: string[], current?: Row): Promise<string[]> {
-  const stored = new Map(parseOrganizations(current?.organizations).map((name) => [nameKey(name), name]))
-  const hasTable = await tableExists(db, "organizations")
-  const out: string[] = []
-  const seen = new Set<string>()
-  for (const value of values) {
-    const name = value.trim()
-    const key = nameKey(name)
-    if (NOT_SET.has(key) || seen.has(key)) continue
-    let resolved = stored.get(key)
-    if (resolved === undefined) {
-      const row = hasTable
-        ? ((await db.prepare(`SELECT name FROM organizations WHERE ${keySql("name")} = ${keySql("?::text")} ORDER BY id LIMIT 1`).get(name)) as { name: string } | undefined)
-        : undefined
-      if (!row) throw new EmployeeError(`Организация не найдена: ${name}`, 400)
-      resolved = row.name
-    }
-    seen.add(key)
-    if (out.some((item) => nameKey(item) === nameKey(resolved!))) continue
-    out.push(resolved)
-  }
-  return out
-}
-
-/** Branch and position must be an existing Филиал / Должность (case-insensitive,
- * stored in their canonical spelling), organizations existing Организации. On an
- * update an unchanged legacy value is kept, so old records stay editable. */
-async function resolveInput(db: PgDb, input: EmployeeInput, current?: Row): Promise<EmployeeInput> {
-  const keep = (value: string, old: string | undefined) => old !== undefined && nameKey(value) === nameKey(old)
-  const branch = keep(input.branch, current?.branch) ? current!.branch : await resolveName(db, "branches", input.branch, "Филиал не найден")
-  const position = keep(input.position, current?.position)
-    ? current!.position
-    : await resolveName(db, "job_positions", input.position, "Должность не найдена")
-  const organizations = await resolveOrganizations(db, input.organizations, current)
-  return { ...input, branch, position, organizations }
-}
-
-// --- reads ----------------------------------------------------------------------------
-const SELECT_EMPLOYEES = `SELECT e.*, (SELECT u.username FROM users u WHERE u.employee_id = e.id ORDER BY u.id LIMIT 1) AS user_login
-    FROM employees e`
-
-export async function listEmployees(): Promise<Employee[]> {
-  await ensureUserEmployeeLink()
-  const db = getDb()
-  const rows = (await db.prepare(`${SELECT_EMPLOYEES} ORDER BY e.id DESC`).all()) as Row[]
-  return rows.map(rowToEmployee)
-}
-
-export async function getEmployee(id: number): Promise<Employee | null> {
-  await ensureUserEmployeeLink()
-  const db = getDb()
-  const row = (await db.prepare(`${SELECT_EMPLOYEES} WHERE e.id = ?`).get(id)) as Row | undefined
-  return row ? rowToEmployee(row) : null
-}
-
-function toParams(input: EmployeeInput) {
-  return {
-    firstName: input.firstName,
-    lastName: input.lastName,
-    phone: input.phone,
-    integrationCode: input.integrationCode,
-    position: input.position,
-    branch: input.branch,
-    systemAccess: input.systemAccess ? 1 : 0,
-    showInTracking: input.showInTracking ? 1 : 0,
-    twoStepCheck: input.twoStepCheck ? 1 : 0,
-    sessionLimit: input.sessionLimit ? 1 : 0,
-    gpsCheck: input.gpsCheck ? 1 : 0,
-    startPoint: input.startPoint ? 1 : 0,
-    organizations: JSON.stringify(input.organizations),
-    active: input.active ? 1 : 0,
+/** Thrown when a record still refers to the employee (409 with the usage list). */
+export class EmployeeInUseError extends Error {
+  readonly status = 409
+  constructor(readonly usage: EmployeeUsage[]) {
+    super("Удаление невозможно из-за связи с другими данными")
   }
 }
 
-// --- writes ---------------------------------------------------------------------------
-export async function createEmployee(raw: EmployeeInput): Promise<Employee> {
-  const id = await withTransaction(async (tx) => {
-    const input = await resolveInput(tx, raw)
-    const result = await tx
-      .prepare(
-        `INSERT INTO employees (
-          first_name, last_name, login, phone, integration_code, position, branch, system_access, show_in_tracking,
-          two_step_check, session_limit, gps_check, start_point, organizations, active
-        ) VALUES (
-          @firstName, @lastName, '', @phone, @integrationCode, @position, @branch, @systemAccess, @showInTracking,
-          @twoStepCheck, @sessionLimit, @gpsCheck, @startPoint, @organizations, @active
-        )`,
-      )
-      .run(toParams(input))
-    return Number(result.lastInsertRowid)
-  })
-  return (await getEmployee(id))!
+/** A change refused because it would end a sign-in that must stay (the routes answer `status`). */
+export class EmployeeAccessError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+  }
 }
 
 /** Who makes the change (the signed-in user). */
@@ -345,44 +278,241 @@ export type EmployeeActor = { id: number; role: Role }
 async function assertMayEndAccess(tx: PgDb, employeeId: number, actor: EmployeeActor | undefined) {
   const account = await accountOfEmployee(tx, employeeId)
   if (!account) return
-  if (actor && account.id === actor.id) throw new EmployeeError("Нельзя отключить доступ к системе самому себе", 400)
+  if (actor && account.id === actor.id) throw new EmployeeAccessError("Нельзя отключить доступ к системе самому себе", 400)
   if (account.role === "admin") {
-    if (actor && actor.role !== "admin") throw new EmployeeError("Только администратор может отключить доступ администратора", 403)
-    if ((await otherAdminsWithAccess(tx, account.id)) === 0) throw new EmployeeError("Нельзя отключить доступ последнему администратору", 409)
+    if (actor && actor.role !== "admin") throw new EmployeeAccessError("Только администратор может отключить доступ администратора", 403)
+    if ((await otherAdminsWithAccess(tx, account.id)) === 0) throw new EmployeeAccessError("Нельзя отключить доступ последнему администратору", 409)
   }
+}
+
+/** Serialises the logins typed in the employee form, so two parallel saves cannot both take one. */
+async function lockLogins(tx: PgDb) {
+  await tx.prepare("SELECT pg_advisory_xact_lock(hashtext('employees:login'))").get()
+}
+
+// --- reads ----------------------------------------------------------------------------
+export async function listEmployees(): Promise<Employee[]> {
+  await ensureSchema()
+  const branch = await selectedBranchName()
+  // The branch picked in the account menu: the employee's main branch or any of its branches.
+  const rows = (await getDb()
+    .prepare(
+      `${SELECT}
+        WHERE (@branch::text = '' OR e.branch = @branch OR EXISTS (
+                SELECT 1 FROM branches b
+                 WHERE b.name = @branch
+                   AND (CASE WHEN e.branch_ids ~ '^\\[[0-9, ]*\\]$' THEN e.branch_ids::jsonb ELSE '[]'::jsonb END) @> jsonb_build_array(b.id)))
+        ORDER BY e.id ASC`,
+    )
+    .all({ branch })) as Row[]
+  return rows.map(rowToEmployee)
+}
+
+export async function getEmployee(id: number): Promise<Employee | null> {
+  await ensureSchema()
+  const row = (await getDb().prepare(`${SELECT} WHERE e.id = ?`).get(id)) as Row | undefined
+  return row ? rowToEmployee(row) : null
+}
+
+export type EmployeeError =
+  | "login_taken"
+  | "bad_branch"
+  | "bad_organization"
+  | "bad_job"
+  | "bad_access_right"
+  | "bad_supervisor"
+  | "no_license"
+
+async function branchNames(db: PgDb, ids: number[]): Promise<string[]> {
+  if (!ids.length) return []
+  const rows = (await db.prepare("SELECT id, name FROM branches WHERE id = ANY(@ids::int[])").all({ ids })) as Array<{ id: number; name: string }>
+  const byId = new Map(rows.map((row) => [row.id, row.name]))
+  return ids.map((id) => byId.get(id) ?? "")
+}
+
+async function organizationNames(db: PgDb, ids: number[]): Promise<string[]> {
+  if (!ids.length) return []
+  const rows = (await db.prepare("SELECT id, name FROM organizations WHERE id = ANY(@ids::int[])").all({ ids })) as Array<{ id: number; name: string }>
+  const byId = new Map(rows.map((row) => [row.id, row.name]))
+  return ids.map((id) => byId.get(id) ?? "")
+}
+
+/** Validates the references of an input; returns the matching error or null. A login must be
+ * free among the employees and among the sign-in accounts (other than the employee's own linked
+ * account); an unchanged stored login is kept as it is. */
+async function checkReferences(db: PgDb, input: EmployeeInput, current: Row | null): Promise<EmployeeError | null> {
+  const selfId = current?.id ?? 0
+  const branches = (await db.prepare("SELECT count(*)::int AS n FROM branches WHERE id = ANY(@ids::int[])").get({ ids: input.branchIds })) as { n: number }
+  if (Number(branches.n) !== new Set(input.branchIds).size) return "bad_branch"
+  if (input.organizationIds.length) {
+    const organizations = (await db
+      .prepare("SELECT count(*)::int AS n FROM organizations WHERE id = ANY(@ids::int[])")
+      .get({ ids: input.organizationIds })) as { n: number }
+    if (Number(organizations.n) !== new Set(input.organizationIds).size) return "bad_organization"
+  }
+  if (!(await db.prepare("SELECT 1 FROM job_positions WHERE id = ?").get(input.jobId))) return "bad_job"
+  if (input.accessRightId && !(await db.prepare("SELECT 1 FROM access_rights WHERE id = ?").get(input.accessRightId))) return "bad_access_right"
+  for (const id of [input.supervisorId, input.deliveryManId]) {
+    if (id && !(await db.prepare("SELECT 1 FROM employees WHERE id = ?").get(id))) return "bad_supervisor"
+  }
+  const login = input.systemAccess ? input.login.trim() : ""
+  if (login) {
+    const taken = await db.prepare("SELECT id FROM employees WHERE lower(login) = lower(@login) AND id <> @id").get({ login, id: selfId })
+    if (taken) return "login_taken"
+    const unchanged = current !== null && (current.login ?? "").trim().toLowerCase() === login.toLowerCase()
+    if (!unchanged) {
+      const account = await db
+        .prepare("SELECT id FROM users WHERE lower(username) = lower(@login) AND employee_id IS DISTINCT FROM @id")
+        .get({ login, id: selfId })
+      if (account) return "login_taken"
+    }
+  }
+  return null
+}
+
+function toDetails(input: EmployeeInput, previous: Details): Details {
+  return {
+    ...previous,
+    supervisorId: input.supervisorId,
+    deliveryManId: input.deliveryManId,
+    auditAgentIds: input.auditAgentIds,
+    stockIds: input.stockIds,
+    requestStockIds: input.requestStockIds,
+    priceListIds: input.priceListIds,
+    marketPriceListIds: input.marketPriceListIds,
+    currencyIds: input.currencyIds,
+    locationPointIds: input.locationPointIds,
+    cashboxIds: input.cashboxIds ?? previous.cashboxIds ?? [],
+    requestCashboxIds: input.requestCashboxIds ?? previous.requestCashboxIds ?? [],
+  }
+}
+
+/** The name columns other pages read: the main (first) branch, the organizations and "access|job". */
+async function composedFields(db: PgDb, input: EmployeeInput) {
+  const branches = await branchNames(db, input.branchIds)
+  const organizations = await organizationNames(db, input.organizationIds)
+  const access = input.accessRightId
+    ? ((await db.prepare("SELECT name FROM access_rights WHERE id = ?").get(input.accessRightId)) as { name: string } | undefined)
+    : undefined
+  const job = (await db.prepare("SELECT name FROM job_positions WHERE id = ?").get(input.jobId)) as { name: string } | undefined
+  return { branch: branches[0] ?? "", organizations, position: `${access?.name ?? ""}|${job?.name ?? ""}` }
+}
+
+function fieldParams(input: EmployeeInput, composed: Awaited<ReturnType<typeof composedFields>>, previousDetails: Details) {
+  return {
+    firstName: input.firstName,
+    lastName: input.lastName,
+    login: input.systemAccess ? input.login.trim() : "",
+    phone: input.phone,
+    integrationCode: input.integrationCode,
+    position: composed.position,
+    branch: composed.branch,
+    systemAccess: input.systemAccess ? 1 : 0,
+    showInTracking: input.showInTracking ? 1 : 0,
+    twoStepCheck: input.twoStepCheck ? 1 : 0,
+    sessionLimit: input.sessionLimit ? 1 : 0,
+    gpsCheck: input.gpsCheck ? 1 : 0,
+    startPoint: input.startPoint ? 1 : 0,
+    organizations: JSON.stringify(composed.organizations),
+    accessRightId: input.systemAccess ? input.accessRightId : null,
+    jobId: input.jobId,
+    branchIds: JSON.stringify(input.branchIds),
+    organizationIds: JSON.stringify(input.organizationIds),
+    details: JSON.stringify(toDetails(input, previousDetails)),
+  }
+}
+
+// --- writes ---------------------------------------------------------------------------
+export async function createEmployee(input: EmployeeInput): Promise<{ employee: Employee } | { error: EmployeeError }> {
+  await ensureSchema()
+  // bcrypt before the transaction: no row or lock is held while it runs.
+  const passwordHash = input.password ? await hashPassword(input.password) : null
+  const outcome = await withTransaction(async (tx): Promise<{ id: number } | { error: EmployeeError }> => {
+    await lockLogins(tx)
+    const error = await checkReferences(tx, input, null)
+    if (error) return { error }
+    const composed = await composedFields(tx, input)
+    const result = await tx
+      .prepare(
+        `INSERT INTO employees (
+          first_name, last_name, login, phone, integration_code, position, branch, system_access, show_in_tracking,
+          two_step_check, session_limit, gps_check, start_point, organizations, active, access_right_id, job_id,
+          branch_ids, organization_ids, details, password_hash
+        ) VALUES (
+          @firstName, @lastName, @login, @phone, @integrationCode, @position, @branch, @systemAccess, @showInTracking,
+          @twoStepCheck, @sessionLimit, @gpsCheck, @startPoint, @organizations, 1, @accessRightId, @jobId,
+          @branchIds, @organizationIds, @details, @passwordHash
+        )`,
+      )
+      .run({ ...fieldParams(input, composed, {}), passwordHash })
+    return { id: Number(result.lastInsertRowid) }
+  })
+  if ("error" in outcome) return outcome
+  return { employee: (await getEmployee(outcome.id))! }
 }
 
 /** Updates the employee; a changed name is carried into every record that
  * stores it (cashboxes, warehouses, clients' agent / deliverer / collector,
  * orders, payments, contracts, production staff …) in the same transaction.
- * Deactivating the employee or turning "Доступ к системе" off blocks the
- * linked account's sign-in and ends its sessions. */
-export async function updateEmployee(id: number, raw: EmployeeInput, actor?: EmployeeActor): Promise<Employee | null> {
-  await ensureUserEmployeeLink()
+ * Turning "Доступ к системе" off blocks the linked account's sign-in and ends
+ * its sessions; refused (EmployeeAccessError) for one's own account, an
+ * administrator's account unless an administrator does it and the last administrator. */
+export async function updateEmployee(
+  id: number,
+  input: EmployeeInput,
+  actor?: EmployeeActor,
+): Promise<{ employee: Employee } | { error: EmployeeError } | null> {
+  await ensureSchema()
+  const passwordHash = input.password ? await hashPassword(input.password) : null
   let endsAccess = false
-  const found = await withTransaction(async (tx) => {
+  const outcome = await withTransaction(async (tx): Promise<{ error: EmployeeError } | boolean> => {
     // A change that may end the linked account's sign-in is serialised with
     // the other such changes before its guards run (lib/auth-employee.ts).
-    if (!(raw.active && raw.systemAccess)) await lockAccessChanges(tx)
+    if (!input.systemAccess) await lockAccessChanges(tx)
+    await lockLogins(tx)
     const current = (await tx.prepare("SELECT * FROM employees WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
     if (!current) return false
-    const hadAccess = Number(current.active) === 1 && Number(current.system_access) === 1
-    endsAccess = hadAccess && !(raw.active && raw.systemAccess)
+    endsAccess = Number(current.active) === 1 && Number(current.system_access) === 1 && !input.systemAccess
     if (endsAccess) await assertMayEndAccess(tx, id, actor)
-    const input = await resolveInput(tx, raw, current)
+    const error = await checkReferences(tx, input, current)
+    if (error) return { error }
+    const composed = await composedFields(tx, input)
     await tx
       .prepare(
         `UPDATE employees SET
-          first_name = @firstName, last_name = @lastName, phone = @phone, integration_code = @integrationCode,
+          first_name = @firstName, last_name = @lastName, login = @login, phone = @phone, integration_code = @integrationCode,
           position = @position, branch = @branch, system_access = @systemAccess, show_in_tracking = @showInTracking,
           two_step_check = @twoStepCheck, session_limit = @sessionLimit, gps_check = @gpsCheck, start_point = @startPoint,
-          organizations = @organizations, active = @active, updated_at = datetime('now')
+          organizations = @organizations, access_right_id = @accessRightId, job_id = @jobId, branch_ids = @branchIds,
+          organization_ids = @organizationIds, details = @details,
+          password_hash = COALESCE(@passwordHash, password_hash), updated_at = datetime('now')
         WHERE id = @id`,
       )
-      .run({ ...toParams(input), id })
-    const oldName = fullName(current)
-    const newName = fullName({ first_name: input.firstName, last_name: input.lastName })
-    await cascadeEmployeeRename(tx, id, oldName, newName)
+      .run({ ...fieldParams(input, composed, parse<Details>(current.details, {})), passwordHash, id })
+    await cascadeEmployeeRename(tx, id, fullName(current), fullName({ first_name: input.firstName, last_name: input.lastName }))
+    return true
+  })
+  if (outcome === false) return null
+  if (outcome !== true) return outcome
+  if (endsAccess) await revokeEmployeeSessions(id)
+  return { employee: (await getEmployee(id))! }
+}
+
+/** Trash icon: the employee moves to the "Удаленные" tab (active = 0) or comes back (active = 1).
+ * Deactivating blocks the linked account's sign-in and ends its sessions, with the guards of
+ * updateEmployee (EmployeeAccessError). */
+export async function setEmployeeActive(id: number, active: boolean, actor?: EmployeeActor): Promise<Employee | null> {
+  await ensureSchema()
+  let endsAccess = false
+  const found = await withTransaction(async (tx) => {
+    if (!active) await lockAccessChanges(tx)
+    const current = (await tx.prepare("SELECT * FROM employees WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
+    if (!current) return false
+    endsAccess = !active && Number(current.active) === 1 && Number(current.system_access) === 1
+    if (endsAccess) await assertMayEndAccess(tx, id, actor)
+    if (Number(current.active) !== (active ? 1 : 0)) {
+      await tx.prepare("UPDATE employees SET active = @active, updated_at = datetime('now') WHERE id = @id").run({ id, active: active ? 1 : 0 })
+    }
     return true
   })
   if (!found) return null
@@ -390,20 +520,101 @@ export async function updateEmployee(id: number, raw: EmployeeInput, actor?: Emp
   return getEmployee(id)
 }
 
-/** Deletes the employee — refused (409 with the usage list) while a cashbox,
- * warehouse, client, document or production record refers to them; such an
- * employee can be deactivated (active = false) instead. */
-export async function deleteEmployee(id: number): Promise<boolean> {
-  await ensureUserEmployeeLink()
+/** Trash icon in the "Удаленные" tab: removes the record for good (only an employee that is
+ * already deleted). Refused (EmployeeInUseError, 409 with the usage list) while a cashbox,
+ * warehouse, client, document, production record, field activity, attendance or a sign-in
+ * account (Пользователи) refers to the employee; the employee's subscription goes back to its package. */
+export async function purgeEmployee(id: number): Promise<boolean> {
+  await ensureSchema()
+  // Prepares the subscriptions schema outside the transaction below (nothing is detached).
+  await detachSubscriptions([])
   return withTransaction(async (tx) => {
-    const current = (await tx.prepare("SELECT * FROM employees WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
+    const current = (await tx.prepare("SELECT * FROM employees WHERE id = ? AND active = 0 FOR UPDATE").get(id)) as Row | undefined
     if (!current) return false
     const usage = await employeeUsage(tx, current)
     // A sign-in account linked to the employee (Права доступа → Пользователи).
     const accounts = (await tx.prepare("SELECT COUNT(*)::int AS n FROM users WHERE employee_id = ?").get(id)) as { n: number }
     if (Number(accounts.n) > 0) usage.push({ table: "users", label: "Пользователи", count: Number(accounts.n) })
-    if (usage.length) throw new EmployeeError("Удаление невозможно из-за связи с другими данными", 409, usage)
-    return (await tx.prepare("DELETE FROM employees WHERE id = ?").run(id)).changes > 0
+    if (usage.length) throw new EmployeeInUseError(usage)
+    await detachSubscriptions([id])
+    return (await tx.prepare("DELETE FROM employees WHERE id = ? AND active = 0").run(id)).changes > 0
   })
 }
 
+export type BulkChange = Partial<{
+  cashboxIds: number[]
+  branchIds: number[]
+  supervisorId: number | null
+  organizationIds: number[]
+  stockIds: number[]
+  priceListIds: number[]
+  currencyIds: number[]
+  restrictions: { names: string[]; replace: boolean }
+}>
+
+/** "Изменить" bulk dialog of the Сотрудники list: overwrites the chosen groups of fields for every
+ * selected employee. Branches, organizations and the supervisor must exist (null = nothing saved). */
+export async function bulkUpdateEmployees(ids: number[], change: BulkChange): Promise<number | null> {
+  await ensureSchema()
+  return withTransaction(async (tx) => {
+    const branches = change.branchIds ? await branchNames(tx, change.branchIds) : null
+    const organizations = change.organizationIds ? await organizationNames(tx, change.organizationIds) : null
+    if (branches?.includes("") || organizations?.includes("")) return null
+    if (change.supervisorId && !(await tx.prepare("SELECT 1 FROM employees WHERE id = ?").get(change.supervisorId))) return null
+    const rows = (await tx
+      .prepare("SELECT id, details FROM employees WHERE id = ANY(@ids::int[]) ORDER BY id FOR UPDATE")
+      .all({ ids })) as Array<{ id: number; details: string }>
+    for (const row of rows) {
+      const details = parse<Details>(row.details, {})
+      if (change.cashboxIds) details.cashboxIds = change.cashboxIds
+      if (change.supervisorId !== undefined) details.supervisorId = change.supervisorId === row.id ? (details.supervisorId ?? null) : change.supervisorId
+      if (change.stockIds) details.stockIds = change.stockIds
+      if (change.priceListIds) details.priceListIds = change.priceListIds
+      if (change.currencyIds) details.currencyIds = change.currencyIds
+      if (change.restrictions) {
+        const names = change.restrictions.names.map((name) => ({ name }))
+        details.accesses = change.restrictions.replace
+          ? names
+          : [...(details.accesses ?? []), ...names.filter((item) => !(details.accesses ?? []).some((old) => old.name === item.name))]
+      }
+      await tx
+        .prepare(
+          `UPDATE employees SET details = @details,
+             branch_ids = COALESCE(@branchIds, branch_ids), branch = COALESCE(@branch, branch),
+             organization_ids = COALESCE(@organizationIds, organization_ids), organizations = COALESCE(@organizations, organizations),
+             updated_at = datetime('now') WHERE id = @id`,
+        )
+        .run({
+          id: row.id,
+          details: JSON.stringify(details),
+          branchIds: change.branchIds ? JSON.stringify(change.branchIds) : null,
+          branch: branches ? (branches[0] ?? "") : null,
+          organizationIds: change.organizationIds ? JSON.stringify(change.organizationIds) : null,
+          organizations: organizations ? JSON.stringify(organizations) : null,
+        })
+    }
+    return rows.length
+  })
+}
+
+/** Sets "Доступ к системе" for every active employee. Blocking never touches the employee behind
+ * the signed-in account nor one linked to an administrator's account (the people who can undo it
+ * keep their sign-in), and it ends the sessions of the accounts it blocks. */
+export async function blockAllEmployees(block: boolean, actor?: EmployeeActor): Promise<number> {
+  await ensureSchema()
+  const rows = await withTransaction(async (tx) => {
+    if (block) await lockAccessChanges(tx)
+    const spared = block
+      ? " AND NOT EXISTS (SELECT 1 FROM users u WHERE u.employee_id = e.id AND (u.role = 'admin' OR u.id = @actorId))"
+      : ""
+    return (await tx
+      .prepare(
+        `UPDATE employees e SET system_access = @access, updated_at = datetime('now')
+          WHERE e.active = 1 AND e.login <> 'admin' AND e.system_access <> @access${spared}
+          RETURNING e.id`,
+      )
+      .all({ access: block ? 0 : 1, actorId: actor?.id ?? 0 })) as Array<{ id: number }>
+  })
+  if (block) for (const row of rows) await revokeEmployeeSessions(Number(row.id))
+  return rows.length
+}

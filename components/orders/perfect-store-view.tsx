@@ -1,7 +1,7 @@
 "use client";
 
 import { Download } from "lucide-react";
-import { RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit";
+import { RefHeader, RefPage } from "@/components/ref/list-kit";
 import Link from "next/link";
 import { useState } from "react";
 import { csvText } from "@/lib/csv";
@@ -14,6 +14,7 @@ export function PerfectStoreView() {
   const [tab, setTab] = useState("Все");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notice, setNotice] = useState("");
+  const displayDate = new Date(`${date}T00:00:00`).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).replace(" г.", "");
 
   const download = () => {
     const csv = csvText([["ID", "Создал", "Агент", "Магазин", "Дата создания", "Присутствие", "Доля", "Задача", "Комментарий", "Статус задачи"]]) + "\n";
@@ -33,26 +34,52 @@ export function PerfectStoreView() {
       </RefHeader>
 
       <section className="overflow-hidden bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-        <RefTabs labels={tabs} value={tab} onChange={setTab} />
-        <div className="grid grid-cols-4 gap-x-[15px] gap-y-2 px-[10px] py-[14px]">
-          <label className="border-b border-[#d0d0d0] pb-1 text-[11px] font-semibold">{t("Дата создания")}<input aria-label={t("Дата создания")} type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 block w-full border-0 bg-transparent text-[13px] font-normal outline-none" /></label>
-          {["Создал", "Тип клиента", "Филиалы"].map((label) => <label key={label} className="mt-[10px] flex h-[28px] items-center justify-between border-b border-[#d0d0d0] text-[13px] font-semibold">{t(label)}<span className="text-slate-400">⌄</span></label>)}
-          <button onClick={() => { setNotice(`${t("Фильтр применён")}: ${tab}`); window.setTimeout(() => setNotice(""), 2200); }} className="col-span-4 mt-2 h-[30px] rounded-[3px] bg-[#71ce87] text-[13px] font-semibold text-white hover:brightness-95">{t("Применить")}</button>
+        <div className="flex h-[52px] border-b border-[#e5e8ed]">
+          {tabs.map((label) => (
+            <button key={label} type="button" onClick={() => setTab(label)} className={`relative h-full flex-1 text-[13px] ${tab === label ? "text-[#333]" : "text-[#333]"}`}>
+              {t(label)}
+              {tab === label && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-[#4f71dc]" />}
+            </button>
+          ))}
+        </div>
+        <div className="px-[10px] pb-[11px] pt-[16px]">
+          <div className="grid grid-cols-[344px_343px_343px_343px] gap-x-[10px] pl-[10px]">
+            <label className="relative mt-[2px] block h-[40px] w-[256px] border-b border-[#d5dae1]">
+              <span className="absolute left-0 top-[2px] flex items-center gap-[4px] text-[9px] font-semibold leading-[11px]">
+                {t("Дата создания")}
+                <svg viewBox="0 0 24 24" className="h-[12px] w-[12px] fill-[#c4c8d0]" aria-hidden><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z" /></svg>
+              </span>
+              <span className="absolute bottom-[3px] left-0 text-[13px]">{displayDate}</span>
+              <input aria-label={t("Дата создания")} type="date" value={date} onChange={(e) => setDate(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+            </label>
+            {["Создал", "Тип клиента", "Филиалы"].map((label) => (
+              <div key={label} className="mt-[11px] flex h-[31px] items-end justify-between border-b border-[#d5dae1] pb-[5px] text-[13px] font-semibold">
+                {t(label)}
+                <span className="mb-[3px] border-x-[5px] border-t-[5px] border-x-transparent border-t-[#888]" aria-hidden />
+              </div>
+            ))}
+          </div>
+          <button onClick={() => { setNotice(`${t("Фильтр применён")}: ${tab}`); window.setTimeout(() => setNotice(""), 2200); }} className="mt-[27px] h-[36px] w-full rounded-[3px] bg-[#71ce87] text-[13px] font-bold text-white hover:brightness-95">{t("Применить")}</button>
         </div>
       </section>
       {notice && <p className="mt-2 text-center font-medium text-[#5171df]">{notice}</p>}
 
-      <section className="mt-[24px] grid grid-cols-3 gap-[15px] text-[13px]">
-        <div className="min-h-[100px] bg-white px-[10px] py-[8px] shadow-sm"><p className="text-slate-500">{t("Кол-во магазинов")}</p><b>0</b><p className="mt-2 text-slate-500">{t("Кол-во perfect store")}</p><b>0</b></div>
-        <div className="min-h-[100px] bg-white px-[10px] py-[8px] shadow-sm"><p className="text-slate-500">{t("Присутствие")}</p><b className="text-blue-700">0 %</b><p className="mt-2 text-slate-500">{t("Доля на полке")}</p><b className="text-blue-700">0 %</b></div>
-        <div className="min-h-[100px] bg-white px-[10px] py-[8px] text-right shadow-sm"><p className="text-slate-500">{t("Задачи в ожидании")}</p><b>0</b><p className="mt-2 text-slate-500">{t("Сделанные задачи")}</p><b>0</b></div>
+      <section className="mt-[34px] grid grid-cols-3 gap-[16px] text-[13px]">
+        <div className="h-[114px] bg-white px-[16px] pt-[10px] shadow-[0_1px_4px_rgba(0,0,0,0.1)]"><p className="leading-[18px] text-[#5d6474]">{t("Кол-во магазинов")}</p><b className="mt-[4px] block leading-[18px]">0</b><p className="mt-[10px] leading-[18px] text-[#5d6474]">{t("Кол-во perfect store")}</p><b className="mt-[4px] block leading-[18px]">0</b></div>
+        <div className="h-[114px] bg-white px-[16px] pt-[10px] shadow-[0_1px_4px_rgba(0,0,0,0.1)]"><p className="leading-[18px] text-[#5d6474]">{t("Присутствие")}</p><b className="mt-[4px] block leading-[18px] text-[#0000ee]">0 %</b><p className="mt-[10px] leading-[18px] text-[#5d6474]">{t("Доля на полке")}</p><b className="mt-[4px] block leading-[18px] text-[#0000ee]">0 %</b></div>
+        <div className="h-[114px] bg-white px-[16px] pt-[10px] text-right shadow-[0_1px_4px_rgba(0,0,0,0.1)]"><p className="leading-[18px] text-[#5d6474]">{t("Задачи в ожидании")}</p><b className="mt-[4px] block leading-[18px]">0</b><p className="mt-[10px] leading-[18px] text-[#5d6474]">{t("Сделанные задачи")}</p><b className="mt-[4px] block leading-[18px]">0</b></div>
       </section>
 
-      <section className="mt-5 overflow-hidden border border-slate-200 bg-white">
-        <div className="grid grid-cols-10 bg-[#f2f5f8] py-3 text-center text-[13px] font-semibold text-[#333]">
+      <section className="relative mt-[17px] border border-[#e1e5ea] bg-white">
+        <div className="grid h-[30px] grid-cols-[100px_repeat(9,minmax(0,1fr))] items-center bg-[#f0f3f6] text-center text-[13px] font-semibold text-[#333] shadow-[0_2px_4px_rgba(0,0,0,0.12)]">
           {["ID", "Создал", "Агент", "Магазин", "Дата создания", "Присутствие", "Доля", "Задача", "Комментарий", "Статус задачи"].map((head) => <span key={head}>{t(head)}</span>)}
         </div>
-        <div className="flex h-28 items-center justify-center text-slate-400">{t("Нет данных")}</div>
+        {[0, 1, 2].map((row) => (
+          <div key={row} className={`grid h-[31px] grid-cols-[100px_repeat(9,minmax(0,1fr))] border-t border-[#e9edf1] ${row === 1 ? "bg-[#f5f7fa]" : ""}`}>
+            {Array.from({ length: 10 }).map((_, col) => <span key={col} className="border-l border-[#e9edf1] first:border-l-0" />)}
+          </div>
+        ))}
+        <span className="absolute left-1/2 top-[52px] -translate-x-1/2 bg-white px-[20px] py-[9px] text-[13px] text-[#8390a4]">{t("Нет данных")}</span>
       </section>
     </RefPage>
   );

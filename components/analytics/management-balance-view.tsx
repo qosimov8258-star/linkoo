@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { buildBalanceQuery, useLookup } from "@/components/analytics/balance/use-balance"
 import { ManagementBranchCard, managementBranchName, managementExcelRows } from "@/components/analytics/management-balance-card"
 import { ManagementFilterBar, type ManagementFilters } from "@/components/analytics/management-balance-filters"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { currencyLabel } from "@/lib/finance/currency"
 import { defaultBalancePeriod, isIsoDay, monthStartIso } from "@/lib/finance/dates"
@@ -143,11 +143,8 @@ export function ManagementBalanceView() {
   const branches = data?.branches ?? []
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-4 py-5 md:px-9">
-      <header className="mb-5 flex flex-wrap items-center text-2xl font-bold text-slate-600">
-        <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
-        <span className="mx-2 text-slate-400">|</span> {t("Управленческий баланс по филиалам")}
-      </header>
+    <main className="min-h-[calc(100vh-50px)] bg-[#f2f5f8] px-[28px] pb-5">
+      <RefHeader title={t("Управленческий баланс по филиалам")} />
 
       <ManagementFilterBar
         key={query}
@@ -155,16 +152,6 @@ export function ManagementBalanceView() {
         organizations={organizationOptions}
         branches={branchOptions}
         onApply={apply}
-        extra={
-          <button
-            type="button"
-            onClick={download}
-            disabled={!branches.length}
-            className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white hover:brightness-95 disabled:opacity-50"
-          >
-            <FileSpreadsheet className="h-5 w-5" /> {t("Скачать Excel")}
-          </button>
-        }
       />
 
       {data && data.missingRates.length > 0 && (
@@ -200,7 +187,7 @@ export function ManagementBalanceView() {
       )}
 
       {data && !error && branches.length > 0 && (
-        <div className={`relative space-y-5 transition-opacity ${loading ? "pointer-events-none opacity-60" : ""}`} aria-busy={loading}>
+        <div className={`relative space-y-[15px] transition-opacity ${loading ? "pointer-events-none opacity-60" : ""}`} aria-busy={loading}>
           {loading && (
             <div className="absolute inset-x-0 top-10 z-10 flex justify-center">
               <span className="flex items-center gap-2 rounded bg-white px-4 py-2 text-sm text-slate-600 shadow">

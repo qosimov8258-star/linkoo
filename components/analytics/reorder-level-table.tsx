@@ -1,7 +1,6 @@
 "use client"
 
-import type { ReactNode } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
 import { formatMoney } from "@/lib/finance/currency"
@@ -29,15 +28,41 @@ function daysColor(value: number) {
 
 function Pill({ color, children }: { color: string; children: ReactNode }) {
   return (
-    <span className="flex h-full min-h-[40px] w-full items-center px-3 font-semibold text-white" style={{ background: color }}>
+    <span className="block h-[30.3px] w-full px-[5px] font-semibold leading-[30.3px] text-white" style={{ background: color }}>
       {children}
     </span>
   )
 }
 
-export function ReorderLevelTable({ rows, ordering, onOrderingChange, loading }: { rows: RecommendedRow[]; ordering: string; onOrderingChange: (next: string) => void; loading: boolean }) {
+const MIN_ROWS = 3
+
+export function ReorderLevelTable({
+  rows,
+  ordering,
+  unit,
+  onOrderingChange,
+  loading,
+}: {
+  rows: RecommendedRow[]
+  ordering: string
+  unit: string
+  onOrderingChange: (next: string) => void
+  loading: boolean
+}) {
   const { t } = useLanguage()
-  const unitOf = (row: RecommendedRow) => (row.unit ? ` ${t(row.unit)}` : "")
+  const scroller = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState(false)
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const measure = () => setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [rows.length])
+  // The reference prints plain numbers in the default "Количество" mode; the unit follows only for weight / volume / blocks.
+  const unitOf = (row: RecommendedRow) => (unit !== "measurement" && row.unit ? ` ${t(row.unit)}` : "")
   const columns: Column[] = [
     { id: "name", label: "Товар", render: (row) => row.name },
     { id: "weight", label: "Вес одной ед.", sortKey: "weight", render: (row) => (row.weight ? `${number(row.weight)} ${t("кг")}` : "0") },
@@ -52,48 +77,63 @@ export function ReorderLevelTable({ rows, ordering, onOrderingChange, loading }:
     { id: "month", label: "Рек. запас на 30 дней", sortKey: "month", render: (row) => `${number(row.month)}${unitOf(row)}` },
   ]
   const pill = new Set(["salePart", "remainDays"])
+  // The reference grid: a 300px name column, 100px columns after it, a 65px header with a soft shadow, 31.3px rows.
+  const template = { gridTemplateColumns: `300px repeat(${columns.length - 1}, minmax(100px, 1fr))`, minWidth: 300 + (columns.length - 1) * 100 }
+  const cell = "min-w-0 border-b border-r border-[#efefef]"
+  const filler = Math.max(0, MIN_ROWS - rows.length)
   return (
-    <div className={`overflow-x-auto ${loading ? "opacity-60" : ""}`}>
-      <table className="w-full border-collapse text-[14px]">
-        <thead className="sticky top-0 z-[1] bg-[#4f71dc] text-white">
-          <tr>
-            {columns.map((column) => (
-              <th key={column.id} className={`border border-[#6d8ae3] px-3 py-3 text-left font-semibold ${column.id === "name" ? "sticky left-0 z-[2] min-w-[260px] bg-[#4f71dc]" : ""}`}>
+    <div className={`relative border border-black/10 text-[13px] text-[#333] ${loading ? "opacity-60" : ""}`}>
+      <div
+        ref={scroller}
+        onScroll={(event) => setMore(event.currentTarget.scrollLeft + event.currentTarget.clientWidth < event.currentTarget.scrollWidth - 1)}
+        className="overflow-x-auto"
+      >
+        <div style={template} className="grid min-h-[48px] [box-shadow:0_4px_14px_rgba(0,0,0,0.15)]">
+          {columns.map((column) => {
+            const sorted = column.sortKey && (ordering === column.sortKey || ordering === `-${column.sortKey}`)
+            const label = column.id === "week" || column.id === "month" ? t("Рек. запас на {n} дней").replace("{n}", column.id === "week" ? "6" : "30") : t(column.label)
+            return (
+              <div key={column.id} className={`${cell} flex items-center justify-center bg-[#f0f4f9] px-[5px] py-[5.5px] text-center text-[13px] font-semibold leading-[18px] text-[#374557] ${sorted ? "[box-shadow:inset_0_-3px_0_rgba(0,0,0,0.6)]" : ""}`}>
                 {column.sortKey ? (
-                  <button
-                    type="button"
-                    onClick={() => onOrderingChange(nextOrdering([ordering], column.sortKey!, "desc-first")[0] ?? "")}
-                    className="inline-flex items-center gap-1 text-left"
-                  >
-                    {t(column.label)}
-                    {ordering === column.sortKey ? <ArrowUp className="h-3.5 w-3.5 shrink-0" /> : ordering === `-${column.sortKey}` ? <ArrowDown className="h-3.5 w-3.5 shrink-0" /> : <ArrowUpDown className="h-3.5 w-3.5 shrink-0 opacity-40" />}
+                  <button type="button" onClick={() => onOrderingChange(nextOrdering([ordering], column.sortKey!, "desc-first")[0] ?? "")} className="block w-full text-center">
+                    {label}
                   </button>
                 ) : (
-                  t(column.label)
+                  label
                 )}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => {
-            const background = index % 2 ? "#ffffff" : "#F4F8FB"
-            return (
-              <tr key={row.key} style={{ background }}>
-                {columns.map((column) => (
-                  <td
-                    key={column.id}
-                    className={`border-b border-[#efefef] ${pill.has(column.id) ? "p-0" : "px-3 py-2"} ${column.id === "name" ? "sticky left-0" : "whitespace-nowrap"}`}
-                    style={column.id === "name" ? { background } : undefined}
-                  >
-                    {column.render(row)}
-                  </td>
-                ))}
-              </tr>
+              </div>
             )
           })}
-        </tbody>
-      </table>
+        </div>
+        <div>
+          {rows.map((row, index) => (
+            <div key={row.key} style={template} className="grid">
+              {columns.map((column) => (
+                <div key={column.id} className={`${cell} ${index % 2 ? "bg-[#f4f8fb]" : "bg-white"} ${pill.has(column.id) ? "pr-px" : "px-[5px] py-[7px]"} ${column.id === "name" ? "break-words leading-[16.3px]" : "break-words leading-[16.3px]"}`}>
+                  {column.render(row)}
+                </div>
+              ))}
+            </div>
+          ))}
+          {Array.from({ length: filler }, (_, offset) => (
+            <div key={`filler-${offset}`} style={template} className="grid">
+              {columns.map((column) => (
+                <div key={column.id} className={`${cell} h-[31.3px] ${(rows.length + offset) % 2 ? "bg-[#f4f8fb]" : "bg-white"}`} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      {more && (
+        <button
+          type="button"
+          aria-label={t("Вперед")}
+          onClick={() => scroller.current?.scrollBy({ left: 400, behavior: "smooth" })}
+          className="absolute right-0 top-[104px] flex h-[60px] w-[40px] items-center justify-center rounded-l-[30px] bg-black/[0.31] pl-[8px] text-white"
+        >
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white" aria-hidden><path d="M5.59 7.41L10.18 12l-4.59 4.59L7 18l6-6-6-6zM12.59 7.41L17.18 12l-4.59 4.59L18 18l6-6-6-6z" transform="translate(-3 0)" /></svg>
+        </button>
+      )}
     </div>
   )
 }

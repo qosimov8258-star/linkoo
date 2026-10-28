@@ -1,5 +1,6 @@
 "use client"
 
+import { askDelete } from "@/lib/ask-confirm"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ChevronDown, Loader2, Trash2, X } from "lucide-react"
 
@@ -320,7 +321,7 @@ export function DelivererActDialog({
   const title = data?.entity.name || name || t("Не указано")
 
   const remove = async (id: number) => {
-    if (!window.confirm(t("Удалить запись?"))) return
+    if (!(await askDelete())) return
     setDeleting(id)
     setError("")
     try {

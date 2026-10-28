@@ -51,7 +51,7 @@ type TxRow = {
 }
 
 declare global {
-  var __linkoVansellSchema: Promise<void> | undefined
+  var __linkoVansellSchema2: Promise<void> | undefined
 }
 
 async function createSchema(db: PgDb) {
@@ -87,14 +87,15 @@ async function createSchema(db: PgDb) {
   `)
 }
 
+// The "2" makes a running dev server (globalThis survives hot reloads) add the is_deleted column.
 function ensureSchema(): Promise<void> {
-  if (!globalThis.__linkoVansellSchema) {
-    globalThis.__linkoVansellSchema = outsideTransaction(() => createSchema(getDb())).catch((error) => {
-      globalThis.__linkoVansellSchema = undefined
+  if (!globalThis.__linkoVansellSchema2) {
+    globalThis.__linkoVansellSchema2 = outsideTransaction(() => createSchema(getDb())).catch((error) => {
+      globalThis.__linkoVansellSchema2 = undefined
       throw error
     })
   }
-  return globalThis.__linkoVansellSchema
+  return globalThis.__linkoVansellSchema2
 }
 
 const SELECT_TX = `
@@ -124,7 +125,6 @@ function businessDate(value: string | undefined): string {
   return (value ? parseDocInput(value) : null)?.slice(0, 16) ?? nowLocalIso().slice(0, 16)
 }
 
-
 /** Canonical code when the currency is in the currencies table (none while it is empty). */
 async function knownCurrency(db: PgDb, value: string): Promise<string | null> {
   const code = normCurrency(value)
@@ -137,16 +137,32 @@ export async function listVansellTransactions(filter: { employeeId?: number } = 
   await ensureSchema()
   const rows = (
     filter.employeeId
-      ? await db.prepare(`${SELECT_TX} WHERE v.employee_id = ? ORDER BY v.id DESC`).all(filter.employeeId)
-      : await db.prepare(`${SELECT_TX} ORDER BY v.id DESC`).all()
+      ? await db.prepare(`${SELECT_TX} WHERE v.employee_id = ? AND COALESCE(v.is_deleted, 0) = 0 ORDER BY v.id DESC`).all(filter.employeeId)
+      : await db.prepare(`${SELECT_TX} WHERE COALESCE(v.is_deleted, 0) = 0 ORDER BY v.id DESC`).all()
   ) as TxRow[]
   return rows.map(toTransaction)
 }
 
 export async function getVansellTransaction(id: number, db: PgDb = getDb()): Promise<VansellTransaction | null> {
   await ensureSchema()
-  const row = (await db.prepare(`${SELECT_TX} WHERE v.id = ?`).get(id)) as TxRow | undefined
+  const row = (await db.prepare(`${SELECT_TX} WHERE v.id = ? AND COALESCE(v.is_deleted, 0) = 0`).get(id)) as TxRow | undefined
   return row ? toTransaction(row) : null
+}
+
+/** Soft delete of a manual ('none_type') movement: it stays in the table but no longer counts
+ * anywhere (the ledger skips is_deleted rows); transfers and cash entries are deleted at their source.
+ * The row is locked, so a parallel edit or delete waits and then sees it gone. */
+export async function deleteVansellTransaction(id: number): Promise<"ok" | "not_found" | "not_editable"> {
+  await ensureSchema()
+  return withTransaction(async (db) => {
+    const row = (await db
+      .prepare("SELECT type FROM vansell_transactions WHERE id = ? AND COALESCE(is_deleted, 0) = 0 FOR UPDATE")
+      .get(id)) as { type: string } | undefined
+    if (!row) return "not_found"
+    if (row.type !== "none_type") return "not_editable"
+    await db.prepare("UPDATE vansell_transactions SET is_deleted = 1, updated_at = datetime('now') WHERE id = ? AND type = 'none_type'").run(id)
+    return "ok"
+  })
 }
 
 /** date_future: an edit moves the movement to a day later than today (lib/document-dates.ts). */
@@ -193,7 +209,7 @@ export async function updateVansellTransaction(id: number, input: VansellTransac
     .prepare(
       `UPDATE vansell_transactions
        SET employee_id = @employeeId, currency = @currency, amount = @amount, created_date = @createdDate, comment = @comment, updated_at = datetime('now')
-       WHERE id = @id AND type = 'none_type'`,
+       WHERE id = @id AND type = 'none_type' AND COALESCE(is_deleted, 0) = 0`,
     )
     .run({
       id,
@@ -204,18 +220,6 @@ export async function updateVansellTransaction(id: number, input: VansellTransac
       comment: input.comment ?? current.comment,
     })
   return (await getVansellTransaction(id, db))!
-}
-
-/** Deletes a manual movement (only 'none_type' rows; transfers and cash entries are deleted at their source). */
-export async function deleteVansellTransaction(id: number): Promise<"ok" | "not_found" | "not_editable"> {
-  await ensureSchema()
-  return withTransaction(async (db) => {
-    const row = (await db.prepare("SELECT type FROM vansell_transactions WHERE id = ? FOR UPDATE").get(id)) as { type: string } | undefined
-    if (!row) return "not_found"
-    if (row.type !== "none_type") return "not_editable"
-    await db.prepare("DELETE FROM vansell_transactions WHERE id = ?").run(id)
-    return "ok"
-  })
 }
 
 export async function listVansellLimits(): Promise<VansellLimit[]> {

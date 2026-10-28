@@ -109,12 +109,13 @@ export async function getBrandImage(id: number): Promise<string | null> {
 /** Write input; `undefined` = keep the stored value (PUT) / the default (POST). */
 export type BrandInput = { name: string; organization?: string; image?: string | null }
 
-/** Checks the fields; returns the organization in its stored spelling. */
+/** Checks the fields; returns the organization in its stored spelling. A stored brand without an organization (demo data) keeps none, so editing it stays possible. */
 async function validate(tx: PgDb, id: number | null, name: string, organization: string, currentOrganization?: string | null): Promise<string> {
   const duplicate = await tx
     .prepare("SELECT id FROM brands WHERE fin_key(name) = fin_key(@name) AND (@exceptId::int IS NULL OR id <> @exceptId::int) LIMIT 1")
     .get({ name, exceptId: id })
   if (duplicate) throw fieldError("name", DUPLICATE)
+  if (!organization && currentOrganization !== undefined && !cleanText(currentOrganization)) return ""
   return resolveOrganization(tx, organization, currentOrganization)
 }
 

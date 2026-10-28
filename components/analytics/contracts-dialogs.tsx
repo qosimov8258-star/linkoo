@@ -4,17 +4,11 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { FileSpreadsheet, Loader2, SearchCheck } from "lucide-react"
 
 import { cashMutate } from "@/components/analytics/cash/use-cash"
-import {
-  CashModal,
-  FormField,
-  PrimaryButton,
-  SearchSelect,
-  SecondaryButton,
-  inputClass,
-  mutationError,
-  type PickOption,
-} from "@/components/analytics/cash-management-shared"
-import { ClientMultiSelect, type ClientPick } from "@/components/analytics/contracts-fields"
+import { CashModal, PrimaryButton, SecondaryButton, mutationError, type PickOption } from "@/components/analytics/cash-management-shared"
+import { useContractClients, type ClientPick } from "@/components/analytics/contracts-fields"
+import { Modal, SaveButton } from "@/components/analytics/catalog-ui"
+import { RefSearchSelect } from "@/components/analytics/ref-search-select"
+import { RefMuiDate } from "@/components/ref/mui-dialog"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, normalizeHeader, readExcelRows } from "@/lib/excel-import"
 import {
@@ -82,7 +76,7 @@ function initialValues(contract: ContractDetail | null): FormValues {
       inn: "",
       clients: [],
       agentId: "",
-      status: "active",
+      status: "",
       comment: "",
       organizationId: "",
     }
@@ -226,124 +220,123 @@ export function ContractFormDialog({
     setErrors(field ? { [field]: mutationError(result, t) } : { form: mutationError(result, t) })
   }
 
+  const [clientQuery, setClientQuery] = useState("")
+  const clientPick = useContractClients(clientQuery, [], true)
   const agentOptions: PickOption[] = (options?.agents ?? []).map((agent) => ({ value: String(agent.id), label: agent.name }))
   if (contract?.agent.id && !agentOptions.some((option) => option.value === String(contract.agent.id))) agentOptions.push({ value: String(contract.agent.id), label: contract.agent.name })
   const organizationOptions: PickOption[] = (options?.organizations ?? []).map((organization) => ({ value: String(organization.id), label: organization.name }))
   const statusOptions: PickOption[] = CONTRACT_STATUSES.map((status) => ({ value: status, label: t(CONTRACT_STATUS_LABELS[status]) }))
 
+  const err = (text?: string) => (text ? <span className="mt-[2px] block text-[12px] text-[#e57373]">{text}</span> : null)
+  const label10 = "pointer-events-none absolute left-0 top-0 text-[10px] font-semibold leading-3"
+  const label13 = "pointer-events-none absolute left-0 top-[18px] text-[13px] font-bold leading-4"
+  const star = <span className="text-[#e57373]"> *</span>
+  const lineInput = "absolute inset-x-0 bottom-0 h-[26px] bg-transparent text-[13px] font-semibold outline-none"
+  const clientItems = clientPick.items.map((client) => ({ value: String(client.id), label: client.name }))
+  const asItems = (list: PickOption[]) => list.map((option) => ({ value: option.value, label: option.label }))
+  const one = (list: PickOption[], value: string) => list.filter((option) => option.value === value).map((option) => ({ value: option.value, label: option.label }))
+
   return (
-    <CashModal
+    <Modal
       title={isUpdate ? t("Изменить договор") : t("Добавить договор")}
       onClose={onClose}
-      size="md"
-      zIndex={120}
+      width={500}
+      bodyClassName="px-[30px] pb-[69px] pt-[32px]"
       footer={
         <>
-          {errors.form && <span className="mr-auto text-[13px] text-[#e57373]">{errors.form}</span>}
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
-            {t("Сохранить")}
-          </PrimaryButton>
+          {errors.form && <span className="mr-auto pl-[30px] text-[13px] text-[#e57373]">{errors.form}</span>}
+          <SaveButton onClick={() => !busy && void submit()}>{busy ? "…" : t("Сохранить")}</SaveButton>
         </>
       }
     >
       <form
-        className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault()
           void submit()
         }}
       >
-        <div className="flex flex-col gap-1 text-[13px] text-[#586174]">
-          <span>
-            {t("Номер контракта")}
-            <span className="text-[#e57373]"> *</span>
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-24 shrink-0">
-              <input value={values.contractPrefix} onChange={(event) => set("contractPrefix", event.target.value)} maxLength={20} placeholder={t("Префикс")} aria-label={t("Префикс")} className={inputClass} />
-            </div>
-            <div className="relative min-w-0 flex-1">
-              <input
-                inputMode="numeric"
-                value={values.contractNumber}
-                onChange={(event) => {
-                  setNumberTouched(true)
-                  set("contractNumber", event.target.value.replace(/\D/g, ""))
-                }}
-                aria-label={t("Номер контракта")}
-                className={`${inputClass} ${errors.contractNumber ? "border-[#e57373]" : ""}`}
-              />
-              {numberLoading && <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-[#9aa3b6]" />}
-            </div>
-            <div className="w-24 shrink-0">
-              <input value={values.contractSuffix} onChange={(event) => set("contractSuffix", event.target.value)} maxLength={20} placeholder={t("Суффикс")} aria-label={t("Суффикс")} className={inputClass} />
-            </div>
+        <div className="flex items-end gap-[20px]">
+          <div className="relative h-[40px] w-[60px] shrink-0 border-b border-[#d5dae1]">
+            <input value={values.contractPrefix} onChange={(event) => set("contractPrefix", event.target.value)} maxLength={20} title={t("Префикс")} aria-label={t("Префикс")} className={lineInput} />
           </div>
-          {errors.contractNumber && <span className="text-[12px] text-[#e57373]">{errors.contractNumber}</span>}
-          {(values.contractPrefix || values.contractSuffix) && values.contractNumber && (
-            <span className="text-[12px] text-[#7b8497]">
-              {t("Номер")}: {values.contractPrefix.trim()}
-              {values.contractNumber}
-              {values.contractSuffix.trim()}
-            </span>
-          )}
-        </div>
-        <FormField label={t("Дата создания")} required error={errors.createdDate}>
-          <input type="date" value={values.createdDate} onChange={(event) => set("createdDate", event.target.value)} className={`${inputClass} ${errors.createdDate ? "border-[#e57373]" : ""}`} />
-        </FormField>
-        <FormField label={t("Официальное название")} required error={errors.officialName}>
-          <input value={values.officialName} onChange={(event) => set("officialName", event.target.value)} maxLength={300} className={`${inputClass} ${errors.officialName ? "border-[#e57373]" : ""}`} />
-        </FormField>
-        <FormField label={t("ИНН")} required error={errors.inn}>
-          <span className="flex items-center gap-2">
+          <div className={`relative h-[40px] min-w-0 flex-1 border-b ${errors.contractNumber ? "border-[#e57373]" : "border-[#d5dae1]"}`}>
+            <span className={label10}>{t("Номер контракта")}{star}</span>
             <input
               inputMode="numeric"
-              value={values.inn}
+              value={values.contractNumber}
               onChange={(event) => {
-                setInnState({ loading: false, text: "" })
-                set("inn", event.target.value.replace(/[^\d\s]/g, ""))
+                setNumberTouched(true)
+                set("contractNumber", event.target.value.replace(/\D/g, ""))
               }}
-              maxLength={20}
-              className={`${inputClass} ${errors.inn ? "border-[#e57373]" : ""}`}
+              aria-label={t("Номер контракта")}
+              className={lineInput}
             />
-            {values.inn.trim() && (
-              <button
-                type="button"
-                onClick={() => void checkInn()}
-                disabled={innState.loading}
-                title={t("Проверить данные по ИНН")}
-                aria-label={t("Проверить данные по ИНН")}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#dbe0e8] text-[#666] hover:bg-[#f2f5f8] disabled:opacity-50"
-              >
-                {innState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SearchCheck className="h-4 w-4" />}
-              </button>
-            )}
-          </span>
-          {innState.text && <span className="text-[12px] text-[#7b8497]">{innState.text}</span>}
-        </FormField>
-        <div className="flex flex-col gap-1 text-[13px] text-[#586174]">
-          <span>
-            {t("Клиенты")}
-            <span className="text-[#e57373]"> *</span>
-          </span>
-          <ClientMultiSelect value={values.clients} onChange={(clients) => set("clients", clients)} invalid={Boolean(errors.clients)} placeholder={t("Выберите клиентов")} />
-          {errors.clients && <span className="text-[12px] text-[#e57373]">{errors.clients}</span>}
+            {numberLoading && <Loader2 className="absolute right-0 top-[18px] h-4 w-4 animate-spin text-[#9aa3b6]" />}
+          </div>
+          <div className="relative h-[40px] w-[60px] shrink-0 border-b border-[#d5dae1]">
+            <input value={values.contractSuffix} onChange={(event) => set("contractSuffix", event.target.value)} maxLength={20} title={t("Суффикс")} aria-label={t("Суффикс")} className={lineInput} />
+          </div>
         </div>
-        <FormField label={t("Агент")} required error={errors.agentId}>
-          <SearchSelect value={values.agentId} onChange={(value) => set("agentId", value)} options={agentOptions} invalid={Boolean(errors.agentId)} placeholder={t("Агент")} selectedLabel={contract?.agent.name} />
-        </FormField>
-        <FormField label={t("Статус")} required error={errors.status}>
-          <SearchSelect value={values.status} onChange={(value) => set("status", value as ContractStatus | "")} options={statusOptions} invalid={Boolean(errors.status)} placeholder={t("Статус")} />
-        </FormField>
-        <FormField label={t("Комментарий")}>
-          <input value={values.comment} onChange={(event) => set("comment", event.target.value)} maxLength={2000} className={inputClass} />
-        </FormField>
-        <FormField label={t("Организация")} error={errors.organizationId}>
-          <SearchSelect value={values.organizationId} onChange={(value) => set("organizationId", value)} options={organizationOptions} placeholder={t("Организация")} selectedLabel={contract?.organization.name} />
-        </FormField>
+        {err(errors.contractNumber)}
+        <div className="mt-[12px] flex">
+          <RefMuiDate label={`${t("Дата создания")} *`} value={values.createdDate} onChange={(value) => set("createdDate", value)} error={errors.createdDate} />
+        </div>
+        {err(errors.createdDate)}
+        <div className={`relative mt-[12px] h-[40px] border-b ${errors.officialName ? "border-[#e57373]" : "border-[#d5dae1]"}`}>
+          <span className={values.officialName ? label10 : label13}>{t("Официальное название")}{star}</span>
+          <input value={values.officialName} onChange={(event) => set("officialName", event.target.value)} maxLength={300} className={lineInput} />
+        </div>
+        {err(errors.officialName)}
+        <div className={`relative mt-[12px] h-[40px] border-b ${errors.inn ? "border-[#e57373]" : "border-[#d5dae1]"}`}>
+          <span className={values.inn ? label10 : label13}>{t("ИНН")}{star}</span>
+          <input
+            inputMode="numeric"
+            value={values.inn}
+            onChange={(event) => {
+              setInnState({ loading: false, text: "" })
+              set("inn", event.target.value.replace(/[^\d\s]/g, ""))
+            }}
+            maxLength={20}
+            className={`${lineInput} pr-8`}
+          />
+          {values.inn.trim() && (
+            <button type="button" onClick={() => void checkInn()} disabled={innState.loading} title={t("Проверить данные по ИНН")} aria-label={t("Проверить данные по ИНН")} className="absolute bottom-[2px] right-0 text-[#666] disabled:opacity-50">
+              {innState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SearchCheck className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
+        {err(errors.inn)}
+        {innState.text && <span className="block text-[12px] text-[#7b8497]">{innState.text}</span>}
+        <div className="mt-[12px]">
+          <RefSearchSelect
+            multi
+            label={`${t("Клиенты")} *`}
+            items={clientItems}
+            selected={values.clients.map((client) => ({ value: String(client.id), label: client.name || `#${client.id}` }))}
+            onQuery={setClientQuery}
+            loading={clientPick.loading}
+            onChange={(next) =>
+              set(
+                "clients",
+                next.map((item) => clientPick.items.find((client) => String(client.id) === item.value) ?? values.clients.find((client) => String(client.id) === item.value) ?? { id: Number(item.value), name: item.label, zone: "" }),
+              )
+            }
+          />
+          {err(errors.clients)}
+        </div>
+        <RefSearchSelect label={`${t("Агент")} *`} items={asItems(agentOptions)} selected={one(agentOptions, values.agentId)} onChange={(next) => set("agentId", next[0]?.value ?? "")} />
+        {err(errors.agentId)}
+        <RefSearchSelect label={`${t("Статус")} *`} items={asItems(statusOptions)} selected={one(statusOptions, values.status)} onChange={(next) => set("status", (next[0]?.value ?? "") as ContractStatus | "")} />
+        {err(errors.status)}
+        <div className="relative h-[40px] border-b border-[#d5dae1]">
+          <span className={values.comment ? label10 : label13}>{t("Комментарий")}</span>
+          <input value={values.comment} onChange={(event) => set("comment", event.target.value)} maxLength={2000} className={lineInput} />
+        </div>
+        <RefSearchSelect className="mt-[12px]" label={t("Организация")} items={asItems(organizationOptions)} selected={one(organizationOptions, values.organizationId)} onChange={(next) => set("organizationId", next[0]?.value ?? "")} />
+        {err(errors.organizationId)}
         <button type="submit" className="hidden" aria-hidden tabIndex={-1} />
       </form>
-    </CashModal>
+    </Modal>
   )
 }
 

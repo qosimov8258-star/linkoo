@@ -1,10 +1,11 @@
 "use client"
 
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react"
-import { ChevronLeft, ChevronRight, Pencil, Search, X } from "lucide-react"
-import { RefHeader, RefPage } from "@/components/ref/list-kit"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { Pencil, X } from "lucide-react"
+import { RefCard, RefHeader, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
 type Lang = "ru" | "uz" | "en"
 
@@ -67,11 +68,22 @@ export function TelegramBotPagesView() {
     if (!normalized) return pages
     return pages.filter((page) => page.key.toLowerCase().includes(normalized) || page.title.toLowerCase().includes(normalized) || seededText(page, "title", t).toLowerCase().includes(normalized))
   }, [pages, query, t])
+  const paging = usePaging(rows.length)
 
   function toggle(key: string) {
     setExpanded((current) => (current === key ? null : key))
     setLang("ru")
   }
+
+  // Escape closes the edit dialog, like the other dialogs of the app.
+  useEffect(() => {
+    if (!editing) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEditing(null)
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [editing])
 
   function openEdit(page: BotPage) {
     setDraft({ title: page.title, description: page.description, content: { ...page.content } })
@@ -80,7 +92,7 @@ export function TelegramBotPagesView() {
 
   async function saveEdit(event: FormEvent) {
     event.preventDefault()
-    if (!editing) return
+    if (!editing || saving) return
     setSaving(true)
     try {
       const response = await fetch(`/api/telegram-bot-pages/${editing.key}`, {
@@ -89,14 +101,14 @@ export function TelegramBotPagesView() {
         body: JSON.stringify({ title: draft.title, description: draft.description, content: draft.content }),
       })
       if (!response.ok) {
-        window.alert(t("Не удалось сохранить страницу"))
+        notify(t("Не удалось сохранить страницу"))
         return
       }
       const saved = (await response.json()) as BotPage
       setPages((list) => list.map((page) => (page.key === editing.key ? saved : page)))
       setEditing(null)
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
@@ -104,44 +116,32 @@ export function TelegramBotPagesView() {
 
   return (
     <RefPage>
-      <RefHeader title="Страницы телеграм бота" />
+      <RefHeader title={t("Страницы телеграм бота")} />
 
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <label className="relative w-64">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            {rows.length ? 1 : 0} - {rows.length} {t("из")} {rows.length}
-          </span>
-          <ChevronLeft className="h-5 w-5 text-slate-300" />
-          <ChevronRight className="h-5 w-5 text-slate-300" />
-        </div>
-
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-5">{t("Ключ")}</th>
-              <th className="px-5 py-5">{t("Заголовок")}</th>
-              <th className="px-5 py-5">{t("Описание")}</th>
-              <th className="px-5 py-5">{t("Дата создания")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((page) => (
-              <Fragment key={page.key}>
-                <tr className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50" onClick={() => toggle(page.key)}>
-                  <td className="px-9 py-5">{page.key}</td>
-                  <td className="px-5 py-5">{seededText(page, "title", t)}</td>
-                  <td className="px-5 py-5">{seededText(page, "description", t)}</td>
-                  <td className="px-5 py-5">{formatDateText(page.createdAt, language)}</td>
-                </tr>
-                {expanded === page.key && (
-                  <tr>
-                    <td colSpan={4} className="border-b border-slate-200 bg-white p-0">
-                      <div className="p-8">
+      <RefCard>
+        <RefToolbar
+          hideFilter
+          query={query}
+          onQuery={(value) => { setQuery(value); paging.setPage(1) }}
+          pageSize={paging.pageSize}
+          onPageSize={paging.setPageSize}
+          from={rows.length ? paging.start + 1 : 0}
+          to={paging.end}
+          total={rows.length}
+          page={paging.page}
+          pageCount={paging.pageCount}
+          onPage={paging.setPage}
+        />
+        <RefTable
+          cols="minmax(0,3fr) minmax(0,3fr) minmax(0,3fr) minmax(0,3fr)"
+          heads={[t("Ключ"), t("Заголовок"), t("Описание"), t("Дата создания")]}
+          rows={rows.slice(paging.start, paging.end)}
+          rowKey={(page) => page.key}
+          onRowClick={(page) => toggle(page.key)}
+          empty={t("Ничего не найдено")}
+          render={(page) => [<b key="key" className="font-semibold">{page.key}</b>, <b key="title" className="font-semibold">{seededText(page, "title", t)}</b>, seededText(page, "description", t), <b key="date" className="font-semibold">{formatDateText(page.createdAt, language)}</b>]}
+          expanded={(page) => (expanded === page.key ? <div className="border-b border-slate-200 bg-white">
+            <div className="p-8">
                         <div className="mb-6 flex items-center justify-between">
                           <h2 className="text-2xl font-semibold text-slate-800">{seededText(page, "title", t)}</h2>
                           <button type="button" onClick={() => openEdit(page)} aria-label={t("Изменить")} className="text-slate-500 hover:text-[#4f71dc]">
@@ -177,21 +177,9 @@ export function TelegramBotPagesView() {
                           </div>
                         </div>
                       </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-slate-400">
-                  {t("Ничего не найдено")}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+          </div> : null)}
+        />
+      </RefCard>
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">

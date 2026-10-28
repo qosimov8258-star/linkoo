@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import { analyticsReports } from "@/lib/analytics-catalog"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { AccountDropdown, ChangePasswordDialog, ROLE_LABELS, type AccountUser } from "./account-dropdown"
@@ -121,6 +122,138 @@ const navItems: NavItem[] = [
   },
 ]
 
+const analyticsTabPaths = ["/analytics/pnl", "/analytics/flexible-dashboard", "/analytics/order-debts", "/analytics/client-debts", "/analytics/quick-report"]
+
+/** Section shown in the reference's title tooltip per page (it does not always follow the top-nav grouping). */
+const PAGE_SECTION: Record<string, string | null> = {
+  "/analytics/management-balance": null,
+  "/analytics/kpi-performance": null,
+  "/analytics/balance-tab": null,
+  "/analytics/kpi-tab": null,
+  "/": "Аналитика",
+  "/analytics/abc-analysis": "Аналитика",
+  "/analytics/account-debts": "Финансы",
+  "/analytics/account-reconciliation": "Финансы",
+  "/analytics/activity": "Персонал",
+  "/analytics/agent-visits": "Аналитика",
+  "/analytics/agent-working-time": "Аналитика",
+  "/analytics/attendance": "Аналитика",
+  "/analytics/branch-balance": "Аналитика",
+  "/analytics/branch-kpi-plans": "Персонал",
+  "/analytics/cash-balance": "Аналитика",
+  "/analytics/cash-flow": "Финансы",
+  "/analytics/cash-management": "Финансы",
+  "/analytics/cash-shifts": "Продажи",
+  "/analytics/cashback-withdrawal-requests": "Финансы",
+  "/analytics/category-expenses": "Финансы",
+  "/analytics/client-balance": "Аналитика",
+  "/analytics/client-bonuses": "Продажи",
+  "/analytics/client-dynamics": "Клиенты",
+  "/analytics/client-sales-payments": "Аналитика",
+  "/analytics/contracts": "Финансы",
+  "/analytics/cost-of-goods": "Склад",
+  "/analytics/coverage-analysis": "Аналитика",
+  "/analytics/current-stock-report-builder": "Аналитика",
+  "/analytics/customer-payments": "Финансы",
+  "/analytics/draft-orders": "Продажи",
+  "/analytics/employee-balance": "Аналитика",
+  "/analytics/equipment-efficiency": "Аналитика",
+  "/analytics/expected-expenses": "Финансы",
+  "/analytics/expected-payments": "Финансы",
+  "/analytics/flexible-dashboard": "Аналитика",
+  "/analytics/internal-transfers": "Склад",
+  "/analytics/inventory": "Склад",
+  "/analytics/inventory-management": "Склад",
+  "/analytics/invoice-incomings": "Клиенты",
+  "/analytics/kpi-tasks": "Персонал",
+  "/analytics/loyalty-card": "Финансы",
+  "/analytics/mailing": "Продажи",
+  "/analytics/marketing-campaigns": "Продажи",
+  "/analytics/order-debts": "Аналитика",
+  "/analytics/payroll-expenses": "Финансы",
+  "/analytics/perfect-store": "Продажи",
+  "/analytics/photo-report-review": "Персонал",
+  "/analytics/photo-reports": "Продажи",
+  "/analytics/price-analysis": "Аналитика",
+  "/analytics/price-formation": "Склад",
+  "/analytics/product-restrictions": "Персонал",
+  "/analytics/product-store-check": "Аналитика",
+  "/analytics/production-batches": "Производство",
+  "/analytics/production-stages": "Производство",
+  "/analytics/products": "Склад",
+  "/analytics/quick-report": "Аналитика",
+  "/analytics/raw-materials": "Склад",
+  "/analytics/receipt-transfer-plan": "Склад",
+  "/analytics/refusals": "Продажи",
+  "/analytics/reorder-level": "Аналитика",
+  "/analytics/repricing": "Склад",
+  "/analytics/returns": "Продажи",
+  "/analytics/salary-planning": "Персонал",
+  "/analytics/sales": "Продажи",
+  "/analytics/sales-builder": "Аналитика",
+  "/analytics/sales-by-agents": "Аналитика",
+  "/analytics/sales-by-products": "Аналитика",
+  "/analytics/stock-by-date": "Аналитика",
+  "/analytics/stock-level": "Аналитика",
+  "/analytics/store-check-completion": "Аналитика",
+  "/analytics/store-reconciliation-bot": "Финансы",
+  "/analytics/store-time": "Аналитика",
+  "/analytics/supervisor-agent-visits": "Аналитика",
+  "/analytics/supplier-balance": "Аналитика",
+  "/analytics/supplier-debts": "Аналитика",
+  "/analytics/supplier-incomings": "Склад",
+  "/analytics/supplier-payments": "Финансы",
+  "/analytics/supplier-returns": "Склад",
+  "/analytics/survey-plans": "Продажи",
+  "/analytics/surveys": "Продажи",
+  "/analytics/system-distribution": "Аналитика",
+  "/analytics/tasks": "Персонал",
+  "/analytics/telegram-pages": "Продажи",
+  "/analytics/vansell-balance": "Аналитика",
+  "/analytics/visit-builder": "Аналитика",
+  "/analytics/visits-by-day": "Аналитика",
+  "/analytics/work-attendance": "Аналитика",
+  "/analytics/write-offs": "Склад",
+  "/clients": "Клиенты",
+  "/clients/client-restrictions": "Клиенты",
+  "/clients/financial-accounts": "Клиенты",
+  "/clients/routes": "Аналитика",
+  "/clients/telegram-users": "Клиенты",
+  "/clients/territory": "Клиенты",
+}
+
+/**
+ * Top-nav section a page belongs to — the reference shows it as a tooltip on the page title.
+ * Settings pages (gear menu) belong to no section and get none.
+ */
+export function navSectionLabel(pathname: string): string | null {
+  if (pathname in PAGE_SECTION) return PAGE_SECTION[pathname]
+  const specific = [...navItems].reverse().find((item) => item.label !== "Аналитика" && item.matches(pathname))
+  if (specific) return specific.label
+  const isAnalytics =
+    pathname === "/" ||
+    pathname.endsWith("-tab") ||
+    analyticsTabPaths.some((base) => pathname === base || pathname.startsWith(`${base}/`)) ||
+    analyticsReports.some((report) => report.href.split("?")[0] === pathname)
+  return isAnalytics ? "Аналитика" : null
+}
+
+/** Branch picked in the account menu: `linko-branch` (id, read by the API) + `linko-branch-name` (label of the menu button). */
+function writeBranchCookies(id: number | undefined, name: string) {
+  const maxAge = id ? 60 * 60 * 24 * 365 : 0
+  document.cookie = `linko-branch=${id ?? ""}; path=/; max-age=${maxAge}; samesite=lax`
+  document.cookie = `linko-branch-name=${id ? encodeURIComponent(name) : ""}; path=/; max-age=${maxAge}; samesite=lax`
+}
+
+function readBranchName(): string {
+  const match = document.cookie.match(/(?:^|;\s*)linko-branch-name=([^;]*)/)
+  try {
+    return match ? decodeURIComponent(match[1]) : ""
+  } catch {
+    return ""
+  }
+}
+
 export function TopNav() {
   const pathname = usePathname()
   const router = useRouter()
@@ -128,6 +261,11 @@ export function TopNav() {
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [accountOpen, setAccountOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [branch, setBranch] = useState("Все филиалы")
+  useEffect(() => {
+    const saved = readBranchName()
+    if (saved) setBranch(saved)
+  }, [])
   const [mobileSection, setMobileSection] = useState<string | null>(null)
   const [brandMenuOpen, setBrandMenuOpen] = useState(false)
   const [workspace, setWorkspace] = useState<string>("distribution" satisfies WorkspaceId)
@@ -300,8 +438,8 @@ export function TopNav() {
   if (pathname === "/login" || pathname.startsWith("/login/")) return null
 
   return (
-    <header ref={headerRef} className="sticky top-0 z-40 bg-[#272780] text-white shadow-[0_6px_14px_rgba(30,41,90,0.24)]">
-      <div className="flex h-[50px] items-center px-4 xl:pl-6 xl:pr-[30px]">
+    <header ref={headerRef} className="sticky top-0 z-40 bg-[#272780] text-white shadow-[0_5px_10px_2px_rgba(79,113,220,0.3)]">
+      <div className="flex h-[50px] items-center px-4 xl:pl-6 xl:pr-[29px]">
         <div ref={brandRef} className="relative mr-auto shrink-0 lg:mr-3">
           <button
             type="button"
@@ -316,7 +454,7 @@ export function TopNav() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/nav/logo.svg" alt="linko" className="h-7 w-[55px]" />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/nav/caret.svg" alt="" className="h-5 w-5" />
+                <img src="/nav/caret.svg" alt="" className="relative top-[5.8px] -mr-5 h-5 w-5" />
               </span>
               <span className="mt-[3px] text-[10px] font-normal leading-[12.5px]">
                 {workspace === "distribution"
@@ -350,7 +488,7 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="ml-[91px] min-[1500px]:ml-[calc(50vw-708px)] max-[1500px]:ml-[80px] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
+        <nav ref={navRef} className="ml-[91px] min-[1440px]:ml-[calc(50vw-697.87px)] max-[1439px]:ml-[max(20px,calc(50vw-582.37px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
           {navItems.map(({ label }) => {
             const isOpen = openMenu === label
 
@@ -373,7 +511,7 @@ export function TopNav() {
                 onFocus={() => setOpenMenu(label)}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
-                className={`flex h-full shrink-0 items-center gap-[4px] border-r border-white/[0.12] pl-[18px] pr-[26px] max-[1500px]:pl-[8px] max-[1500px]:pr-[3px] font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
+                className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
                     ? "bg-[#5c6df3] hover:bg-[#5c6df3]"
                     : "hover:bg-[#3a3897]"
@@ -381,7 +519,7 @@ export function TopNav() {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={NAV_ICONS[label]} alt="" className={`w-[25px] ${label === "Производство" ? "h-5" : "h-6"}`} />
-                <span>{t(label)}</span>
+                <span className="relative top-[-0.3px]">{t(label)}</span>
               </button>
             )
           })}
@@ -400,7 +538,7 @@ export function TopNav() {
         <div className="flex-1" />
 
         <div ref={accountRef} className="hidden h-full shrink-0 items-center lg:flex">
-          <div className="flex h-full items-center border-l border-white/[0.12]">
+          <div className="flex h-full items-center border-x border-white/[0.12]">
           <div ref={notificationsRef}>
             <button
               type="button"
@@ -410,7 +548,7 @@ export function TopNav() {
               }}
               aria-haspopup="menu"
               aria-expanded={notificationsOpen}
-              className="relative flex h-10 w-[50px] items-center justify-center transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+              className="relative flex h-10 w-[51px] items-center justify-start border-r border-white/[0.12] pl-[13px] transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
               aria-label={t("Уведомления")}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -451,9 +589,9 @@ export function TopNav() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/nav/user.svg" alt="" className="h-6 w-[25px]" />
             </span>
-            <span className="hidden w-[145px] flex-col xl:flex">
+            <span className="hidden w-[146px] flex-col xl:flex">
               <span className="truncate text-[14px] font-medium leading-[18px]">{account?.displayName ?? ""}</span>
-              <span className="truncate text-[12px] font-normal leading-[18px]">{account ? t(ROLE_LABELS[account.role]) : ""}</span>
+              <span className="truncate text-[12px] font-normal leading-[18px]">{t(branch)}</span>
             </span>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/nav/chevron.svg" alt="" className={`h-6 w-6 transition-transform ${accountOpen ? "rotate-180" : ""}`} />
@@ -461,9 +599,22 @@ export function TopNav() {
 
           {accountOpen && (
             <AccountDropdown
+              selected={branch}
+              onSelect={(selectedBranch, branchId) => {
+                // Like the reference: every API call is scoped to the branch (cookie read by the server) and the dashboard reopens.
+                setBranch(selectedBranch)
+                setAccountOpen(false)
+                writeBranchCookies(branchId, selectedBranch)
+                router.push("/")
+                router.refresh()
+              }}
               user={account}
               signingOut={signingOut}
-              onSignOut={() => void signOut()}
+              onSignOut={() => {
+                setBranch("Все филиалы")
+                writeBranchCookies(undefined, "Все филиалы")
+                void signOut()
+              }}
               onAddAccount={() => {
                 setAccountOpen(false)
                 navigate("/login/add-account")

@@ -1,3 +1,4 @@
+import { formatCategoryDate } from "@/components/analytics/categories-grid"
 import { formatCashDate } from "@/components/analytics/cash-management-shared"
 import { isIsoDay } from "@/lib/finance/dates"
 import { formatMoney } from "@/lib/finance/currency"
@@ -29,6 +30,8 @@ export type PlanState = {
   products: string[]
   typeParents: string[]
   subcategories: string[]
+  /** Movement "Статус": "in" (Приход) / "out" (Расход) / "" (all). */
+  direction: string
 }
 
 function values(params: URLSearchParams, name: string): string[] {
@@ -62,17 +65,18 @@ export function planStateFromParams(params: URLSearchParams): PlanState {
     products: values(params, "product"),
     typeParents: values(params, "typeParent"),
     subcategories: values(params, "typeChild"),
+    direction: ["in", "out"].includes(params.get("direction") ?? "") ? (params.get("direction") as string) : "",
   }
 }
 
 /** "Фильтр: N элемента" — active filter keys (the period counts once). */
 export function countPlanFilters(state: PlanState): number {
-  const lists = state.tab === "movement" ? [state.warehouses, state.moveTypes, state.products, state.typeParents, state.subcategories] : [state.warehouses, state.doneBy]
+  const lists = state.tab === "movement" ? [state.warehouses, state.moveTypes, state.products, state.typeParents, state.subcategories, state.direction ? [state.direction] : []] : [state.warehouses, state.doneBy]
   return lists.filter((list) => list.length > 0).length + (state.type ? 1 : 0) + (state.from || state.to ? 1 : 0)
 }
 
 /** URL changes that clear every filter of the tab (search included). */
-export const CLEAR_PLAN_FILTERS = { stock: null, type: null, acceptedBy: null, fromDate: null, toDate: null, product: null, typeParent: null, typeChild: null, search: null, page: null, id: null }
+export const CLEAR_PLAN_FILTERS = { stock: null, type: null, acceptedBy: null, fromDate: null, toDate: null, product: null, typeParent: null, typeChild: null, direction: null, search: null, page: null, id: null }
 
 function query(entries: Array<[string, string | number | string[] | undefined]>): string {
   const params = new URLSearchParams()
@@ -107,6 +111,7 @@ export function moveApiQuery(state: PlanState, pageSize = state.pageSize): strin
     ["product", state.products],
     ["typeParent", state.typeParents],
     ["subcategory", state.subcategories],
+    ["direction", state.direction],
     ["from", state.from],
     ["to", state.to],
     ["search", state.search],
@@ -123,7 +128,8 @@ export function countsApiQuery(state: PlanState): string {
 /** "08 окт. 2026, 22:08" (no time when the document only has a day); "" stays "". */
 export function planDate(iso: string, language: string): string {
   if (!iso) return ""
-  return formatCashDate(iso, language, iso.length > 10 && !iso.endsWith("T00:00:00"))
+  if (iso.length <= 10 || iso.endsWith("T00:00:00")) return formatCategoryDate(iso.slice(0, 10), language)
+  return formatCashDate(iso, language, true)
 }
 
 /** "160 587 dona" / "-1,5 kg": space thousands, comma decimals, translated unit. */

@@ -3,7 +3,7 @@ import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
 
 export default function Page() {
   return (
-    <CatalogPageLayout>
+    <CatalogPageLayout sidebarWidth={196}>
       <StoreCategoriesView />
     </CatalogPageLayout>
   )

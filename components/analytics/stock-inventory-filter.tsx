@@ -64,8 +64,8 @@ export function InventoryFilterBar({
           </button>
         </div>
       ) : (
-        <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-1 whitespace-nowrap font-medium text-[rgb(79,113,220)]">
-          {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+        <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-[2px] whitespace-nowrap text-[13px] text-[#4f71dc]">
+          {t("Показать фильтр")} <ChevronDown className={`mt-[2px] h-3 w-3 transition ${open ? "rotate-180" : ""}`} />
         </button>
       )}
       {open && <FilterPopup filters={filters} options={options} onClose={onClose} onApply={onApply} />}

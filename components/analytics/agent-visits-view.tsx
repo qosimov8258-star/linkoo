@@ -1,35 +1,21 @@
 "use client"
 
-import { Fragment, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { useLanguage } from "@/lib/i18n/language-context"
+import type { AgentRouteSummary } from "@/lib/agent-visits-repo"
+import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
-import { useLanguage } from "@/lib/i18n/language-context"
 
 type AgentRow = {
+  employeeId: number
   name: string
+  supervisorId: number | null
+  supervisor: string
   route: [number, number, number, number, number]
   outside: [number, number, number, number]
 }
-
-type AgentRoute = {
-  agent: string
-  routeDate: string
-  planVisits: number
-  routeVisited: number
-  routeEffective: number
-  routeRefused: number
-  routeSales: number
-  outsideVisited: number
-  outsideEffective: number
-  outsideRefused: number
-  outsideSales: number
-}
-
-// Supervisor -> agent hierarchy isn't tracked anywhere in the schema
-// (employees only carry a free-text "position", not a manager/supervisor
-// relation), so the supervisor rollup view keeps showing an empty grouping.
-const supervisorGroups: { title: string; agent: string; values: number[] }[] = []
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -43,12 +29,13 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
-function format(value: number) {
-  return new Intl.NumberFormat("ru-RU").format(value)
-}
+const SUB_HEADS = ["План", "Посещено", "Результативно", "Отказано", "Продажа", "Посещено", "Результативно", "Отказано", "Продажа"]
+const NO_SUPERVISOR = "Не указано"
 
+// Визиты агента / Визиты агентов по супервайзерам: per agent the plan of the route and the visits on it,
+// plus the visits outside it, from the field activity data (GET /api/agent-visits?view=routes, the same
+// visits and route plans as Активность / Отслеживание). Продажа = counted orders in the base currency.
 export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: boolean }) {
-  const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
   const [draftFrom, setDraftFrom] = useState(monthStart)
   const [draftTo, setDraftTo] = useState(today)
@@ -57,27 +44,26 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
-  const [supervisorAscending, setSupervisorAscending] = useState(true)
-  const [expandedSupervisors, setExpandedSupervisors] = useState(() =>
-    supervisorGroups.map((group) => group.title),
-  )
-  const [agentRoutes, setAgentRoutes] = useState<AgentRoute[]>([])
+  const { t } = useLanguage()
+  const [sort, setSort] = useState<{ key: number; dir: "asc" | "desc" }>({ key: 0, dir: "asc" })
+  const [collapsed, setCollapsed] = useState<string[]>([])
+  const [summary, setSummary] = useState<AgentRouteSummary | null>(null)
   const overlayOpen = dashboardOpen
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/agent-routes")
-      .then((response) => (response.ok ? (response.json() as Promise<AgentRoute[]>) : Promise.reject()))
+    fetch(`/api/agent-visits?view=routes&from=${range.from}&to=${range.to}`)
+      .then((response) => (response.ok ? (response.json() as Promise<AgentRouteSummary>) : Promise.reject()))
       .then((data) => {
-        if (!cancelled) setAgentRoutes(data)
+        if (!cancelled) setSummary(data)
       })
       .catch(() => {
-        if (!cancelled) setAgentRoutes([])
+        if (!cancelled) setSummary(null)
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [range])
 
   useEffect(() => {
     if (!overlayOpen) return
@@ -97,74 +83,105 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
     }
   }, [overlayOpen])
 
-  // Aggregates the real per-day agent_routes rows within the selected date
-  // range into the [План, Посещено, Результативно, Отказано, Продажа] shape
-  // this view renders, split into route vs. outside-of-route columns.
-  const rows = useMemo<AgentRow[]>(() => {
-    const byAgent = new Map<string, AgentRow>()
-    for (const route of agentRoutes) {
-      if (route.routeDate < range.from || route.routeDate > range.to) continue
-      const existing = byAgent.get(route.agent) ?? {
-        name: route.agent,
-        route: [0, 0, 0, 0, 0] as AgentRow["route"],
-        outside: [0, 0, 0, 0] as AgentRow["outside"],
-      }
-      existing.route = [
-        existing.route[0] + route.planVisits,
-        existing.route[1] + route.routeVisited,
-        existing.route[2] + route.routeEffective,
-        existing.route[3] + route.routeRefused,
-        existing.route[4] + route.routeSales,
-      ]
-      existing.outside = [
-        existing.outside[0] + route.outsideVisited,
-        existing.outside[1] + route.outsideEffective,
-        existing.outside[2] + route.outsideRefused,
-        existing.outside[3] + route.outsideSales,
-      ]
-      byAgent.set(route.agent, existing)
-    }
-    return Array.from(byAgent.values()).sort((a, b) => a.name.localeCompare(b.name, "ru"))
-  }, [agentRoutes, range])
+  // [План, Посещено, Результативно, Отказано, Продажа] on the route, [Посещено, Результативно, Отказано, Продажа] outside it.
+  const rows = useMemo<AgentRow[]>(
+    () =>
+      (summary?.agents ?? [])
+        .filter((agent) => agent.plan > 0 || agent.route.visited + agent.outside.visited > 0)
+        .map((agent) => ({
+          employeeId: agent.employeeId,
+          name: agent.name,
+          supervisorId: agent.supervisorId,
+          supervisor: agent.supervisor,
+          route: [agent.plan, agent.route.visited, agent.route.effective, agent.route.refused, agent.route.sales],
+          outside: [agent.outside.visited, agent.outside.effective, agent.outside.refused, agent.outside.sales],
+        })),
+    [summary],
+  )
 
   function downloadCsv() {
+    const sales = `${t("Продажа")}${summary?.baseCurrency ? `, ${summary.baseCurrency}` : ""}`
     const header = [
-      "Агент",
-      "План",
-      "Посещено по маршруту",
-      "Результативно по маршруту",
-      "Отказано по маршруту",
-      "Продажа по маршруту",
-      "Посещено вне маршрута",
-      "Результативно вне маршрута",
-      "Отказано вне маршрута",
-      "Продажа вне маршрута",
+      t(supervisorMode ? "Супервайзер" : "Агент"),
+      ...(supervisorMode ? [t("Агент")] : []),
+      t("План"),
+      `${t("Посещено")} (${t("По маршруту")})`,
+      `${t("Результативно")} (${t("По маршруту")})`,
+      `${t("Отказано")} (${t("По маршруту")})`,
+      `${sales} (${t("По маршруту")})`,
+      `${t("Посещено")} (${t("Вне маршрута")})`,
+      `${t("Результативно")} (${t("Вне маршрута")})`,
+      `${t("Отказано")} (${t("Вне маршрута")})`,
+      `${sales} (${t("Вне маршрута")})`,
     ]
-    downloadExcelTable("agent-visits.xls", [header, ...rows.map((row) => [row.name, ...row.route, ...row.outside])])
+    const body = rows.map((row) => [
+      ...(supervisorMode ? [row.supervisor || t(NO_SUPERVISOR)] : []),
+      row.name,
+      ...row.route,
+      ...row.outside,
+    ])
+    downloadExcelTable("agent-visits.xls", [header, ...body])
   }
 
-  const totals = useMemo(
-    () => ({
-      route: rows.reduce(
-        (sum, row) => sum.map((value, index) => value + row.route[index]) as AgentRow["route"],
-        [0, 0, 0, 0, 0] as AgentRow["route"],
-      ),
-      outside: rows.reduce(
-        (sum, row) => sum.map((value, index) => value + row.outside[index]) as AgentRow["outside"],
-        [0, 0, 0, 0] as AgentRow["outside"],
-      ),
-    }),
-    [rows],
+  const heads = useMemo<MatrixHead[]>(
+    () => [
+      { label: t(supervisorMode ? "Супервайзер" : "Агент"), width: supervisorMode ? 300 : 400, sortable: true, align: "left" },
+      ...SUB_HEADS.map((label) => ({ label: t(label), width: 100, sortable: true })),
+    ],
+    [t, supervisorMode],
   )
-  const orderedSupervisorGroups = useMemo(
-    () =>
-      [...supervisorGroups].sort((left, right) =>
-        supervisorAscending
-          ? left.title.localeCompare(right.title, "ru")
-          : right.title.localeCompare(left.title, "ru"),
-      ),
-    [supervisorAscending],
-  )
+  const flat = (row: AgentRow) => [...row.route, ...row.outside]
+
+  const matrixRows = useMemo<MatrixRow[]>(() => {
+    const dir = sort.dir === "asc" ? 1 : -1
+    const compare = (a: { name: string; values: number[] }, b: { name: string; values: number[] }) =>
+      (sort.key === 0 ? a.name.localeCompare(b.name, "ru") : (a.values[sort.key - 1] ?? 0) - (b.values[sort.key - 1] ?? 0)) * dir
+    const sum = (list: number[][]) => SUB_HEADS.map((_, index) => list.reduce((acc, values) => acc + (values[index] ?? 0), 0))
+    const fmt = (values: number[]) => values.map((value) => matrixNumber(value))
+
+    if (!supervisorMode) {
+      const ordered = rows.map((row) => ({ key: row.employeeId, name: row.name, values: flat(row) })).sort(compare)
+      return [
+        ...ordered.map((row) => ({ key: String(row.key), cells: [row.name, ...fmt(row.values)] })),
+        { key: "total", tone: "total" as const, cells: [t("Итого"), ...fmt(sum(ordered.map((row) => row.values)))] },
+      ]
+    }
+
+    // Grouped by the supervisor set on the employee card (by id); agents without one under "Не указано".
+    const groups = new Map<string, { name: string; agents: { key: number; name: string; values: number[] }[] }>()
+    for (const row of rows) {
+      const groupKey = row.supervisorId === null ? "none" : String(row.supervisorId)
+      const group = groups.get(groupKey) ?? { name: row.supervisorId === null ? t(NO_SUPERVISOR) : row.supervisor, agents: [] }
+      group.agents.push({ key: row.employeeId, name: row.name, values: flat(row) })
+      groups.set(groupKey, group)
+    }
+    const orderedGroups = [...groups.entries()]
+      .map(([key, group]) => ({ key, name: group.name, agents: group.agents, values: sum(group.agents.map((agent) => agent.values)) }))
+      .sort(compare)
+    const out: MatrixRow[] = []
+    for (const group of orderedGroups) {
+      const open = !collapsed.includes(group.key)
+      out.push({
+        key: `g-${group.key}`,
+        tone: "dark",
+        onClick: () => setCollapsed((current) => (open ? [...current, group.key] : current.filter((key) => key !== group.key))),
+        cells: [
+          <span key="n" className="inline-flex items-center gap-[6px]">
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white">
+              <path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} />
+            </svg>
+            {group.name}
+          </span>,
+          ...fmt(group.values),
+        ],
+      })
+      if (open) {
+        for (const agent of [...group.agents].sort(compare)) out.push({ key: `a-${agent.key}`, tone: "sub", cells: [agent.name, ...fmt(agent.values)] })
+      }
+    }
+    out.push({ key: "total", tone: "dark", cells: [t("Итого"), ...fmt(sum(orderedGroups.map((group) => group.values)))] })
+    return out
+  }, [rows, sort, supervisorMode, collapsed, t])
 
   return (
     <ReportPage>
@@ -186,95 +203,17 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
           <ReportDateField label="Дата создания до" value={draftTo} min={draftFrom} onChange={setDraftTo} />
         </ReportFilters>
 
-        {(supervisorMode ? orderedSupervisorGroups.length : rows.length) === 0 ? (
+        {rows.length === 0 ? (
           <ReportEmpty />
         ) : (
-        <div className="mt-3 overflow-x-auto border border-slate-300 visits-scrollbar">
-          <table className="w-full min-w-[1220px] border-collapse text-[16px] text-slate-800">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="w-[360px] border-b border-r border-slate-300" />
-                <th colSpan={5} className="border-b border-r border-slate-300 py-4 text-center text-lg font-semibold">
-                  {t("По маршруту")}
-                </th>
-                <th colSpan={4} className="border-b border-slate-300 py-4 text-center text-lg font-semibold">
-                  {t("Вне маршрута")}
-                </th>
-              </tr>
-              <tr>
-                <th className="border-b border-r border-slate-300 px-3 py-4 text-center">
-                  {supervisorMode ? (
-                    <button
-                      type="button"
-                      onClick={() => setSupervisorAscending((value) => !value)}
-                      className="inline-flex items-center gap-3 font-semibold"
-                      aria-label={t("Сортировать по супервайзеру")}
-                    >
-                      {t("Супервайзер")}
-                      <span className="text-xs text-slate-400">{supervisorAscending ? "▲" : "▼"}</span>
-                    </button>
-                  ) : (
-                    "Агент"
-                  )}
-                </th>
-                {["План", "Посещено", "Результативно", "Отказано", "Продажа", "Посещено", "Результативно", "Отказано", "Продажа"].map(
-                  (heading, index) => (
-                    <th key={`${heading}-${index}`} className="border-b border-r border-slate-300 px-2 py-4 text-center font-medium">
-                      {heading}
-                    </th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {supervisorMode ? (
-                <>
-                  {orderedSupervisorGroups.map((group) => (
-                    <Fragment key={group.title}>
-                      <SupervisorGroupRow
-                        title={group.title}
-                        values={group.values}
-                        expanded={expandedSupervisors.includes(group.title)}
-                        onToggle={() =>
-                          setExpandedSupervisors((current) =>
-                            current.includes(group.title)
-                              ? current.filter((title) => title !== group.title)
-                              : [...current, group.title],
-                          )
-                        }
-                      />
-                      {expandedSupervisors.includes(group.title) && (
-                        <SupervisorAgentRow title={group.agent} values={group.values} />
-                      )}
-                    </Fragment>
-                  ))}
-                </>
-              ) : (
-                rows.map((row, index) => (
-                  <tr key={row.name} className={index % 2 ? "bg-slate-50" : "bg-white"}>
-                    <th className="border-b border-r border-slate-300 px-2 py-4 text-left font-normal">{row.name}</th>
-                    {[...row.route, ...row.outside].map((value, cellIndex) => (
-                      <td key={cellIndex} className="border-b border-r border-slate-300 px-2 py-4 text-right">
-                        {format(value)}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-              <tr className="bg-[#555] font-bold text-white">
-                <th className="border-r border-slate-300 px-2 py-4 text-left">{t("Итого")}</th>
-                {(supervisorMode
-                  ? [0, 0, 0, 0, 0, 0, 0, 0, 0]
-                  : [...totals.route, ...totals.outside]
-                ).map((value, index) => (
-                  <td key={index} className="border-r border-slate-300 px-2 py-4 text-right">
-                    {format(value)}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
+          <ReportMatrix
+            heads={heads}
+            groups={[{ title: "", span: 1 }, { title: t("По маршруту"), span: 5 }, { title: t("Вне маршрута"), span: 4 }]}
+            sortKey={sort.key}
+            sortDir={sort.dir}
+            onSort={(index) => setSort((current) => ({ key: index, dir: current.key === index && current.dir === "asc" ? "desc" : "asc" }))}
+            rows={matrixRows}
+          />
         )}
       </ReportBand>
 
@@ -300,52 +239,6 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
         />
       )}
     </ReportPage>
-  )
-}
-
-function SupervisorGroupRow({
-  title,
-  values,
-  expanded,
-  onToggle,
-}: {
-  title: string
-  values: number[]
-  expanded: boolean
-  onToggle: () => void
-}) {
-  return (
-    <tr className="bg-[#555] text-white">
-      <th className="border-b border-r border-slate-300 p-0 text-left font-medium">
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          className="flex w-full items-center px-3 py-3 text-left hover:bg-white/10"
-        >
-          <span className="mr-3 w-3 text-slate-300">{expanded ? "▾" : "▸"}</span>
-          {title}
-        </button>
-      </th>
-      {values.map((value, index) => (
-        <td key={index} className="border-b border-r border-slate-300 px-2 py-3 text-right">
-          {format(value)}
-        </td>
-      ))}
-    </tr>
-  )
-}
-
-function SupervisorAgentRow({ title, values }: { title: string; values: number[] }) {
-  return (
-    <tr className="bg-slate-50">
-      <th className="border-b border-r border-slate-300 px-2 py-3 text-left font-normal">{title}</th>
-      {values.map((value, index) => (
-        <td key={index} className="border-b border-r border-slate-300 px-2 py-3 text-right">
-          {format(value)}
-        </td>
-      ))}
-    </tr>
   )
 }
 

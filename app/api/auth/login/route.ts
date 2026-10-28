@@ -7,6 +7,7 @@ import { normalizeUsername, passwordProblem } from "@/lib/auth-policy"
 import { parseBody } from "@/lib/auth-request"
 import { toRole } from "@/lib/current-user"
 import { getDb } from "@/lib/db"
+import { recordAuthLog } from "@/lib/auth-logs-repo"
 import { clearFailures, clientIp, reserveAttempt } from "@/lib/rate-limit"
 import { REMEMBER_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, sessionCookieOptions, signSession } from "@/lib/session"
 import { recordSession, revokeSession } from "@/lib/user-sessions-repo"
@@ -164,6 +165,8 @@ export async function POST(request: NextRequest) {
     await revokeSession(sid, user.id)
     return NextResponse.json({ error: "Неверный логин или пароль" }, { status: 401 })
   }
+  // The sign-in journal (lib/auth-logs-repo.ts); a failure to write it never blocks the sign-in.
+  await recordAuthLog({ sessionId: sid, username: user.username, ip, userAgent }).catch(() => {})
 
   const response = NextResponse.json({
     id: user.id,

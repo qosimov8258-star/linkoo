@@ -1,14 +1,14 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { useStockOptions, useUrlState } from "@/components/analytics/stock-move-filters"
-import { StockPlanMovements } from "@/components/analytics/stock-plan-movements"
+import { PLAN_MOVEMENTS_DOWNLOAD_EVENT, StockPlanMovements } from "@/components/analytics/stock-plan-movements"
 import { countsApiQuery, planStateFromParams } from "@/components/analytics/stock-plan-state"
 import { StockPlanTasks } from "@/components/analytics/stock-plan-tasks"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { NO_PLAN_RIGHTS, PLAN_TAB_LABELS, PLAN_TABS, type PlanPermission, type PlanRights, type PlanTab, type PlanTaskCounts } from "@/lib/stock-plan-types"
 
@@ -19,8 +19,6 @@ import { NO_PLAN_RIGHTS, PLAN_TAB_LABELS, PLAN_TABS, type PlanPermission, type P
 // ledger (lib/stock). Actions go to the documents' own endpoints (a client
 // return's to the plan's own POST /api/stock/plan/returns/[id]/accept). The state
 // (tab, filters, search, page, expanded row) lives in the URL.
-
-const BADGE_TABS: Partial<Record<PlanTab, keyof PlanTaskCounts>> = { receive: "receive", transfer: "transfer" }
 
 /** The user's plan permissions from GET /api/auth/me — the server rule of hasPermission
  * (lib/rbac.ts): role manager or admin and, for a user restricted by an access right
@@ -54,6 +52,45 @@ export function StockPlanView() {
   )
 }
 
+/** The ⋮ page menu of "Движение товаров": one item, "Скачать все". */
+function MovementsMenu() {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", close)
+    return () => document.removeEventListener("mousedown", close)
+  }, [open])
+  return (
+    <div ref={root} className="relative mr-[2px] -mt-[4px]">
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-label={t("Меню")} className="flex h-12 w-12 items-center justify-center">
+        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.more} /></svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-[50px] z-[60] flex h-14 w-[280px] items-center rounded-[2px] bg-white pl-5 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              window.dispatchEvent(new Event(PLAN_MOVEMENTS_DOWNLOAD_EVENT))
+            }}
+            className="flex w-full items-center text-left text-[13px] text-[#333]"
+          >
+            <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#71ce87]">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={RI.download} /></svg>
+            </span>
+            <span className="ml-[26px]">{t("Скачать все")}</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StockPlanContent() {
   const { t } = useLanguage()
   const { searchParams, update } = useUrlState()
@@ -76,32 +113,17 @@ function StockPlanContent() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center gap-3 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-        <span className="text-3xl font-light text-[#586174]">|</span>
-        <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("План приемок и передач")}</h1>
-      </header>
+    <RefPage>
+      <RefHeader title={t("План приемок и передач")}>
+        {state.tab === "movement" && <MovementsMenu />}
+      </RefHeader>
 
-      <section className="mx-4 mt-4 overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] md:mx-6">
-        <div className="grid min-w-[720px] grid-cols-5">
-          {PLAN_TABS.map((tab) => {
-            const badge = BADGE_TABS[tab]
-            const count = badge ? counts.data?.[badge] : undefined
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => openTab(tab)}
-                className={`flex h-[52px] items-center justify-center gap-2 border-b-[3px] px-2 text-[15px] ${state.tab === tab ? "border-[rgb(79,113,220)] font-semibold text-[#17233b]" : "border-transparent text-[#586174] hover:text-[#17233b]"}`}
-              >
-                {t(PLAN_TAB_LABELS[tab])}
-                {Boolean(count) && <span className="rounded-full bg-[rgb(79,113,220)] px-2 text-[12px] font-semibold leading-5 text-white">{count}</span>}
-              </button>
-            )
-          })}
-        </div>
-      </section>
+      <RefTabs
+        separate
+        labels={PLAN_TABS.map((tab) => PLAN_TAB_LABELS[tab])}
+        value={PLAN_TAB_LABELS[state.tab]}
+        onChange={(label) => openTab(PLAN_TABS.find((tab) => PLAN_TAB_LABELS[tab] === label) ?? "receive")}
+      />
 
       {state.tab === "movement" ? (
         <StockPlanMovements key="movement" state={state} update={update} options={options} onOptionsWanted={wantOptions} notify={notify} />
@@ -110,6 +132,6 @@ function StockPlanContent() {
       )}
 
       <CashSnackbar message={message} onClose={closeSnackbar} />
-    </main>
+    </RefPage>
   )
 }

@@ -16,9 +16,9 @@ export type ClientPick = { id: number; name: string; zone: string; inn?: string 
 export function ContractStatusBadge({ status }: { status: ContractStatus }) {
   const { t } = useLanguage()
   return (
-    <span className="inline-flex items-center gap-2 whitespace-nowrap" style={{ color: CONTRACT_STATUS_COLORS[status] }}>
-      <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: CONTRACT_STATUS_COLORS[status] }} />
-      <span className="text-[#17233b]">{t(CONTRACT_STATUS_LABELS[status])}</span>
+    <span className="inline-flex items-center gap-[6px] whitespace-nowrap" style={{ color: CONTRACT_STATUS_COLORS[status] }}>
+      <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: CONTRACT_STATUS_COLORS[status] }} />
+      <span className="text-[#333]">{t(CONTRACT_STATUS_LABELS[status])}</span>
     </span>
   )
 }

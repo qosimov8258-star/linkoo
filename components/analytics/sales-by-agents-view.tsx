@@ -202,11 +202,11 @@ export function SalesByAgentsView() {
         />
         {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">{t("Закрыть")}</button>}
         <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
-          <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty} {t("шт")})</small></ReportSummaryCard>
-          <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.returnQty} {t("шт")})</small></ReportSummaryCard>
-          <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty - totals.returnQty} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty} шт)</small></ReportSummaryCard>
+          <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.returnQty} шт)</small></ReportSummaryCard>
+          <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty - totals.returnQty} шт)</small></ReportSummaryCard>
         </div>
-        <div className="mt-[14px]">
+        <div className="mt-[5px]">
           <ReportSearchBar
             value={query}
             onChange={(value) => { setQuery(value); setPage(1) }}
@@ -221,13 +221,13 @@ export function SalesByAgentsView() {
           />
         </div>
         <div className="-mx-[20px] flex items-start justify-between gap-4 py-[10px] pr-[20px]">
-          <p className="flex w-[560px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
+          <p className="flex w-[660px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
             <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#4f71dc] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
-            {t("Это оперативний отчет для просмотра факта перейдите в другой раздел")}
+            Это оперативний отчеть для просмотра факта перейдите в другой раздел
           </p>
           <div className="mt-[2px] flex">
-            <button type="button" onClick={() => setMode("created")} className={`h-8 px-4 text-[13px] font-medium uppercase ${mode === "created" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ")}</button>
-            <button type="button" onClick={() => setMode("realized")} className={`h-8 px-4 text-[13px] font-medium uppercase ${mode === "realized" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ")}</button>
+            <button type="button" onClick={() => setMode("created")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "created" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ</button>
+            <button type="button" onClick={() => setMode("realized")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "realized" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ</button>
           </div>
         </div>
         {itemsLoading ? (

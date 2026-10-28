@@ -250,7 +250,12 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
     payment_id: "INTEGER",
     log: "TEXT NOT NULL DEFAULT '[]'",
   },
+  // Manual movements can be soft-deleted ("Удалить" of the movement dialog); a loyalty movement the same way.
+  loyalty_card_transactions: {
+    is_deleted: "INTEGER NOT NULL DEFAULT 0",
+  },
   vansell_transactions: {
+    is_deleted: "INTEGER NOT NULL DEFAULT 0",
     type: "TEXT NOT NULL DEFAULT 'none_type'",
     comment: "TEXT NOT NULL DEFAULT ''",
     created_date: "TEXT NOT NULL DEFAULT ''",
@@ -274,6 +279,7 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
 
 /** Every table the ledger reads (most are created lazily by their own repo). */
 const LEDGER_TABLES = [
+  "demo_seed_rows",
   "currencies",
   "cashboxes",
   "cash_management_entries",
@@ -296,7 +302,7 @@ const LEDGER_TABLES = [
   "employees",
   "vansell_transactions",
   "employee_balance_transactions",
-  "salary_plans",
+  "salary_credits",
   "branches",
   "branch_balance_transactions",
   "warehouses",
@@ -313,6 +319,10 @@ const LEDGER_TABLES = [
   // client balance corrections ("Сверка магазина через бот": Списать / Добавить,
   // "Установить долг с Excel"; lib/finance-store-reconciliation.ts)
   "client_balance_corrections",
+  // The reference's own cash transactions (scripts/demo/apply-final-cash-list.mjs): the cashbox ledger reads them instead of the
+  // demo/legacy rows at or below the cut-off ids of the real tables (lib/finance/sources.ts cashboxSources).
+  "cash_reference_rows",
+  "cash_list_cutoff",
   // client returns (Продажи → Возвраты, sales module): accepted ones credit the client
   "client_returns",
   "client_return_items",

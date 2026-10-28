@@ -1,0 +1,1482 @@
+[
+ {
+  "id": 1,
+  "created_date": "2024-11-12T11:48:42.110458",
+  "name": "тест опрос",
+  "is_required": true,
+  "is_active": true,
+  "position": 1,
+  "comment": "123",
+  "options": [
+   {
+    "id": 8,
+    "name": "Pepsi",
+    "select_type": "radio",
+    "field_type": "number",
+    "multi_limit": null,
+    "is_required": true,
+    "position": 1,
+    "values": [
+     {
+      "id": 13,
+      "value": "1",
+      "ball": null
+     },
+     {
+      "id": 14,
+      "value": "2",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 9,
+    "name": "Доля",
+    "select_type": "multi_choose",
+    "field_type": "number",
+    "multi_limit": 2,
+    "is_required": true,
+    "position": 2,
+    "values": [
+     {
+      "id": 15,
+      "value": "1",
+      "ball": null
+     },
+     {
+      "id": 16,
+      "value": "2",
+      "ball": null
+     },
+     {
+      "id": 17,
+      "value": "3",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 10,
+    "name": "ДМП",
+    "select_type": "input",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": true,
+    "position": 3,
+    "values": [],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 11,
+    "name": "Наличие плаката",
+    "select_type": "radio",
+    "field_type": "number",
+    "multi_limit": 3,
+    "is_required": true,
+    "position": 4,
+    "values": [
+     {
+      "id": 18,
+      "value": "1",
+      "ball": null
+     },
+     {
+      "id": 19,
+      "value": "2",
+      "ball": null
+     },
+     {
+      "id": 20,
+      "value": "3",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 3,
+   "name": "Electronika"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1731406153.625116"
+ },
+ {
+  "id": 2,
+  "created_date": "2025-02-08T23:03:56.630500",
+  "name": ";kl;",
+  "is_required": false,
+  "is_active": false,
+  "position": 12,
+  "comment": null,
+  "options": [
+   {
+    "id": 14,
+    "name": "lk;k;k",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 2,
+    "is_required": false,
+    "position": 2,
+    "values": [
+     {
+      "id": 25,
+      "value": "23",
+      "ball": null
+     },
+     {
+      "id": 26,
+      "value": "gjhkgl",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": false,
+  "is_table_view": false,
+  "division": null,
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1739037894.227307"
+ },
+ {
+  "id": 3,
+  "created_date": "2025-02-08T23:06:07.154391",
+  "name": "so'rovnoma 1",
+  "is_required": true,
+  "is_active": true,
+  "position": 0,
+  "comment": "gorilla, fanta, kabi energetiklarimiz uchun so'rovnoma otkazommiza",
+  "options": [
+   {
+    "id": 39,
+    "name": "gorilla ta'mi yoqdimi?",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 1,
+    "values": [
+     {
+      "id": 127,
+      "value": "juda yoqdi",
+      "ball": null
+     },
+     {
+      "id": 128,
+      "value": "o'rtacha",
+      "ball": null
+     },
+     {
+      "id": 129,
+      "value": "yoqmadi",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 40,
+    "name": "fanta mahsulotimiz ta'mini 5 ballik tizimda baholang!",
+    "select_type": "radio",
+    "field_type": "number",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 2,
+    "values": [
+     {
+      "id": 130,
+      "value": "1",
+      "ball": null
+     },
+     {
+      "id": 131,
+      "value": "2",
+      "ball": null
+     },
+     {
+      "id": 132,
+      "value": "3",
+      "ball": null
+     },
+     {
+      "id": 133,
+      "value": "4",
+      "ball": null
+     },
+     {
+      "id": 134,
+      "value": "5",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 41,
+    "name": "agentlarimiz muomilasini baholang!!!",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 3,
+    "values": [
+     {
+      "id": 135,
+      "value": "a'lo",
+      "ball": null
+     },
+     {
+      "id": 136,
+      "value": "qoniqarli",
+      "ball": null
+     },
+     {
+      "id": 137,
+      "value": "qoniqarsiz",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 42,
+    "name": "qaysi mahsulotimizdan ko'proq olishni hohlardingiz?",
+    "select_type": "multi_choose",
+    "field_type": "text",
+    "multi_limit": 3,
+    "is_required": true,
+    "position": 4,
+    "values": [
+     {
+      "id": 138,
+      "value": "fanta",
+      "ball": null
+     },
+     {
+      "id": 139,
+      "value": "gorilla",
+      "ball": null
+     },
+     {
+      "id": 140,
+      "value": "pepsi",
+      "ball": null
+     },
+     {
+      "id": 141,
+      "value": "chernogolovka",
+      "ball": null
+     },
+     {
+      "id": 142,
+      "value": "asu",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 43,
+    "name": "sizni dokoningizga agentlarimiz qaysi kunlari borgani maqul",
+    "select_type": "multi_choose",
+    "field_type": "text",
+    "multi_limit": 3,
+    "is_required": true,
+    "position": 5,
+    "values": [
+     {
+      "id": 143,
+      "value": "dushanba",
+      "ball": null
+     },
+     {
+      "id": 144,
+      "value": "seshanba",
+      "ball": null
+     },
+     {
+      "id": 145,
+      "value": "chorshanba",
+      "ball": null
+     },
+     {
+      "id": 146,
+      "value": "payshanba",
+      "ball": null
+     },
+     {
+      "id": 147,
+      "value": "juma",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 44,
+    "name": "qaysi to'lov turi sizga ma'qul",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 6,
+    "values": [
+     {
+      "id": 148,
+      "value": "perechisleniya",
+      "ball": null
+     },
+     {
+      "id": 149,
+      "value": "naqd",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 45,
+    "name": "qaysi ichimliklar sizga ma'qul",
+    "select_type": "multi_choose",
+    "field_type": "text",
+    "multi_limit": 3,
+    "is_required": true,
+    "position": 7,
+    "values": [
+     {
+      "id": 150,
+      "value": "energetik",
+      "ball": null
+     },
+     {
+      "id": 151,
+      "value": "gazli",
+      "ball": null
+     },
+     {
+      "id": 152,
+      "value": "gazsiz",
+      "ball": null
+     },
+     {
+      "id": 153,
+      "value": "soklar",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 46,
+    "name": "mahsulotlarimizni baholang",
+    "select_type": "radio",
+    "field_type": "number",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 8,
+    "values": [
+     {
+      "id": 154,
+      "value": "1",
+      "ball": null
+     },
+     {
+      "id": 155,
+      "value": "2",
+      "ball": null
+     },
+     {
+      "id": 156,
+      "value": "3",
+      "ball": null
+     },
+     {
+      "id": 157,
+      "value": "4",
+      "ball": null
+     },
+     {
+      "id": 158,
+      "value": "5",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": false,
+  "is_table_view": false,
+  "division": {
+   "id": 9,
+   "name": "energetik"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1739038477.411849"
+ },
+ {
+  "id": 4,
+  "created_date": "2025-04-25T15:30:32.876113",
+  "name": "sdas",
+  "is_required": true,
+  "is_active": true,
+  "position": 1,
+  "comment": null,
+  "options": [
+   {
+    "id": 48,
+    "name": "asd",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": 1,
+    "values": [],
+    "max_ball": null,
+    "is_rival": true,
+    "check_amount": true,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 1,
+   "name": "Ichimliklar"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1745577065.460173"
+ },
+ {
+  "id": 5,
+  "created_date": "2025-04-29T14:41:44.935248",
+  "name": "Агент | Функции",
+  "is_required": false,
+  "is_active": true,
+  "position": 1,
+  "comment": null,
+  "options": [
+   {
+    "id": 49,
+    "name": "Bizning kompaniyadan muamo yo'qmi",
+    "select_type": "select",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": true,
+    "position": 1,
+    "values": [
+     {
+      "id": 159,
+      "value": "Yo'q",
+      "ball": null
+     },
+     {
+      "id": 160,
+      "value": "Ha",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": false,
+  "is_table_view": false,
+  "division": null,
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1745919704.934517"
+ },
+ {
+  "id": 6,
+  "created_date": "2025-09-03T18:39:34.883149",
+  "name": "Агент",
+  "is_required": false,
+  "is_active": true,
+  "position": null,
+  "comment": null,
+  "options": [
+   {
+    "id": 50,
+    "name": "Выберете удобный",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": null,
+    "values": [],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": true,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": null,
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1756906774.882520"
+ },
+ {
+  "id": 7,
+  "created_date": "2025-09-10T19:58:52.561829",
+  "name": "123",
+  "is_required": true,
+  "is_active": true,
+  "position": null,
+  "comment": null,
+  "options": [
+   {
+    "id": 51,
+    "name": "23",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": null,
+    "values": [],
+    "max_ball": null,
+    "is_rival": true,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": null,
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1757516332.561229"
+ },
+ {
+  "id": 8,
+  "created_date": "2025-09-16T11:30:00.659052",
+  "name": "ll",
+  "is_required": false,
+  "is_active": false,
+  "position": null,
+  "comment": null,
+  "options": [
+   {
+    "id": 52,
+    "name": "ll",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": null,
+    "values": [],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": true,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": null,
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1758004200.658503"
+ },
+ {
+  "id": 9,
+  "created_date": "2025-09-16T11:32:31.717864",
+  "name": "l;l;l;l;",
+  "is_required": false,
+  "is_active": true,
+  "position": null,
+  "comment": null,
+  "options": [
+   {
+    "id": 53,
+    "name": "l;l;l;l",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": null,
+    "values": [],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": true,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": null,
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1758004351.717123"
+ },
+ {
+  "id": 10,
+  "created_date": "2025-09-16T11:35:38.954855",
+  "name": "lll;",
+  "is_required": false,
+  "is_active": true,
+  "position": 111,
+  "comment": null,
+  "options": [
+   {
+    "id": 54,
+    "name": "lll",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": 111,
+    "values": [],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": true,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 55,
+    "name": "llll",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": 121,
+    "values": [],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": true,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 47,
+   "name": "DostonFood"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1758004538.954439"
+ },
+ {
+  "id": 11,
+  "created_date": "2025-09-16T11:44:31.523030",
+  "name": "123123",
+  "is_required": false,
+  "is_active": true,
+  "position": 123,
+  "comment": null,
+  "options": [
+   {
+    "id": 56,
+    "name": "123123",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": 123,
+    "values": [],
+    "max_ball": null,
+    "is_rival": true,
+    "check_amount": true,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 47,
+   "name": "DostonFood"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1758005071.522633"
+ },
+ {
+  "id": 12,
+  "created_date": "2025-09-16T11:45:44.332588",
+  "name": "2221",
+  "is_required": false,
+  "is_active": true,
+  "position": 21,
+  "comment": null,
+  "options": [
+   {
+    "id": 57,
+    "name": "2221",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": 21,
+    "values": [],
+    "max_ball": null,
+    "is_rival": true,
+    "check_amount": true,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 47,
+   "name": "DostonFood"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1758005144.331933"
+ },
+ {
+  "id": 13,
+  "created_date": "2025-09-30T16:09:57.468969",
+  "name": "oprosnik taski",
+  "is_required": true,
+  "is_active": true,
+  "position": 0,
+  "comment": "dsfdsf",
+  "options": [
+   {
+    "id": 67,
+    "name": "vopros 3",
+    "select_type": "radio",
+    "field_type": "number",
+    "multi_limit": 1,
+    "is_required": false,
+    "position": 0,
+    "values": [
+     {
+      "id": 179,
+      "value": "33333",
+      "ball": null
+     },
+     {
+      "id": 180,
+      "value": "33333",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 68,
+    "name": "1-vopros",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": false,
+    "position": 0,
+    "values": [
+     {
+      "id": 181,
+      "value": "1-otvet",
+      "ball": null
+     },
+     {
+      "id": 182,
+      "value": "2-otveet",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 69,
+    "name": "2-vopros yozildi",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": false,
+    "position": null,
+    "values": [
+     {
+      "id": 183,
+      "value": "2-otvet",
+      "ball": null
+     },
+     {
+      "id": 184,
+      "value": "otvet 2",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": false,
+  "is_table_view": false,
+  "division": {
+   "id": 59,
+   "name": "05,08,2025"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1763376909.713893"
+ },
+ {
+  "id": 14,
+  "created_date": "2025-11-20T12:33:52.360679",
+  "name": "test_dilmurod_opros",
+  "is_required": false,
+  "is_active": false,
+  "position": null,
+  "comment": null,
+  "options": [
+   {
+    "id": 70,
+    "name": "кто ты?",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 1,
+    "values": [
+     {
+      "id": 185,
+      "value": "ХЗ",
+      "ball": null
+     },
+     {
+      "id": 186,
+      "value": "Я это Я",
+      "ball": null
+     },
+     {
+      "id": 187,
+      "value": "Я",
+      "ball": null
+     },
+     {
+      "id": 188,
+      "value": "не Я",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 71,
+    "name": "Что ты",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 2,
+    "values": [
+     {
+      "id": 189,
+      "value": "Я не что а кто",
+      "ball": null
+     },
+     {
+      "id": 190,
+      "value": "Я табуретка",
+      "ball": null
+     },
+     {
+      "id": 191,
+      "value": "Я это Ты",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 72,
+    "name": "Ты знаешь? Как хочется жиииить, просыпаться с тобой на расвеееете!",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 3,
+    "values": [
+     {
+      "id": 192,
+      "value": "Не-а",
+      "ball": null
+     },
+     {
+      "id": 193,
+      "value": "Угу",
+      "ball": null
+     },
+     {
+      "id": 194,
+      "value": "Мне безразитца",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": false,
+  "is_table_view": false,
+  "division": null,
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1763624032.360163"
+ },
+ {
+  "id": 15,
+  "created_date": "2025-12-10T10:51:11.749678",
+  "name": "salom GG",
+  "is_required": true,
+  "is_active": true,
+  "position": 1,
+  "comment": "javob bering",
+  "options": [
+   {
+    "id": 73,
+    "name": "salom yaxshimisiz ? (1 = \"ha\" 0 = \"yo'q\")",
+    "select_type": "radio",
+    "field_type": "number",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 1,
+    "values": [
+     {
+      "id": 195,
+      "value": "1",
+      "ball": null
+     },
+     {
+      "id": 196,
+      "value": "0",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": false,
+  "is_table_view": false,
+  "division": {
+   "id": 29,
+   "name": "TestOrganization"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1765345871.749238"
+ },
+ {
+  "id": 16,
+  "created_date": "2025-12-19T12:26:43.808905",
+  "name": "oprosnik11",
+  "is_required": false,
+  "is_active": false,
+  "position": 1,
+  "comment": null,
+  "options": [
+   {
+    "id": 74,
+    "name": "lorem 100 = 100",
+    "select_type": "radio",
+    "field_type": "number",
+    "multi_limit": null,
+    "is_required": true,
+    "position": 1,
+    "values": [
+     {
+      "id": 197,
+      "value": "1",
+      "ball": null
+     },
+     {
+      "id": 198,
+      "value": "0",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": false,
+  "is_table_view": false,
+  "division": {
+   "id": 59,
+   "name": "05,08,2025"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1766129203.808066"
+ },
+ {
+  "id": 17,
+  "created_date": "2025-12-21T23:52:36.393623",
+  "name": "Sorovnoma",
+  "is_required": false,
+  "is_active": false,
+  "position": 1,
+  "comment": null,
+  "options": [
+   {
+    "id": 75,
+    "name": "Karzinkadagi eng savdosi yaxshi 4ta mahsulot",
+    "select_type": "multi_choose",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": true,
+    "position": null,
+    "values": [
+     {
+      "id": 199,
+      "value": "ghjkl",
+      "ball": null
+     },
+     {
+      "id": 200,
+      "value": "23654",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 6,
+   "name": "Pampers"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1766343156.393168"
+ },
+ {
+  "id": 18,
+  "created_date": "2025-12-29T14:13:02.680214",
+  "name": "ebferbfhjbf1",
+  "is_required": true,
+  "is_active": true,
+  "position": 1,
+  "comment": "hello",
+  "options": [
+   {
+    "id": 76,
+    "name": "how are you",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 3,
+    "is_required": true,
+    "position": 1,
+    "values": [
+     {
+      "id": 201,
+      "value": "12",
+      "ball": null
+     },
+     {
+      "id": 202,
+      "value": "34",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 59,
+   "name": "05,08,2025"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1766999582.679673"
+ },
+ {
+  "id": 19,
+  "created_date": "2026-01-04T17:09:41.850173",
+  "name": "narxlar royxat",
+  "is_required": false,
+  "is_active": true,
+  "position": 1,
+  "comment": null,
+  "options": [
+   {
+    "id": 78,
+    "name": "narxlar neshpul",
+    "select_type": "product",
+    "field_type": "text",
+    "multi_limit": null,
+    "is_required": false,
+    "position": 1,
+    "values": [],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": true,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 66,
+   "name": "1112233"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1767528660.703981"
+ },
+ {
+  "id": 20,
+  "created_date": "2026-01-07T13:07:29.147765",
+  "name": "distr",
+  "is_required": true,
+  "is_active": true,
+  "position": 0,
+  "comment": null,
+  "options": [
+   {
+    "id": 81,
+    "name": "xizmatga baho?",
+    "select_type": "radio",
+    "field_type": "number",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 1,
+    "values": [
+     {
+      "id": 209,
+      "value": "0",
+      "ball": null
+     },
+     {
+      "id": 210,
+      "value": "1",
+      "ball": null
+     },
+     {
+      "id": 211,
+      "value": "2",
+      "ball": null
+     },
+     {
+      "id": 212,
+      "value": "3",
+      "ball": null
+     },
+     {
+      "id": 213,
+      "value": "4",
+      "ball": null
+     },
+     {
+      "id": 214,
+      "value": "5",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   },
+   {
+    "id": 82,
+    "name": "xizmat qanday?",
+    "select_type": "input",
+    "field_type": "text",
+    "multi_limit": 1,
+    "is_required": true,
+    "position": 2,
+    "values": [],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": false,
+  "is_table_view": false,
+  "division": {
+   "id": 9,
+   "name": "energetik"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1767773290.393030"
+ },
+ {
+  "id": 21,
+  "created_date": "2026-01-30T17:25:14.974529",
+  "name": "наблюдатель",
+  "is_required": false,
+  "is_active": false,
+  "position": 1,
+  "comment": null,
+  "options": [
+   {
+    "id": 83,
+    "name": "aaaq1",
+    "select_type": "radio",
+    "field_type": "text",
+    "multi_limit": 5,
+    "is_required": false,
+    "position": null,
+    "values": [
+     {
+      "id": 215,
+      "value": "45",
+      "ball": null
+     },
+     {
+      "id": 216,
+      "value": "21",
+      "ball": null
+     }
+    ],
+    "max_ball": null,
+    "is_rival": false,
+    "check_amount": false,
+    "check_price": false,
+    "products": [],
+    "rival_products": []
+   }
+  ],
+  "market_types": [],
+  "view_type": "all",
+  "view_users": [],
+  "view_positions": [],
+  "is_store_check": true,
+  "is_table_view": false,
+  "division": {
+   "id": 59,
+   "name": "05,08,2025"
+  },
+  "max_ball": null,
+  "has_ball_system": false,
+  "tm": "1769775914.974049"
+ }
+]

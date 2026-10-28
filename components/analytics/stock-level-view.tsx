@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { ChevronDown, RefreshCw, Search } from "lucide-react"
+import { ChevronDown, Search } from "lucide-react"
 
 import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
-import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import { useCashJson } from "@/components/analytics/cash/use-cash"
-import { CheckNetCostDialog, StockItemDialog } from "@/components/analytics/stock-level-detail"
+import { StockItemDialog } from "@/components/analytics/stock-level-detail"
 import { StockFilterButton, StockFilterDialog } from "@/components/analytics/stock-level-filters"
 import {
   formatQty,
@@ -17,8 +17,8 @@ import {
   stockStateToSearch,
   type StockLevelState,
 } from "@/components/analytics/stock-level-state"
-import { StockColumnSettings, StockLevelTable, visibleStockColumns, type StockColumnId } from "@/components/analytics/stock-level-table"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { StockLevelTable, visibleStockColumns, type StockColumnId } from "@/components/analytics/stock-level-table"
+import { RefHeader, RefPage } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -57,7 +57,6 @@ export function StockLevelView() {
   const [state, setState] = useState<StockLevelState>(() => stockStateFromParams(searchParams))
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [checkOpen, setCheckOpen] = useState(false)
   const [hidden, setHidden] = useState<StockColumnId[]>([])
   const [itemName, setItemName] = useState("")
   const [exporting, setExporting] = useState(false)
@@ -85,14 +84,6 @@ export function StockLevelView() {
       setHidden([])
     }
   }, [])
-  const changeHidden = (next: StockColumnId[]) => {
-    setHidden(next)
-    try {
-      window.localStorage.setItem(COLUMNS_KEY, JSON.stringify(next))
-    } catch {
-      // storage unavailable: keep the in-memory choice
-    }
-  }
 
   // Search: applied 400 ms after typing stops.
   useEffect(() => {
@@ -171,34 +162,28 @@ export function StockLevelView() {
   const money = (value: number) => `${formatMoney(value, 2)} ${currencyLabel(currency)}`
   const card = (label: string, amount: number, value: number, part: UnitPart) => (
     <div key={label}>
-      <p className="text-[#586174]">{t(label)}</p>
+      <p className="text-[13px] leading-[16.3px]">{t(label)}</p>
       {state.mode === "amount" ? (
-        bigCount(amount, part, "text-lg font-semibold text-[#17233b]")
+        bigCount(amount, part, "text-[16px] font-semibold leading-[20px] text-[#333]")
       ) : (
         <>
-          <p className="text-lg font-semibold text-[#17233b]">{money(value)}</p>
-          <p className="text-sm text-[#586174]">({count(amount, part)})</p>
+          <p className="text-[16px] font-semibold leading-[20px] text-[#333]">{money(value)}</p>
+          <p className="text-[13px] text-[#586174]">({count(amount, part)})</p>
         </>
       )}
     </div>
   )
 
+  const lastPage = Math.max(1, Math.ceil((data?.count ?? 0) / state.pageSize))
+  const currentPage = Math.min(data?.page ?? state.page, lastPage)
+  const from = data?.count ? (currentPage - 1) * state.pageSize + 1 : 0
+  const to = Math.min(currentPage * state.pageSize, data?.count ?? 0)
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Остаток")}</h1>
-        </div>
-      </header>
-
-      <section className="flex flex-wrap items-center justify-between gap-3 px-4 pt-5 md:px-9">
-        <StockFilterButton filters={state.filters} onOpen={() => setFilterOpen(true)} />
-        <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={() => setCheckOpen(true)} className="flex h-11 items-center rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
-            {t("Проверить себестоимость")}
-          </button>
+    <RefPage>
+      <div className="pl-[2px]"><RefHeader title={t("Остаток")} /></div>
+      <div className="-mx-7 -mb-7 min-h-[calc(100vh-111px)] border-t border-[#e8eaee] bg-white px-[30px] pb-[30px] pt-[20px]">
+        <section className="flex h-[34px] items-center justify-between">
+          <StockFilterButton filters={state.filters} onOpen={() => setFilterOpen(true)} />
           <BalanceDownloadMenu
             label="Скачать"
             disabled={exporting || needsPriceList}
@@ -207,95 +192,109 @@ export function StockLevelView() {
               { label: "Скачать все", onClick: () => void exportAll() },
             ]}
           />
-        </div>
-      </section>
-      {exportError && <p className="px-4 pt-2 text-sm text-[#e5484d] md:px-9">{t(exportError)}</p>}
+        </section>
+        {exportError && <p className="pt-2 text-[13px] text-[#e5484d]">{t(exportError)}</p>}
 
-      <section className={`grid grid-cols-1 gap-6 border-b border-[#e1e5eb] px-4 py-5 sm:grid-cols-2 md:px-9 lg:grid-cols-4 ${list.loading ? "opacity-60" : ""}`}>
-        {needsPriceList ? (
-          <p className="font-semibold text-[#e57373] sm:col-span-2 lg:col-span-4">{t("Пожалуйста выберите прайс лист")}</p>
-        ) : (
-          <>
-            {card("Общая сумма", sum?.total.count ?? 0, sum?.total.price ?? 0, "total")}
-            {card("Сумма забронированных", sum?.reserved.count ?? 0, sum?.reserved.price ?? 0, "reserved")}
-            {state.mode === "amount" ? (
-              <div>
-                <p className="text-[#586174]">{t("В пути")}</p>
-                {bigCount(sum?.given ?? 0, "transit", "text-lg font-semibold text-[#f0ad4e]")}
-              </div>
-            ) : (
-              card("Сумма забракованных", sum?.defected.count ?? 0, sum?.defected.price ?? 0, "defects")
-            )}
-            <div className="lg:text-right">{card("Сумма доступных", sum?.available.count ?? 0, sum?.available.price ?? 0, "available")}</div>
-          </>
-        )}
-      </section>
+        <section className={`flex justify-between border-b border-[#efefef] pb-[14px] pt-[14px] text-[#666] ${list.loading ? "opacity-60" : ""}`}>
+          {needsPriceList ? (
+            <p className="text-[13px] font-semibold text-[#e57373]">{t("Пожалуйста выберите прайс лист")}</p>
+          ) : (
+            <>
+              {card("Общая сумма", sum?.total.count ?? 0, sum?.total.price ?? 0, "total")}
+              {card("Сумма забронированных", sum?.reserved.count ?? 0, sum?.reserved.price ?? 0, "reserved")}
+              {state.mode === "amount" ? (
+                <div>
+                  <p className="text-[13px] leading-[16.3px]">{t("В пути")}</p>
+                  {bigCount(sum?.given ?? 0, "transit", "text-[16px] font-semibold leading-[20px] text-[#333]")}
+                </div>
+              ) : (
+                card("Сумма забракованных", sum?.defected.count ?? 0, sum?.defected.price ?? 0, "defects")
+              )}
+              {card("Сумма доступных", sum?.available.count ?? 0, sum?.available.price ?? 0, "available")}
+            </>
+          )}
+        </section>
 
-      <section className="flex flex-wrap items-end gap-4 px-4 py-4 md:px-9">
-        <div className="flex">
-          {MODES.map((item) => (
-            <button
-              key={item.mode}
-              type="button"
-              onClick={() => update({ mode: item.mode, page: 1, ordering: "" })}
-              className={`h-10 border px-4 text-[13px] font-semibold uppercase first:rounded-l-md last:rounded-r-md ${state.mode === item.mode ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#d8dde5] bg-white text-[#17233b]"}`}
-            >
-              {t(item.label)}
-            </button>
-          ))}
-        </div>
-        {state.mode === "price" && (
-          <label className="flex min-w-[220px] flex-col text-xs text-[#586174]">
-            {t("Прайс лист")}
-            <span className="relative mt-1 flex h-10 items-center border-b border-[#ccd3dc]">
-              <select value={state.priceList} onChange={(event) => update({ priceList: event.target.value, page: 1 })} className="h-full w-full appearance-none bg-transparent pr-7 text-[15px] text-[#17233b] outline-none">
-                <option value="">{t("Не выбрано")}</option>
-                {(options?.priceLists ?? []).map((name) => (
-                  <option key={name} value={name}>
-                    {name}
+        <section className="relative h-[67px]">
+          <div className="absolute left-0 top-[25px] flex h-[32px]">
+            {MODES.map((item, index) => (
+              <button
+                key={item.mode}
+                type="button"
+                onClick={() => update({ mode: item.mode, page: 1, ordering: "" })}
+                style={{ minWidth: [70, 90.7, 146.7][index] }}
+                className={`h-[32px] px-[16px] text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.mode === item.mode ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
+              >
+                {t(item.label)}
+              </button>
+            ))}
+          </div>
+          {state.mode === "price" && (
+            <label className="absolute left-[330px] top-[19px] flex w-[200px] flex-col text-[10px] font-semibold text-black">
+              {t("Прайс лист")}
+              <span className="relative mt-1 flex h-9 items-center border-b border-[#e0e0e0]">
+                <select value={state.priceList} onChange={(event) => update({ priceList: event.target.value, page: 1 })} className="h-full w-full appearance-none bg-transparent pr-7 text-[13px] text-[#333] outline-none">
+                  <option value="">{t("Не выбрано")}</option>
+                  {(options?.priceLists ?? []).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-0 h-4 w-4 text-[#9aa3b6]" />
+              </span>
+            </label>
+          )}
+          <label style={{ left: "calc(546.2px + (100% - 1236px) * 0.603)" }} className="absolute top-[22px] block h-[36px] w-[245.7px] border-b border-[#e0e0e0]">
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") update({ search: searchDraft.trim(), page: 1 })
+              }}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="h-[31px] w-full bg-transparent pt-[13px] text-[13px] font-semibold leading-[18px] outline-none placeholder:font-semibold placeholder:text-black"
+            />
+            <Search className="pointer-events-none absolute left-[calc(100%+0px)] top-[8px] h-[22px] w-[22px] -translate-x-[3px] text-[#5d6474]" />
+          </label>
+          <label style={{ left: "calc(818px + (100% - 1236px))" }} className="absolute top-[5px] block w-[200px] text-[10px] font-semibold leading-[12.2px] text-black" title={t("Показать в сгруппированном виде (блоки, коробки и т. д.)")}>
+            {t("Показать")}
+            <span className="relative mt-[6px] flex h-[36px] items-center border-b border-[#e8e8e8]">
+              <select value={state.unit} onChange={(event) => update({ unit: event.target.value as StockLevelUnit })} className="h-full w-full appearance-none bg-transparent pt-[8px] text-[13px] font-semibold text-[#333] outline-none">
+                {UNITS.map((item) => (
+                  <option key={item.unit} value={item.unit}>
+                    {t(item.label)}
                   </option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-0 h-4 w-4 text-[#9aa3b6]" />
+              <svg viewBox="0 0 10 5" className="pointer-events-none absolute right-[10px] top-[21px] h-[5px] w-[10px] fill-[#333]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+              <span aria-hidden className="pointer-events-none absolute left-[161px] top-[14px] text-[18px] leading-[18px] text-[#999]">×</span>
             </span>
           </label>
-        )}
-        <label className="relative min-w-[200px] flex-1 border-b border-[#ccd3dc] pb-1.5 md:max-w-[360px]">
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") update({ search: searchDraft.trim(), page: 1 })
-            }}
-            placeholder={t("Поиск")}
-            aria-label={t("Поиск")}
-            className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
-          />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-        <label className="flex min-w-[170px] flex-col text-xs text-[#586174]" title={t("Показать в сгруппированном виде (блоки, коробки и т. д.)")}>
-          {t("Показать")}
-          <span className="relative mt-1 flex h-10 items-center border-b border-[#ccd3dc]">
-            <select value={state.unit} onChange={(event) => update({ unit: event.target.value as StockLevelUnit })} className="h-full w-full appearance-none bg-transparent pr-7 text-[15px] font-semibold text-[#17233b] outline-none">
-              {UNITS.map((item) => (
-                <option key={item.unit} value={item.unit}>
-                  {t(item.label)}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 h-4 w-4 text-[#9aa3b6]" />
-          </span>
-        </label>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <BalancePagination page={data?.page ?? state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
-          <StockColumnSettings mode={state.mode} hidden={hidden} onChange={changeHidden} />
-          <button type="button" onClick={list.reload} title={t("Обновить список")} aria-label={t("Обновить список")} className="p-1 text-[#586174] hover:text-[#4f70e7]">
-            <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
-          </button>
-        </div>
-      </section>
+          <div className="absolute right-0 top-[13px] flex h-[56px] items-center">
+            <label className="relative flex h-[56px] w-[56px] items-center justify-center text-[13px] text-[#333]">
+              <select value={state.pageSize} onChange={(event) => update({ page: 1, pageSize: Number(event.target.value) })} aria-label={t("Количество строк")} className="h-full w-full appearance-none bg-transparent text-[13px] outline-none">
+                {BALANCE_PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+              <svg viewBox="0 0 10 5" className="pointer-events-none absolute left-[23px] top-[26px] h-[5px] w-[10px] fill-[#333]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+            </label>
+            <span className="ml-[11px] whitespace-nowrap text-[13px] text-[#5d6474]">
+              {from} - {to} {t("из")} {data?.count ?? 0}
+            </span>
+            <button type="button" disabled={currentPage <= 1} onClick={() => update({ page: currentPage - 1 })} aria-label={t("Назад")} className="pl-[10px] pr-[5px] disabled:opacity-30">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-black/60" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-5l-3-3 3-3v6z" /></svg>
+            </button>
+            <button type="button" disabled={currentPage >= lastPage} onClick={() => update({ page: currentPage + 1 })} aria-label={t("Вперед")} className="disabled:opacity-30">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-black/60" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-11l3 3-3 3V9z" /></svg>
+            </button>
+          </div>
+        </section>
 
-      <section className="px-4 pb-8 md:px-9">
         {needsPriceList ? (
           <p className="p-16 text-center font-semibold text-[#e57373]">{t("Пожалуйста выберите прайс лист")}</p>
         ) : list.error && !data ? (
@@ -315,11 +314,10 @@ export function StockLevelView() {
             loading={list.loading}
           />
         )}
-      </section>
+      </div>
 
       <StockFilterDialog open={filterOpen} filters={state.filters} options={options} onApply={(filters) => update({ filters, page: 1 })} onClose={() => setFilterOpen(false)} />
       {state.item && <StockItemDialog itemKey={state.item} scope={stockScopeQuery(state.filters)} fallbackName={itemName} onClose={() => update({ item: "" })} />}
-      {checkOpen && <CheckNetCostDialog onClose={() => setCheckOpen(false)} />}
-    </main>
+    </RefPage>
   )
 }

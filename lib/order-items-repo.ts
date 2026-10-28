@@ -21,6 +21,13 @@ export type OrderItem = {
   currency: string
   lineTotal: number
   lineCost: number
+  /** Product article (the reference shows it under the product name). */
+  article?: string
+  /** Units per block and the block's unit name ("0 тонна(+1 кг)" in the order card). */
+  boxAmount?: number
+  boxUnit?: string
+  /** Quantity already returned by the client (the "Возврат" column of the order card). */
+  returnQuantity?: number
 }
 
 export type OrderItemWithOrder = OrderItem & {
@@ -32,7 +39,10 @@ export type OrderItemWithOrder = OrderItem & {
   orderStatus: string
 }
 
-export type OrderItemInput = OrderLineInput
+export type OrderItemInput = OrderLineInput & {
+  /** Total quantity returned by the client so far (written by the quick return). */
+  returnQuantity?: number
+}
 
 function rowToOrderItem(row: ItemRow): OrderItem {
   const quantity = Number(row.quantity)
@@ -54,8 +64,22 @@ function rowToOrderItem(row: ItemRow): OrderItem {
 
 export async function listOrderItems(orderId: number): Promise<OrderItem[]> {
   await ensureOrdersSchema()
-  const rows = (await getDb().prepare("SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC").all(orderId)) as ItemRow[]
-  return rows.map(rowToOrderItem)
+  const db = getDb()
+  await ensureReturnColumns()
+  const rows = (await db
+    .prepare(
+      `SELECT i.*, COALESCE(p.article, '') AS article, COALESCE(p.box_amount, 0) AS box_amount, COALESCE(p.box_unit, '') AS box_unit, COALESCE(i.return_quantity, 0) AS return_quantity
+       FROM order_items i LEFT JOIN products p ON p.id = i.product_id WHERE i.order_id = ? ORDER BY i.id ASC`,
+    )
+    .all(orderId)) as Array<ItemRow & { article: string; box_amount: number; box_unit: string; return_quantity: number }>
+  return rows.map((row) => ({ ...rowToOrderItem(row), article: row.article, boxAmount: Number(row.box_amount), boxUnit: row.box_unit, returnQuantity: Number(row.return_quantity) }))
+}
+
+async function ensureReturnColumns(): Promise<void> {
+  await getDb().exec(`
+    ALTER TABLE products ADD COLUMN IF NOT EXISTS box_unit TEXT NOT NULL DEFAULT '';
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS return_quantity DOUBLE PRECISION NOT NULL DEFAULT 0;
+  `)
 }
 
 async function getOrderItem(orderId: number, itemId: number): Promise<OrderItem | null> {
@@ -72,7 +96,12 @@ export async function createOrderItem(orderId: number, input: OrderItemInput, us
 /** null when the line does not belong to the order. */
 export async function updateOrderItem(orderId: number, itemId: number, input: OrderItemInput, user: { displayName: string }): Promise<OrderItem | null> {
   const id = await writeOrderLine(orderId, { kind: "update", itemId, line: input }, user)
-  return id === null ? null : getOrderItem(orderId, id)
+  if (id === null) return null
+  if (input.returnQuantity !== undefined) {
+    await ensureReturnColumns()
+    await getDb().prepare("UPDATE order_items SET return_quantity = ? WHERE id = ? AND order_id = ?").run(input.returnQuantity, id, orderId)
+  }
+  return getOrderItem(orderId, id)
 }
 
 export async function deleteOrderItem(orderId: number, itemId: number, user: { displayName: string }): Promise<boolean> {

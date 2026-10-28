@@ -2,16 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { useLanguage } from "@/lib/i18n/language-context"
+import type { AgentRouteSummary } from "@/lib/agent-visits-repo"
+import { ReportMatrix, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
-import { useLanguage } from "@/lib/i18n/language-context"
 
-type AgentRoute = {
-  agent: string
-  routeDate: string
-  routeVisited: number
-  outsideVisited: number
-}
+type VisitAgent = { employeeId: number; name: string; days: Set<string> }
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -25,6 +22,9 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
+// Визиты по дням: 1 / 0 per agent and day — whether the agent visited any client that day, from the field
+// activity visits (GET /api/agent-visits?view=routes, the visits of Активность / Отслеживание). Like the
+// reference report, only agents with at least one visit inside the applied period get a row.
 export function VisitsByDayView() {
   const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
@@ -35,40 +35,34 @@ export function VisitsByDayView() {
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
-  const [routes, setRoutes] = useState<AgentRoute[]>([])
+  const [summary, setSummary] = useState<AgentRouteSummary | null>(null)
 
   const overlayOpen = dashboardOpen
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/agent-routes")
-      .then((response) => (response.ok ? (response.json() as Promise<AgentRoute[]>) : Promise.reject()))
+    fetch(`/api/agent-visits?view=routes&from=${range.from}&to=${range.to}`)
+      .then((response) => (response.ok ? (response.json() as Promise<AgentRouteSummary>) : Promise.reject()))
       .then((data) => {
-        if (!cancelled) setRoutes(data)
+        if (!cancelled) setSummary(data)
       })
       .catch(() => {
-        if (!cancelled) setRoutes([])
+        if (!cancelled) setSummary(null)
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [range])
 
-  const agents = useMemo(() => Array.from(new Set(routes.map((route) => route.agent))).sort((a, b) => a.localeCompare(b, "ru")), [routes])
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
-  // Marks a day "visited" for an agent when that day's route row recorded any
-  // completed visit (on-route or off-route) — 1/0 matrix drawn straight from
-  // real agent_routes rows, not fabricated.
-  const visitedByAgentAndDay = useMemo(() => {
-    const map = new Map<string, Set<string>>()
-    for (const route of routes) {
-      if (route.routeVisited > 0 || route.outsideVisited > 0) {
-        if (!map.has(route.agent)) map.set(route.agent, new Set())
-        map.get(route.agent)!.add(route.routeDate)
-      }
-    }
-    return map
-  }, [routes])
+  const agents = useMemo<VisitAgent[]>(() => {
+    const list = (summary?.agents ?? [])
+      .filter((agent) => agent.visitDays.length > 0)
+      .map((agent) => ({ employeeId: agent.employeeId, name: agent.name, days: new Set(agent.visitDays) }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.employeeId - b.employeeId)
+    return sortDir === "asc" ? list : list.reverse()
+  }, [summary, sortDir])
 
   useEffect(() => {
     if (!overlayOpen) return
@@ -100,11 +94,20 @@ export function VisitsByDayView() {
 
   function downloadVisitsCsv() {
     const rows = [
-      ["Агент", ...days.map((day) => String(day.day))],
-      ...agents.map((agent) => [agent, ...days.map((day) => (visitedByAgentAndDay.get(agent)?.has(day.iso) ? "1" : "0"))]),
+      [t("Агент"), ...days.map((day) => String(day.day))],
+      ...agents.map((agent) => [agent.name, ...days.map((day) => (agent.days.has(day.iso) ? "1" : "0"))]),
     ]
     downloadExcelTable("visits-by-day.xls", rows)
   }
+
+  const matrixHeads = useMemo<MatrixHead[]>(
+    () => [{ label: t("Агент"), width: 300, sortable: true, align: "left" }, ...days.map(() => ({ label: t("Визит"), width: 55 }))],
+    [days, t],
+  )
+  const matrixRows = useMemo<MatrixRow[]>(
+    () => agents.map((agent) => ({ key: String(agent.employeeId), cells: [agent.name, ...days.map((day) => (agent.days.has(day.iso) ? 1 : 0))] })),
+    [agents, days],
+  )
 
   return (
     <ReportPage>
@@ -125,49 +128,19 @@ export function VisitsByDayView() {
         {agents.length === 0 ? (
           <ReportEmpty />
         ) : (
-        <div className="mt-3 overflow-x-auto border border-slate-300 visits-scrollbar">
-          <table className="min-w-max border-collapse text-[13px] text-slate-800">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="sticky left-0 z-20 w-[375px] min-w-[260px] border-b border-r border-slate-300 bg-slate-50 px-3 py-4" />
-                {days.map((day) => (
-                  <th key={day.iso} className="h-14 w-[70px] min-w-[70px] border-b border-r border-slate-300 text-center font-medium">
-                    {day.day}
-                  </th>
-                ))}
-              </tr>
-              <tr className="bg-slate-50">
-                <th className="sticky left-0 z-20 border-b border-r border-slate-300 bg-slate-50 px-3 py-4 text-center font-semibold">
-                  {t("Агент")}
-                </th>
-                {days.map((day) => (
-                  <th key={day.iso} className="h-14 border-b border-r border-slate-300 text-center font-semibold">
-                    {t("Визит")}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {agents.map((agent, agentIndex) => (
-                <tr key={agent} className={agentIndex % 2 ? "bg-slate-50" : "bg-white"}>
-                  <th className={`sticky left-0 z-10 border-b border-r border-slate-300 px-2 py-4 text-left font-normal ${agentIndex % 2 ? "bg-slate-50" : "bg-white"}`}>
-                    {agent}
-                  </th>
-                  {days.map((day) => (
-                    <td key={day.iso} className="border-b border-r border-slate-300 px-2 py-4 text-right">
-                      {visitedByAgentAndDay.get(agent)?.has(day.iso) ? 1 : 0}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <ReportMatrix
+            stickyFirst
+            heads={matrixHeads}
+            groups={[{ title: "", span: 1 }, ...days.map((day) => ({ title: day.day, span: 1 }))]}
+            sortKey={0}
+            sortDir={sortDir}
+            onSort={() => setSortDir((dir) => (dir === "asc" ? "desc" : "asc"))}
+            rows={matrixRows}
+          />
         )}
       </ReportBand>
 
-      
-{overlayOpen && (
+      {overlayOpen && (
         <button
           type="button"
           aria-label={t("Закрыть окно")}

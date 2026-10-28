@@ -28,6 +28,31 @@ async function ensureSchema() {
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        ALTER TABLE branches ADD COLUMN IF NOT EXISTS location_lat DOUBLE PRECISION;
+        ALTER TABLE branches ADD COLUMN IF NOT EXISTS location_lng DOUBLE PRECISION;
+        CREATE TABLE IF NOT EXISTS branch_plans (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          branch_id INTEGER NOT NULL,
+          weight DOUBLE PRECISION,
+          amount DOUBLE PRECISION,
+          price DOUBLE PRECISION,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `)
+      // Plans of an older database kept their numbers as text: they become numbers (a text that is
+      // not a plain decimal number reads as "not set").
+      await db.exec(`
+        DO $$ BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+                       AND table_name = 'branch_plans' AND column_name = 'weight' AND data_type = 'text') THEN
+            ALTER TABLE branch_plans ALTER COLUMN weight DROP DEFAULT, ALTER COLUMN amount DROP DEFAULT, ALTER COLUMN price DROP DEFAULT,
+              ALTER COLUMN weight DROP NOT NULL, ALTER COLUMN amount DROP NOT NULL, ALTER COLUMN price DROP NOT NULL;
+            ALTER TABLE branch_plans
+              ALTER COLUMN weight TYPE DOUBLE PRECISION USING CASE WHEN replace(btrim(weight), ',', '.') ~ '^[0-9]{1,15}([.][0-9]{1,6})?$' THEN replace(btrim(weight), ',', '.')::double precision END,
+              ALTER COLUMN amount TYPE DOUBLE PRECISION USING CASE WHEN replace(btrim(amount), ',', '.') ~ '^[0-9]{1,15}([.][0-9]{1,6})?$' THEN replace(btrim(amount), ',', '.')::double precision END,
+              ALTER COLUMN price TYPE DOUBLE PRECISION USING CASE WHEN replace(btrim(price), ',', '.') ~ '^[0-9]{1,15}([.][0-9]{1,6})?$' THEN replace(btrim(price), ',', '.')::double precision END;
+          END IF;
+        END $$;
       `)
       // One branch name per company (case- and space-insensitive) and at most
       // one main branch. Older databases with several mains keep the oldest;
@@ -68,6 +93,8 @@ export type BranchRecord = {
   isMain: boolean
   priceList: string
   currency: BranchCurrency
+  locationLat: number | null
+  locationLng: number | null
 }
 
 type Row = {
@@ -78,6 +105,8 @@ type Row = {
   debt_tracking: number
   is_main: number
   created_at: string
+  location_lat: number | null
+  location_lng: number | null
 }
 
 export type BranchUsage = Usage
@@ -99,7 +128,10 @@ function formatDate(raw: string): string {
   return `${String(date.getUTCDate()).padStart(2, "0")} ${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`
 }
 
-function toCurrency(value: string): BranchCurrency {
+// Names sort ignoring case and punctuation/spaces (the demo's DB collation); exact ties fall back to shorter, then id.
+const nameCollator = new Intl.Collator("en", { ignorePunctuation: true, caseFirst: "lower" })
+
+function toCurrency(value: string | null): BranchCurrency {
   return normCurrency(value)
 }
 
@@ -112,6 +144,8 @@ function rowToBranch(row: Row): BranchRecord {
     isMain: row.is_main === 1,
     priceList: row.price_list,
     currency: toCurrency(row.currency),
+    locationLat: row.location_lat ?? null,
+    locationLng: row.location_lng ?? null,
   }
 }
 
@@ -122,6 +156,8 @@ export type BranchInput = {
   currency: BranchCurrency
   debtTracking: boolean
   isMain: boolean
+  locationLat: number | null
+  locationLng: number | null
 }
 
 /** Partial input of an update: omitted fields keep their current value. */
@@ -139,10 +175,14 @@ function branchReferences(db: PgDb) {
   )
 }
 
-export async function listBranches(): Promise<BranchRecord[]> {
+/** `byCreation` keeps the reference app's creation order (used by the client form/filter selects). */
+export async function listBranches(options: { byCreation?: boolean } = {}): Promise<BranchRecord[]> {
   const db = getDb()
   await ensureSchema()
-  return ((await db.prepare("SELECT * FROM branches ORDER BY LOWER(name) COLLATE \"C\" ASC").all()) as Row[]).map(rowToBranch)
+  const rows = (await db.prepare("SELECT * FROM branches").all()) as Row[]
+  if (options.byCreation) rows.sort((a, b) => a.id - b.id)
+  else rows.sort((a, b) => nameCollator.compare(a.name, b.name) || a.name.length - b.name.length || a.id - b.id)
+  return rows.map(rowToBranch)
 }
 
 export async function getBranch(id: number): Promise<BranchRecord | null> {
@@ -216,8 +256,8 @@ export async function createBranch(input: BranchInput): Promise<BranchRecord> {
       if (isMain) await tx.prepare("UPDATE branches SET is_main = 0, updated_at = datetime('now') WHERE is_main = 1").run()
       const result = await tx
         .prepare(
-          `INSERT INTO branches (name, price_list, currency, debt_tracking, is_main)
-           VALUES (@name, @priceList, @currency, @debtTracking, @isMain)`,
+          `INSERT INTO branches (name, price_list, currency, debt_tracking, is_main, location_lat, location_lng)
+           VALUES (@name, @priceList, @currency, @debtTracking, @isMain, @locationLat, @locationLng)`,
         )
         .run({
           name: input.name,
@@ -225,6 +265,8 @@ export async function createBranch(input: BranchInput): Promise<BranchRecord> {
           currency,
           debtTracking: input.debtTracking ? 1 : 0,
           isMain: isMain ? 1 : 0,
+          locationLat: input.locationLat,
+          locationLng: input.locationLng,
         })
       return Number(result.lastInsertRowid)
     })
@@ -257,7 +299,8 @@ export async function updateBranch(id: number, patch: BranchPatch): Promise<Bran
       await tx
         .prepare(
           `UPDATE branches SET name = @name, price_list = @priceList, currency = @currency,
-             debt_tracking = @debtTracking, is_main = @isMain, updated_at = datetime('now')
+             debt_tracking = @debtTracking, is_main = @isMain, location_lat = @locationLat, location_lng = @locationLng,
+             updated_at = datetime('now')
            WHERE id = @id`,
         )
         .run({
@@ -267,6 +310,8 @@ export async function updateBranch(id: number, patch: BranchPatch): Promise<Bran
           currency,
           debtTracking: (patch.debtTracking ?? current.debt_tracking === 1) ? 1 : 0,
           isMain: isMain ? 1 : 0,
+          locationLat: patch.locationLat === undefined ? (current.location_lat ?? null) : patch.locationLat,
+          locationLng: patch.locationLng === undefined ? (current.location_lng ?? null) : patch.locationLng,
         })
       if (current.name !== patch.name) await cascadeNameRename(tx, await branchReferences(tx), current.name, patch.name)
       return true
@@ -286,8 +331,61 @@ export async function deleteBranch(id: number): Promise<boolean> {
     const current = (await tx.prepare("SELECT * FROM branches WHERE id = ?").get(id)) as Row | undefined
     if (!current) return false
     if (current.is_main === 1) throw new BranchError("Нельзя удалить основной филиал", 409)
+    // The branch's own plans and "KPI план филиалов" rows go with it (the KPI tables are created lazily by that module);
+    // removed before the usage check so they do not count as usage, and rolled back if the delete is refused.
+    await tx.prepare("DELETE FROM branch_plans WHERE branch_id = ?").run(id)
+    for (const table of ["branch_kpi_plans", "branch_kpi_balances"]) {
+      const exists = (await tx.prepare("SELECT to_regclass(?::text) IS NOT NULL AS ok").get(table)) as { ok: boolean } | undefined
+      if (exists?.ok) await tx.prepare(`DELETE FROM ${table} WHERE branch_id = ?`).run(id)
+    }
     const usage = await branchUsage(tx, current)
     if (usage.length) throw new BranchError("Удаление невозможно из-за связи с другими данными", 409, usage)
     return (await tx.prepare("DELETE FROM branches WHERE id = ?").run(id)).changes > 0
+  })
+}
+
+/** A branch plan: weight and quantity (0 < x ≤ 1e9) and price (0 ≤ x ≤ 1e13); null = not set. */
+export type BranchPlan = { id: number; branchId: number; weight: number | null; amount: number | null; price: number | null }
+
+export type BranchPlanInput = { weight: number | null; amount: number | null; price: number | null }
+
+type PlanRow = { id: number; branch_id: number; weight: number | null; amount: number | null; price: number | null }
+
+const planNumber = (value: number | string | null) => (value === null || value === undefined ? null : Number(value))
+
+const rowToPlan = (row: PlanRow): BranchPlan => ({
+  id: Number(row.id),
+  branchId: Number(row.branch_id),
+  weight: planNumber(row.weight),
+  amount: planNumber(row.amount),
+  price: planNumber(row.price),
+})
+
+const isRowId = (id: number) => Number.isInteger(id) && id > 0 && id <= 2147483647
+
+export async function listBranchPlans(branchId: number): Promise<BranchPlan[]> {
+  if (!isRowId(branchId)) return []
+  const db = getDb()
+  await ensureSchema()
+  // Plans inserted by the demo seed (registered in demo_seed_rows) are not real data: the reference's branches have none.
+  // The registry is looked up first (a failing query would abort a surrounding transaction).
+  const hasRegistry = ((await db.prepare("SELECT to_regclass('demo_seed_rows') AS t").get()) as { t: string | null }).t
+  const hideDemo = hasRegistry
+    ? " AND NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'branch_plans' AND d.row_id = p.id::text)"
+    : ""
+  return ((await db.prepare(`SELECT p.* FROM branch_plans p WHERE p.branch_id = ?${hideDemo} ORDER BY p.id`).all(branchId)) as PlanRow[]).map(rowToPlan)
+}
+
+/** Adds a plan to the branch (null = no such branch). The branch is held against a parallel delete
+ * (SHARE blocks deleteBranch's SHARE ROW EXCLUSIVE lock), so no plan outlives its branch. */
+export async function createBranchPlan(branchId: number, input: BranchPlanInput): Promise<BranchPlan | null> {
+  if (!isRowId(branchId)) return null
+  await ensureSchema()
+  return withTransaction(async (tx) => {
+    await tx.prepare("LOCK TABLE branches IN SHARE MODE").run()
+    if (!(await tx.prepare("SELECT 1 FROM branches WHERE id = ?").get(branchId))) return null
+    const result = await tx.prepare("INSERT INTO branch_plans (branch_id, weight, amount, price) VALUES (?, ?, ?, ?)").run(branchId, input.weight, input.amount, input.price)
+    const row = (await tx.prepare("SELECT * FROM branch_plans WHERE id = ?").get(Number(result.lastInsertRowid))) as PlanRow
+    return rowToPlan(row)
   })
 }

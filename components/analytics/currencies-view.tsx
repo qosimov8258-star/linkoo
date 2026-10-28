@@ -1,26 +1,49 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
+import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
+import { CheckBox, ImportDialog, LineField, Modal, SaveButton, SaveLink } from "@/components/analytics/catalog-ui"
+import {
+  ConfirmDeleteDialog,
+  EmptyRows,
+  PAGE_SIZES,
+  ROW_ICONS,
+  RowActions,
+  RowIcon,
+  SettingsToolbar,
+  kitHead,
+  kitRow,
+  useListControls,
+  usePaged,
+} from "@/components/analytics/settings-list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
-import type { Currency } from "./currencies-data"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import type { Currency, CurrencyRate, IndividualRate } from "./currencies-data"
+import { notify } from "@/lib/notify"
+
+// "Валюты" (demo #/currency, Settings → Финансы; API finance/currencies/, currency_rate/, individual_rate/).
+// Note about the base currency, then the tabs ОБЩИЙ / ИНДИВИДУАЛЬНЫЙ:
+//  * Общий: № | Валюта | Курс ("1 USD = 12 500 SUM") | Дата обновления; the base currency row is dimmed
+//    without actions, the others have $ ("Установить курс") and ✎ ("Изменить валюту") on hover; a row
+//    click opens "История обновления курса".
+//  * Индивидуальный: № | Наименование | Курс USD | Дата начала | Дата завершения | Дата создания,
+//    "+ добавить" and ✎ per row (dialog "… индивидуальный курс": name, rate and two dates).
+// The general tab also adds ("+ добавить валюту"), imports (Excel) and deletes currencies: a fresh install has no
+// currency yet, and the first one created becomes the base currency with rate 1 (lib/currencies-repo.ts).
+
+const GENERAL_COLUMNS = "139fr 304fr 405fr 427fr"
+const INDIVIDUAL_COLUMNS = "139fr 203fr 202fr 203fr 202fr 326fr"
+
+const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value).replace(/[  ]/g, " ")
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "наименование": "name", "название": "name", "name": "name",
   "код": "code", "code": "code",
   "курс": "rate", "курс к sum": "rate", "rate": "rate",
 }
-
-function emptyDraft() {
-  return { name: "", code: "", rate: "1", isBase: false }
-}
-
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 /** Codes of the national currency (the import's base currency when there is none yet). */
 const NATIONAL_CODES = new Set(["SUM", "UZS"])
@@ -36,133 +59,232 @@ export function baseCurrencyFirst<T extends { code: string; rate: number }>(rows
   return [rows[index], ...rows.slice(0, index), ...rows.slice(index + 1)]
 }
 
-export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
-  const { t, language } = useLanguage()
-  const [currencies, setCurrencies] = useState<Currency[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState("")
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [formError, setFormError] = useState("")
+/** Rate field while typing: groups thousands, keeps one decimal part ("12 070,85"). */
+function maskRate(raw: string) {
+  const [int, ...rest] = raw.replace(/[^\d.,]/g, "").replace(",", ".").split(".")
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+  return rest.length ? `${grouped},${rest.join("")}` : grouped
+}
+
+const unmask = (masked: string) => masked.replace(/\s/g, "").replace(",", ".")
+
+function SaveAction({ ready, saving, onClick, label }: { ready: boolean; saving: boolean; onClick: () => void; label: string }) {
+  return ready ? <SaveButton disabled={saving} onClick={onClick}>{label}</SaveButton> : <SaveLink onClick={onClick}>{label}</SaveLink>
+}
+
+function RateDialog({ currency, onClose, onSaved }: { currency: Currency; onClose: () => void; onSaved: () => void }) {
+  const { t } = useLanguage()
+  const [rate, setRate] = useState("")
   const [saving, setSaving] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const pageSize = 25
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/currencies")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить валюты")
-        return (await response.json()) as Currency[]
-      })
-      .then((data) => {
-        if (cancelled) return
-        setCurrencies(data)
-        setLoadError("")
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить валюты с сервера")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const filtered = useMemo(() => {
-    if (!query.trim()) return currencies
-    const q = query.trim().toLocaleLowerCase("ru")
-    return currencies.filter((currency) => currency.name.toLocaleLowerCase("ru").includes(q) || currency.code.toLocaleLowerCase("ru").includes(q))
-  }, [currencies, query])
-
-  // There is always one base currency: while there is none (a fresh install) the first
-  // currency created becomes the base one, and it must have rate 1 (lib/currencies-repo.ts
-  // createCurrency). Nothing is pre-ticked here: the list may still be loading or have
-  // failed to load, and "Базовая валюта" would then move the base of the company.
-  const baseCode = currencies.find((currency) => currency.isBase)?.code ?? ""
-  const noBase = !loading && !loadError && !baseCode
-  const rateLabel = t(baseCode && baseCode.toUpperCase() !== "SUM" ? "Курс к базовой валюте" : "Курс к SUM")
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  function openCreate() {
-    setDraft(emptyDraft())
-    setFormError("")
-    setEditingId(null)
-    setModalOpen(true)
-  }
-
-  function openEdit(currency: Currency) {
-    setDraft({ name: currency.name, code: currency.code, rate: String(currency.rate), isBase: currency.isBase })
-    setFormError("")
-    setEditingId(currency.id)
-    setModalOpen(true)
-  }
-
-  async function remove(id: number) {
-    const target = currencies.find((currency) => currency.id === id)
-    if (target?.isBase) {
-      window.alert(t("Нельзя удалить базовую валюту"))
-      return
-    }
-    if (!window.confirm(t("Удалить валюту?"))) return
+  async function save() {
+    if (saving || !rate) return
+    setSaving(true)
     try {
-      const response = await fetch(`/api/currencies/${id}`, { method: "DELETE" })
+      const response = await fetch(`/api/currencies/${currency.id}/rates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rate: unmask(rate) }),
+      })
       if (!response.ok) {
-        // 409 while other records use it: the usage list says where.
-        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
-        const usage = data.usage?.map((item) => `${t(item.label)}: ${item.count}`).join(", ")
-        window.alert(`${t(data.error || "Не удалось удалить валюту")}${usage ? ` (${usage})` : ""}`)
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        notify(t(data.error || "Не удалось сохранить курс"))
         return
       }
-      setCurrencies((current) => current.filter((currency) => currency.id !== id))
+      onSaved()
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setSaving(false)
     }
   }
 
-  async function save(event: FormEvent) {
-    event.preventDefault()
+  return (
+    <Modal
+      title={t("Установить курс")}
+      width={400}
+      onClose={onClose}
+      bodyClassName="px-[30px] pb-[132px] pt-[29px]"
+      footer={<SaveAction ready={Boolean(rate)} saving={saving} onClick={() => void save()} label={t("Сохранить")} />}
+    >
+      <LineField label={t("Курс")} value={rate} onChange={(value) => setRate(maskRate(value))} />
+    </Modal>
+  )
+}
+
+function CurrencyDialog({ currency, onClose, onSaved }: { currency: Currency; onClose: () => void; onSaved: () => void }) {
+  const { t } = useLanguage()
+  const [name, setName] = useState(currency.name)
+  const [rate, setRate] = useState(maskRate(String(currency.rate)))
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (saving || !name.trim() || !rate) return
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/currencies/${currency.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), rate: unmask(rate) }),
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        notify(t(data.error || "Не удалось сохранить валюту"))
+        return
+      }
+      onSaved()
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      title={t("Изменить валюту")}
+      onClose={onClose}
+      bodyClassName="px-[30px] pb-[90px] pt-[18px]"
+      footer={<SaveButton disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
+    >
+      <LineField label={t("Наименование")} value={name} onChange={setName} />
+      <div className="mt-[12px]"><LineField label={t("Курс")} value={rate} onChange={(value) => setRate(maskRate(value))} /></div>
+    </Modal>
+  )
+}
+
+function HistoryDialog({ currency, baseName, onClose }: { currency: Currency; baseName: string; onClose: () => void }) {
+  const { t, language } = useLanguage()
+  const [rates, setRates] = useState<CurrencyRate[] | null>(null)
+  const controls = useListControls()
+  useEffect(() => {
+    fetch(`/api/currencies/${currency.id}/rates`, { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<CurrencyRate[]>) : []))
+      .then(setRates)
+      .catch(() => setRates([]))
+  }, [currency.id])
+  const paged = usePaged(rates ?? [], controls.page, controls.pageSize)
+  return (
+    <Modal
+      title={t("История обновления курса")}
+      width={700}
+      onClose={onClose}
+      bodyClassName="h-[424px] overflow-y-auto px-[22px]"
+      footer={
+        <div className="flex items-center pr-[20px] text-[13px]">
+          <select value={controls.pageSize} onChange={(event) => controls.setPageSize(Number(event.target.value))} aria-label={t("Строк на странице")} className="bg-transparent text-[13px] outline-none">
+            {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+          <span className="ml-[30px]">{paged.from} - {paged.to} {t("из")} {paged.total}</span>
+          <button type="button" disabled={paged.page <= 1} onClick={() => controls.setPage(paged.page - 1)} aria-label={t("Назад")} className="ml-[10px] h-6 w-6">
+            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${paged.page > 1 ? "fill-black/70" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
+          </button>
+          <button type="button" disabled={paged.page >= paged.pageCount} onClick={() => controls.setPage(paged.page + 1)} aria-label={t("Вперед")} className="ml-[5px] h-6 w-6">
+            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${paged.page < paged.pageCount ? "fill-black/70" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg>
+          </button>
+        </div>
+      }
+    >
+      <div className="grid h-[46px] grid-cols-[109px_1fr_auto] items-center border-b-2 border-dotted border-[#d9e0e5] px-[8px] font-semibold">
+        <span>№</span><span>{t("Курс")}</span><span className="text-right">{t("Дата")}</span>
+      </div>
+      {paged.rows.map((rate) => (
+        <div key={rate.id} className="grid h-[46px] grid-cols-[109px_1fr_auto] items-center border-b-2 border-dotted border-[#d9e0e5] px-[8px]">
+          <span>{rate.id}</span>
+          <span>1 {currency.name} = {money(rate.rate)} {baseName}</span>
+          <span className="text-right">{formatDateText(rate.createdAt, language, { withTime: true, utc: true })}</span>
+        </div>
+      ))}
+    </Modal>
+  )
+}
+
+function DateField({ label, value, onPick }: { label: string; value: string; onPick: (value: string) => void }) {
+  const { language } = useLanguage()
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="relative block h-[40px] w-full border-b border-[#d5dae1] text-left">
+        <span className={`absolute left-0 ${value ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] leading-4"}`}>{label}</span>
+        {value && <span className="absolute inset-x-0 bottom-[4px] text-[13px]">{formatDateText(value, language)}</span>}
+        <svg viewBox="0 0 24 24" className="absolute bottom-[2px] right-[1px] h-[20px] w-[20px] fill-[#9e9e9e]"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V9h14v11zM5 7V6h14v1H5z" /></svg>
+      </button>
+      {open && <DatePickerDialog value={value} onCancel={() => setOpen(false)} onPick={(next) => { onPick(next); setOpen(false) }} />}
+    </>
+  )
+}
+
+function IndividualDialog({ item, onClose, onSaved }: { item: IndividualRate | null; onClose: () => void; onSaved: () => void }) {
+  const { t } = useLanguage()
+  const [draft, setDraft] = useState({ name: item?.name ?? "", rate: item ? maskRate(String(item.rate)) : "", beginDate: item?.beginDate ?? "", endDate: item?.endDate ?? "" })
+  const [saving, setSaving] = useState(false)
+  const ready = Boolean(draft.name.trim() && draft.rate && draft.beginDate && draft.endDate)
+
+  async function save() {
+    if (saving || !ready) return
+    setSaving(true)
+    try {
+      const response = await fetch(item ? `/api/individual-rates/${item.id}` : "/api/individual-rates", {
+        method: item ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...draft, name: draft.name.trim(), rate: unmask(draft.rate) }),
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string; details?: { fieldErrors?: Record<string, string[]> } }
+        const first = Object.values(data.details?.fieldErrors ?? {}).flat()[0]
+        notify(t(first || data.error || "Не удалось сохранить индивидуальный курс"))
+        return
+      }
+      onSaved()
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      title={item ? t("Изменить индивидуальный курс") : t("Добавить индивидуальный курс")}
+      onClose={onClose}
+      bodyClassName="px-[30px] pb-[29px] pt-[18px]"
+      footer={<SaveButton disabled={saving || !ready} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
+    >
+      <LineField label={t("Наименование")} value={draft.name} onChange={(name) => setDraft({ ...draft, name })} />
+      <div className="mt-[12px]"><LineField label={t("Курс")} value={draft.rate} onChange={(value) => setDraft({ ...draft, rate: maskRate(value) })} /></div>
+      <div className="mt-[12px]"><DateField label={t("Дата начала")} value={draft.beginDate} onPick={(beginDate) => setDraft({ ...draft, beginDate })} /></div>
+      <div className="mt-[12px]"><DateField label={t("Дата завершения")} value={draft.endDate} onPick={(endDate) => setDraft({ ...draft, endDate })} /></div>
+    </Modal>
+  )
+}
+
+/** "Добавить валюту": name, code, "Базовая валюта" and the rate to the base currency (POST /api/currencies). */
+function CreateDialog({ noBase, baseCode, onClose, onSaved }: { noBase: boolean; baseCode: string; onClose: () => void; onSaved: () => void }) {
+  const { t } = useLanguage()
+  // Nothing is pre-ticked: "Базовая валюта" moves the base of the company.
+  const [draft, setDraft] = useState({ name: "", code: "", rate: "1", isBase: false })
+  const [formError, setFormError] = useState("")
+  const [saving, setSaving] = useState(false)
+  const rateLabel = t(baseCode && baseCode.toUpperCase() !== "SUM" ? "Курс к базовой валюте" : "Курс к SUM")
+
+  async function save() {
     const name = draft.name.trim()
     const code = draft.code.trim().toUpperCase()
-    if (!name || !code) return
-    const rate = draft.isBase ? 1 : Math.max(0, Number(draft.rate) || 0)
-
+    if (saving || !name || !code) return
     setSaving(true)
     setFormError("")
     try {
-      const isEdit = editingId !== null
-      const response = await fetch(isEdit ? `/api/currencies/${editingId}` : "/api/currencies", {
-        method: isEdit ? "PUT" : "POST",
+      const response = await fetch("/api/currencies", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, code, rate, isBase: draft.isBase }),
+        body: JSON.stringify({ name, code, rate: draft.isBase ? 1 : unmask(draft.rate), isBase: draft.isBase }),
       })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
         setFormError(data.error || "Не удалось сохранить валюту")
         return
       }
-      const saved = (await response.json()) as Currency
-      setCurrencies((current) => {
-        const withoutBaseConflict = saved.isBase ? current.map((currency) => ({ ...currency, isBase: false })) : current
-        if (isEdit) {
-          return withoutBaseConflict.map((currency) => (currency.id === editingId ? saved : currency))
-        }
-        return [saved, ...withoutBaseConflict]
-      })
-      setModalOpen(false)
-      setPage(1)
+      onSaved()
     } catch {
       setFormError("Сервер недоступен, попробуйте ещё раз")
     } finally {
@@ -170,21 +292,113 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  function downloadTemplate() {
-    downloadExcelTable("currencies-template", [["Наименование", "Код", "Курс к SUM"]])
+  return (
+    <Modal
+      title={t("Добавить валюту")}
+      onClose={onClose}
+      bodyClassName="px-[30px] pb-[29px] pt-[18px]"
+      footer={<SaveButton disabled={saving || !draft.name.trim() || !draft.code.trim()} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
+    >
+      <LineField label={t("Наименование")} required value={draft.name} onChange={(name) => setDraft({ ...draft, name })} />
+      <div className="mt-[12px]"><LineField label={t("Код")} required value={draft.code} onChange={(code) => setDraft({ ...draft, code: code.toUpperCase().slice(0, 10) })} /></div>
+      <div className="mt-[18px]"><CheckBox label={t("Базовая валюта")} checked={draft.isBase} onChange={(isBase) => setDraft({ ...draft, isBase })} /></div>
+      {noBase && <p className="mt-[12px] text-[12px] text-[#777]">{t("Базовой валюты ещё нет: первая валюта станет базовой, поэтому её курс должен быть 1.")}</p>}
+      {!draft.isBase && <div className="mt-[12px]"><LineField label={rateLabel} value={draft.rate} onChange={(value) => setDraft({ ...draft, rate: maskRate(value) })} /></div>}
+      {formError && <p className="mt-[12px] text-[13px] font-semibold text-[#e57373]">{t(formError)}</p>}
+    </Modal>
+  )
+}
+
+function Tabs({ tab, onTab }: { tab: "general" | "individual"; onTab: (tab: "general" | "individual") => void }) {
+  const { t } = useLanguage()
+  const base = "h-[28px] px-[16px] text-[13px] font-medium uppercase"
+  const on = "bg-[#4f71dc] text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]"
+  const off = "bg-[#e0e0e0] text-[#bdbdbd] hover:text-[#9e9e9e]"
+  return (
+    <span className="ml-[22px] flex items-center">
+      <button type="button" onClick={() => onTab("general")} className={`${base} rounded-l-[2px] ${tab === "general" ? on : off}`}>{t("Общий")}</button>
+      <button type="button" onClick={() => onTab("individual")} className={`${base} rounded-r-[2px] ${tab === "individual" ? on : off}`}>{t("Индивидуальный")}</button>
+    </span>
+  )
+}
+
+export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
+  const { t, language } = useLanguage()
+  const [tab, setTab] = useState<"general" | "individual">("general")
+  const [currencies, setCurrencies] = useState<Currency[] | null>(null)
+  const [loadError, setLoadError] = useState("")
+  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState<Currency | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const [individual, setIndividual] = useState<IndividualRate[] | null>(null)
+  const [rateOf, setRateOf] = useState<Currency | null>(null)
+  const [editing, setEditing] = useState<Currency | null>(null)
+  const [history, setHistory] = useState<Currency | null>(null)
+  const [individualDialog, setIndividualDialog] = useState<{ item: IndividualRate | null } | null>(null)
+  const controls = useListControls()
+
+  const load = useCallback(async () => {
+    try {
+      const [currencyResponse, individualResponse] = await Promise.all([fetch("/api/currencies", { cache: "no-store" }), fetch("/api/individual-rates", { cache: "no-store" })])
+      setCurrencies(currencyResponse.ok ? ((await currencyResponse.json()) as Currency[]) : [])
+      setLoadError(currencyResponse.ok ? "" : "Не удалось загрузить валюты с сервера")
+      setIndividual(individualResponse.ok ? ((await individualResponse.json()) as IndividualRate[]) : [])
+    } catch {
+      setCurrencies([])
+      setLoadError("Не удалось загрузить валюты с сервера")
+      setIndividual([])
+    }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const needle = controls.query.trim().toLowerCase()
+  const base = currencies?.find((currency) => currency.isBase)
+  // There is always one base currency: while there is none (a fresh install) the first currency created becomes
+  // the base one with rate 1 (lib/currencies-repo.ts createCurrency). Unknown while loading or after a load error.
+  const baseCode = base?.code ?? ""
+  const baseName = base?.name ?? "—"
+  const noBase = currencies !== null && !loadError && !baseCode
+  const currencyRows = (currencies ?? []).filter((currency) => currency.name.toLowerCase().includes(needle) || currency.code.toLowerCase().includes(needle))
+  const individualRows = (individual ?? []).filter((item) => item.name.toLowerCase().includes(needle))
+  const pagedCurrencies = usePaged(currencyRows, controls.page, controls.pageSize)
+  const pagedIndividual = usePaged(individualRows, controls.page, controls.pageSize)
+  const paged = tab === "general" ? pagedCurrencies : pagedIndividual
+
+  function switchTab(next: "general" | "individual") {
+    setTab(next)
+    controls.setQuery("")
   }
 
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
+  async function remove(currency: Currency) {
+    try {
+      const response = await fetch(`/api/currencies/${currency.id}`, { method: "DELETE" })
+      if (!response.ok) {
+        // 409 for the base currency or while other records use it: the usage list says where (labels are i18n keys).
+        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+        const usage = data.usage?.map((item) => `${t(item.label)}: ${item.count}`).join(", ")
+        notify(`${t(data.error || "Не удалось удалить валюту")}${usage ? ` (${usage})` : ""}`)
+        return
+      }
+      setDeleting(null)
+      void load()
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+    }
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("currencies-template", [[t("Наименование"), t("Код"), t("Курс к SUM")]])
   }
 
   async function saveImport() {
-    if (!importFile) return
+    if (!importFile || importSaving) return
     setImportSaving(true)
     try {
       const rows = await readExcelRows(importFile)
       if (!rows.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
+        notify(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
       const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
@@ -210,7 +424,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
       }
 
       if (!parsed.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
+        notify(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
 
@@ -221,13 +435,13 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
       if (!baseCode) {
         const withBase = baseCurrencyFirst(parsed)
         if (!withBase && noBase) {
-          window.alert(t("Базовой валюты ещё нет: добавьте в файл базовую валюту с курсом 1"))
+          notify(t("Базовой валюты ещё нет: добавьте в файл базовую валюту с курсом 1"))
           return
         }
         if (withBase) ordered = withBase
       }
 
-      const created: Currency[] = []
+      let created = 0
       let failed = 0
       for (const item of ordered) {
         try {
@@ -236,14 +450,14 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: item.name, code: item.code, rate: item.rate, isBase: false }),
           })
-          if (response.ok) created.push((await response.json()) as Currency)
+          if (response.ok) created += 1
           else failed += 1
         } catch {
           failed += 1
         }
       }
-      if (created.length) setCurrencies((current) => [...created, ...current].sort((a, b) => Number(b.isBase) - Number(a.isBase)))
-      if (failed) window.alert(`${t("Импортировано")} ${created.length} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`)
+      if (created) void load()
+      if (failed) notify(`${t("Импортировано")} ${created} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`)
     } finally {
       setImportSaving(false)
       setImportOpen(false)
@@ -251,179 +465,126 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-screen bg-white text-[#17233b]"}>
-      {!embedded && (
-        <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-          <div className="flex items-center gap-3">
-            <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
-            <span className="text-2xl font-bold text-[#586174]">{t("Валюты")}</span>
-          </div>
-        </header>
-      )}
-
-      <div className="px-9 py-5">
-        <div className="mb-4 flex flex-wrap items-center gap-4">
-          <button type="button" onClick={openCreate} className="text-[16px] text-[#4f71dc] hover:underline">
-            {t("+ добавить валюту")}
-          </button>
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <FileText className="h-4 w-4" /> {t("Импорт с Excel")}
-          </button>
-          <label className="relative ml-auto w-64">
-            <input
-              value={query}
-              onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-              placeholder={t("Поиск")}
-              className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]"
-            />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
-
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-5">{t("Наименование")}</th>
-              <th className="px-5 py-5">{t("Код")}</th>
-              <th className="px-5 py-5">{rateLabel}</th>
-              <th className="px-5 py-5">{t("Базовая")}</th>
-              <th className="px-5 py-5">{t("Дата создания")}</th>
-              <th className="w-20" />
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} className="px-9 py-10 text-center text-slate-400">{t("Загрузка валют...")}</td></tr>
-            ) : loadError ? (
-              <tr><td colSpan={6} className="px-9 py-10 text-center text-red-600">{t(loadError)}</td></tr>
-            ) : visible.map((currency) => (
-              <tr key={currency.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4 font-medium">{currency.name}</td>
-                <td className="px-5 py-4">
-                  <span className="inline-block rounded bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600">{currency.code}</span>
-                </td>
-                <td className="px-5 py-4">{number(currency.rate)}</td>
-                <td className="px-5 py-4">
-                  {currency.isBase && <span className="inline-block rounded bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-600">{t("Базовая")}</span>}
-                </td>
-                <td className="px-5 py-4">{formatDateText(currency.createdDate, language)}</td>
-                <td className="px-5 py-4">
-                  <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => openEdit(currency)} aria-label={t("Изменить")}>
-                      <Pencil className="h-5 w-5" />
-                    </button>
-                    <button type="button" onClick={() => remove(currency.id)} aria-label={t("Удалить")}>
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!loading && !loadError && visible.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-9 py-10 text-center text-slate-400">
-                  {t("Ничего не найдено")}
-                </td>
-              </tr>
+  const body = (
+    <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <p className="h-[70px] pl-[30px] pt-[30px]">
+        <span className="font-medium">{t("Основная валюта")}:</span> <b>{baseName}</b> <i className="text-[#777]">({t("используется при формировании стоимости продукта / заказа")})</i>
+      </p>
+      {loadError && <p className="-mt-[10px] pl-[30px] text-[13px] text-[#e57373]">{t(loadError)}</p>}
+      <SettingsToolbar
+        className="h-[61px] pt-[10px]"
+        searchClassName="left-[15px] top-[21px]"
+        searchWidth={182}
+        query={controls.query}
+        onQuery={controls.setQuery}
+        pager={{
+          label: `1 - ${controls.pageSize} ${t("из")}`,
+          pageSize: controls.pageSize,
+          onPageSize: controls.setPageSize,
+          from: paged.from,
+          to: paged.to,
+          total: paged.total,
+          onPrev: paged.page > 1 ? () => controls.setPage(paged.page - 1) : undefined,
+          onNext: paged.page < paged.pageCount ? () => controls.setPage(paged.page + 1) : undefined,
+        }}
+        right={
+          <>
+            {tab === "individual" && <span className="ml-[18px] pt-[3px]"><AddLinkInline onClick={() => setIndividualDialog({ item: null })}>{t("добавить")}</AddLinkInline></span>}
+            {tab === "general" && (
+              <span className="ml-[18px] flex items-center gap-[18px] pt-[3px]">
+                <button type="button" onClick={() => setCreating(true)} className="text-[13px] text-[#4f71dc] hover:underline">{t("+ добавить валюту")}</button>
+                <button type="button" onClick={() => setImportOpen(true)} className="text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>
+              </span>
             )}
-          </tbody>
-        </table>
-      </div>
-
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? t("Изменить валюту") : t("Добавить валюту")}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}>
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                {t("Наименование")} <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                {t("Код")} <span className="text-red-500">*</span>
-                <input value={draft.code} onChange={(event) => setDraft((value) => ({ ...value, code: event.target.value }))} placeholder="USD" maxLength={5} className="mt-2 block w-full uppercase outline-none" />
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={draft.isBase}
-                  onChange={(event) => setDraft((value) => ({ ...value, isBase: event.target.checked }))}
-                  className="h-4 w-4 accent-[#4f71dc]"
-                />
-                {t("Базовая валюта")}
-              </label>
-              {editingId === null && noBase && <p className="text-sm text-slate-500">{t("Базовой валюты ещё нет: первая валюта станет базовой, поэтому её курс должен быть 1.")}</p>}
-              {!draft.isBase && (
-                <label className="block border-b border-slate-200 pb-2 font-medium">
-                  {rateLabel}
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={draft.rate}
-                    onChange={(event) => setDraft((value) => ({ ...value, rate: event.target.value }))}
-                    className="mt-2 block w-full outline-none"
-                  />
-                </label>
-              )}
-              {formError && <p className="text-sm font-medium text-rose-600">{t(formError)}</p>}
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? t("Сохранение...") : t("Сохранить")}
-              </button>
-            </footer>
-          </form>
-        </div>
-      )}
-
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{t("Импорт с Excel")}</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}>
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
-                {t("1. Скачать шаблон")}
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? t("Импорт...") : t("Сохранить")}
-              </button>
-            </footer>
+            <Tabs tab={tab} onTab={switchTab} />
+          </>
+        }
+      />
+      {tab === "general" ? (
+        <>
+          <div className={kitHead} style={{ gridTemplateColumns: GENERAL_COLUMNS }}>
+            <span className="pl-[30px]">№</span>
+            <span>{t("Валюта")}</span>
+            <span>{t("Курс")}</span>
+            <span>{t("Дата обновления")}</span>
           </div>
-        </div>
+          {pagedCurrencies.rows.map((currency) => (
+            <div
+              key={currency.id}
+              onClick={() => !currency.isBase && setHistory(currency)}
+              className={`${kitRow} ${currency.isBase ? "text-[#b5b5b5]" : "cursor-pointer"}`}
+              style={{ gridTemplateColumns: GENERAL_COLUMNS }}
+            >
+              <span className="pl-[30px]">{currency.id}</span>
+              <span>{currency.name}</span>
+              <span>1 {currency.name} = {money(currency.rate)} {baseName}</span>
+              <span>{formatDateText(currency.rateDate, language, { withTime: true, utc: true })}</span>
+              {!currency.isBase && (
+                <RowActions
+                  right={67}
+                  gap={6}
+                  extra={<RowIcon path={ROW_ICONS.dollar} label={t("Установить курс")} onClick={() => setRateOf(currency)} />}
+                  onEdit={() => setEditing(currency)}
+                  onDelete={() => setDeleting(currency)}
+                />
+              )}
+            </div>
+          ))}
+          {currencies && pagedCurrencies.rows.length === 0 && <EmptyRows />}
+        </>
+      ) : (
+        <>
+          <div className={kitHead} style={{ gridTemplateColumns: INDIVIDUAL_COLUMNS }}>
+            <span className="pl-[30px]">№</span>
+            <span>{t("Наименование")}</span>
+            <span>{t("Курс")} USD</span>
+            <span>{t("Дата начала")}</span>
+            <span>{t("Дата завершения")}</span>
+            <span>{t("Дата создания")}</span>
+          </div>
+          {pagedIndividual.rows.map((item) => (
+            <div key={item.id} className={kitRow} style={{ gridTemplateColumns: INDIVIDUAL_COLUMNS }}>
+              <span className="pl-[30px]">{item.id}</span>
+              <span className="pr-2">{item.name}</span>
+              <span>{money(item.rate)} {baseName}</span>
+              <span>{formatDateText(item.beginDate, language, { withTime: false })}</span>
+              <span>{formatDateText(item.endDate, language, { withTime: false })}</span>
+              <span>{formatDateText(item.createdAt, language, { withTime: true, utc: true })}</span>
+              <RowActions right={97} onEdit={() => setIndividualDialog({ item })} />
+            </div>
+          ))}
+          {individual && pagedIndividual.rows.length === 0 && <EmptyRows />}
+        </>
       )}
-    </main>
+
+      {rateOf && <RateDialog currency={rateOf} onClose={() => setRateOf(null)} onSaved={() => { setRateOf(null); void load() }} />}
+      {editing && <CurrencyDialog currency={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load() }} />}
+      {history && <HistoryDialog currency={history} baseName={baseName} onClose={() => setHistory(null)} />}
+      {creating && <CreateDialog noBase={noBase} baseCode={baseCode} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); void load() }} />}
+      {deleting && <ConfirmDeleteDialog name={deleting.name} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
+      {importOpen && (
+        <ImportDialog
+          file={importFile}
+          onFile={setImportFile}
+          onTemplate={downloadTemplate}
+          onSave={() => void saveImport()}
+          saving={importSaving}
+          onClose={() => { setImportOpen(false); setImportFile(null) }}
+        />
+      )}
+      {individualDialog && (
+        <IndividualDialog
+          key={individualDialog.item?.id ?? "new"}
+          item={individualDialog.item}
+          onClose={() => setIndividualDialog(null)}
+          onSaved={() => { setIndividualDialog(null); void load() }}
+        />
+      )}
+    </section>
   )
+  return embedded ? body : <main className="min-h-[calc(100vh-4rem)] bg-white">{body}</main>
+}
+
+function AddLinkInline({ children, onClick }: { children: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className="text-[13px] text-[#4f71dc] hover:underline">+ {children}</button>
 }

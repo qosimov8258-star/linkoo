@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import type { ReactNode } from "react"
+import { isValidElement, type ReactNode } from "react"
 
 import { useCashOperation } from "@/components/analytics/cash/use-cash"
 import { CashModal, EmptyBlock, ErrorBlock, LoadingBlock, cashCommentText, formatCash, formatCashDate } from "@/components/analytics/cash-management-shared"
@@ -35,11 +35,11 @@ function Ext({ href, children, bold }: { href: string; children: ReactNode; bold
   )
 }
 
-function Item({ label, children }: { label: string; children: ReactNode }) {
+function Item({ label, children, raw }: { label: string; children: ReactNode; /** The reference prints this line in Russian whatever the language. */ raw?: boolean }) {
   const { t } = useLanguage()
   return (
-    <span className="mr-1 inline">
-      <strong className="font-semibold text-[#17233b]">{t(label)}:</strong> {children}
+    <span className={["Описание", "Комментарий"].includes(label) ? "inline" : "inline-block whitespace-nowrap align-top"} {...(raw ? { "data-no-translate": "" } : {})}>
+      <strong className="font-semibold text-[#17233b]">{raw ? label : t(label)}:</strong> {children}
     </span>
   )
 }
@@ -82,13 +82,13 @@ export function OperationDescription({ operation, onOpenAcceptance }: { operatio
         </span>
       )
     case 8: {
-      const label = `${t("Принято денег с")} ${operation.employee?.name ?? ""}`.trim()
+      const label = `Принято денег с ${operation.employee?.name ?? ""}`.trim()
       return onOpenAcceptance ? (
-        <button type="button" onClick={() => onOpenAcceptance(operation)} className={`${linkClass} text-left font-bold`}>
+        <button type="button" data-no-translate onClick={() => onOpenAcceptance(operation)} className={`${linkClass} text-left`}>
           {label}
         </button>
       ) : (
-        <strong>{label}</strong>
+        <strong data-no-translate>{label}</strong>
       )
     }
     case 9:
@@ -108,7 +108,7 @@ export function OperationDescription({ operation, onOpenAcceptance }: { operatio
     case 22:
       return (
         <span>
-          {t("Выдача денег для кэшбека")} {client ? <Ext href={`${LOYALTY_HREF}?search=${encodeURIComponent(client.name)}`}>{client.name}</Ext> : null}
+          {t("Выдача денег для Кэшбека")} {client ? <Ext href={`${LOYALTY_HREF}?search=${encodeURIComponent(client.name)}`}>{client.name}</Ext> : null}
         </span>
       )
     default:
@@ -166,7 +166,8 @@ export function OperationDetails({
   onPopup?: (popup: DetailsPopup) => void
 }) {
   const { t, language } = useLanguage()
-  const clientInDescription = [3, 6, 22].includes(operation.type)
+  // Type 7 ("Снято со счета клиента") prints no client at all in the reference.
+  const clientInDescription = [3, 6, 7, 22].includes(operation.type)
   const transfer = operation.transfer
   const parts: ReactNode[] = []
   if (showCashbox || extended) parts.push(<Item key="cashbox" label="Касса">{operation.cashbox.name}</Item>)
@@ -176,11 +177,13 @@ export function OperationDetails({
         <Ext href={supplierHref(operation.supplier.id, operation.supplier.name)}>{operation.supplier.name}</Ext>
       </Item>,
     )
-  parts.push(
-    <Item key="description" label="Описание">
-      <OperationDescription operation={operation} onOpenAcceptance={onOpenAcceptance} />
-    </Item>,
-  )
+  // Type 11 (supplier income) has no "Описание" in the reference.
+  if (operation.type !== 11)
+    parts.push(
+      <Item key="description" label="Описание">
+        <OperationDescription operation={operation} onOpenAcceptance={onOpenAcceptance} />
+      </Item>,
+    )
   if (operation.category?.name)
     parts.push(
       <Item key="category" label="Категория">
@@ -191,8 +194,8 @@ export function OperationDetails({
   if (operation.organization) parts.push(<Item key="organization" label="Организация">{operation.organization}</Item>)
   if (transfer?.accumulatedFrom || transfer?.accumulatedTo)
     parts.push(
-      <Item key="accumulated" label="Деньги за период">
-        {formatDotDate(transfer.accumulatedFrom)} — {formatDotDate(transfer.accumulatedTo)}
+      <Item key="accumulated" label="Деньги за период" raw>
+        с {transfer.accumulatedFrom} по {transfer.accumulatedTo}
       </Item>,
     )
   if (operation.amortization)
@@ -212,13 +215,22 @@ export function OperationDetails({
   if (operation.employee && operation.type !== 8) parts.push(<Item key="employee" label="Ответственный персонал">{operation.employee.name}</Item>)
   if (extended && operation.createdBy) parts.push(<Item key="created" label="Создал">{operation.createdBy}</Item>)
   return (
-    <div className="text-[13px] leading-6 text-[#17233b]">
-      {parts.map((part, index) => (
-        <span key={index}>
-          {index > 0 && ", "}
-          {part}
-        </span>
-      ))}
+    <div className="text-[13px] leading-[16px] text-[#17233b]">
+      {parts.map((part, index) => {
+        // The reference prints the cashbox on a line of its own, the rest follows comma separated.
+        const isCashbox = isValidElement(part) && part.key === "cashbox"
+        return isCashbox ? (
+          <span key={index} className="block">
+            {part}
+          </span>
+        ) : (
+          <span key={index}>
+            {part}
+            {index < parts.length - 1 && ","}
+            {index < parts.length - 1 && <span className="inline-block w-[7px]" />}
+          </span>
+        )
+      })}
       {!operation.isVerified && !operation.isDeleted && (
         <span className="ml-2 inline-block rounded bg-[#fff4e5] px-2 text-[11px] font-semibold uppercase text-[#d48a1c]">{t("Не подтверждено")}</span>
       )}

@@ -269,11 +269,11 @@ export function InvoiceIncomingsView() {
 
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Входящие счет фактуры")}</h1>
+      <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-4 px-[28px]">
+        <div className="flex min-w-0 items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <h1 className="truncate text-[18px] font-bold text-[#5d6474]">{t("Входящие счет фактуры")}</h1>
         </div>
         {canEdit && (
           <div className="flex items-center gap-2">
@@ -356,7 +356,7 @@ export function InvoiceIncomingsView() {
           </label>
           <div className="ml-auto flex flex-wrap items-center gap-3">
             <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize })} />
-            <button type="button" onClick={() => void downloadList()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
+            <button type="button" onClick={() => void downloadList()} disabled={!data} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
               <FileSpreadsheet className="h-5 w-5" />
             </button>
           </div>

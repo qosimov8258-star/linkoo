@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { FilterDate, FilterSelect, RI, RefFilterPanel, RefIconButton, SimpleListPage } from "@/components/ref/list-kit"
 import { csvText } from "@/lib/csv"
@@ -14,13 +14,31 @@ type Filters = { client: string; agentClients: string; createdBegin: string; cre
 const emptyFilters: Filters = { client: "", agentClients: "", createdBegin: "", createdEnd: "", activeBegin: "", activeEnd: "" }
 const WAITING = "В ожидании"
 
-// No Telegram bot is connected, so there are no bot users. (The list used to
-// ship real-looking third-party Telegram handles copied from another tenant.)
-const initialUsers: TgUser[] = []
+const LANGUAGES: Record<string, string> = { uz: "Узбекча", ru: "Русский", en: "English" }
+
+type ApiUser = { id: string; name: string; handle: string; client: string; phone: string; language: string; first: string; last: string }
 
 export function TelegramUsersView() {
   const { t, language } = useLanguage()
-  const [list, setList] = useState<TgUser[]>(initialUsers)
+  const [list, setList] = useState<TgUser[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/telegram-users")
+      .then((response) => (response.ok ? (response.json() as Promise<ApiUser[]>) : []))
+      .then((users) => {
+        if (!cancelled) setList(users.map((u) => ({ id: u.id, name: u.name, handle: u.handle, client: u.client || WAITING, phone: u.phone, lang: LANGUAGES[u.language] ?? LANGUAGES.uz, first: u.first, last: u.last })))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function removeUser(id: string) {
+    const response = await fetch(`/api/telegram-users/${id}`, { method: "DELETE" })
+    if (response.ok) setList((current) => current.filter((x) => x.id !== id))
+  }
   const [filters, setFilters] = useState<Filters>(emptyFilters)
 
   const clientOptions = useMemo(() => [...new Set(list.map((u) => u.client).filter((value) => value !== WAITING))], [list])
@@ -44,7 +62,7 @@ export function TelegramUsersView() {
 
   function download() {
     const a = document.createElement("a")
-    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csvText(rows.map((u) => [u.id, u.name, u.handle, u.client, u.phone, u.lang, formatDateText(refDateTime(u.first), language), formatDateText(refDateTime(u.last), language)])))
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csvText(rows.map((u) => [u.id, u.name, u.handle, u.client === WAITING ? t(WAITING) : u.client, u.phone, t(u.lang), formatDateText(refDateTime(u.first), language), formatDateText(refDateTime(u.last), language)])))
     a.download = "telegram-users.csv"
     a.click()
   }
@@ -56,6 +74,7 @@ export function TelegramUsersView() {
       heads={[t("№"), t("Пользователь"), t("Клиент"), t("Телефон"), t("Язык пользователя"), t("Первое обращение"), t("Последнее обращение"), ""]}
       rows={rows}
       rowKey={(u) => u.id}
+      rowClass={() => "hover:bg-white!"}
       searchText={(u) => `${u.id} ${u.name} ${u.handle} ${u.client} ${u.phone}`}
       filterPanel={(close) => (
         <TelegramFilter
@@ -68,22 +87,22 @@ export function TelegramUsersView() {
           }}
         />
       )}
-      icons={<RefIconButton path={RI.download} label={t("Скачать")} onClick={download} />}
+      icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={download} />}
       render={(u) => [
         u.id,
         <>
           <b className="font-semibold">{u.name}</b>
           <br />
-          <span className="text-[#4f71dc]">{u.handle}</span>
+          <span className="font-semibold text-[#4f71dc]">{u.handle}</span>
         </>,
         u.client === WAITING ? t(WAITING) : <span key="c" className="font-semibold text-[#4f71dc]">{u.client}</span>,
         u.phone,
-        u.lang,
+        t(u.lang),
         formatDateText(refDateTime(u.first), language),
         formatDateText(refDateTime(u.last), language),
-        <button key="d" aria-label={t("Удалить")} onClick={() => setList((current) => current.filter((x) => x.id !== u.id))} className="opacity-0 transition-opacity group-hover:opacity-100">
+        <div key="d" className="flex justify-end"><button aria-label={t("Деактивировать")} onClick={() => void removeUser(u.id)} className="-mr-1 opacity-0 transition-opacity group-hover:opacity-100">
           <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#ff5a4f]"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" /></svg>
-        </button>,
+        </button></div>,
       ]}
     />
   )
@@ -93,11 +112,11 @@ function TelegramFilter({ value, clients, onClose, onApply }: { value: Filters; 
   const { t } = useLanguage()
   const [draft, setDraft] = useState(value)
   return (
-    <RefFilterPanel narrow onClose={onClose} onApply={() => onApply(draft)}>
-      <div className="pt-[2px]">
+    <RefFilterPanel narrow onClose={onClose} onApply={() => onApply(draft)} applyClassName="mt-[14px]">
+      <div className="-mt-[1px]">
         <FilterSelect label={t("Клиент")} value={draft.client} onChange={(client) => setDraft((current) => ({ ...current, client }))} options={clients} />
         <FilterSelect label={t("Клиенты агента")} value={draft.agentClients} onChange={(agentClients) => setDraft((current) => ({ ...current, agentClients }))} options={[]} />
-        <div className="-mt-[10px] w-[255px]">
+        <div className="-mt-[8px] w-[255px]">
           <FilterDate label={t("Дата создания")} begin={draft.createdBegin} end={draft.createdEnd} onChange={(createdBegin, createdEnd) => setDraft((current) => ({ ...current, createdBegin, createdEnd }))} />
           <div className="-mt-[10px]">
             <FilterDate label={t("Дата активации")} begin={draft.activeBegin} end={draft.activeEnd} onChange={(activeBegin, activeEnd) => setDraft((current) => ({ ...current, activeBegin, activeEnd }))} />

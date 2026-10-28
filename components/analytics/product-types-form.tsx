@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 
-import { SearchSelect, inputClass, useJsonList, type PickOption } from "@/components/analytics/cash-management-shared"
+import { SearchSelect, useJsonList, type PickOption } from "@/components/analytics/cash-management-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { DictionaryFormShell, Field, ImageField, Toggle, requestErrors, useOrganizationOptions } from "./dictionaries-shared"
+import { DictionaryFormShell, Field, dictionaryInputClass, ImageField, Toggle, requestErrors, useOrganizationOptions } from "./dictionaries-shared"
 import type { DictionaryErrorBody } from "./dictionaries-data"
 import { PRODUCT_TYPES_API, type ProductType, type ProductTypeDetail, type ProductTypePayload } from "./product-types-data"
 
@@ -18,7 +18,7 @@ const REQUIRED = "Обязательное поле"
 type Draft = { parentId: string; name: string; organization: string; position: string; showInBot: boolean; image: string | null | undefined }
 type FieldName = "parent" | "name" | "organization" | "position" | "image"
 
-const EMPTY: Draft = { parentId: "", name: "", organization: "", position: "", showInBot: true, image: undefined }
+const EMPTY: Draft = { parentId: "", name: "", organization: "", position: "", showInBot: false, image: undefined }
 
 export function ProductTypeFormDialog({ typeId, onClose, onSaved }: { typeId: number | null; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
@@ -65,7 +65,7 @@ export function ProductTypeFormDialog({ typeId, onClose, onSaved }: { typeId: nu
   function validate(value: Draft): Partial<Record<FieldName, string>> {
     const errors: Partial<Record<FieldName, string>> = {}
     if (!value.name.trim()) errors.name = REQUIRED
-    if (organizations.required && !value.organization) errors.organization = REQUIRED
+    if (organizations.required && !value.organization && !(isEdit && stored && !stored.organization)) errors.organization = REQUIRED
     if (value.position.trim() && !/^-?\d+$/.test(value.position.trim())) errors.position = "Введите целое число"
     return errors
   }
@@ -121,7 +121,7 @@ export function ProductTypeFormDialog({ typeId, onClose, onSaved }: { typeId: nu
   const hasChildren = (stored?.childCount ?? 0) > 0
 
   return (
-    <DictionaryFormShell
+    <DictionaryFormShell bodyMinHeight={541}
       title={isEdit ? t("Изменить тип продукта") : t("Добавить тип продукта")}
       busy={saving || (!draft && !loadError)}
       saving={saving}
@@ -132,49 +132,49 @@ export function ProductTypeFormDialog({ typeId, onClose, onSaved }: { typeId: nu
     >
       {draft && (
         <>
-          <Field label={t("Родительская категория")} error={fieldError("parent")}>
+          <Field select label={t("Родительская категория")} filled={Boolean(draft.parentId)} error={fieldError("parent")}>
             <SearchSelect
+              variant="underline"
               value={draft.parentId}
               onChange={(value) => change({ parentId: value }, "parent")}
               options={parentOptions}
-              placeholder={t("Не указано")}
               disabled={hasChildren}
               loading={types.loading}
               invalid={Boolean(fieldError("parent"))}
             />
             {hasChildren && <span className="text-[12px] text-[#9aa3b6]">{t("Тип с подкатегориями не может быть подкатегорией")}</span>}
           </Field>
-          <Field label={t("Наименование категории")} required error={fieldError("name")}>
+          <Field label={t("Наименование категории")} filled={Boolean(draft.name)} required error={fieldError("name")}>
             <input
               autoFocus
               aria-label={t("Наименование категории")}
               value={draft.name}
               maxLength={255}
               onChange={(event) => change({ name: event.target.value }, "name")}
-              className={`${inputClass} ${fieldError("name") ? "border-[#e57373]" : ""}`}
+              className={`${dictionaryInputClass} ${fieldError("name") ? "border-[#e57373]" : ""}`}
             />
           </Field>
-          <Field label={t("Организация")} required={organizations.required} error={fieldError("organization")}>
+          <Field select className="mt-[34px]" label={t("Организация")} filled={Boolean(draft.organization)} required={organizations.required} error={fieldError("organization")}>
             <SearchSelect
+              variant="underline"
               value={draft.organization}
               onChange={(value) => change({ organization: value }, "organization")}
               options={organizations.options}
-              placeholder={t("Не указано")}
               loading={organizations.loading}
               invalid={Boolean(fieldError("organization"))}
             />
           </Field>
-          <Field label={t("Порядок")} error={fieldError("position")}>
+          <Field label={t("Порядок")} filled={Boolean(draft.position)} error={fieldError("position")}>
             <input
               aria-label={t("Порядок")}
               inputMode="numeric"
               value={draft.position}
               onChange={(event) => change({ position: event.target.value }, "position")}
-              className={`${inputClass} ${fieldError("position") ? "border-[#e57373]" : ""}`}
+              className={`${dictionaryInputClass} ${fieldError("position") ? "border-[#e57373]" : ""}`}
             />
           </Field>
-          <ImageField value={stored?.imageUrl ?? null} pending={draft.image} onChange={(image) => change({ image }, "image")} error={fieldError("image")} />
-          <Toggle title={t("Показывать в боте")} subTitle={t("Показывать в телеграм боте")} checked={draft.showInBot} onChange={(showInBot) => setDraft((current) => (current ? { ...current, showInBot } : current))} />
+          <ImageField className="mt-[11px]" value={stored?.imageUrl ?? null} pending={draft.image} onChange={(image) => change({ image }, "image")} error={fieldError("image")} />
+          <div className="mt-[3px]"><Toggle title={t("Показывать в боте")} subTitle={t("Показывать в телеграм боте")} checked={draft.showInBot} onChange={(showInBot) => setDraft((current) => (current ? { ...current, showInBot } : current))} /></div>
         </>
       )}
     </DictionaryFormShell>

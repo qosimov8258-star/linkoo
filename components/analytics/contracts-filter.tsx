@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ChevronDown, Pencil, X } from "lucide-react"
+import { Pencil, X } from "lucide-react"
 
-import { FormField, MultiPick, SearchSelect, inputClass, type PickOption } from "@/components/analytics/cash-management-shared"
-import { ClientMultiSelect, useContractClients, type ClientPick } from "@/components/analytics/contracts-fields"
+import { type PickOption } from "@/components/analytics/cash-management-shared"
+import { RefSearchSelect, type RefSelectItem } from "@/components/analytics/ref-search-select"
+import { FilterDate, RefFilterPanel } from "@/components/ref/list-kit"
+import { useContractClients, type ClientPick } from "@/components/analytics/contracts-fields"
 import type { ContractFormOptions, ContractListResult, ContractTab } from "@/lib/contracts-types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -71,11 +73,10 @@ export function ContractsFilterBar({
           </button>
         </div>
       ) : (
-        <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-1 whitespace-nowrap font-medium text-[rgb(79,113,220)]">
-          {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+        <button type="button" onClick={open ? onClose : onOpen} className="whitespace-nowrap pl-[5px] text-[13px] text-[rgb(79,113,220)]">
+          {open ? t("Скрыть фильтр") : t("Показать фильтр")} ⌄
         </button>
       )}
-      {open && <ContractsFilterPopup filters={filters} options={options} onClose={onClose} onApply={onApply} />}
     </div>
   )
 }
@@ -118,21 +119,24 @@ function ContractPicker({ value, onChange }: { value: number | null; onChange: (
       .catch(() => {})
     return () => controller.abort()
   }, [value, t])
-  const options: PickOption[] = rows.map((row) => ({ value: String(row.id), label: `${t("Договор №")}: ${row.fullNumber}`, hint: row.officialName }))
+  const items: RefSelectItem[] = rows.map((row) => ({ value: String(row.id), label: `${t("Договор №")}: ${row.fullNumber}` }))
+  const selected: RefSelectItem[] = value ? [{ value: String(value), label: selectedLabel || `#${value}` }] : []
   return (
-    <SearchSelect
-      value={value ? String(value) : ""}
-      onChange={(next) => onChange(next ? Number(next) : null)}
-      options={options}
-      onSearch={setQuery}
+    <RefSearchSelect
+      label={t("Договор")}
+      items={items}
+      selected={selected}
+      onChange={(next) => {
+        setSelectedLabel(next[0]?.label ?? "")
+        onChange(next[0] ? Number(next[0].value) : null)
+      }}
+      onQuery={setQuery}
       loading={loading}
-      selectedLabel={selectedLabel}
-      placeholder={t("Договор")}
     />
   )
 }
 
-function ContractsFilterPopup({
+export function ContractsFilterPopup({
   filters,
   options,
   onClose,
@@ -160,63 +164,37 @@ function ContractsFilterPopup({
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
 
+  const [clientQuery, setClientQuery] = useState("")
+  const clientPick = useContractClients(clientQuery, [], true)
   return (
     <>
       <div className="fixed inset-0 z-[55]" onMouseDown={onClose} aria-hidden />
-      <form
-        className="absolute left-0 top-0 z-[60] w-[min(320px,calc(100vw-2rem))] bg-white px-5 py-3 shadow-[0_2px_10px_rgba(0,0,0,0.2)]"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onApply({ ...draft, clientIds: shownClients.map((client) => client.id) })
-        }}
-      >
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-[15px] text-[#5d6474]">{t("Фильтр")}</span>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#8f8f8f] hover:text-[#17233b]">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="flex flex-col gap-3">
-          <FormField label={t("Договор")}>
-            <ContractPicker value={draft.contractId} onChange={(contractId) => setDraft((current) => ({ ...current, contractId }))} />
-          </FormField>
-          <div className="flex flex-col gap-1 text-[13px] text-[#586174]">
-            <span>{t("Клиент")}</span>
-            <ClientMultiSelect
-              value={shownClients}
-              onChange={(next) => {
-                setClientsTouched(true)
-                setClients(next)
-              }}
-              placeholder={t("Все")}
-            />
-          </div>
-          <MultiPick label={t("Агент")} options={named(options?.agentNames ?? [], draft.agents)} value={draft.agents} onChange={(agents) => setDraft((current) => ({ ...current, agents }))} />
-          <MultiPick label={t("Зона")} options={named(options?.zones ?? [], draft.zones)} value={draft.zones} onChange={(zones) => setDraft((current) => ({ ...current, zones }))} />
-          <FormField label={t("Диапазон дат")}>
-            <span className="flex items-center gap-2">
-              <input
-                type="date"
-                value={draft.fromDate}
-                onChange={(event) => setDraft((current) => ({ ...current, fromDate: event.target.value }))}
-                aria-label={t("С")}
-                className={`${inputClass} px-2`}
-              />
-              <span>—</span>
-              <input
-                type="date"
-                value={draft.toDate}
-                onChange={(event) => setDraft((current) => ({ ...current, toDate: event.target.value }))}
-                aria-label={t("По")}
-                className={`${inputClass} px-2`}
-              />
-            </span>
-          </FormField>
-        </div>
-        <button type="submit" className="mt-4 h-9 rounded-sm bg-[rgb(79,113,220)] px-5 text-[13px] font-semibold uppercase text-white shadow hover:brightness-95">
-          {t("Применить")}
-        </button>
-      </form>
+      <div className="absolute left-0 top-0 z-[60]">
+        <RefFilterPanel
+          narrow
+          className="!w-[300px]"
+          onClose={onClose}
+          onApply={() => onApply({ ...draft, clientIds: shownClients.map((client) => client.id) })}
+          applyClassName="mt-1"
+        >
+          <ContractPicker value={draft.contractId} onChange={(contractId) => setDraft((current) => ({ ...current, contractId }))} />
+          <RefSearchSelect
+            multi
+            label={t("Клиент")}
+            items={clientPick.items.map((client) => ({ value: String(client.id), label: client.name }))}
+            selected={shownClients.map((client) => ({ value: String(client.id), label: client.name || `#${client.id}` }))}
+            onQuery={setClientQuery}
+            loading={clientPick.loading}
+            onChange={(next) => {
+              setClientsTouched(true)
+              setClients(next.map((item) => clientPick.items.find((client) => String(client.id) === item.value) ?? shownClients.find((client) => String(client.id) === item.value) ?? { id: Number(item.value), name: item.label, zone: "" }))
+            }}
+          />
+          <RefSearchSelect multi label={t("Агент")} items={named(options?.agentNames ?? [], draft.agents).map((o) => ({ value: o.value, label: o.label }))} selected={draft.agents.map((value) => ({ value, label: value }))} onChange={(next) => setDraft((current) => ({ ...current, agents: next.map((item) => item.value) }))} />
+          <RefSearchSelect multi label={t("Зона")} items={named(options?.zones ?? [], draft.zones).map((o) => ({ value: o.value, label: o.label }))} selected={draft.zones.map((value) => ({ value, label: value }))} onChange={(next) => setDraft((current) => ({ ...current, zones: next.map((item) => item.value) }))} />
+          <FilterDate label={t("Диапазон дат")} begin={draft.fromDate} end={draft.toDate} onChange={(begin, end) => setDraft((current) => ({ ...current, fromDate: begin, toDate: end }))} />
+        </RefFilterPanel>
+      </div>
     </>
   )
 }

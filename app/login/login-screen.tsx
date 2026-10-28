@@ -1,10 +1,10 @@
 "use client"
 
 import { useEffect, useState, type FormEvent } from "react"
-import { Phone, Send, X } from "lucide-react"
+import { X } from "lucide-react"
 
-import { LoginIllustration } from "@/components/login-illustration"
 import { PASSWORD_MIN, passwordProblem } from "@/lib/auth-policy"
+import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { safeRedirectPath } from "./safe-redirect"
@@ -210,10 +210,13 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
       }
       const data = (await response.json().catch(() => ({}))) as { username?: string; mustChangePassword?: boolean }
 
-      const entry: SavedServer = { login: login.trim(), server: server.trim() }
-      const next = [entry, ...savedServers.filter((item) => !(item.login === entry.login && item.server === entry.server))]
-      saveSavedServers(next)
-      setSavedServers(next)
+      // Like the reference, only «Запомнить меня» keeps the server + login for the next visit.
+      if (remember) {
+        const entry: SavedServer = { login: login.trim(), server: server.trim() }
+        const next = [entry, ...savedServers.filter((item) => !(item.login === entry.login && item.server === entry.server))]
+        saveSavedServers(next)
+        setSavedServers(next)
+      }
 
       if (data.mustChangePassword) {
         setChangeFor({ username: data.username ?? login.trim(), currentPassword: password })
@@ -221,7 +224,9 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
         return
       }
       // A full page load, so nothing from the previous account's screens survives.
-      window.location.assign(target)
+      // The reference lands on "#/?beginDate=<today>&endDate=<today>" (its own range preselected to today).
+      const today = todayIso()
+      window.location.assign(from ? target : `/?beginDate=${today}&endDate=${today}`)
     } catch {
       setError(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
@@ -314,8 +319,8 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
           />
         </label>
 
-        <div className="flex items-center justify-between">
-          <label className="flex items-center gap-4 text-[13px] text-[#333333]">
+        <div className="mt-[30px] flex items-center justify-between">
+          <label className="flex items-center gap-[6px] text-[13px] font-semibold text-black">
             <input
               type="checkbox"
               checked={remember}
@@ -338,7 +343,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
         <button
           type="submit"
           disabled={submitting}
-          className="flex h-12 w-full items-center justify-center rounded-[5px] bg-[#4243FF] px-5 text-base font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
+          className="mt-[30px] flex h-12 w-full items-center justify-center rounded-[5px] bg-[#4243FF] px-5 text-base font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {submitting ? t("Вход...") : t("Войти")}
         </button>
@@ -362,17 +367,13 @@ export function LoginScreen(props: LoginScreenProps) {
   const { t } = useLanguage()
   return (
     <main className="flex min-h-screen">
-      <div className="flex w-full flex-col lg:w-1/2">
-        <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-12 lg:px-0">
+      <div className="flex w-full flex-col bg-white lg:w-1/2">
+        <div className="flex flex-1 flex-col px-6 pb-12 pt-[93px] sm:px-12 lg:px-0">
           <div className="mx-auto w-full max-w-[500px]">
-            <div className="inline-flex flex-col items-start">
-              <span className="h-3 w-16 rounded-t-full border-t-[5px] border-[#4f37c8]" />
-              <span className="-mt-px text-4xl font-extrabold tracking-tight text-[#1c2758]">
-                l<span className="text-[#4f71dc]">i</span>nko
-              </span>
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/login/logo.png" alt="linko" width={99} height={50} className="block h-[50px] w-[99px]" />
 
-            <h1 className="mt-[60px] mb-3 text-[36px] font-bold leading-[44px] text-[#333333]">{t("Войти в систему")}</h1>
+            <h1 className="mb-3 mt-[63px] text-[36px] font-bold leading-[44px] text-[#333333]">{t("Войти в систему")}</h1>
             <p className="text-base leading-5 text-[#475467]">
               {t("Выберите тип авторизации и заполните данные для входа в аккаунт")}
             </p>
@@ -388,20 +389,23 @@ export function LoginScreen(props: LoginScreenProps) {
             href="https://t.me/Linko_tech_support"
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-2 text-[13px] text-[#129FDD] underline"
+            className="flex items-center gap-2 text-[14px] text-[#475467] underline"
           >
-            <Send className="h-4 w-4" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/login/support.svg" alt="" className="h-4 w-4" />
             {t("Онлайн поддержка")}
           </a>
-          <div className="flex items-center gap-2 text-sm text-[#475467] underline">
-            <Phone className="h-4 w-4" />
+          <div className="flex items-center gap-2 text-[14px] text-[#475467] underline">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/login/phone.svg" alt="" className="h-4 w-4" />
             +998 78 555-55-25
           </div>
         </footer>
       </div>
 
       <div className="relative hidden lg:block lg:w-1/2">
-        <LoginIllustration />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/login/hero.png" alt="" className="absolute inset-0 h-full w-full object-fill" />
       </div>
     </main>
   )

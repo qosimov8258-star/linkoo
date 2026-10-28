@@ -6,7 +6,7 @@ import { Download, Loader2, MoreVertical, Search } from "lucide-react"
 import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
 import { balanceListExcelRows } from "@/components/analytics/balance/excel"
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
-import { BalanceFilterChip, BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterChip, BalanceFilterDialog, FilterVariant } from "@/components/analytics/balance/filter-bar"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useFinanceCurrencies, useLookup, type BalanceQuery } from "@/components/analytics/balance/use-balance"
@@ -233,7 +233,8 @@ export function EmployeeBalanceView() {
   }
   const list = useBalanceList("employee", query)
   const currencies = useFinanceCurrencies()
-  const employees = useLookup<EmployeeOption>("/api/employees")
+  const employees = useLookup<EmployeeOption & { job?: string }>("/api/employees")
+  const [draftJob, setDraftJob] = useState("")
   const canEdit = useCanEdit()
 
   const data = list.data
@@ -275,7 +276,10 @@ export function EmployeeBalanceView() {
   }
 
   const nameCell = (row: BalanceRow) => (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between gap-2">
+      <button type="button" onClick={() => update({ detail: row.key })} className="text-left text-[#333] hover:underline">
+        {row.name || t("Не указано")}
+      </button>
       {canEdit && row.id !== null && (
         <button
           type="button"
@@ -285,30 +289,27 @@ export function EmployeeBalanceView() {
             const rect = event.currentTarget.getBoundingClientRect()
             setMenu((current) => (current?.employeeId === row.id ? null : { employeeId: row.id!, top: rect.bottom + 4, left: rect.left }))
           }}
-          className="shrink-0 rounded-full p-0.5 text-[#586174] hover:bg-[#f2f5f8] hover:text-[#17233b]"
+          className="mr-[13px] shrink-0 rounded-full p-0.5 text-[#333] hover:bg-[#f2f5f8]"
         >
           <MoreVertical className="h-5 w-5" />
         </button>
       )}
-      <button type="button" onClick={() => update({ detail: row.key })} className="text-left font-medium text-[#129fdd] hover:underline">
-        {row.name || t("Не указано")}
-      </button>
     </div>
   )
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Баланс сотрудников")}</span>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс сотрудников")}</span>
         </div>
       </header>
 
-      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+      <div className="pt-[10px]">
         {data ? (
-          <BalanceSummaryCards boxes={BOXES} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
+          <BalanceSummaryCards compact marginClass="mx-[10px]" boxes={BOXES} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center gap-3 pb-6">
             {list.error ? (
@@ -326,7 +327,7 @@ export function EmployeeBalanceView() {
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
+        <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] pb-[8px] pt-[15px]">
           <BalanceFilterChip
             count={filterCount}
             onOpen={() => {
@@ -335,7 +336,7 @@ export function EmployeeBalanceView() {
             }}
             onClear={() => update({ period: null, users: [], page: 1 })}
           />
-          <label className="relative min-w-[200px] flex-1 border-b border-[#dbe0e8] pb-1.5">
+          <label style={{ left: "calc(50% - 182px)" }} className="absolute w-[182px] border-b border-[#e0e0e0] pb-1.5">
             <input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
@@ -349,8 +350,8 @@ export function EmployeeBalanceView() {
               type="button"
               onClick={downloadAll}
               disabled={!data || downloading}
-              title={t("Скачать")}
-              aria-label={t("Скачать")}
+              title={t("Скачать Excel")}
+              aria-label={t("Скачать Excel")}
               className="text-[#586174] hover:text-[#17233b] disabled:opacity-40"
             >
               {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
@@ -371,6 +372,8 @@ export function EmployeeBalanceView() {
 
         <section className="bg-white pb-10">
           <BalanceTable
+            rowPad={9}
+          fixedWidth={100}
             rows={rows}
             groups={GROUPS}
             currencies={visible}
@@ -403,6 +406,7 @@ export function EmployeeBalanceView() {
       )}
 
       <BalanceFilterDialog
+        variant="card"
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
         from={period.from}
@@ -414,7 +418,46 @@ export function EmployeeBalanceView() {
           update({ period: unchanged ? null : next, users: draftUsers, page: 1 })
         }}
       >
-        <EmployeeUsersSelect options={employees} value={draftUsers} onChange={setDraftUsers} />
+        <FilterVariant
+          plain={
+          <label className="flex flex-col gap-1 md:col-span-2">
+            <span className="text-sm text-[#586174]">{t("Должность")}</span>
+            <select
+              value={draftJob}
+              onChange={(event) => {
+                setDraftJob(event.target.value)
+                setDraftUsers([])
+              }}
+              className="h-10 rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]"
+            >
+              <option value="">{t("Выберите...")}</option>
+              {[...new Set(employees.map((item) => item.job).filter((job): job is string => !!job))].sort((a, b) => a.localeCompare(b, "ru")).map((job) => (
+                <option key={job} value={job}>{job}</option>
+              ))}
+            </select>
+          </label>
+          }
+          card={
+            <label className="relative block h-[40px] border-b border-[#d5dae1]">
+              <span className={`pointer-events-none absolute left-0 ${draftJob ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>{t("Должность")}</span>
+              <select
+                value={draftJob}
+                onChange={(event) => {
+                  setDraftJob(event.target.value)
+                  setDraftUsers([])
+                }}
+                className="absolute inset-x-0 bottom-0 h-[26px] w-full appearance-none bg-transparent text-[13px] outline-none"
+              >
+                <option value=""></option>
+                {[...new Set(employees.map((item) => item.job).filter((job): job is string => !!job))].sort((a, b) => a.localeCompare(b, "ru")).map((job) => (
+                  <option key={job} value={job}>{job}</option>
+                ))}
+              </select>
+              <svg viewBox="0 0 10 5" className="pointer-events-none absolute bottom-[10px] right-[2px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+            </label>
+          }
+        />
+        <EmployeeUsersSelect options={draftJob ? employees.filter((item) => item.job === draftJob) : employees} value={draftUsers} onChange={setDraftUsers} />
       </BalanceFilterDialog>
 
       {state.detail && (

@@ -58,12 +58,28 @@ export function formatUnitTotals(lines: Array<{ qty: number; unit: string }>, t:
 /** "16 янв. 2026" / with ", 11:53" — '' stays ''. */
 export function docDate(value: string, language: string, withTime = false): string {
   if (!value) return ""
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}))?/)
+  // The reference prints dates with moment's ru short months ("06 февр. 2026", "24 июня 2026"), no "г.".
+  if (language === "ru" && iso) {
+    const label = `${iso[3]} ${RU_SHORT_MONTHS[Number(iso[2]) - 1]} ${iso[1]}`
+    return withTime && value.length > 10 && iso[4] ? `${label}, ${iso[4]}` : label
+  }
   return formatCashDate(value, language, withTime && value.length > 10)
 }
 
+const RU_SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
+
 /** Status with the demo dot; `title` = the capitalised detail label. */
-export function TransferStatusLabel({ status, title = false }: { status: TransferStatus; title?: boolean }) {
+export function TransferStatusLabel({ status, title = false, wrap = false }: { status: TransferStatus; title?: boolean; wrap?: boolean }) {
   const { t } = useLanguage()
+  // The list prints the dot inline so that a long status wraps under it, like the reference.
+  if (wrap) {
+    return (
+      <span>
+        <i className="mr-[6px] inline-block h-[7px] w-[7px] rounded-full" style={{ background: TRANSFER_STATUS_COLORS[status] }} /> {t(title ? TRANSFER_STATUS_TITLES[status] : status)}
+      </span>
+    )
+  }
   return (
     <span className="inline-flex items-center whitespace-nowrap">
       <span className="mr-2 inline-block h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: TRANSFER_STATUS_COLORS[status] }} />

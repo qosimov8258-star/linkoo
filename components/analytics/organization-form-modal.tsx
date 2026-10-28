@@ -1,9 +1,9 @@
 "use client"
 
-import { Loader2, X } from "lucide-react"
-import { FormEvent, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
+import { CheckBox, LineField, Modal, SaveLink } from "./catalog-ui"
 import { ORGANIZATIONS_API, type Organization, type OrganizationDetail, type OrganizationErrorBody } from "./organization-data"
 
 // "Добавить организацию" / "Изменить организацию" (demo module 4407, form
@@ -67,16 +67,7 @@ export function OrganizationFormModal({
     return () => controller.abort()
   }, [organization, organizationId])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
+  async function save() {
     setTouched(true)
     const name = draft.name.trim()
     if (!name || saving || detailLoading) return
@@ -109,64 +100,27 @@ export function OrganizationFormModal({
   const busy = saving || detailLoading
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4" onMouseDown={onClose}>
-      <form
-        onSubmit={save}
-        onMouseDown={(event) => event.stopPropagation()}
-        className="relative w-full max-w-[500px] rounded bg-white shadow-2xl"
-        aria-busy={busy}
-      >
-        <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-3">
-          <b className="text-[14px] uppercase text-[#333]">{isEdit ? t("Изменить организацию") : t("Добавить организацию")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="rounded-full p-2 text-[#666] hover:bg-slate-100">
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-        <div className="relative min-h-[300px] space-y-6 px-[30px] pb-6 pt-5">
-          {busy && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80">
-              <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
-            </div>
-          )}
-          <label className="block">
-            <span className="text-[13px] text-[#999]">
-              {t("Наименование")} <span className="text-red-500">*</span>
-            </span>
-            <input
-              autoFocus
-              value={draft.name}
-              maxLength={255}
-              onChange={(event) => {
-                setDraft((value) => ({ ...value, name: event.target.value }))
-                setNameError("")
-              }}
-              className={`mt-1 block w-full border-b py-1.5 text-[15px] text-[#333] outline-none ${
-                shownNameError ? "border-rose-500" : "border-[#e0e0e0] focus:border-[#4f70e7]"
-              }`}
-            />
-            {shownNameError && <p className="mt-1 text-[12px] text-rose-500">{t(shownNameError)}</p>}
-          </label>
-          <label className="flex cursor-pointer items-center gap-3 text-[14px] text-[#333]">
-            <input
-              type="checkbox"
-              checked={draft.limitByDebt}
-              onChange={(event) => setDraft((value) => ({ ...value, limitByDebt: event.target.checked }))}
-              className="h-[18px] w-[18px] accent-[#4f70e7]"
-            />
-            {t("Ограничить по долгу клиента")}
-          </label>
-          {error && <p className="text-sm font-medium text-rose-600">{t(error)}</p>}
-        </div>
-        <footer className="flex justify-end border-t border-[#efefef] p-4">
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60"
-          >
-            {saving ? t("Сохранение...") : t("Сохранить")}
-          </button>
-        </footer>
-      </form>
-    </div>
+    <Modal
+      title={isEdit ? t("Изменить организацию") : t("Добавить организацию")}
+      onClose={onClose}
+      bodyClassName="min-h-[300px] pl-[30px] pr-[52px] pt-[18px]"
+      footer={<SaveLink disabled={busy || !draft.name.trim()} onClick={() => void save()}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveLink>}
+    >
+      <LineField
+        autoFocus
+        label={t("Наименование")}
+        required
+        value={draft.name}
+        onChange={(name) => {
+          setDraft((value) => ({ ...value, name }))
+          setNameError("")
+        }}
+      />
+      {shownNameError && <p className="mt-1 text-[12px] text-rose-500">{t(shownNameError)}</p>}
+      <div className="mt-[20px]">
+        <CheckBox checked={draft.limitByDebt} onChange={(limitByDebt) => setDraft((value) => ({ ...value, limitByDebt }))} label={t("Ограничить по долгу клиента")} />
+      </div>
+      {error && <p className="mt-4 text-sm font-medium text-rose-600">{t(error)}</p>}
+    </Modal>
   )
 }

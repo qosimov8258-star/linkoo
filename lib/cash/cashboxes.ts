@@ -8,6 +8,7 @@ import { CashError, convertMoneyFor, currencyContext, loadCashbox, loadCategorie
 import { getCashOperation } from "@/lib/cash/list"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import type { CashboxListResult, CashReceipt, ConvertResult } from "@/lib/cash/types"
+import { selectedBranchName } from "@/lib/selected-branch"
 
 // Left column of "Управления кассой" (cashboxes + balances), the currency
 // converter of the dialogs (demo finance/convert + finance/currencies/convert),
@@ -18,7 +19,9 @@ export async function listCashboxesWithBalances(db: PgDb = getDb()): Promise<Cas
   await ensureCashSchema(db)
   const list = await getBalanceList("cashbox", { from: "1970-01-01", to: todayIso() }, db)
   const totals: Record<string, number> = {}
-  const cashboxes = list.rows.map((row) => {
+  // The branch picked in the account menu narrows the cashbox column like the other cashbox lists.
+  const branch = await selectedBranchName()
+  const cashboxes = list.rows.filter((row) => !branch || String(row.info.branch ?? "") === branch).map((row) => {
     const currency = normCurrency(String(row.info.currency ?? ""), list.baseCurrency)
     const balance = roundMoney(num(row.currencies[currency]?.end_balance))
     totals[currency] = roundMoney((totals[currency] ?? 0) + balance)
@@ -36,7 +39,14 @@ export async function listCashboxesWithBalances(db: PgDb = getDb()): Promise<Cas
   })
   // Same order as the Кассы page: position 0 / empty = "Не указано", last.
   const rank = (position: number) => (position > 0 ? position : Number.MAX_SAFE_INTEGER)
-  cashboxes.sort((a, b) => rank(a.position) - rank(b.position) || a.name.localeCompare(b.name, "ru") || a.id - b.id)
+  // The reference's own cashbox sequence (cashbox_reference_order) wins when it is filled.
+  const sequence = new Map<number, number>()
+  const hasSequence = (await db.prepare("SELECT to_regclass('cashbox_reference_order') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (hasSequence?.ok) {
+    for (const row of (await db.prepare("SELECT cashbox_id, seq FROM cashbox_reference_order").all()) as { cashbox_id: number; seq: number }[]) sequence.set(Number(row.cashbox_id), Number(row.seq))
+  }
+  const seq = (id: number) => sequence.get(id) ?? Number.MAX_SAFE_INTEGER
+  cashboxes.sort((a, b) => seq(a.id) - seq(b.id) || rank(a.position) - rank(b.position) || a.name.localeCompare(b.name, "ru") || a.id - b.id)
   return { baseCurrency: list.baseCurrency, cashboxes, totals }
 }
 

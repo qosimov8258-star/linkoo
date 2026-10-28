@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit";
 import { csvText } from "@/lib/csv";
+import { todayIso } from "@/lib/finance/dates";
 import { formatDateText } from "@/lib/i18n/format-date";
 import { useLanguage } from "@/lib/i18n/language-context";
 
@@ -32,11 +33,24 @@ type BonusClient = {
 
 const initialClients: BonusClient[] = [];
 
-const dateLabel = new Intl.DateTimeFormat("ru-RU", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
+/** Points of a client kept in the bonus store (/api/ref-records/bonus, keyed by the client id). */
+type StoredBonus = { id: number | string; points?: unknown; lastScore?: unknown };
+
+/** Saves a client's points: updates its bonus record, or creates it on the first score. */
+async function saveBonus(client: { id: number; name: string }, patch: { points: number; lastScore: string }): Promise<boolean> {
+  const update = await fetch(`/api/ref-records/bonus/${client.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (update.status !== 404) return update.ok;
+  const create = await fetch("/api/ref-records/bonus", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: client.id, name: client.name, ...patch }),
+  });
+  return create.ok;
+}
 
 export function ClientBonusesView() {
   const { t, language } = useLanguage();
@@ -54,18 +68,27 @@ export function ClientBonusesView() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/clients")
-      .then((response) => (response.ok ? response.json() : []))
-      .then((data: { id: number; name: string }[]) => {
-        if (cancelled || !Array.isArray(data)) return;
-        setClients(
-          data
-            .slice()
-            .sort((a, b) => b.id - a.id)
-            .map((client) => ({ id: client.id, name: client.name, points: 0, lastScore: "Не получатель", history: [] })),
-        );
-      })
-      .catch(() => {});
+    // Every real client is listed; the points saved in the bonus store are laid over it by client id.
+    const list = <T,>(url: string) =>
+      fetch(url, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : []))
+        .then((data: unknown) => (Array.isArray(data) ? (data as T[]) : []))
+        .catch(() => [] as T[]);
+    Promise.all([list<{ id: number; name: string }>("/api/clients?balances=0"), list<StoredBonus>("/api/ref-records/bonus")]).then(([rows, bonuses]) => {
+      if (cancelled) return;
+      const stored = new Map(bonuses.map((bonus) => [String(bonus.id), bonus]));
+      setClients(
+        rows
+          .slice()
+          .sort((a, b) => b.id - a.id)
+          .map((client) => {
+            const bonus = stored.get(String(client.id));
+            const points = typeof bonus?.points === "number" && Number.isFinite(bonus.points) ? bonus.points : 0;
+            const lastScore = typeof bonus?.lastScore === "string" && bonus.lastScore ? bonus.lastScore : "Не получатель";
+            return { id: client.id, name: client.name, points, lastScore, history: [] };
+          }),
+      );
+    });
     return () => {
       cancelled = true;
     };
@@ -168,10 +191,16 @@ export function ClientBonusesView() {
       order: "—",
       type: bonusKind === "plus" ? "Плюсовой балл" : "Минусовой балл",
       promotion,
-      date: dateLabel.format(new Date()),
+      date: todayIso(),
       points,
     };
 
+    const nextPoints = (clients.find((client) => client.id === bonusClient.id)?.points ?? bonusClient.points) + points;
+    void saveBonus(bonusClient, { points: nextPoints, lastScore: entry.date })
+      .catch(() => false)
+      .then((saved) => {
+        if (!saved) setNotice(t("Не удалось сохранить изменения на сервере"));
+      });
     setClients((current) =>
       current.map((client) =>
         client.id === bonusClient.id
@@ -229,7 +258,7 @@ export function ClientBonusesView() {
                   {t(label)}
                 </label>
               ))}
-              <button onClick={applyFilter} className="h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white">
+              <button onClick={applyFilter} className="h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white uppercase">
                 {t("Применить")}
               </button>
             </div>
@@ -247,12 +276,12 @@ export function ClientBonusesView() {
           page={currentPage}
           pageCount={pageCount}
           onPage={paging.setPage}
-          icons={<RefIconButton path={RI.download} label={t("Скачать Excel/CSV")} onClick={exportCsv} />}
+          icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={exportCsv} />}
         />
 
         <RefTable
-          cols="minmax(0,90fr) minmax(0,330fr) minmax(0,150fr) minmax(0,260fr) minmax(0,60fr)"
-          heads={[t("№"), t("Наименование"), t("Балл"), t("Дата последнего бала"), ""]}
+          cols="minmax(0,1fr) minmax(0,6fr) minmax(0,2fr) minmax(0,3fr)"
+          heads={[t("№"), t("Наименование"), t("Балл"), t("Дата последнего бала")]}
           rows={pagedClients}
           rowKey={(client) => client.id}
           onRowClick={(client) => setSelectedClient(client)}
@@ -260,21 +289,22 @@ export function ClientBonusesView() {
           render={(client) => [
             client.id,
             client.name,
-            <span key="p" className={client.points < 0 ? "text-[#e57373]" : ""}>{client.points}</span>,
-            formatDateText(client.lastScore, language),
-            <button
-              key="b"
-              title={t("Добавить балл")}
-              onClick={(event) => {
-                event.stopPropagation();
-                setBonusClient(client);
-                setBonusKind("minus");
-                setFormError("");
-              }}
-              className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#71ce87] text-white"
-            >
-              <Plus size={14} strokeWidth={3} />
-            </button>,
+            <span key="p">{client.points}</span>,
+            <span key="last" className="flex items-center">
+              <span>{formatDateText(client.lastScore, language)}</span>
+              <button
+                title={t("Добавить балл")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setBonusClient(client);
+                  setBonusKind("minus");
+                  setFormError("");
+                }}
+                className="ml-auto mr-[72px] inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#71ce87] text-white"
+              >
+                <Plus size={14} strokeWidth={3} />
+              </button>
+            </span>,
           ]}
         />
       </RefCard>

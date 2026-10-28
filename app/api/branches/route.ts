@@ -6,14 +6,15 @@ import { createBranch, listBranches } from "@/lib/branches-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json(await listBranches())
+  const byCreation = new URL(request.url).searchParams.get("sort") === "created"
+  return NextResponse.json(await listBranches({ byCreation }))
 }
 
 // POST /api/branches — 409 for a name that exists (case- and space-insensitive);
-// isMain: true makes it the only main branch.
+// isMain: true makes it the only main branch; locationLat / locationLng the map point.
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
@@ -28,6 +29,8 @@ export async function POST(request: Request) {
       currency: parsed.data.currency,
       debtTracking: parsed.data.debtTracking ?? true,
       isMain: parsed.data.isMain ?? false,
+      locationLat: parsed.data.locationLat ?? null,
+      locationLng: parsed.data.locationLng ?? null,
     })
     return NextResponse.json(branch, { status: 201 })
   } catch (error) {

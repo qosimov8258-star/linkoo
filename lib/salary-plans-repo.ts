@@ -29,6 +29,8 @@ export type SalaryPlan = {
   credited: boolean
   /** UTC "YYYY-MM-DD HH:MM:SS" of the last "Зачислить", "" when not credited. */
   creditedAt: string
+  /** Month the plan belongs to, "YYYY-MM". */
+  period: string
 }
 
 type Row = {
@@ -142,6 +144,7 @@ function rowToPlan(row: Row): SalaryPlan {
     kpi: Number(row.kpi),
     credited: Boolean(row.credited),
     creditedAt: row.credited ? (row.credited_at ?? "") : "",
+    period: `${Number(row.year ?? fallback.year)}-${String(Number(row.month ?? fallback.month)).padStart(2, "0")}`,
   }
 }
 

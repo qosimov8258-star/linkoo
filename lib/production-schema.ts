@@ -127,6 +127,14 @@ async function createSchema(db: PgDb) {
       created_at TEXT NOT NULL DEFAULT ''
     );
 
+    -- Display data of an operation that the stage-bound tables cannot carry: the reference's operations are global,
+    -- list in their own order and name an equipment that belongs to no stage.
+    CREATE TABLE IF NOT EXISTS production_operation_meta (
+      operation_id INTEGER PRIMARY KEY REFERENCES production_operations(id) ON DELETE CASCADE,
+      equipment_name TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER
+    );
+
     CREATE INDEX IF NOT EXISTS production_movements_party_idx ON production_movements (party_id);
     CREATE INDEX IF NOT EXISTS production_movements_stage_date_idx ON production_movements (stage_id, date);
     CREATE INDEX IF NOT EXISTS production_movements_warehouse_idx ON production_movements (warehouse);

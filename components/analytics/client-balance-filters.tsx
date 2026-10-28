@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ChevronDown, Filter, Info } from "lucide-react"
 
+import { FilterCardSelect, useFilterCard } from "@/components/analytics/balance/filter-bar"
 import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import type { BalanceQuery } from "@/components/analytics/balance/use-balance"
 import { defaultBalancePeriod, formatDotDate, isIsoDay } from "@/lib/finance/dates"
@@ -273,13 +274,13 @@ export function ClientBalancePeriodToggle({ mode, onChange }: { mode: ClientBala
     { mode: "realization", label: "По дате реализации" },
   ]
   return (
-    <div className="my-3 flex overflow-visible rounded-md border border-[#dbe0e8]">
+    <div className="flex h-[32px] w-[720px] max-w-full overflow-visible bg-white">
       {items.map((item) => (
         <button
           key={item.mode}
           type="button"
           onClick={() => onChange(item.mode)}
-          className={`group relative flex items-center gap-2 px-5 py-3 text-[15px] font-semibold first:rounded-l-md last:rounded-r-md ${
+          className={`group relative flex flex-1 items-center justify-center gap-2 px-5 text-[13px] font-normal ${
             mode === item.mode ? "bg-[#71ce87] text-white" : "bg-white text-[#586174]"
           }`}
         >
@@ -308,16 +309,16 @@ export function ClientBalanceFilterButton({ state, onOpen }: { state: ClientBala
   const realization = state.mode === "realization"
   const scopeText = scope.length ? scope.join(" ") : realization ? `${t("Реализовано")}${f.deliveryMan ? ` ${t("(По доставщику)")}` : ""}` : t("Во всей организации")
   return (
-    <div className="flex flex-wrap items-center gap-4">
-      <button type="button" onClick={onOpen} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-        <Filter className="h-4 w-4" /> {t("Фильтр")} / {countClientFilters(state)}
+    <div className="flex flex-wrap items-center gap-[10px]">
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg><span className="pl-2">{t("Фильтр")} / {countClientFilters(state)}</span>
       </button>
       {!realization && (
-        <span className="font-semibold text-[#4f70e7]">
+        <span className="text-[13px] font-semibold text-[#4f71dc]">
           {formatDotDate(f.from)} - {formatDotDate(f.to)}
         </span>
       )}
-      <span className="font-semibold" style={{ color: realization ? "rgb(113, 206, 135)" : "#4f70e7" }}>
+      <span className="text-[13px] font-semibold" style={{ color: realization ? "rgb(113, 206, 135)" : "#4f71dc" }}>
         {scopeText}
       </span>
     </div>
@@ -326,7 +327,7 @@ export function ClientBalanceFilterButton({ state, onOpen }: { state: ClientBala
 
 // --- popup fields ---------------------------------------------------------------
 
-const fieldClass = "h-10 w-full rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]"
+const fieldClass = "h-9 w-full border-0 border-b border-[#dbe0e8] bg-white px-0 text-[13px] text-[#17233b]"
 
 function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
   const { t } = useLanguage()
@@ -341,8 +342,9 @@ function Field({ label, children, wide = false }: { label: string; children: Rea
 type Option = { value: string; label: string }
 
 /** Multi-select with search (demo *MultiSearchField). */
-export function MultiSelect({ value, options, onChange, disabled = false }: { value: string[]; options: Option[]; onChange: (next: string[]) => void; disabled?: boolean }) {
+export function MultiSelect({ value, options, onChange, disabled = false, label = "" }: { value: string[]; options: Option[]; onChange: (next: string[]) => void; disabled?: boolean; label?: string }) {
   const { t } = useLanguage()
+  const card = useFilterCard()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const ref = useRef<HTMLDivElement>(null)
@@ -359,17 +361,21 @@ export function MultiSelect({ value, options, onChange, disabled = false }: { va
   const toggle = (item: string) => onChange(value.includes(item) ? value.filter((entry) => entry !== item) : [...value, item])
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
-        className={`${fieldClass} flex items-center justify-between gap-2 text-left disabled:bg-[#f2f5f8] disabled:text-[#9aa3b6]`}
-      >
-        <span className={`truncate ${value.length ? "" : "text-[#9aa3b6]"}`}>
-          {value.length ? value.map((item) => labels.get(item) ?? item).join(", ") : disabled ? t("Нет данных") : t("Все")}
-        </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-[#9aa3b6]" />
-      </button>
+      {card ? (
+        <FilterCardSelect label={t(label)} text={value.map((item) => labels.get(item) ?? item).join(", ")} onClick={() => !disabled && setOpen((current) => !current)} />
+      ) : (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen((current) => !current)}
+          className={`${fieldClass} flex items-center justify-between gap-2 text-left disabled:bg-[#f2f5f8] disabled:text-[#9aa3b6]`}
+        >
+          <span className={`truncate ${value.length ? "" : "text-[#9aa3b6]"}`}>
+            {value.length ? value.map((item) => labels.get(item) ?? item).join(", ") : disabled ? t("Нет данных") : t("Все")}
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-[#9aa3b6]" />
+        </button>
+      )}
       {open && (
         <div className="absolute left-0 right-0 z-[110] mt-1 max-h-72 overflow-hidden rounded-md border border-[#e1e5eb] bg-white shadow-lg">
           <input

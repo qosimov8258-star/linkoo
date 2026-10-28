@@ -1,11 +1,13 @@
 "use client"
 
-import { Calendar, Check, ChevronDown, ChevronUp, Loader2, X } from "lucide-react"
+import { Calendar, Check, Loader2, X } from "lucide-react"
 import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
+import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
 import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
 import { readExcelRows } from "@/lib/excel-import"
+import { parseAnyDay } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { useAllowedProductIds, useAllowedRows } from "./allowed-products"
@@ -23,7 +25,7 @@ type ProductRow = {
   deleted?: boolean
   priceLists?: { name: string; cash?: number; nonCash?: number; currency?: string; nonCashCurrency?: string }[]
 }
-type LineItem = { productId: number; productName: string; unit: string; quantity: number; unitPrice: number }
+type LineItem = { id?: number; productId?: number; productName: string; unit: string; quantity: number; unitPrice: number; discountPercent?: number; boxAmount?: number; boxUnit?: string }
 /** GET /api/orders/defaults (lib/orders-repo.ts getOrderDefaults). */
 type OrderDefaults = { agent: string; priceList: string; warehouse: string; organization: string }
 
@@ -44,14 +46,41 @@ function money(value: number) {
   return (Math.round(value * 100) / 100).toLocaleString("ru-RU", { maximumFractionDigits: 2 })
 }
 
+/** "Группа" column: whole boxes plus the loose rest, like the reference ("0 блок (+1)"). */
+function groupLabel(quantity: number, t: (text: string) => string, boxAmount?: number, boxUnit?: string) {
+  if (!boxAmount || boxAmount <= 0) return "0"
+  const blocks = Math.floor(quantity / boxAmount)
+  const rest = Math.round((quantity - blocks * boxAmount) * 1000) / 1000
+  return `${blocks} ${t(boxUnit || "блок")}${rest > 0 ? ` (+${rest})` : ""}`
+}
+
+/** The order's own payment type label ("cash" / "bank" of this API, or the reference's pay-type name). */
+function editPaymentType(order: Order): string {
+  if (order.payTypeName && paymentTypes.includes(order.payTypeName)) return order.payTypeName
+  return order.paymentType === "bank" || order.payMethod === "bank" ? "Перечисление" : paymentTypes[0]
+}
+
+/** Changing the organization of an order moves its payments that carry the old one
+ * (PATCH /api/orders/[id], lib/orders-repo.ts moveLinkedOrganization). */
+export function OrganizationMoveHint({ stored, chosen }: { stored: string; chosen: string }) {
+  const { t } = useLanguage()
+  if (!stored.trim() || !chosen.trim() || stored.trim().toLowerCase() === chosen.trim().toLowerCase()) return null
+  return <span className="mt-1 block text-[12px] text-[#9aa3b6]">{t("Оплаты этого заказа перейдут в выбранную организацию")}</span>
+}
+
 export function AddOrderDialog({
   initialShopId,
   onClose,
   onCreated,
+  edit,
+  onSaved,
 }: {
   initialShopId?: number
   onClose: () => void
   onCreated: (order: Order) => void
+  /** Edit mode: the same form, prefilled from an existing order and its lines. */
+  edit?: { order: Order; items: LineItem[] }
+  onSaved?: (patch: Partial<Order>) => void
 }) {
   const { t } = useLanguage()
   const today = useMemo(() => new Date(), [])
@@ -66,38 +95,46 @@ export function AddOrderDialog({
   const [organizations, setOrganizations] = useState<string[] | null>(null)
 
   const [shopId, setShopId] = useState(initialShopId ? String(initialShopId) : "")
-  const [date, setDate] = useState(toInputDate(today))
+  const editing = edit?.order
+  const isEdit = Boolean(editing)
+  // Edit mode shows the order's own client right away; the directory (4k shops) loads in the background.
+  const [editShopName, setEditShopName] = useState(editing ? editing.marketName || editing.client : "")
+  // created_at is UTC: the creation day is the Tashkent day of it.
+  const [date, setDate] = useState(editing?.createdAt ? (parseAnyDay(editing.createdAt, true) ?? editing.createdAt.slice(0, 10)) : toInputDate(today))
   const [prize, setPrize] = useState(false)
-  const [paymentType, setPaymentType] = useState("")
-  const [currency, setCurrency] = useState("")
-  const [priceList, setPriceList] = useState("")
-  const [agent, setAgent] = useState("")
+  const [paymentType, setPaymentType] = useState(editing ? editPaymentType(editing) : paymentTypes[0])
+  const [currency, setCurrency] = useState(editing ? editing.currency || editing.amount.trim().split(/\s+/).pop() || "" : "")
+  const [priceList, setPriceList] = useState(editing?.priceList ?? "")
+  const [agent, setAgent] = useState(editing?.agent ?? "")
   // Ограничение продуктов: an agent with a product / type list is offered only those products.
   const sellable = useAllowedRows(products, useAllowedProductIds(agent))
-  const [organization, setOrganization] = useState("")
-  const [lastPayDate, setLastPayDate] = useState(toInputDate(tomorrow))
-  const [terms, setTerms] = useState<"standard" | "consignment">("standard")
-  const [warehouse, setWarehouse] = useState("")
-  const [deliveryType, setDeliveryType] = useState("Доставка")
-  const [deliverer, setDeliverer] = useState("")
-  const [deliveryDate, setDeliveryDate] = useState(toInputDate(tomorrow))
-  const [confirmed, setConfirmed] = useState(true)
+  const [organization, setOrganization] = useState(editing?.organization ?? "")
+  const [lastPayDate, setLastPayDate] = useState(editing ? editing.paymentDate || editing.dueDate || "" : toInputDate(tomorrow))
+  const [terms, setTerms] = useState<"standard" | "consignment">(editing?.dealType === "consignment" || editing?.dealType === "1" ? "consignment" : "standard")
+  // The order's warehouse reference (stock is reserved there); the reference's stock name only as a fallback.
+  const [warehouse, setWarehouse] = useState(editing?.warehouse || editing?.stockName || "")
+  const [deliveryType, setDeliveryType] = useState(editing?.deliveryType === "Самовывоз" || editing?.deliveryType === "self" ? "Самовывоз" : "Доставка")
+  const [deliverer, setDeliverer] = useState(editing?.deliveryMan ?? "")
+  const [deliveryDate, setDeliveryDate] = useState(editing ? parseAnyDay(editing.delivery) || editing.acceptedDate || "" : toInputDate(tomorrow))
+  const [confirmed, setConfirmed] = useState(editing ? editing.status !== "Не подтвержден" : true)
   const [noBonus, setNoBonus] = useState(Boolean(initialShopId))
   const [autoDiscounts, setAutoDiscounts] = useState(false)
-  const [comment, setComment] = useState("")
+  const [comment, setComment] = useState(editing?.comment ?? "")
 
-  const [items, setItems] = useState<LineItem[]>([])
+  const [items, setItems] = useState<LineItem[]>(edit?.items ?? [])
   const [inlineOpen, setInlineOpen] = useState(false)
   const [inline, setInline] = useState({ product: "", quantity: "", unitPrice: "" })
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [repriceOpen, setRepriceOpen] = useState(false)
+  // changing the price list / currency / payment type asks before the line prices follow it (the reference shows the question in the products panel)
+  const [pendingPricing, setPendingPricing] = useState<{ paymentType: string; currency: string; priceList: string } | null>(null)
   const [exitOpen, setExitOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const importRef = useRef<HTMLInputElement>(null)
   // Fields the user chose by hand keep their value; the others follow the client (applyDefaults).
-  const touched = useRef({ agent: false, priceList: false, warehouse: false, organization: false })
-  const hasItems = useRef(false)
+  // Editing an order keeps all of its own values.
+  const touched = useRef({ agent: Boolean(editing), priceList: Boolean(editing), warehouse: Boolean(editing), organization: false })
+  const hasItems = useRef(items.length > 0)
   const defaultsRequest = useRef(0)
 
   /** Defaults of the server (GET /api/orders/defaults) for the client: its agent, the price
@@ -122,6 +159,44 @@ export function AddOrderDialog({
         if (!touched.current.organization) setOrganization(defaults.organization)
       })
   }, [])
+  // Edit: the order's own client / agent / warehouse, against which a change is measured.
+  const initialParty = { shopId: editing?.clientId ? String(editing.clientId) : "", agent: editing?.agent ?? "", warehouse: editing?.warehouse || editing?.stockName || "" }
+  const partyOf = (change: { shopId?: string; agent?: string; warehouse?: string }) => ({ shopId: shopId || initialParty.shopId, agent, warehouse, ...change })
+  const partyChanged = (() => {
+    const party = partyOf({})
+    return party.shopId !== initialParty.shopId || party.agent !== initialParty.agent || party.warehouse !== initialParty.warehouse
+  })()
+
+  /** Edit: the organization follows a new client / agent / warehouse (GET /api/orders/defaults) while it is
+   * empty or still the default of the order's old ones and was not picked by hand — the rule PATCH
+   * /api/orders/[id] applies on the server. Stale answers are dropped. */
+  function followOrganization(change: { shopId?: string; agent?: string; warehouse?: string }) {
+    if (!editing || touched.current.organization) return
+    const party = partyOf(change)
+    const request = ++defaultsRequest.current
+    const stored = editing.organization ?? ""
+    if (party.shopId === initialParty.shopId && party.agent === initialParty.agent && party.warehouse === initialParty.warehouse) {
+      setOrganization(stored)
+      return
+    }
+    const load = (values: typeof party) => {
+      const params = new URLSearchParams()
+      if (values.shopId) params.set("clientId", values.shopId)
+      if (values.agent) params.set("agent", values.agent)
+      if (values.warehouse) params.set("warehouse", values.warehouse)
+      return fetch(`/api/orders/defaults?${params}`)
+        .then((response) => (response.ok ? (response.json() as Promise<OrderDefaults>) : null))
+        .catch(() => null)
+    }
+    const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+    void Promise.all([stored.trim() ? load(initialParty) : Promise.resolve(null), load(party)]).then(([before, after]) => {
+      if (request !== defaultsRequest.current || touched.current.organization || !after?.organization) return
+      if (stored.trim() && !(before && sameName(before.organization, stored))) return
+      setOrganization(after.organization)
+    })
+  }
+  const [stock, setStock] = useState<Record<string, number>>({})
+  const [rowEdit, setRowEdit] = useState<{ index: number; quantity: string; unitPrice: string } | null>(null)
 
   useEffect(() => {
     const load = (url: string) => fetch(url).then((response) => (response.ok ? response.json() : []))
@@ -133,37 +208,50 @@ export function AddOrderDialog({
     load("/api/organizations").then((rows: { name: string }[]) => setOrganizations(rows.map((row) => row.name).filter(Boolean)))
     // Only products that can be sold (the API refuses the others).
     load("/api/products").then((rows: ProductRow[]) => setProducts(rows.filter((row) => row.canSell !== false && !row.deleted)))
-    applyDefaults({ shopId: initialShopId ? String(initialShopId) : "" })
-  }, [applyDefaults, initialShopId])
+    if (!isEdit) applyDefaults({ shopId: initialShopId ? String(initialShopId) : "" })
+  }, [applyDefaults, initialShopId, isEdit])
 
   useEffect(() => {
     hasItems.current = items.length > 0
   }, [items])
 
   function chooseShop(value: string) {
+    setError("")
     setShopId(value)
+    if (editing) return followOrganization({ shopId: value })
     applyDefaults({ shopId: value, agent: touched.current.agent ? agent : undefined, warehouse: touched.current.warehouse ? warehouse : undefined })
   }
 
   function chooseAgent(value: string) {
+    setError("")
     touched.current.agent = true
     setAgent(value)
+    if (editing) return followOrganization({ agent: value })
     // The organization may follow the agent (its single organization).
     if (!touched.current.organization) applyDefaults({ shopId, agent: value, warehouse: touched.current.warehouse ? warehouse : undefined })
   }
 
   function chooseWarehouse(value: string) {
+    setError("")
     touched.current.warehouse = true
     setWarehouse(value)
+    if (editing) return followOrganization({ warehouse: value })
     if (!touched.current.organization) applyDefaults({ shopId, agent: touched.current.agent ? agent : undefined, warehouse: value })
   }
 
   function chooseOrganization(value: string) {
+    setError("")
     touched.current.organization = true
     setOrganization(value)
   }
 
   const shop = shops?.find((row) => String(row.id) === shopId)
+  useEffect(() => {
+    if (!editing || shopId || !shops) return
+    const names = [editing.marketName, editing.client].filter(Boolean)
+    const found = (editing.clientId ? shops.find((row) => row.id === editing.clientId) : undefined) ?? shops.find((row) => names.includes(row.name))
+    if (found) setShopId(String(found.id))
+  }, [editing, shopId, shops])
   // Price lists come from the directory plus any named on products, so the picker is never empty when prices exist.
   const allPriceLists = useMemo(() => {
     if (!priceLists || !products) return null
@@ -198,7 +286,29 @@ export function AddOrderDialog({
     return () => window.removeEventListener("keydown", onKey)
   }, [exitOpen, pickerOpen, onClose])
 
+  // "На складе": what the chosen warehouse still has of each product (stock balances API).
+  useEffect(() => {
+    if (!warehouse) return
+    let cancelled = false
+    fetch(`/api/stock/balances?pageSize=0&warehouse=${encodeURIComponent(warehouse)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { rows?: { key?: string; name: string; available: number }[] } | null) => {
+        if (cancelled || !data?.rows) return
+        // By stock key ("product:<id>") first, the name only for lines without a product id.
+        setStock(Object.fromEntries(data.rows.flatMap((row) => [[row.name, row.available], ...(row.key ? [[row.key, row.available]] : [])])))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [warehouse])
+
   const ready = Boolean(paymentType && currency && (priceList || !allPriceLists?.length))
+  const stockOf = (item: LineItem): number | undefined => (item.productId ? stock[`product:${item.productId}`] : undefined) ?? stock[item.productName]
+  const insufficient = items.some((item) => {
+    const left = stockOf(item)
+    return left !== undefined && left < item.quantity
+  })
   const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   // Quantities are totalled per unit (never one sum over kg and pieces).
   const totalQty = formatUnitTotals(items.map((item) => ({ qty: item.quantity, unit: item.unit })), t)
@@ -223,18 +333,23 @@ export function AddOrderDialog({
       touched.current.priceList = true
       setPriceList(next.priceList)
     }
-    if (items.length) {
-      setItems((current) =>
-        current.map((item) => {
-          const product = products?.find((row) => row.id === item.productId)
-          return product ? { ...item, unitPrice: priceOf(product, nextList, nextType, nextCurrency) } : item
-        }),
-      )
-      setRepriceOpen(true)
-    }
+    setError("")
+    if (items.length) setPendingPricing({ paymentType: nextType, currency: nextCurrency, priceList: nextList })
+  }
+
+  function applyPendingPricing() {
+    if (!pendingPricing) return
+    setItems((current) =>
+      current.map((item) => {
+        const product = products?.find((row) => (item.productId ? row.id === item.productId : row.name === item.productName))
+        return product ? { ...item, unitPrice: priceOf(product, pendingPricing.priceList, pendingPricing.paymentType, pendingPricing.currency) } : item
+      }),
+    )
+    setPendingPricing(null)
   }
 
   function addItems(rows: LineItem[]) {
+    setError("")
     setItems((current) => {
       const merged = [...current]
       for (const row of rows) {
@@ -286,24 +401,79 @@ export function AddOrderDialog({
 
   async function save() {
     setError("")
-    if (!shop) return setError(t("Выберите клиента"))
+    if (!shop && !editing) return setError(t("Выберите клиента"))
     if (!paymentType) return setError(t("Выберите тип оплаты"))
     if (!agent) return setError(t("Выберите агента"))
-    if (organizations?.length && !organization) return setError(t("Выберите организацию"))
+    // An older order may have none: the server then takes the client's / agent's organization.
+    if (organizations?.length && !organization && !(editing && !editing.organization)) return setError(t("Выберите организацию"))
     if (!warehouse) return setError(t("Выберите склад"))
     if (!currency) return setError(t("Выберите валюту"))
     if (!items.length) return setError(t("Вы еще не выбрали ни одного товара."))
     setSaving(true)
     try {
+      if (editing) {
+        // Only what changed is sent (the server checks each change: final / shipped orders, stock,
+        // references); the client is linked by id, dates are ISO days, the amount follows the lines.
+        const patch: Partial<Order> = {}
+        if (shop && shop.id !== editing.clientId) Object.assign(patch, { clientId: shop.id, client: shop.name })
+        if (agent !== (editing.agent ?? "")) patch.agent = agent
+        // Sent when changed, or kept by hand while the client / agent / warehouse changes
+        // (otherwise the server lets a default organization follow them).
+        if (organization !== (editing.organization ?? "") || (touched.current.organization && partyChanged)) patch.organization = organization
+        if (deliveryDate && deliveryDate !== parseAnyDay(editing.delivery)) patch.delivery = deliveryDate
+        if (priceList !== (editing.priceList ?? "")) patch.priceList = priceList
+        if (warehouse !== initialParty.warehouse) patch.warehouse = warehouse
+        const payment = paymentType === "Перечисление" ? "bank" : "cash"
+        if (payment !== (editing.paymentType ?? "")) patch.paymentType = payment
+        if (lastPayDate !== (editing.paymentDate ?? "")) patch.paymentDate = lastPayDate
+        if (terms !== editing.dealType) patch.dealType = terms
+        if (deliveryType !== (editing.deliveryType ?? "")) patch.deliveryType = deliveryType
+        if (deliverer !== (editing.deliveryMan ?? "")) patch.deliveryMan = deliverer
+        if (comment.trim() !== (editing.comment ?? "")) patch.comment = comment.trim()
+        if (currency && currency !== (editing.currency ?? "")) patch.currency = currency
+        if (["Не подтвержден", "В процессе", "Есть на складе"].includes(editing.status)) {
+          const nextStatus = confirmed ? (editing.status === "Не подтвержден" ? "Есть на складе" : editing.status) : "Не подтвержден"
+          if (nextStatus !== editing.status) patch.status = nextStatus
+        }
+        type Refusal = { error?: string; agentLimit?: AgentLimitExceeded; productRestriction?: ProductRestrictionRefusal }
+        if (Object.keys(patch).length) {
+          const response = await fetch(`/api/orders/${editing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) })
+          if (!response.ok) {
+            const data = (await response.json().catch(() => null)) as Refusal | null
+            throw new Error(orderApiErrorText(data, t, "Не удалось сохранить заказ"))
+          }
+        }
+        // Lines: removed ones are deleted, new or changed ones saved; untouched lines are left alone.
+        const original = new Map((edit?.items ?? []).filter((item) => item.id).map((item) => [item.id, item]))
+        const changed = (item: LineItem) => {
+          const before = item.id ? original.get(item.id) : undefined
+          return !before || before.quantity !== item.quantity || before.unitPrice !== item.unitPrice || (before.discountPercent ?? 0) !== (item.discountPercent ?? 0)
+        }
+        const kept = new Set(items.filter((item) => item.id).map((item) => item.id))
+        const body = (item: LineItem) => JSON.stringify({ productId: item.productId ?? products?.find((row) => row.name === item.productName)?.id, productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: item.discountPercent ?? 0, currency })
+        const results = await Promise.all([
+          ...(edit?.items ?? []).filter((item) => item.id && !kept.has(item.id)).map((item) => fetch(`/api/orders/${editing.id}/items/${item.id}`, { method: "DELETE" })),
+          ...items.filter(changed).map((item) =>
+            fetch(item.id ? `/api/orders/${editing.id}/items/${item.id}` : `/api/orders/${editing.id}/items`, { method: item.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: body(item) }),
+          ),
+        ])
+        const failed = results.find((result) => !result.ok)
+        if (failed) {
+          const data = (await failed.json().catch(() => null)) as Refusal | null
+          throw new Error(orderApiErrorText(data, t, "Не удалось сохранить заказ"))
+        }
+        onSaved?.({ ...patch, amount: `${money(total)} ${currency}` })
+        return
+      }
       // One request: the order and its lines are saved together (all or nothing),
       // in the chosen currency and warehouse; the server checks stock.
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clientId: shop.id,
-          zone: shop.zone,
-          type: shop.type,
+          clientId: shop!.id,
+          zone: shop!.zone,
+          type: shop!.type,
           priceList,
           agent,
           organization: organization || undefined,
@@ -317,7 +487,7 @@ export function AddOrderDialog({
           dealType: terms,
           comment: comment.trim() || undefined,
           status: confirmed ? "Есть на складе" : "Не подтвержден",
-          items: items.map((item) => ({ productId: item.productId, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, currency })),
+          items: items.map((item) => ({ productId: item.productId, productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, currency })),
         }),
       })
       const body = (await response.json().catch(() => null)) as (Order & { error?: string; agentLimit?: AgentLimitExceeded; productRestriction?: ProductRestrictionRefusal }) | null
@@ -333,31 +503,36 @@ export function AddOrderDialog({
 
   // Rendered in a portal so it is never clipped or stacked under the client drawer it is opened from.
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex flex-col bg-white text-slate-800">
-      <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-slate-200 pl-[30px] pr-[22px]">
-        <h2 className="text-[13px] font-bold uppercase">{t("Добавление заказа")}</h2>
-        <button type="button" onClick={() => setExitOpen(true)} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800">
-          <X className="h-6 w-6" />
+    <div className="fixed inset-0 z-[1301] overflow-y-auto bg-white text-[#333]">
+     <div className="flex min-h-full flex-col">
+      <header className="relative h-[59px] shrink-0 border-b border-[#efefef]">
+        <h2 className="absolute left-[30px] top-[21.4px] text-[13px] font-bold uppercase leading-[16.3px]">{t(editing ? "Изменение заказа" : "Добавление заказа")}</h2>
+        <button type="button" onClick={() => setExitOpen(true)} aria-label={t("Закрыть")} className="absolute right-[10px] top-[5.5px] flex h-12 w-12 items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]" aria-hidden><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="w-[280px] shrink-0 overflow-y-auto border-r border-slate-200 px-[30px] pb-6 pt-[18px]">
+      <div className="flex flex-1">
+        <aside className="w-[280px] shrink-0 border-r border-[#efefef] px-[30px] pb-[11px] pt-[20.7px]">
           <div className="flex items-center justify-between">
-            <span className="text-[13px] font-semibold">{t("Выбор клиента")}</span>
+            <span className="text-[13px] font-semibold leading-[16.3px]">{t("Выбор клиента")}</span>
             <button type="button" onClick={() => window.open("/clients", "_blank")} className={link}>+ {t("добавить")}</button>
           </div>
 
           <DateField label={t("Дата создания")} required value={date} onChange={setDate} first />
-          <SelectField label={t("Название клиента")} required placeholderLabel value={shopId} onChange={chooseShop} loading={!shops} options={(shops ?? []).map((row) => ({ value: String(row.id), label: row.name }))} onClear={() => chooseShop("")} />
+          <SelectField label={t("Название клиента")} required placeholderLabel value={shopId || editShopName} onChange={(value) => { setEditShopName(""); chooseShop(value) }} loading={!shops && !editing} options={(shops ?? []).map((row) => ({ value: String(row.id), label: row.name }))} onClear={() => { setEditShopName(""); chooseShop("") }} />
 
-          <h3 className="mt-[14px] text-[13px] font-semibold">{t("Оплата")}</h3>
-          <label className="mt-[20px] flex cursor-pointer items-center gap-2 text-[13px] font-semibold">
+          {insufficient && (
+            <div className="-mx-[30px] mt-[10px] flex h-[56px] items-center bg-[#ffebeb] px-[30px] text-[13px] text-[#f44336]">{t("Недостаточно товаров на складе")}</div>
+          )}
+
+          <h3 className={`${insufficient ? "mt-[6px]" : "mt-[14.3px]"} text-[13px] font-semibold leading-[16.3px]`}>{t("Оплата")}</h3>
+          <label className="mt-[20px] flex h-5 cursor-pointer items-center gap-[6px] text-[13px] font-semibold text-black">
             <Checkbox checked={prize} onChange={setPrize} />
             {t("Призовой заказ за балл")}
           </label>
 
-          <div className="mt-[31px]">
+          <div className="mt-[25.5px]">
             <SelectField label={t("Тип оплаты")} placeholderLabel value={paymentType} onChange={(value) => changePricing({ paymentType: value })} options={paymentTypes.map((row) => ({ value: row, label: t(row) }))} onClear={() => changePricing({ paymentType: "" })} />
           </div>
           <SelectField label={t("Валюта")} required value={currency} onChange={(value) => changePricing({ currency: value })} loading={!currencies} options={(currencies ?? []).map((row) => ({ value: row, label: row }))} onClear={() => changePricing({ currency: "" })} />
@@ -366,28 +541,30 @@ export function AddOrderDialog({
           {(organizations === null || organizations.length > 0) && (
             <SelectField label={t("Организация")} required value={organization} onChange={chooseOrganization} loading={!organizations} options={(organizations ?? []).map((row) => ({ value: row, label: row }))} onClear={() => chooseOrganization("")} />
           )}
+          {editing && <OrganizationMoveHint stored={editing.organization ?? ""} chosen={organization} />}
           <DateField label={t("Дата окончательной оплаты")} required value={lastPayDate} onChange={setLastPayDate} />
 
-          <h3 className="mt-[22px] text-[13px] font-semibold">{t("Условия договора")}</h3>
-          <div className="mt-3 space-y-3">
+          <h3 className="mt-[6.2px] text-[13px] font-semibold leading-[16.3px]">{t("Условия договора")}</h3>
+          <div className="mt-[7.8px] space-y-[10px]">
             {([["standard", "Стандартная"], ["consignment", "Консигнация"]] as const).map(([value, label]) => (
-              <label key={value} className="flex cursor-pointer items-center gap-5 text-[13px]">
-                <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${terms === value ? "border-slate-500" : "border-slate-800"}`}>
-                  {terms === value && <span className="h-2.5 w-2.5 rounded-full bg-slate-500" />}
-                </span>
+              <label key={value} className="flex h-6 cursor-pointer items-center text-[13px] font-semibold text-black">
+                <svg viewBox="0 0 24 24" className="ml-[2px] h-5 w-5 shrink-0" aria-hidden>
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" fill="#666" />
+                  {terms === value && <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z" fill="#5d6474" />}
+                </svg>
                 <input type="radio" name="terms" checked={terms === value} onChange={() => setTerms(value)} className="sr-only" />
-                {t(label)}
+                <span className="ml-[18px] font-normal">{t(label)}</span>
               </label>
             ))}
           </div>
-          <SelectField label={t("Склад")} required value={warehouse} onChange={chooseWarehouse} loading={!warehouses} options={(warehouses ?? []).map((row) => ({ value: row, label: row }))} onClear={() => chooseWarehouse("")} />
+          <div className="mt-[18.5px]"><SelectField label={t("Склад")} required value={warehouse} onChange={chooseWarehouse} loading={!warehouses} options={(warehouses ?? []).map((row) => ({ value: row, label: row }))} onClear={() => chooseWarehouse("")} /></div>
 
-          <h3 className="mt-[22px] text-[13px] font-semibold">{t("Условия доставки")}</h3>
-          <SelectField label={t("Тип доставки")} required value={deliveryType} onChange={setDeliveryType} options={deliveryTypes.map((row) => ({ value: row, label: t(row) }))} onClear={() => setDeliveryType("")} />
-          <div className="mt-[22px]">
+          <h3 className="mt-[13.7px] text-[13px] font-semibold leading-[16.3px]">{t("Условия доставки")}</h3>
+          <div className="mt-[9.6px]"><SelectField label={t("Тип доставки")} required value={deliveryType} onChange={setDeliveryType} options={deliveryTypes.map((row) => ({ value: row, label: t(row) }))} onClear={() => setDeliveryType("")} /></div>
+          <div className="mt-[4.2px]">
             <SelectField label={t("Доставщик")} placeholderLabel value={deliverer} onChange={setDeliverer} loading={!agents} options={(agents ?? []).map((row) => ({ value: row, label: row }))} onClear={() => setDeliverer("")} />
           </div>
-          <DateField label={t("Дата доставки")} value={deliveryDate} onChange={setDeliveryDate} />
+          <div className="-mt-[6px]"><DateField label={t("Дата доставки")} value={deliveryDate} onChange={setDeliveryDate} /></div>
 
           <div className="mt-5 space-y-[14px] text-[13px] font-semibold">
             <label className="flex cursor-pointer items-center gap-2"><Checkbox checked={confirmed} onChange={setConfirmed} />{t("Подтвержденный")}</label>
@@ -403,17 +580,29 @@ export function AddOrderDialog({
           />
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col overflow-y-auto px-[30px]">
-          <div className="border-b-2 border-[#4f6fe0] py-[14px] text-center text-[13px]">{t("Товары")}</div>
-          <div className="mt-[30px] flex items-center justify-between">
-            <h3 className="text-[13px] font-semibold">{t("Список товаров")}</h3>
-            <div className="flex items-center gap-8 pr-4">
-              <button type="button" disabled={!ready} onClick={() => setInlineOpen(true)} className={ready ? link : "text-[13px] text-slate-800"}>
+        <section className="flex min-w-0 flex-1 flex-col px-[30px]">
+          <div className="flex h-12 items-center justify-center border-b-2 border-[#4f6fe0] text-[13px] font-medium">{t("Товары")}</div>
+          {pendingPricing && (
+            <div className="mt-[44px] flex flex-col items-center text-center">
+              <p className="text-[16px] font-semibold leading-[20px]">
+                {t("Цены товаров будут изменены на")} {pendingPricing.priceList} ({pendingPricing.currency}, {t(pendingPricing.paymentType).toLowerCase()})
+              </p>
+              <div className="mt-[22px] flex gap-[67px] text-[13px] font-bold text-[#4f71dc]">
+                <button type="button" onClick={() => setPendingPricing(null)} className="uppercase">{t("Нет")}</button>
+                <button type="button" onClick={applyPendingPricing} className="uppercase">{t("Да")}</button>
+              </div>
+            </div>
+          )}
+          <div className={pendingPricing ? "hidden" : "contents"}>
+          <div className="mt-[22px] flex h-9 items-center justify-between">
+            <h3 className="text-[13px] font-semibold leading-[16.3px]">{t("Список товаров")}</h3>
+            <div className="flex items-center">
+              <button type="button" disabled={!ready} onClick={() => setInlineOpen(true)} className={`h-9 px-4 ${ready ? link : "text-[13px] text-slate-800"}`}>
                 {ready ? "" : "+ "}{t("добавить товар")}
               </button>
-              {ready && <button type="button" onClick={() => setPickerOpen(true)} className={link}>{t("добавить из списка")}</button>}
+              {ready && <button type="button" onClick={() => setPickerOpen(true)} className={`h-9 px-4 ${link}`}>{t("добавить из списка")}</button>}
               <input ref={importRef} type="file" accept=".csv,.xls,.xlsx" onChange={importItems} className="hidden" />
-              <button type="button" onClick={() => importRef.current?.click()} className={link}>{t("импортировать c excel")}</button>
+              <button type="button" onClick={() => importRef.current?.click()} className={`h-9 px-4 ${link}`}>{t("импортировать c excel")}</button>
             </div>
           </div>
 
@@ -452,56 +641,85 @@ export function AddOrderDialog({
               )}
             </div>
           ) : (
-            <table className="mt-6 w-full text-left text-[13px]">
-              <thead className="bg-slate-100 text-slate-600">
-                <tr>
-                  <th className="p-3">№</th>
-                  <th>{t("Наименование")}</th>
-                  <th>{t("Кол-во")}</th>
-                  <th>{t("Сумма за ед")}</th>
-                  <th>{t("Сумма")}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item, index) => (
-                  <tr key={item.productId} className="border-t">
-                    <td className="p-3">{index + 1}</td>
-                    <td>{item.productName}</td>
-                    <td>{item.quantity} {item.unit}</td>
-                    <td>{money(item.unitPrice)} {currency}</td>
-                    <td>{money(item.quantity * item.unitPrice)} {currency}</td>
-                    <td>
-                      <button type="button" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-red-500 hover:text-red-700"><X className="h-4 w-4" /></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="mt-[23.5px] text-[13px]">
+              <div className="grid h-10 grid-cols-[35%_10.86%_10.86%_10.86%_10.86%_10.86%_1fr] items-center text-[12px] font-semibold">
+                <span className="px-[5px]">{t("Наименование")}</span>
+                <span className="pl-[5px]">{t("Группа")}</span>
+                <span className="pl-[5px]">{t("Кол-во")}</span>
+                <span className="pl-[5px]">{t("На складе")}</span>
+                <span className="pl-[5px]">{t("Цена")}({currency})</span>
+                <span className="pl-[5px]">{t("Всего")}({currency})</span>
+                <span className="pr-[10px] text-right">
+                  <button type="button" onClick={() => setItems([])} aria-label={t("Удалить")}>
+                    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="#666" aria-hidden><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+                  </button>
+                </span>
+              </div>
+              {items.map((item, index) => {
+                const editingRow = rowEdit?.index === index
+                const unit = item.unit || "шт."
+                const left = stockOf(item)
+                return (
+                  <div key={item.id ?? item.productId ?? item.productName} className="grid h-10 grid-cols-[35%_10.86%_10.86%_10.86%_10.86%_10.86%_1fr] items-center">
+                    <span className="truncate px-[5px]"><b className="mr-[5px] font-semibold">{index + 1}.</b>{item.productName}</span>
+                    <span className="pl-[5px]">{groupLabel(item.quantity, t, item.boxAmount, item.boxUnit)}</span>
+                    {editingRow ? (
+                      <>
+                        <input autoFocus type="number" min="0" step="any" value={rowEdit.quantity} onChange={(event) => setRowEdit({ ...rowEdit, quantity: event.target.value })} className="mr-4 w-[100px] border-b border-slate-300 bg-transparent font-semibold outline-none" />
+                        <span className="pl-[5px]">{left === undefined ? "" : `${money(left)} ${t(unit)}`}</span>
+                        <input type="number" min="0" step="any" value={rowEdit.unitPrice} onChange={(event) => setRowEdit({ ...rowEdit, unitPrice: event.target.value })} className="mr-4 w-[100px] border-b border-slate-300 bg-transparent font-semibold outline-none" />
+                      </>
+                    ) : (
+                      <>
+                        <span className={`pl-[5px] ${left !== undefined && left < item.quantity ? "text-[#f44336]" : ""}`}>{item.quantity} {t(unit)}</span>
+                        <span className="pl-[5px]">{left === undefined ? "" : `${money(left)} ${t(unit)}`}</span>
+                        <span className="pl-[5px]">{money(item.unitPrice)}</span>
+                      </>
+                    )}
+                    <span className="pl-[5px]">{money((editingRow ? Number(rowEdit.quantity) * Number(rowEdit.unitPrice) : item.quantity * item.unitPrice) || 0)}</span>
+                    <span className="flex items-center justify-end gap-[10px] pr-[10px]">
+                      {editingRow ? (
+                        <button
+                          type="button"
+                          aria-label={t("Сохранить")}
+                          onClick={() => {
+                            const quantity = Number(rowEdit.quantity)
+                            const unitPrice = Number(rowEdit.unitPrice)
+                            if (quantity > 0 && unitPrice >= 0) setItems((current) => current.map((row, i) => (i === index ? { ...row, quantity, unitPrice } : row)))
+                            setRowEdit(null)
+                          }}
+                          className="text-[#4f6fe0]"
+                        >
+                          <Check className="h-5 w-5" />
+                        </button>
+                      ) : (
+                        <button type="button" aria-label={t("Изменить")} onClick={() => setRowEdit({ index, quantity: String(item.quantity), unitPrice: String(item.unitPrice) })}>
+                          <svg viewBox="0 0 24 24" className="h-[30px] w-[30px] p-[5px]" fill="#666" aria-hidden><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
+                        </button>
+                      )}
+                      <button type="button" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")}>
+                        <svg viewBox="0 0 24 24" className="h-[30px] w-[30px] p-[5px]" fill="#666" aria-hidden><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zm2.46-7.12l1.41-1.41L12 12.59l2.12-2.12 1.41 1.41L13.41 14l2.12 2.12-1.41 1.41L12 15.41l-2.12 2.12-1.41-1.41L10.59 14l-2.13-2.12zM15.5 4l-1-1h-5l-1 1H5v2h14V4z" /></svg>
+                      </button>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           )}
+          </div>
         </section>
       </div>
 
-      <footer className="flex h-[66px] shrink-0 items-center justify-between border-t border-slate-200 px-[30px]">
+      <footer className="flex h-[66px] shrink-0 items-center justify-between border-t border-[#efefef] pl-[30px] pr-[10px]">
         <div className="flex items-center gap-6 text-[16px]">
           <span>{t("Общая сумма заказа:")} <b>{money(total)}{currency ? ` ${currency}` : ""}</b></span>
           <span>{t("Общее кол-во:")} <b>{totalQty}</b></span>
           {error && <span className="text-[13px] text-red-500">{error}</span>}
         </div>
-        <button type="button" onClick={save} disabled={saving} className="text-[13px] font-bold uppercase text-[#0a9bd9] hover:underline disabled:opacity-50">
-          {t("Оформить заказ")}
+        <button type="button" onClick={save} disabled={saving} className="h-9 min-w-[88px] disabled:opacity-50">
+          <span className="inline-block px-[15px] py-[9px] text-[13px] font-semibold uppercase leading-[18px] text-[#129fdd]">{t(editing ? "Изменить заказ" : "Оформить заказ")}</span>
         </button>
       </footer>
-
-      {repriceOpen && (
-        <Modal onClose={() => setRepriceOpen(false)}>
-          <p className="px-[30px] py-8 text-[13px]">{t("Цены товаров будут изменены на")} ({currency}, {t(paymentType).toLowerCase()})</p>
-          <div className="flex justify-end gap-6 border-t border-slate-200 px-[30px] py-4 text-[13px] font-bold uppercase text-[#0a9bd9]">
-            <button type="button" onClick={() => setRepriceOpen(false)}>{t("Нет")}</button>
-            <button type="button" onClick={() => setRepriceOpen(false)}>{t("Да")}</button>
-          </div>
-        </Modal>
-      )}
 
       {exitOpen && (
         <Modal title={t("Подтверждение отмены")} onClose={() => setExitOpen(false)}>
@@ -524,6 +742,7 @@ export function AddOrderDialog({
           }}
         />
       )}
+     </div>
     </div>,
     document.body,
   )
@@ -628,10 +847,15 @@ export function ProductPicker({
   )
 }
 
+const BOX_EMPTY = "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+const BOX_CHECKED = "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+
 export function Checkbox({ checked, onChange, className }: { checked: boolean; onChange: (value: boolean) => void; className?: string }) {
   return (
-    <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[3px] border-2 ${checked ? "border-slate-600 bg-slate-600" : "border-slate-600"} ${className ?? ""}`}>
-      {checked && <Check className="h-3 w-3 stroke-[3] text-white" />}
+    <span className={`flex h-5 w-5 shrink-0 items-center justify-center ${className ?? ""}`}>
+      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
+        <path d={checked ? BOX_CHECKED : BOX_EMPTY} fill={checked ? "#129fdd" : "#666"} />
+      </svg>
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
     </span>
   )
@@ -676,18 +900,18 @@ export function SelectField({
   const floating = !placeholderLabel || Boolean(selected)
 
   return (
-    <div ref={rootRef} className={`relative ${flat ? "" : "mt-[14px]"}`}>
-      <span className={`block h-3 text-[10px] font-semibold leading-3 ${floating ? "" : "invisible"}`}>
-        {label}{required && <span className="text-red-500"> *</span>}
+    <div ref={rootRef} className={`relative ${flat ? "" : "mt-[8px]"}`}>
+      <span className={`block h-[13px] text-[9.75px] font-semibold leading-[12.2px] text-black ${floating ? "" : "invisible"}`}>
+        {label}{required && <span className="text-[13px] font-normal text-red-500"> *</span>}
       </span>
-      <button type="button" onClick={() => setOpen((current) => !current)} className="relative flex h-[34px] w-full items-center border-b border-slate-300 pr-14 text-left text-[13px]">
-        {selected ? <span className="truncate">{selected.label}</span> : placeholderLabel ? <span className="font-semibold">{label}{required && <span className="text-red-500"> *</span>}</span> : null}
-        <span className="absolute right-0 flex items-center gap-2 text-slate-500">
-          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      <button type="button" onClick={() => setOpen((current) => !current)} className="relative flex h-[41px] w-full items-center border-b border-[#e0e0e0] pr-14 pt-[3px] text-left text-[13px] font-semibold text-[#333]">
+        {selected ? <span className="truncate">{selected.label}</span> : placeholderLabel ? <span className="font-semibold text-black">{label}{required && <span className="text-red-500"> *</span>}</span> : null}
+        <span className="absolute right-0 top-[11px] flex items-center text-[#999]">
+          {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {selected && onClear && (
-            <span role="button" aria-label={t("Очистить")} onClick={(event) => { event.stopPropagation(); onClear() }} className="hover:text-slate-800"><X className="h-3.5 w-3.5" /></span>
+            <span role="button" aria-label={t("Очистить")} onClick={(event) => { event.stopPropagation(); onClear() }} className="mr-[10px] text-[18px] leading-[18px] hover:text-slate-700">×</span>
           )}
-          {open ? <ChevronUp className="h-4 w-4 fill-current" /> : <ChevronDown className="h-4 w-4 fill-current" />}
+          <svg viewBox="0 0 10 7" className="mr-[10px] h-[7px] w-[10px]" aria-hidden><path d={open ? "M0 7h10L5 0z" : "M0 0h10L5 7z"} fill="#999" /></svg>
         </span>
       </button>
       {open && (
@@ -715,16 +939,25 @@ export function SelectField({
 
 export function DateField({ label, required, value, onChange, first }: { label: string; required?: boolean; value: string; onChange: (value: string) => void; first?: boolean }) {
   const { t } = useLanguage()
+  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null)
   return (
-    <div className={first ? "mt-0" : "mt-[14px]"}>
-      <span className="block h-3 text-[10px] font-semibold leading-3">
-        {label}{required && <span className="text-red-500"> *</span>}
+    <div className={`pb-[12px] ${first ? "mt-0" : "mt-[8px]"}`}>
+      <span className="block h-[13px] text-[9.75px] font-semibold leading-[12.2px] text-black">
+        {label}{required && <span className="text-[13px] font-normal text-red-500"> *</span>}
       </span>
-      <label className="relative flex h-[34px] cursor-pointer items-center border-b border-slate-300 text-[13px]">
+      <button
+        type="button"
+        aria-label={label}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          setAnchor({ left: rect.left, top: rect.bottom + 9 })
+        }}
+        className="relative flex h-[27.5px] w-full cursor-pointer items-end border-b border-[#e0e0e0] text-left text-[13px] leading-[19.5px] text-[#333]"
+      >
         <span>{t(formatDate(value))}</span>
-        <Calendar className="absolute right-0 h-4 w-4 text-slate-400" />
-        <input type="date" value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
-      </label>
+        <Calendar className="absolute right-[3px] top-[4px] h-4 w-4 text-[#ccc]" />
+      </button>
+      {anchor && <DatePickerDialog anchor={anchor} value={value} onCancel={() => setAnchor(null)} onPick={(next) => { onChange(next); setAnchor(null) }} />}
     </div>
   )
 }

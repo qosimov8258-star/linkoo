@@ -6,6 +6,7 @@ import { downloadExcelTable } from "@/lib/excel-export"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
 import { CHECKBOX, INFO_ITEMS } from "./visit-builder-view"
+import { monthRangeLabel } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { NewReportBuilderSave } from "@/lib/new-report-builder-repo"
 
@@ -23,16 +24,16 @@ function List({ title, items, selected, setSelected }: { title: string; items: s
   const visible = items.filter((item) => item.toLowerCase().includes(query.toLowerCase()))
   const toggle = (item: string) => setSelected(selected.includes(item) ? selected.filter((value) => value !== item) : [...selected, item])
   return (
-    <section className="min-w-0 border-r border-[#ececec] px-[20px] pb-[30px] pt-[20px] last:border-0">
+    <section className="min-w-0 border-r border-[#ececec] px-[20px] pb-[30px] pt-[18px] last:border-0">
       <h2 className="text-[15px] font-bold leading-[18px]">{t(title)}</h2>
       <label className="relative mt-[11px] block">
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t("Поиск")} ${t(title).toLowerCase()}...`} className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]" />
         <Search className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />
       </label>
-      <div className="mt-[14px]">
+      <div className="mt-[11px]">
         {visible.map((item) => (
-          <label key={item} className="flex min-h-[30px] cursor-pointer items-center gap-[9px] text-[13px] font-medium">
-            <input type="checkbox" checked={selected.includes(item)} onChange={() => toggle(item)} className={CHECKBOX} />
+          <label key={item} className={`flex ${INFO_ITEMS.has(item) ? "min-h-[34px]" : "min-h-[30px]"} cursor-pointer items-center gap-[9px] text-[13px] font-semibold`}>
+            <input type="checkbox" checked={selected.includes(item)} onChange={() => toggle(item)} className={`${CHECKBOX} ml-[3px]`} />
             {t(item)}
             {INFO_ITEMS.has(item) && <Info className="h-[18px] w-[18px] text-[#555]" />}
           </label>
@@ -184,8 +185,8 @@ export function NewReportBuilderView() {
         <button onClick={openReports} className="flex h-[38px] items-center rounded-[3px] bg-[#ff8a6f] px-[15px] text-[13px] font-semibold text-white hover:brightness-95"><FolderOpen className="mr-3 h-[18px] w-[18px] fill-white" />{t("Отчеты")}</button>
         <button onClick={() => { if (generated) exportExcel() }} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95"><Download className="mr-3 h-[18px] w-[18px]" />{t("Скачать")}</button>
         <div className="ml-auto flex flex-wrap items-center gap-[19px]">
-          <span className="text-[12px] font-bold text-[#4f71dc]">{t("01 Авг. 2026 - 31 Авг. 2026")}</span>
-          <button onClick={() => setSettings((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">{settings ? t("СКРЫТЬ НАСТРОЙКИ") : t("ПОКАЗАТЬ НАСТРОЙКИ")} {settings ? "▲" : "▼"}</button>
+          <span className="text-[12px] font-bold capitalize text-[#4f71dc]">{monthRangeLabel()}</span>
+          <button onClick={() => setSettings((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95"><span data-no-translate>{settings ? "СКРЫТЬ НАСТРОЙКИ" : "ПОКАЗАТЬ НАСТРОЙКИ"} {settings ? "▲" : "▼"}</span></button>
           <button onClick={generate} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">{t("СФОРМИРОВАТЬ ОТЧЕТ")}</button>
         </div>
       </div>
@@ -205,7 +206,7 @@ export function NewReportBuilderView() {
               </button>
             ))}</div>
             {customFilters.map((filter, index) => <input key={`${filter}-${index}`} placeholder={t("Значение фильтра")} className="mt-3 w-full border-b p-2 outline-none" />)}
-            <button onClick={() => setCustomFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">{t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ")}</button>
+            <button onClick={() => setCustomFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95"><span data-no-translate>ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР</span></button>
           </section>
         </div>
       )}

@@ -91,7 +91,7 @@ export function rangeForPeriod(
     }
     case "ПОСЛ. 7": {
       const start = new Date(today)
-      start.setDate(start.getDate() - 6)
+      start.setDate(start.getDate() - 7)
       return { begin: start, end: today }
     }
     case "МЕСЯЦ":

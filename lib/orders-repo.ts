@@ -2,6 +2,7 @@ import "server-only"
 
 import { CashError, resolveOrganization } from "@/lib/cash/common"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { parseDocDate, parseDocDay } from "@/lib/document-dates"
 import { todayIso } from "@/lib/finance/dates"
 import { placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
@@ -10,6 +11,7 @@ import { lockWarehouseStock } from "@/lib/internal-transfers-stock"
 import { keySql, nameKey } from "@/lib/platform-refs"
 import { findRestrictedProducts, PRODUCT_RESTRICTION_DENIED } from "@/lib/product-restrictions-check"
 import { ensureProductRestrictionsSchema } from "@/lib/product-restrictions-repo"
+import { selectedBranchName } from "@/lib/selected-branch"
 import { getStockBalances, getStockPending } from "@/lib/stock/ledger"
 import { ensureStockSchema } from "@/lib/stock/schema"
 import {
@@ -96,6 +98,29 @@ const ORDER_COLUMNS: Array<[string, string]> = [
   ["invoice_date", "TEXT NOT NULL DEFAULT ''"],
   ["invoice_active", "INTEGER NOT NULL DEFAULT 0"],
   ["contract", "TEXT NOT NULL DEFAULT ''"],
+  // Reference-order snapshot fields shown on the order card / debt pages.
+  ["market_name", "TEXT NOT NULL DEFAULT ''"],
+  ["expeditor", "TEXT NOT NULL DEFAULT ''"],
+  ["accepted_date", "TEXT NOT NULL DEFAULT ''"],
+  ["total_price", "DOUBLE PRECISION"],
+  ["return_price", "DOUBLE PRECISION NOT NULL DEFAULT 0"],
+  ["fact_price", "DOUBLE PRECISION"],
+  ["weight", "DOUBLE PRECISION NOT NULL DEFAULT 0"],
+  ["discount_percent", "DOUBLE PRECISION NOT NULL DEFAULT 0"],
+  ["pay_method", "TEXT NOT NULL DEFAULT ''"],
+  ["order_balance", "DOUBLE PRECISION"],
+  ["transport_number", "TEXT NOT NULL DEFAULT ''"],
+  ["branch_name", "TEXT NOT NULL DEFAULT ''"],
+  ["stock_name", "TEXT NOT NULL DEFAULT ''"],
+  ["paid_amount", "DOUBLE PRECISION"],
+  ["operative_debt", "DOUBLE PRECISION"],
+  ["actual_debt", "DOUBLE PRECISION"],
+  ["pay_type_name", "TEXT NOT NULL DEFAULT ''"],
+  ["due_date", "TEXT NOT NULL DEFAULT ''"],
+  ["wrong_debt", "INTEGER NOT NULL DEFAULT 0"],
+  ["invoice_contract", "TEXT NOT NULL DEFAULT ''"],
+  ["operative_expand", "TEXT NOT NULL DEFAULT ''"],
+  ["actual_expand", "TEXT NOT NULL DEFAULT ''"],
 ]
 
 const DDL = `
@@ -229,7 +254,8 @@ EXCEPTION WHEN others THEN
 END $$;
 `
 
-const SCHEMA_VERSION = 2
+// 3: the reference-order snapshot columns (market_name … actual_expand) next to the backfill of 2.
+const SCHEMA_VERSION = 3
 
 declare global {
   var __linkoOrdersSchema: { version: number; ready: Promise<void> } | undefined
@@ -298,6 +324,38 @@ type OrderRow = {
   c_branch?: string | null
   c_phone?: string | null
   c_deliverer?: string | null
+  market_name: string | null
+  expeditor: string | null
+  accepted_date: string | null
+  total_price: number | null
+  return_price: number | null
+  fact_price: number | null
+  weight: number | null
+  discount_percent: number | null
+  pay_method: string | null
+  order_balance: number | null
+  transport_number: string | null
+  branch_name: string | null
+  stock_name: string | null
+  paid_amount: number | null
+  operative_debt: number | null
+  actual_debt: number | null
+  pay_type_name: string | null
+  due_date: string | null
+  wrong_debt: number | null
+  invoice_contract: string | null
+  operative_expand: string | null
+  actual_expand: string | null
+}
+
+function parseExpand(raw: string | null): { currency: string; amount: number }[] | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as { currency: string; amount: number }[]
+    return Array.isArray(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export type ItemRow = {
@@ -352,6 +410,30 @@ function rowToOrder(row: OrderRow): Order {
     clientBranch: row.c_branch ?? "",
     clientPhone: row.c_phone ?? "",
     clientDeliverer: row.c_deliverer ?? "",
+    marketName: row.market_name ?? "",
+    expeditor: row.expeditor ?? "",
+    acceptedDate: row.accepted_date ?? "",
+    totalPrice: row.total_price ?? undefined,
+    returnPrice: Number(row.return_price ?? 0),
+    factPrice: row.fact_price ?? undefined,
+    weight: Number(row.weight ?? 0),
+    discountPercent: Number(row.discount_percent ?? 0),
+    payMethod: row.pay_method ?? "",
+    orderBalance: row.order_balance ?? undefined,
+    transportNumber: row.transport_number ?? "",
+    branchName: row.branch_name ?? "",
+    // The order's warehouse (orders.warehouse, the one the stock moves from); the stored
+    // stock_name only for older rows that name none.
+    stockName: row.warehouse?.trim() ? row.warehouse : (row.stock_name ?? ""),
+    paidAmount: row.paid_amount ?? undefined,
+    operativeDebt: row.operative_debt ?? undefined,
+    actualDebt: row.actual_debt ?? undefined,
+    payTypeName: row.pay_type_name ?? "",
+    dueDate: row.due_date ?? "",
+    wrongDebt: row.wrong_debt === 1,
+    invoiceContract: row.invoice_contract ?? "",
+    operativeExpand: parseExpand(row.operative_expand),
+    actualExpand: parseExpand(row.actual_expand),
   }
 }
 
@@ -380,6 +462,17 @@ export function formatMoney(amount: number, currency: string): string {
   const rounded = Math.round(amount * 100) / 100
   const grouped = rounded.toLocaleString("ru-RU", { maximumFractionDigits: 2 }).replace(/[  ]/g, " ")
   return `${grouped} ${currency}`
+}
+
+/** Keeps the reference totals (total / fact price, order balance) that the card and debt pages read in step with the order's amount. */
+async function syncOrderTotals(db: PgDb, id: number, amount: string): Promise<void> {
+  const total = parseMoneyText(amount)?.value ?? 0
+  await db
+    .prepare(
+      `UPDATE orders SET total_price = @total, fact_price = @total - COALESCE(return_price, 0),
+       order_balance = @total - COALESCE(return_price, 0) - COALESCE(paid_amount, 0) WHERE id = @id`,
+    )
+    .run({ id, total })
 }
 
 function roundQty(value: number): number {
@@ -708,6 +801,7 @@ async function syncSummary(db: PgDb, order: OrderRow, keepAmount?: string): Prom
     product = items.map((item) => `${item.product_name} x${roundQty(Number(item.quantity))}`).join(", ")
   }
   await db.prepare("UPDATE orders SET amount = @amount, product = @product, updated_at = datetime('now') WHERE id = @id").run({ id: order.id, amount, product })
+  await syncOrderTotals(db, order.id, amount)
 }
 
 // ---------------------------------------------------------------------------
@@ -950,12 +1044,13 @@ export type OrderPatch = Partial<OrderInput>
 export async function listOrders(search?: string, options: { withBalances?: boolean } = {}): Promise<Order[]> {
   await ensureOrdersSchema()
   const db = getDb()
+  const branch = await selectedBranchName()
   const rows = search
     ? ((await db
-        .prepare(`${ORDER_SELECT} WHERE o.client ILIKE @q OR o.agent ILIKE @q OR o.id::text = @id ORDER BY o.id DESC`)
-        .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`, id: search.trim() })) as OrderRow[])
-    : ((await db.prepare(`${ORDER_SELECT} ORDER BY o.id DESC`).all()) as OrderRow[])
-  const orders = rows.map(rowToOrder)
+        .prepare(`${ORDER_SELECT} WHERE (o.client ILIKE @q OR o.agent ILIKE @q OR o.id::text = @id) AND (@branch::text = '' OR o.branch_name = @branch) ORDER BY o.id DESC`)
+        .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`, id: search.trim(), branch })) as OrderRow[])
+    : ((await db.prepare(`${ORDER_SELECT} WHERE (@branch::text = '' OR o.branch_name = @branch) ORDER BY o.id DESC`).all({ branch })) as OrderRow[])
+  const orders = await withLocalPayments(rows.map(rowToOrder))
   return options.withBalances === false ? orders : attachBalances(orders)
 }
 
@@ -964,8 +1059,64 @@ export async function getOrder(id: number, options: { withBalances?: boolean } =
   await ensureOrdersSchema()
   const row = (await getDb().prepare(`${ORDER_SELECT} WHERE o.id = ?`).get(id)) as OrderRow | undefined
   if (!row) return null
-  const order = rowToOrder(row)
-  return options.withBalances === false ? order : (await attachBalances([order]))[0]
+  const [order] = await withLocalPayments([rowToOrder(row)])
+  return options.withBalances === false ? order : (await attachBalances([await withLedgerDebt(order)]))[0]
+}
+
+/** The order card's debt lines ("Оперативный" / "Фактический" долг): the snapshot an imported
+ * order carries, else the client's ledger end balance per currency, by creation / by
+ * realization (lib/finance/ledger.ts, by clients.id) — the figures of getOrderClientDebt.
+ * Currencies are never summed: one line per currency, 0 in the base currency when none. */
+async function withLedgerDebt(order: Order): Promise<Order> {
+  if (!order.clientId || order.operativeExpand?.length || order.operativeDebt || order.actualDebt) return order
+  const key = [String(order.clientId)]
+  const [operative, actual, base] = await Promise.all([
+    clientLedgerBalances({ keys: key, mode: "created" }),
+    clientLedgerBalances({ keys: key, mode: "realization" }),
+    baseCurrency(getDb()),
+  ])
+  const lines = (balance: ClientLedgerBalance | undefined) => {
+    const found = Object.entries(balance?.byCurrency ?? {}).map(([currency, amount]) => ({ currency, amount }))
+    return found.length ? found : [{ currency: base, amount: 0 }]
+  }
+  const operativeExpand = lines(operative.get(order.clientId))
+  const actualExpand = lines(actual.get(order.clientId))
+  return { ...order, operativeExpand, actualExpand, operativeDebt: operativeExpand[0].amount, actualDebt: actualExpand[0].amount }
+}
+
+/**
+ * "Оплачено" / "Остаток" of the order list and card: the stored snapshot (orders.paid_amount /
+ * order_balance) plus the live payments linked to the order (customer_payments.order_id, not
+ * deleted — accepted or not, as the client balance counts them) in the order's own currency;
+ * a payment in another currency is never added to it.
+ */
+async function withLocalPayments(orders: Order[]): Promise<Order[]> {
+  if (!orders.length) return orders
+  const db = getDb()
+  const table = (await db.prepare("SELECT to_regclass('customer_payments') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!table?.ok) return orders
+  const sums = (await db
+    .prepare(
+      `SELECT o.id AS order_id, SUM(p.amount::float8) AS total
+         FROM unnest(@ids::int[], @currencies::text[]) AS o(id, cur)
+         JOIN customer_payments p ON p.order_id = o.id
+        WHERE COALESCE(p.is_deleted, 0) = 0 AND COALESCE(fin_cur(p.currency), @base::text) = COALESCE(fin_cur(o.cur), @base::text)
+        GROUP BY o.id`,
+    )
+    .all({ ids: orders.map((order) => order.id), currencies: orders.map((order) => order.currency ?? ""), base: await baseCurrency(db) })) as Array<{
+    order_id: number
+    total: number
+  }>
+  const byOrder = new Map(sums.map((row) => [Number(row.order_id), Number(row.total) || 0]))
+  return orders.map((order) => {
+    const extra = byOrder.get(order.id)
+    if (!extra) return order
+    return {
+      ...order,
+      paidAmount: (order.paidAmount ?? 0) + extra,
+      orderBalance: order.orderBalance === undefined ? undefined : Math.max(0, order.orderBalance - extra),
+    }
+  })
 }
 
 /** The client's operative (by creation) and actual (by realization) debt, for the order card. */
@@ -1024,6 +1175,19 @@ export type OrderCreateInput = {
 }
 
 export type OrderUpdateInput = Omit<OrderCreateInput, "items"> & {
+  expeditor?: string
+  payMethod?: string
+  payTypeName?: string
+  stockName?: string
+  branchName?: string
+  transportNumber?: string
+  dueDate?: string
+  acceptedDate?: string
+  invoiceContract?: string
+  /** Snapshot paid / balance of the order (reference data). */
+  paidAmount?: number
+  orderBalance?: number
+  createdAt?: string
   created?: string
   invoiceNumber?: string
   invoiceDate?: string
@@ -1080,6 +1244,8 @@ async function prepareWrites() {
 
 export async function createOrder(input: OrderCreateInput, user: { displayName: string }): Promise<Order> {
   await prepareWrites()
+  // The branch picked in the account menu (cookie): read before the transaction holds any lock.
+  const branch = await selectedBranchName()
   const id = await withTransaction(async (tx) => {
     await lockOrders(tx)
     const client = await resolveClient(tx, input)
@@ -1163,6 +1329,15 @@ export async function createOrder(input: OrderCreateInput, user: { displayName: 
         dealType: input.dealType?.trim() ?? "",
       })
     const orderId = Number(inserted.lastInsertRowid)
+    await syncOrderTotals(tx, orderId, amount)
+    // The order card's snapshot fields: the client's name, the payment method (cash unless the
+    // order says bank), the selected branch and the order's own warehouse.
+    await tx
+      .prepare(
+        `UPDATE orders SET market_name = client, pay_method = @payMethod, branch_name = COALESCE(NULLIF(@branch, ''), branch_name), stock_name = warehouse
+          WHERE id = @id`,
+      )
+      .run({ id: orderId, branch, payMethod: input.paymentType === "bank" ? "bank" : "cash" })
     for (const line of resolved) await insertLine(tx, orderId, line, currency)
     await addLog(tx, orderId, { kind: "Создан", status, amount, user: user.displayName })
     return orderId
@@ -1181,7 +1356,25 @@ async function insertLine(db: PgDb, orderId: number, line: ResolvedLine, currenc
 }
 
 /** Fields that may still change once the order is final (Доставлено / Отменен). */
-const FINAL_EDITABLE = new Set(["paymentDate", "comment", "invoiceNumber", "invoiceDate", "invoiceActive", "contract", "organization"])
+const FINAL_EDITABLE = new Set([
+  "paymentDate",
+  "comment",
+  "invoiceNumber",
+  "invoiceDate",
+  "invoiceActive",
+  "contract",
+  "organization",
+  // The order card's snapshot fields (payment terms, documents, transport).
+  "invoiceContract",
+  "dueDate",
+  "paidAmount",
+  "orderBalance",
+  "acceptedDate",
+  "transportNumber",
+  "expeditor",
+  "payMethod",
+  "payTypeName",
+])
 /** Fields fixed once the goods left the warehouse (В пути). */
 const SHIPPED_FIXED = new Set(["clientId", "client", "amount", "currency", "warehouse"])
 /** API field → orders column (text fields compared against the stored value). */
@@ -1203,10 +1396,43 @@ const FIELD_COLUMNS: Record<string, string> = {
   deliveryType: "delivery_type",
   dealType: "deal_type",
   created: "created",
+  branchName: "branch_name",
+  createdAt: "created_at",
 }
 
-export async function updateOrder(id: number, patch: OrderUpdateInput, user: { displayName: string }): Promise<Order | null> {
+/** Canonical branch name ("" clears it); 400 when unknown. */
+async function resolveBranch(db: PgDb, name: string): Promise<string> {
+  if (NOT_SET.has(nameKey(name))) return ""
+  const row = (await tableExists(db, "branches"))
+    ? ((await db.prepare(`SELECT name FROM branches WHERE ${keySql("name")} = ${keySql("@name::text")} ORDER BY id LIMIT 1`).get({ name })) as { name: string } | undefined)
+    : undefined
+  if (!row) throw new OrderError("Филиал не найден", 400, { field: "branchName" })
+  return row.name
+}
+
+/** A money figure of the order card snapshot (paid / balance): a finite number within ±MAX_MONEY. */
+function snapshotMoney(value: number, field: string, min = -MAX_MONEY): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new OrderError("Неверная сумма", 400, { field })
+  if (value < min) throw new OrderError("Сумма не может быть отрицательной", 400, { field })
+  if (Math.abs(value) > MAX_MONEY) throw new OrderError("Сумма слишком большая", 400, { field })
+  return value
+}
+
+/** A day of the order card snapshot (due / realization date, "" clears it): canonical "YYYY-MM-DD". */
+function snapshotDay(value: string, field: string): string {
+  if (!value.trim()) return ""
+  const parsed = parseDocDay(value, { allowFuture: true })
+  if (!parsed.ok) throw new OrderError(parsed.error, 400, { field })
+  return parsed.date
+}
+
+export async function updateOrder(id: number, request: OrderUpdateInput, user: { displayName: string }): Promise<Order | null> {
   if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
+  // "Склад" of the order card (stockName, the reference's name for it) is the order's
+  // warehouse: it goes through the warehouse checks below (known warehouse, stock lock,
+  // availability), never into a free-text column the stock does not read.
+  const { stockName, ...rest } = request
+  const patch: OrderUpdateInput = stockName !== undefined && rest.warehouse === undefined ? { ...rest, warehouse: stockName } : rest
   await prepareWrites()
   const found = await withTransaction(async (tx) => {
     await lockOrders(tx)
@@ -1283,6 +1509,7 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
     if (patch.warehouse !== undefined && nameKey(patch.warehouse) !== nameKey(warehouse)) {
       warehouse = patch.warehouse.trim() ? await resolveWarehouse(tx, patch.warehouse) : ""
       sets("warehouse", warehouse)
+      sets("stock_name", warehouse)
     }
     if (from === "В пути" || from === "Доставлено") {
       const blocked = Object.keys(next).filter((column) => SHIPPED_FIXED.has(column === "client_id" ? "clientId" : column))
@@ -1294,6 +1521,12 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
     }
     if (patch.deliveryMan !== undefined && nameKey(patch.deliveryMan) !== nameKey(current.delivery_man ?? "")) {
       sets("delivery_man", await resolveEmployee(tx, patch.deliveryMan, "deliveryMan", "Доставщик"))
+    }
+    if (patch.expeditor !== undefined && nameKey(patch.expeditor) !== nameKey(current.expeditor ?? "")) {
+      sets("expeditor", await resolveEmployee(tx, patch.expeditor, "expeditor", "Экспедитор"))
+    }
+    if (patch.branchName !== undefined && nameKey(patch.branchName) !== nameKey(current.branch_name ?? "")) {
+      sets("branch_name", await resolveBranch(tx, patch.branchName))
     }
     // Plain fields
     const text = (value: string | undefined) => (value === undefined ? undefined : value.trim())
@@ -1312,12 +1545,42 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
       ["invoiceNumber", "invoice_number"],
       ["invoiceDate", "invoice_date"],
       ["contract", "contract"],
+      ["payMethod", "pay_method"],
+      ["payTypeName", "pay_type_name"],
+      ["transportNumber", "transport_number"],
+      ["invoiceContract", "invoice_contract"],
     ]
     for (const [field, column] of plain) {
       const value = text(patch[field] as string | undefined)
       if (value !== undefined && value !== ((current as Record<string, unknown>)[column] ?? "")) sets(column, value)
     }
     if (patch.product !== undefined && !items.length && patch.product.trim() !== current.product) sets("product", patch.product.trim() || "—")
+    for (const [field, column] of [["dueDate", "due_date"], ["acceptedDate", "accepted_date"]] as const) {
+      const value = patch[field]
+      if (value === undefined) continue
+      const day = snapshotDay(value, field)
+      if (day !== (current[column] ?? "")) sets(column, day)
+    }
+    // The stored creation moment (UTC "YYYY-MM-DD HH:MM:SS", as datetime('now') writes it): a real date, never after today.
+    if (patch.createdAt !== undefined && patch.createdAt.trim() !== (current.created_at ?? "")) {
+      const parsed = parseDocDate(patch.createdAt, { current: current.created_at })
+      if (!parsed.ok) throw new OrderError(parsed.error, 400, { field: "createdAt" })
+      sets("created_at", parsed.date.replace("T", " ").slice(0, 19))
+    }
+    // The card's paid / balance snapshot (the ledger and the cash pages never read it).
+    const paid = patch.paidAmount === undefined ? undefined : snapshotMoney(patch.paidAmount, "paidAmount", 0)
+    const balance = patch.orderBalance === undefined ? undefined : snapshotMoney(patch.orderBalance, "orderBalance")
+    if (paid !== undefined && paid !== current.paid_amount) sets("paid_amount", paid)
+    if (balance !== undefined && balance !== current.order_balance) sets("order_balance", balance)
+    // A new amount moves the totals with it, and a new paid amount the balance (unless one is sent).
+    if ("amount" in next || (paid !== undefined && balance === undefined)) {
+      const total = "amount" in next ? (parseMoneyText(String(next.amount))?.value ?? 0) : Number(current.total_price ?? parseMoneyText(current.amount)?.value ?? 0)
+      if ("amount" in next) {
+        sets("total_price", total)
+        sets("fact_price", total - Number(current.return_price ?? 0))
+      }
+      if (balance === undefined) sets("order_balance", total - Number(current.return_price ?? 0) - Number(paid ?? current.paid_amount ?? 0))
+    }
     if (patch.invoiceActive !== undefined && (patch.invoiceActive ? 1 : 0) !== (current.invoice_active ?? 0)) sets("invoice_active", patch.invoiceActive ? 1 : 0)
 
     // Agent limits: a not cancelled order counts towards its agent's limits, so a new agent
@@ -1390,6 +1653,7 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
         const after = (await tx.prepare("SELECT amount FROM orders WHERE id = ?").get(id)) as { amount: string }
         const value = parseMoneyText(after.amount)?.value ?? 0
         await tx.prepare("UPDATE orders SET amount = @amount WHERE id = @id").run({ id, amount: formatMoney(value, currency) })
+        await syncOrderTotals(tx, id, formatMoney(value, currency))
       }
       const comment =
         target !== from
@@ -1401,6 +1665,45 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
     return true
   })
   return found ? getOrder(id) : null
+}
+
+/** Documents that keep an order alive: deleting the order would take them (and the money or
+ * stock they moved) out of their order. Each one counts only when its table and order column exist. */
+const ORDER_DELETE_LINKS: ReadonlyArray<{ table: string; label: string; where: string }> = [
+  { table: "customer_payments", label: "Оплаты", where: "order_id = @id AND COALESCE(is_deleted, 0) = 0" },
+  { table: "client_returns", label: "Возвраты", where: "order_id = @id AND status <> 'cancelled'" },
+  { table: "customer_returns", label: "Возвраты", where: "order_id = @id" },
+]
+
+/** Deletes an order that never left the warehouse, with its lines and log, in one transaction
+ * (a reserved order only frees its reservation). A shipped / delivered order can only be
+ * cancelled (409), and an order with live payments or returns is refused with 409 "Удаление
+ * невозможно из-за связи с другими данными" + the usage list. False when the order does not exist. */
+export async function deleteOrder(id: number): Promise<boolean> {
+  if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return false
+  await prepareWrites()
+  return withTransaction(async (tx) => {
+    await lockOrders(tx)
+    const current = (await tx.prepare("SELECT id, status FROM orders WHERE id = ? FOR UPDATE").get(id)) as { id: number; status: string } | undefined
+    if (!current) return false
+    if (RELEASED_STATUSES.includes(current.status)) {
+      throw new OrderError("Отгруженный или доставленный заказ нельзя удалить, его можно только отменить", 409, { status: current.status })
+    }
+    const usage: Array<{ table: string; label: string; count: number }> = []
+    for (const link of ORDER_DELETE_LINKS) {
+      const column = (await tx
+        .prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = @table AND column_name = 'order_id'")
+        .get({ table: link.table })) as { ok: number } | undefined
+      if (!column) continue
+      const row = (await tx.prepare(`SELECT COUNT(*)::int AS n FROM ${link.table} WHERE ${link.where}`).get({ id })) as { n: number } | undefined
+      const count = Number(row?.n ?? 0)
+      if (count > 0) usage.push({ table: link.table, label: link.label, count })
+    }
+    if (usage.length) throw new OrderError("Удаление невозможно из-за связи с другими данными", 409, { usage })
+    await tx.prepare("DELETE FROM order_items WHERE order_id = ?").run(id)
+    await tx.prepare("DELETE FROM order_logs WHERE order_id = ?").run(id)
+    return (await tx.prepare("DELETE FROM orders WHERE id = ?").run(id)).changes > 0
+  })
 }
 
 // ---------------------------------------------------------------------------

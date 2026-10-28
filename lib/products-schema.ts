@@ -125,6 +125,15 @@ async function createSchema(db: PgDb): Promise<void> {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS product_limits_item_idx ON product_limits (item_kind, item_id);
+    -- A products row that really is a raw material (the reference keeps them out of the products list): the catalog list and the
+    -- stock ledger skip it, its raw_materials twin carries the item instead. Additive: the products row itself is never changed.
+    CREATE TABLE IF NOT EXISTS product_kind_overrides (
+      id SERIAL PRIMARY KEY,
+      product_id INTEGER NOT NULL UNIQUE,
+      kind TEXT NOT NULL DEFAULT 'raw_material',
+      raw_material_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
   await db.exec(doubleColumnsSql())
   try {

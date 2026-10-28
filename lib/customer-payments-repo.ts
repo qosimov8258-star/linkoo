@@ -1,3 +1,4 @@
+import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { getDb } from "@/lib/db"
@@ -58,7 +59,8 @@ export type PaymentPatch = Partial<{ comment: string }>
 export async function listCustomerPayments(): Promise<PaymentRow[]> {
   const db = getDb()
   await ensureCashSchema(db)
-  const rows = (await db.prepare("SELECT * FROM customer_payments WHERE is_deleted = 0 ORDER BY id DESC").all()) as Row[]
+  const branch = await selectedBranchName()
+  const rows = (await db.prepare("SELECT * FROM customer_payments WHERE is_deleted = 0 AND (?::text = '' OR branch = ?) ORDER BY id DESC").all(branch, branch)) as Row[]
   return rows.map(rowToPayment)
 }
 

@@ -3,19 +3,52 @@
 import { useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight, Expand, List, Pencil, Search } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
-import { ReportFilterPanel, ReportInputField, ReportPage, ReportRangeField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
+import { ReportDateField, ReportFilterPanel, ReportInputField, ReportPage, ReportRangeField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { useRefRecords } from "@/lib/use-ref-records"
 
+// Clients with equipment and the summary of the reference's "Эффективность оборудования" (kind "gear": one record per client,
+// plus the record "total" with the summary figures).
 type EquipmentRow = {
+  id: number | string
   client: string
   equipment: string
-  branch: string
-  inventoryType: string
+  sales: number
+  gearSales: number
+  variety: number
+  products: number
+  branch?: string
+  inventoryType?: string
+  isTotal?: boolean
 }
 
-const equipmentRows: EquipmentRow[] = []
+type GearTotal = {
+  okb: number
+  okb_gear: number
+  akb: number
+  akb_gear: number
+  avg_check: number
+  first_amount: number
+  second_amount: number
+  third_amount: number
+  total_fact: number
+  total_fact_gear: number
+  okb_gear_count: number
+  akb_gear_count: number
+  first_gear_count: number
+  second_gear_count: number
+  third_gear_count: number
+  currency: string
+}
+
+const fmt = (value: number) => {
+  const [whole, fraction] = value.toFixed(3).replace(/\.?0+$/, "").split(".")
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+  return fraction ? `${grouped},${fraction}` : grouped
+}
+const percent = (part: number, whole: number) => (whole ? fmt((part / whole) * 100) : "0")
 
 // Generic equipment kinds; every other list comes from the factory's own directories.
 const INVENTORY_TYPES = ["Холодильник", "Морозильник", "Техническое оборудование", "Другое"]
@@ -52,6 +85,26 @@ const emptyFilters: Filters = {
   equipmentSaleTo: "",
 }
 
+/** Blue-underlined group heading of the reference's filter ("Клиенты и инвентарь" / "Заказы"). */
+function FilterSection({ title }: { title: string }) {
+  const { t } = useLanguage()
+  return <h3 className="col-span-full -mb-[5px] mt-[10px] border-b border-[#a7b3e6] pb-[3px] text-[12px] font-semibold text-[#5d6ba3]">{t(title)}</h3>
+}
+
+/** «От / До» pair of numeric fields under a plain caption (fact sales of the filter). */
+function FilterPair({ caption, from, to, onFrom, onTo }: { caption: string; from: string; to: string; onFrom: (value: string) => void; onTo: (value: string) => void }) {
+  const { t } = useLanguage()
+  return (
+    <div>
+      <p className="h-[18px] text-[13px] leading-[18px] text-[#555]">{t(caption)}</p>
+      <div className="grid grid-cols-2 gap-x-[10.67px]">
+        <ReportInputField label="От" value={from} onChange={onFrom} />
+        <ReportInputField label="До" value={to} onChange={onTo} />
+      </div>
+    </div>
+  )
+}
+
 export function EquipmentEfficiencyView() {
   const { t } = useLanguage()
   const selectOptions = {
@@ -65,14 +118,19 @@ export function EquipmentEfficiencyView() {
     productType: useDirectoryNames("productTypes"),
     product: [] as string[],
   }
-  const [mode, setMode] = useState<"created" | "realized">("created")
+  const [mode] = useState<"created" | "realized">("created")
   const [filterOpen, setFilterOpen] = useState(false)
+  const [realizedDate, setRealizedDate] = useState("")
   const [query, setQuery] = useState("")
   const [draft, setDraft] = useState<Filters>(emptyFilters)
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [fullscreen, setFullscreen] = useState(false)
   const [rangeFrom, setRangeFrom] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01` })
   const [rangeTo, setRangeTo] = useState(() => { const d = new Date(); const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}` })
+
+  const { rows: records } = useRefRecords<EquipmentRow>("gear")
+  const equipmentRows = useMemo(() => records.filter((record) => !record.isTotal), [records])
+  const total = useMemo(() => (records.find((record) => record.isTotal) as unknown as GearTotal | undefined) ?? null, [records])
 
   const rows = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ru")
@@ -84,7 +142,7 @@ export function EquipmentEfficiencyView() {
       if (filters.product !== "" && !row.equipment.toLowerCase().includes(filters.product.toLowerCase())) return false
       return true
     })
-  }, [query, filters])
+  }, [query, filters, equipmentRows])
 
   function updateFilter<Key extends keyof Filters>(key: Key, value: Filters[Key]) {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -92,7 +150,7 @@ export function EquipmentEfficiencyView() {
 
   function downloadExcel() {
     const header = ["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"]
-    const body = rows.map((row) => [row.client, "0 SUM", "0 SUM", "0 SUM", "0 SUM", row.equipment])
+    const body = rows.map((row) => [row.client, `${fmt(row.sales)} ${total?.currency ?? "SUM"}`, `${fmt(row.gearSales)} ${total?.currency ?? "SUM"}`, fmt(row.variety), fmt(row.products), row.equipment])
     downloadExcelTable("equipment-efficiency", [header, ...body])
   }
 
@@ -100,12 +158,7 @@ export function EquipmentEfficiencyView() {
     <ReportPage>
       <div className={fullscreen ? "fixed inset-0 z-50 overflow-auto bg-[#f2f5f8]" : ""}>
       <div className="pl-[30px] pr-[38px]">
-        <RefHeader title={t("Эффективность оборудования")}>
-          <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            <button type="button" onClick={() => setMode("created")} className={`h-[30px] px-4 text-[13px] font-medium transition-colors ${mode === "created" ? "bg-[#71ce87] text-white" : "bg-white text-black"}`}>{t("ПО ДАТЕ СОЗДАНИЕ")}</button>
-            <button type="button" onClick={() => setMode("realized")} className={`h-[30px] px-4 text-[13px] font-medium transition-colors ${mode === "realized" ? "bg-[#71ce87] text-white" : "bg-white text-black"}`}>{t("ПО ДАТЕ РЕАЛИЗАЦИИ")}</button>
-          </div>
-        </RefHeader>
+        <RefHeader title="Эффективность оборудования" />
       </div>
 
       <section className="border-b border-[#d9d9d9] bg-white pb-[1px] pt-[20px]">
@@ -114,20 +167,20 @@ export function EquipmentEfficiencyView() {
 
           <div className="mt-[15px] grid border border-[#e8e8e8] md:grid-cols-4">
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
-              <div><p className="text-[13px] text-[#555]">{t("ОКВ / ОКВ с оборудованием")}</p><b className="text-[13px]">0 / 0 (0 %) <span className="text-[#4f71dc]">0</span></b></div>
-              <div><p className="text-[13px] text-[#555]">{t("АКВ / АКВ с оборудованием")}</p><b className="text-[13px]">0 / 0 (0 %) <span className="text-[#4f71dc]">0</span></b></div>
+              <div><p className="text-[13px] text-[#555]">ОКВ / ОКВ с оборудованием</p><b className="text-[13px]">{fmt(total?.okb ?? 0)} / {fmt(total?.okb_gear ?? 0)} ({percent(total?.okb_gear ?? 0, total?.okb ?? 0)} %) <span className="text-[#4f71dc]">{total?.okb_gear_count ?? 0}</span></b></div>
+              <div><p className="text-[13px] text-[#555]">АКВ / АКВ с оборудованием</p><b className="text-[13px]">{fmt(total?.akb ?? 0)} / {fmt(total?.akb_gear ?? 0)} ({percent(total?.akb_gear ?? 0, total?.akb ?? 0)} %) <span className="text-[#4f71dc]">{total?.akb_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
-              <div><p className="text-[13px] text-[#555]">{t("Средний чек одного оборудования")}</p><b className="text-[13px]">0 SUM</b></div>
-              <div><p className="text-[13px] text-[#555]">{t("От 0 SUM до 1 500 000 SUM")}</p><b className="text-[13px]">0 {t("шт.")} (0%) <span className="text-[#4f71dc]">0</span></b></div>
+              <div><p className="text-[13px] text-[#555]">Средний чек одного оборудования</p><b className="text-[13px]">{fmt(total?.avg_check ?? 0)} {total?.currency ?? "SUM"}</b></div>
+              <div><p className="text-[13px] text-[#555]">От 0 SUM до 1 500 000 SUM</p><b className="text-[13px]">{total?.first_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.first_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.first_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
-              <div><p className="flex items-center gap-3 text-[13px] text-[#555]">{t("От 1 500 000 SUM до 3 000 000 SUM")} <Pencil className="h-4 w-4 text-[#555]" /></p><b className="text-[13px]">0 {t("шт.")} (0%) <span className="text-[#4f71dc]">0</span></b></div>
-              <div><p className="text-[13px] text-[#555]">{t("Больше 3 000 000 SUM")}</p><b className="text-[13px]">0 {t("шт.")} (0%) <span className="text-[#4f71dc]">0</span></b></div>
+              <div><p className="flex items-center gap-3 text-[13px] text-[#555]">От 1 500 000 SUM до 3 000 000 SUM <Pencil className="h-4 w-4 text-[#555]" /></p><b className="text-[13px]">{total?.second_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.second_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.second_gear_count ?? 0}</span></b></div>
+              <div><p className="text-[13px] text-[#555]">Больше 3 000 000 SUM</p><b className="text-[13px]">{total?.third_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.third_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.third_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] px-[15px] py-[11px] text-right">
-              <div><p className="text-[13px] text-[#555]">{t("Фактическая продажа")}</p><b className="text-[13px]">0 SUM</b></div>
-              <div><p className="text-[13px] text-[#555]">{t("С оборудованием")}</p><b className="text-[13px]">0 SUM (0 %)</b></div>
+              <div><p className="text-[13px] text-[#555]">Фактическая продажа</p><b className="text-[13px]">{fmt(total?.total_fact ?? 0)} {total?.currency ?? "SUM"}</b></div>
+              <div><p className="text-[13px] text-[#555]">С оборудованием</p><b className="text-[13px]">{fmt(total?.total_fact_gear ?? 0)} {total?.currency ?? "SUM"} ({percent(total?.total_fact_gear ?? 0, total?.total_fact ?? 0)} %)</b></div>
             </div>
           </div>
 
@@ -150,16 +203,16 @@ export function EquipmentEfficiencyView() {
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] table-fixed border-collapse text-[13px]">
-            <colgroup><col className="w-[220px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col /></colgroup>
+            <colgroup><col className="w-[220px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col /></colgroup>
             <thead className="shadow-[0_3px_6px_rgba(0,0,0,0.12)]">
-              <tr className="h-[48px] bg-[#f2f5f8]">{["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"].map((title) => <th key={title} className="border-r border-[#e1e5eb] px-2 text-center font-semibold leading-4 last:border-r-0">{t(title)}</th>)}</tr>
+              <tr className="h-[33px] bg-white">{["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"].map((title) => <th key={title} className="border-r border-[#e1e5eb] px-2 text-center font-semibold leading-4 last:border-r-0">{title}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr key={row.client} className={`h-[31px] ${index % 2 ? "bg-white" : "bg-[#f2f5f8]"}`}>
+                <tr key={row.id} className={`min-h-[31px] h-[31px] ${index % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
                   <td className="truncate px-[6px]">{row.client}</td>
-                  {Array.from({ length: 4 }).map((_, cell) => <td key={cell} className="border-l border-[#ececec] px-[6px]">0</td>)}
-                  <td className="border-l border-[#ececec] px-[6px]">{row.equipment}</td>
+                  {[row.sales, row.gearSales, row.variety, row.products].map((value, cell) => <td key={cell} className="border-l border-[#ececec] px-[6px] text-right">{fmt(value)}</td>)}
+                  <td className="border-l border-[#ececec] px-[6px] py-[5px] leading-[18px]"><span className="line-clamp-2">{row.equipment}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -170,21 +223,23 @@ export function EquipmentEfficiencyView() {
       </div>
 
       {filterOpen && (
-        <ReportFilterPanel onClose={() => setFilterOpen(false)} onApply={() => { setFilters(draft); setFilterOpen(false) }}>
-          <ReportRangeField label="Период по дате создания" from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />
-          <ReportInputField label="Фактическая продажа (от)" value={draft.saleFrom} onChange={(value) => updateFilter("saleFrom", value)} />
-          <ReportInputField label="Фактическая продажа (до)" value={draft.saleTo} onChange={(value) => updateFilter("saleTo", value)} />
-          <ReportSelectField label="Клиенты агента" value={draft.agent} options={selectOptions.agent} onChange={(value) => updateFilter("agent", value)} clearable={false} />
-          <ReportSelectField label="Организация" value={draft.organization} options={selectOptions.organization} onChange={(value) => updateFilter("organization", value)} clearable={false} />
+        <ReportFilterPanel normalCase onClose={() => setFilterOpen(false)} onApply={() => { setFilters(draft); setFilterOpen(false) }} onReset={() => { setDraft(emptyFilters); setFilters(emptyFilters); setRealizedDate(""); setFilterOpen(false) }}>
+          <FilterSection title="Клиенты и инвентарь" />
+          <ReportSelectField label="Ответственный агент клиента" value={draft.agent} options={selectOptions.agent} onChange={(value) => updateFilter("agent", value)} clearable={false} />
+          <ReportSelectField label="Организация инвентаря" value={draft.organization} options={selectOptions.organization} onChange={(value) => updateFilter("organization", value)} clearable={false} />
           <ReportSelectField label="Зона" value={draft.zone} options={selectOptions.zone} onChange={(value) => updateFilter("zone", value)} clearable={false} />
-          <ReportInputField label="Факт продаж оборудования (от)" value={draft.equipmentSaleFrom} onChange={(value) => updateFilter("equipmentSaleFrom", value)} />
-          <ReportInputField label="Факт продаж оборудования (до)" value={draft.equipmentSaleTo} onChange={(value) => updateFilter("equipmentSaleTo", value)} />
           <ReportSelectField label="Филиалы" value={draft.branch} options={selectOptions.branch} onChange={(value) => updateFilter("branch", value)} clearable={false} />
           <ReportSelectField label="Инвентарь" value={draft.inventory} options={selectOptions.inventory} onChange={(value) => updateFilter("inventory", value)} clearable={false} />
-          <ReportSelectField label="Тип инвентаря" value={draft.inventoryType} options={selectOptions.inventoryType} onChange={(value) => updateFilter("inventoryType", value)} clearable={false} />
+          <ReportSelectField label="Тип инвентаря (продукт)" value={draft.inventoryType} options={selectOptions.inventoryType} onChange={(value) => updateFilter("inventoryType", value)} clearable={false} />
           <ReportSelectField label="Тип клиента" value={draft.clientType} options={selectOptions.clientType} onChange={(value) => updateFilter("clientType", value)} clearable={false} />
-          <ReportSelectField label="Тип товара" value={draft.productType} options={selectOptions.productType} onChange={(value) => updateFilter("productType", value)} clearable={false} />
+          <div className="hidden lg:block" />
+          <FilterSection title="Заказы" />
+          <ReportRangeField label="Период по дате создания" from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />
+          <ReportDateField label="Период по дате реализации" placeholder="Укажите Дату" value={realizedDate} onChange={setRealizedDate} />
+          <FilterPair caption="Фактическая продажа" from={draft.saleFrom} to={draft.saleTo} onFrom={(value) => updateFilter("saleFrom", value)} onTo={(value) => updateFilter("saleTo", value)} />
+          <FilterPair caption="Факт продаж оборудования" from={draft.equipmentSaleFrom} to={draft.equipmentSaleTo} onFrom={(value) => updateFilter("equipmentSaleFrom", value)} onTo={(value) => updateFilter("equipmentSaleTo", value)} />
           <ReportSelectField label="Товар" value={draft.product} options={selectOptions.product} onChange={(value) => updateFilter("product", value)} clearable={false} />
+          <ReportSelectField label="Тип товара заказа" value={draft.productType} options={selectOptions.productType} onChange={(value) => updateFilter("productType", value)} clearable={false} />
         </ReportFilterPanel>
       )}
     </ReportPage>

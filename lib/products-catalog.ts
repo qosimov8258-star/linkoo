@@ -3,6 +3,7 @@ import "server-only"
 import type { PgDb } from "@/lib/db"
 import { parseItemPrices } from "@/lib/item-prices"
 import { CATALOG_TABLE, KIND_COLUMNS, catalogDb } from "@/lib/products-schema"
+import { shortRuDate } from "@/lib/ref-date"
 import { withCostOfGoods } from "@/lib/stock/costs"
 import {
   EMPTY_CATALOG_FILTERS,
@@ -119,7 +120,7 @@ export function rowToItem(kind: CatalogKind, row: CatalogRow): CatalogItem {
     priceLists: parsePrices(row),
     priceMin: num(row.price_min),
     priceMax: num(row.price_max),
-    priceUpdatedDate: cleanText(row.price_updated_date),
+    priceUpdatedDate: shortRuDate(cleanText(row.price_updated_date)),
     cost: num(row.cost),
     deleted: int(row.deleted),
     deletedAt: text(row.deleted_at),
@@ -184,6 +185,8 @@ function listWhere(kind: CatalogKind, query: CatalogListQuery, params: Record<st
   const where: string[] = []
   const f = query.filters
   where.push(query.tab === "4" ? "COALESCE(t.deleted, 0) = 1" : "COALESCE(t.deleted, 0) = 0")
+  // Inventory has its own tab: "Все" is sellable + off-sale items only, as in the reference.
+  if (query.tab !== "2" && query.tab !== "4") where.push(`COALESCE(t.${columns.isInventory}, 0) = 0`)
   if (query.tab === "1") where.push("t.can_sell = 1")
   if (query.tab === "2") where.push(`t.${columns.isInventory} = 1`)
   if (query.tab === "3") where.push(`t.can_sell = 0 AND COALESCE(t.${columns.isInventory}, 0) = 0`)

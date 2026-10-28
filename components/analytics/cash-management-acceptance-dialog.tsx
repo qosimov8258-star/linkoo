@@ -93,7 +93,7 @@ export function CashAcceptanceInfoDialog({ id, canWrite, onClose, onChanged }: {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-[13px]">
               <thead>
-                <tr className="bg-[#626b7e] text-left text-white">
+                <tr className="bg-[#5d6474] text-left text-white">
                   <th className="px-2 py-2.5 font-semibold">№</th>
                   <th className="px-2 py-2.5 font-semibold">{t("Клиент")}</th>
                   <th className="px-2 py-2.5 font-semibold">{t("Агент")}</th>

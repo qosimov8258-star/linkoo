@@ -1,26 +1,11 @@
 import "server-only"
 
-import { getDb, withTransaction } from "@/lib/db"
+import { createRecord, deleteRecord, listRecords } from "@/lib/ref-records-repo"
 
-async function ensureSchema(db: ReturnType<typeof getDb>) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS survey_plans (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      period TEXT NOT NULL,
-      employee TEXT NOT NULL,
-      survey TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `)
-}
+// "План опроса": plan rows per month (kind "survey-plan" of the shared reference store). The reference has no plan for the
+// current month, so the list starts empty.
 
 export type SurveyPlanEntry = { period: string; employee: string; survey: string }
-
-type Row = { id: number; period: string; employee: string; survey: string }
-
-function rowToEntry(row: Row): SurveyPlanEntry {
-  return { period: row.period, employee: row.employee, survey: row.survey }
-}
 
 export type SurveyPlanReplaceInput = { period: string; entries: { employee: string; survey: string }[] }
 
@@ -40,19 +25,17 @@ export function parseSurveyPlanReplaceInput(body: unknown): SurveyPlanReplaceInp
   return { period, entries }
 }
 
+function toEntry(data: Record<string, unknown>): SurveyPlanEntry {
+  return { period: String(data.period ?? ""), employee: String(data.employee ?? ""), survey: String(data.survey ?? "") }
+}
+
 export async function listSurveyPlans(): Promise<SurveyPlanEntry[]> {
-  const db = getDb()
-  await ensureSchema(db)
-  return ((await db.prepare("SELECT * FROM survey_plans ORDER BY id ASC").all()) as Row[]).map(rowToEntry)
+  return (await listRecords("survey-plan")).map((record) => toEntry(record.data))
 }
 
 export async function replaceSurveyPlanPeriod(input: SurveyPlanReplaceInput): Promise<SurveyPlanEntry[]> {
-  await ensureSchema(getDb())
-  await withTransaction(async (db) => {
-    await db.prepare("DELETE FROM survey_plans WHERE period = ?").run(input.period)
-    const insert = db.prepare("INSERT INTO survey_plans (period, employee, survey) VALUES (?, ?, ?)")
-    for (const entry of input.entries) await insert.run(input.period, entry.employee, entry.survey)
-  })
-  const db = getDb()
-  return ((await db.prepare("SELECT * FROM survey_plans WHERE period = ? ORDER BY id ASC").all(input.period)) as Row[]).map(rowToEntry)
+  const existing = (await listRecords("survey-plan")).filter((record) => record.data.period === input.period)
+  for (const record of existing) await deleteRecord("survey-plan", record.id)
+  for (const entry of input.entries) await createRecord("survey-plan", { period: input.period, employee: entry.employee, survey: entry.survey })
+  return (await listRecords("survey-plan")).map((record) => toEntry(record.data)).filter((entry) => entry.period === input.period)
 }

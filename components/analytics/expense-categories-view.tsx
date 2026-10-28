@@ -26,21 +26,21 @@ export function ExpenseCategoriesView({ embedded = false }: { embedded?: boolean
 function ExpenseCategoriesGrid() {
   const { t, language } = useLanguage()
   const columns: CategoryColumn<ExpenseCategory>[] = [
-    { key: "name", title: "Наименование", width: "w-[22%]", className: "font-medium break-words", render: (row) => row.name },
-    { key: "options", title: "Параметры", width: "w-[23%]", render: (row) => <CategoryOptionChips options={row.options} /> },
-    { key: "parent", title: "Род. категория", width: "w-[16%]", className: "break-words", render: (row) => row.parentName || t("Не указано") },
+    { key: "name", title: "Наименование", width: "3fr", className: "break-words", render: (row) => <span data-no-translate>{row.name}</span> },
+    { key: "options", indent: true, rowIndent: true, title: "Параметры", width: "3fr", render: (row) => <CategoryOptionChips options={row.options} /> },
+    { key: "parent", indent: true, rowIndent: true, title: "Род. категория", width: "2fr", className: "break-words", render: (row) => row.parentName || t("Не указано") },
     {
-      key: "created_date",
+      key: "created_date", indent: true, rowIndent: true,
       title: "Дата создания",
-      width: "w-[14%]",
+      width: "1fr",
       ordering: "created_date",
       className: "whitespace-nowrap",
       render: (row) => (row.createdDate ? formatCategoryDate(row.createdDate, language) : ""),
     },
     {
-      key: "direct",
+      key: "direct", indent: true, rowIndent: true,
       title: "Внутренний расход",
-      width: "w-[17%]",
+      width: "2fr",
       ordering: "direct",
       render: (row) => (row.direct ? t("Прямой расход на товар") : t("Косвенный расход")),
     },

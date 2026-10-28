@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { Suspense } from "react"
 
 import { SalesTabView } from "@/components/analytics/sales-tab-view"
 import { getServerT } from "@/lib/i18n/server"
@@ -12,5 +13,9 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function SalesTabPage() {
-  return <SalesTabView />
+  return (
+    <Suspense fallback={null}>
+      <SalesTabView />
+    </Suspense>
+  )
 }

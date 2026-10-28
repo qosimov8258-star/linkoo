@@ -1,56 +1,60 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useState } from "react"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
-import { CashModal, PrimaryButton, inputClass } from "@/components/analytics/cash-management-shared"
-import { MultiSelect } from "@/components/analytics/client-balance-filters"
+import { RefSearchSelect, type RefSelectItem } from "@/components/analytics/ref-search-select"
 import { withSelected, type StockOptions } from "@/components/analytics/stock-move-filters"
 import type { PlanState } from "@/components/analytics/stock-plan-state"
+import { FilterDate, RefFilterPanel } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { PLAN_MOVE_TYPES, PLAN_TAB_TYPES, PLAN_TYPE_LABELS, isHistoryTab, isReceiveTab, type PlanOptionsResult, type PlanTaskTab } from "@/lib/stock-plan-types"
+import {
+  PLAN_MOVE_DIRECTIONS,
+  PLAN_MOVE_FILTER_TYPES,
+  PLAN_TAB_TYPES,
+  PLAN_TYPE_LABELS,
+  isHistoryTab,
+  isReceiveTab,
+  type PlanOptionsResult,
+  type PlanTaskTab,
+} from "@/lib/stock-plan-types"
 
-// Filter popups of "План приемок и передач":
+// Filter panels of "План приемок и передач" (the left-hand "Фильтр" panel of the reference):
 // - task tabs (demo StockReceivesReceiveFilterForm / …TransferFilterForm):
 //   Склад, Тип, Принял / Передал (history only), Дата приемки / Дата передачи;
-// - "Движение товаров" (demo StockReceivesProductMoveFilterForm): Тип продукта,
-//   Подкатегория, Тип, Товар, Склад, Период.
-// The period is optional (the demo lists everything until one is chosen).
+// - "Движение товаров" (demo StockReceivesProductMoveFilterForm): Тип продукта, Тип,
+//   Товар, Склад, Статус (Приход / Расход), Период.
+// The date range is pre-filled with the current month and sent with "Применить",
+// like the reference (without it the list shows everything).
 
 export type PlanFilterChanges = Record<string, string | string[] | null>
 
-function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
-  const { t } = useLanguage()
-  return (
-    <div className={`flex min-w-0 flex-col gap-1 ${wide ? "md:col-span-2" : ""}`}>
-      <span className="text-sm text-[#586174]">{t(label)}</span>
-      {children}
-    </div>
-  )
-}
+const day = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 
-function PeriodField({ label, from, to, onChange }: { label: string; from: string; to: string; onChange: (next: { from: string; to: string }) => void }) {
-  return (
-    <Field label={label} wide>
-      <span className="flex items-center gap-2">
-        <input type="date" value={from} onChange={(event) => onChange({ from: event.target.value, to })} className={inputClass} />
-        <span className="text-[#586174]">—</span>
-        <input type="date" value={to} onChange={(event) => onChange({ from, to: event.target.value })} className={inputClass} />
-      </span>
-    </Field>
-  )
-}
-
-function FilterShell({ onClose, onApply, children }: { onClose: () => void; onApply: () => void; children: ReactNode }) {
-  const { t } = useLanguage()
-  return (
-    <CashModal title={t("Фильтр")} onClose={onClose} size="md" footer={<PrimaryButton onClick={onApply}>{t("Применить")}</PrimaryButton>}>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
-    </CashModal>
-  )
+function currentMonth() {
+  const now = new Date()
+  return { from: day(new Date(now.getFullYear(), now.getMonth(), 1)), to: day(new Date(now.getFullYear(), now.getMonth() + 1, 0)) }
 }
 
 const ordered = (from: string, to: string) => (from && to && from > to ? { from: to, to: from } : { from, to })
+
+const items = (values: string[]): RefSelectItem[] => values.map((value) => ({ value, label: value }))
+const picked = (values: string[]): RefSelectItem[] => values.map((value) => ({ value, label: value }))
+
+function MultiField({ label, options, value, onChange }: { label: string; options: string[]; value: string[]; onChange: (next: string[]) => void }) {
+  const { t } = useLanguage()
+  return (
+    <RefSearchSelect
+      multi
+      searchable={false}
+      rowHeight={32}
+      label={t(label)}
+      items={items(withSelected(options, value).map((option) => option.value))}
+      selected={picked(value)}
+      onChange={(next) => onChange(next.map((item) => item.value))}
+    />
+  )
+}
 
 /** Mounted only while open: the draft is seeded from the applied state. */
 export function PlanTaskFilterDialog({
@@ -72,34 +76,28 @@ export function PlanTaskFilterDialog({
   const [warehouses, setWarehouses] = useState(state.warehouses)
   const [type, setType] = useState(state.type)
   const [doneBy, setDoneBy] = useState(state.doneBy)
-  const [period, setPeriod] = useState({ from: state.from, to: state.to })
+  const month = currentMonth()
+  const [period, setPeriod] = useState({ from: state.from || month.from, to: state.to || month.to })
   const receive = isReceiveTab(tab)
   const apply = () => {
     const dates = ordered(period.from, period.to)
     onApply({ stock: warehouses, type: type || null, acceptedBy: isHistoryTab(tab) ? doneBy : null, fromDate: dates.from || null, toDate: dates.to || null })
   }
+  const typeItems = PLAN_TAB_TYPES[tab].map((value) => ({ value, label: t(PLAN_TYPE_LABELS[value]) }))
   return (
-    <FilterShell onClose={onClose} onApply={apply}>
-      <Field label="Склад">
-        <MultiSelect value={warehouses} options={withSelected(options.warehouses.map((warehouse) => warehouse.name), warehouses)} onChange={setWarehouses} />
-      </Field>
-      <Field label="Тип">
-        <select value={type} onChange={(event) => setType(event.target.value)} className={inputClass}>
-          <option value="">{t("Все")}</option>
-          {PLAN_TAB_TYPES[tab].map((value) => (
-            <option key={value} value={value}>
-              {t(PLAN_TYPE_LABELS[value])}
-            </option>
-          ))}
-        </select>
-      </Field>
-      {isHistoryTab(tab) && (
-        <Field label={receive ? "Принял" : "Передал"} wide>
-          <MultiSelect value={doneBy} options={withSelected(doneByOptions, doneBy)} onChange={setDoneBy} />
-        </Field>
-      )}
-      <PeriodField label={receive ? "Дата приемки" : "Дата передачи"} from={period.from} to={period.to} onChange={setPeriod} />
-    </FilterShell>
+    <RefFilterPanel narrow onClose={onClose} onApply={apply} applyClassName="mt-[15px]">
+      <MultiField label="Склад" options={options.warehouses.map((warehouse) => warehouse.name)} value={warehouses} onChange={setWarehouses} />
+      <RefSearchSelect
+        label={t("Тип")}
+        searchable={false}
+        rowHeight={32}
+        items={typeItems}
+        selected={typeItems.filter((item) => item.value === type)}
+        onChange={(next) => setType(next[0]?.value ?? "")}
+      />
+      {isHistoryTab(tab) && <MultiField label={receive ? "Принял" : "Передал"} options={doneByOptions} value={doneBy} onChange={setDoneBy} />}
+      <FilterDate words className="-mt-[9px]" label={t(receive ? "Дата приемки" : "Дата передачи")} begin={period.from} end={period.to} onChange={(from, to) => setPeriod({ from, to })} />
+    </RefFilterPanel>
   )
 }
 
@@ -107,12 +105,13 @@ export function PlanMoveFilterDialog({ state, options, onClose, onApply }: { sta
   const { t } = useLanguage()
   const [draft, setDraft] = useState({
     typeParents: state.typeParents,
-    subcategories: state.subcategories,
     types: state.moveTypes,
     products: state.products,
     warehouses: state.warehouses,
+    direction: state.direction,
   })
-  const [period, setPeriod] = useState({ from: state.from, to: state.to })
+  const month = currentMonth()
+  const [period, setPeriod] = useState({ from: state.from || month.from, to: state.to || month.to })
   const productList = useCashJson<PlanOptionsResult>("/api/stock/plan/options").data?.products ?? []
   const known = new Set(productList.map((item) => item.key))
   const set = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) => setDraft((current) => ({ ...current, [key]: value }))
@@ -120,39 +119,50 @@ export function PlanMoveFilterDialog({ state, options, onClose, onApply }: { sta
     const dates = ordered(period.from, period.to)
     onApply({
       typeParent: draft.typeParents,
-      typeChild: draft.subcategories,
       type: draft.types,
       product: draft.products,
       stock: draft.warehouses,
+      direction: draft.direction || null,
       fromDate: dates.from || null,
       toDate: dates.to || null,
     })
   }
+  const typeItems = PLAN_MOVE_FILTER_TYPES.map((type) => ({ value: type.id, label: t(type.label) }))
+  const productItems: RefSelectItem[] = [
+    ...draft.products.filter((key) => !known.has(key)).map((key) => ({ value: key, label: key.replace(/^name:/, "") })),
+    ...productList.map((item) => ({ value: item.key, label: item.name })),
+  ]
+  const directionItems = PLAN_MOVE_DIRECTIONS.map((direction) => ({ value: direction.id, label: t(direction.label) }))
   return (
-    <FilterShell onClose={onClose} onApply={apply}>
-      <Field label="Тип продукта">
-        <MultiSelect value={draft.typeParents} options={withSelected(options.types, draft.typeParents)} onChange={(next) => set("typeParents", next)} />
-      </Field>
-      <Field label="Подкатегория">
-        <MultiSelect value={draft.subcategories} options={withSelected(options.subcategories, draft.subcategories)} onChange={(next) => set("subcategories", next)} />
-      </Field>
-      <Field label="Тип">
-        <MultiSelect value={draft.types} options={PLAN_MOVE_TYPES.map((type) => ({ value: type.id, label: t(type.label) }))} onChange={(next) => set("types", next)} />
-      </Field>
-      <Field label="Склад">
-        <MultiSelect value={draft.warehouses} options={withSelected(options.warehouses.map((warehouse) => warehouse.name), draft.warehouses)} onChange={(next) => set("warehouses", next)} />
-      </Field>
-      <Field label="Товар" wide>
-        <MultiSelect
-          value={draft.products}
-          options={[
-            ...draft.products.filter((key) => !known.has(key)).map((key) => ({ value: key, label: key.replace(/^name:/, "") })),
-            ...productList.map((item) => ({ value: item.key, label: item.name })),
-          ]}
-          onChange={(next) => set("products", next)}
-        />
-      </Field>
-      <PeriodField label="Период" from={period.from} to={period.to} onChange={setPeriod} />
-    </FilterShell>
+    <RefFilterPanel narrow onClose={onClose} onApply={apply} applyClassName="mt-[15px]">
+      <MultiField label="Тип продукта" options={options.types} value={draft.typeParents} onChange={(next) => set("typeParents", next)} />
+      <RefSearchSelect
+        multi
+        searchable={false}
+        rowHeight={32}
+        label={t("Тип")}
+        items={typeItems}
+        selected={typeItems.filter((item) => draft.types.includes(item.value))}
+        onChange={(next) => set("types", next.map((item) => item.value))}
+      />
+      <RefSearchSelect
+        multi
+        label={t("Товар")}
+        rowHeight={32}
+        items={productItems}
+        selected={productItems.filter((item) => draft.products.includes(item.value))}
+        onChange={(next) => set("products", next.map((item) => item.value))}
+      />
+      <MultiField label="Склад" options={options.warehouses.map((warehouse) => warehouse.name)} value={draft.warehouses} onChange={(next) => set("warehouses", next)} />
+      <RefSearchSelect
+        searchable={false}
+        rowHeight={32}
+        label={t("Статус")}
+        items={directionItems}
+        selected={directionItems.filter((item) => item.value === draft.direction)}
+        onChange={(next) => set("direction", next[0]?.value ?? "")}
+      />
+      <FilterDate words className="-mt-[9px]" label={t("Период")} begin={period.from} end={period.to} onChange={(from, to) => setPeriod({ from, to })} />
+    </RefFilterPanel>
   )
 }

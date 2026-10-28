@@ -62,7 +62,17 @@ const CASH_SIDE = `CASE WHEN sp.real_amount IS NOT NULL AND fin_cur(NULLIF(sp.re
   WHEN COALESCE(fin_cur(sp.currency), cb.cur) = cb.cur THEN sp.amount::float8
   ELSE sp.amount::float8 * COALESCE(${RATE("fin_cur(sp.currency)")} / NULLIF(${RATE("cb.cur")}, 0), 1) END`
 
-const PAYMENTS_CTE = `WITH ${RATES_CTE},
+// Reference rows (supplier_payment_reference_rows, 20 real payments of the demo app): when that table exists the list
+// shows exactly those rows plus payments created here; the seeded demo payments (demo_seed_rows) stay out of the
+// list but keep feeding the cash side. New local payments sort above the reference rows.
+const DEMO_HIDDEN = ` AND NOT EXISTS (SELECT 1 FROM demo_seed_rows dsr WHERE dsr.table_name = 'supplier_payments' AND dsr.row_id = sp.id::text)`
+const REFERENCE_ROWS = `UNION ALL
+  SELECT r.id, r.id, r.doc_no, 5, r.ts, r.cby, r.supplier_id, r.supplier_name, r.organization, ''::text, cbr.branch,
+         r.amount, r.cur, NULL::float8, NULL::float8, NULL::float8, r.cashbox_id, r.cashbox_name, r.pt,
+         CASE WHEN cbr.cur = r.cur THEN r.amount END, cbr.cur, NULL::text, r.comment, NULL::int, NULL::int, true
+  FROM supplier_payment_reference_rows r LEFT JOIN cbx cbr ON cbr.id = r.cashbox_id`
+
+const buildPaymentsCte = (withReference: boolean) => `WITH ${RATES_CTE},
 cbx AS (
   SELECT id, name, COALESCE(fin_cur(currency), @base::text) AS cur, CASE WHEN fin_pt(payment_type) = 'bank' THEN 'bank' ELSE 'cash' END AS pt,
          fin_place(branch) AS branch
@@ -71,7 +81,7 @@ cbx AS (
 cbk AS (SELECT fin_key(name) AS k, MIN(id) AS id FROM cashboxes GROUP BY 1),
 sk AS (SELECT fin_key(name) AS k, MIN(id) AS id FROM suppliers GROUP BY 1),
 p AS (
-  SELECT sp.id, sp.doc_no::bigint AS doc_no, COALESCE(sp.op_type, 5) AS op,
+  SELECT sp.id, ${withReference ? "sp.id + 100000" : "sp.id"} AS sort_id, sp.doc_no::bigint AS doc_no, COALESCE(sp.op_type, 5) AS op,
     COALESCE(fin_ts(sp.paid_at), fin_ts(NULLIF(sp.payment_date, '')), fin_ts(sp.created_at, true)) AS ts,
     sp.created_by AS cby,
     COALESCE(sp.supplier_id, sk.id) AS supplier_id, COALESCE(s.name, sp.supplier) AS supplier_name,
@@ -89,7 +99,8 @@ p AS (
   LEFT JOIN cbx cb ON cb.id = COALESCE(sp.cashbox_id, cbk.id)
   LEFT JOIN suppliers s ON s.id = sp.supplier_id
   LEFT JOIN sk ON sp.supplier_id IS NULL AND sk.k = fin_key(sp.supplier)
-  WHERE sp.is_deleted = 0 AND COALESCE(sp.op_type, 5) <> 4
+  WHERE sp.is_deleted = 0 AND COALESCE(sp.op_type, 5) <> 4${withReference ? DEMO_HIDDEN : ""}
+  ${withReference ? REFERENCE_ROWS : ""}
 ),
 f AS (
   SELECT p.*,
@@ -111,7 +122,7 @@ f AS (
 const TEXT = (expr: string) => `fin_key(${expr}) COLLATE "C"`
 
 const ORDER_FIELDS: Record<string, string> = {
-  id: "f.id",
+  id: "f.sort_id",
   client: TEXT("f.supplier_name"),
   supplier: TEXT("f.supplier_name"),
   user: TEXT("f.cby"),
@@ -126,7 +137,7 @@ const ORDER_FIELDS: Record<string, string> = {
 function orderBy(ordering: string | undefined): string {
   const text = String(ordering ?? "").trim() || "-id"
   const desc = text.startsWith("-")
-  const field = ORDER_FIELDS[text.replace(/^-/, "")] ?? "f.id"
+  const field = ORDER_FIELDS[text.replace(/^-/, "")] ?? "f.sort_id"
   const dir = desc ? "DESC" : "ASC"
   return `${field} ${dir} NULLS LAST, f.id ${dir}`
 }
@@ -224,6 +235,8 @@ export async function listSupplierPaymentsPage(query: SupplierPaymentsQuery, db:
     q: search,
     qnum: /^\d{1,15}$/.test(search) ? Number(search) : -1,
   }
+  const ref = (await db.prepare("SELECT to_regclass('supplier_payment_reference_rows') IS NOT NULL AND to_regclass('demo_seed_rows') IS NOT NULL AS ok").get()) as { ok: boolean }
+  const PAYMENTS_CTE = buildPaymentsCte(Boolean(ref.ok))
   const count = (await db.prepare(`${PAYMENTS_CTE} SELECT COUNT(*)::int AS n FROM f`).get(params)) as { n: number }
   const paging = pageSize ? ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}` : ` LIMIT ${MAX_ROWS}`
   const rows = (await db

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 
-import { employeeErrorResponse, employeeSchema, toEmployeeInput } from "@/app/api/employees/schema"
-import { parseBody } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
+import { employeeErrorResponse, parseEmployeeBody } from "@/lib/employees-api"
 import { createEmployee, listEmployees } from "@/lib/employees-repo"
+import { attachLicenseToEmployee } from "@/lib/subscriptions-repo"
 import { requireRole } from "@/lib/rbac"
 
 export async function GET() {
@@ -12,21 +12,18 @@ export async function GET() {
   return NextResponse.json(await listEmployees())
 }
 
-// POST /api/employees — branch and position must name an existing Филиал and
-// Должность (400 otherwise).
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseBody(request, employeeSchema)
-  if (parsed.error) return parsed.error
+  const parsed = await parseEmployeeBody(request)
+  if ("error" in parsed) return parsed.error
 
-  try {
-    const employee = await createEmployee(toEmployeeInput(parsed.data))
-    return NextResponse.json(employee, { status: 201 })
-  } catch (error) {
-    const response = employeeErrorResponse(error)
-    if (response) return response
-    throw error
+  const result = await createEmployee(parsed.data)
+  if ("error" in result) return employeeErrorResponse(result.error)
+  if (parsed.data.licenseKey) {
+    const attached = await attachLicenseToEmployee(result.employee.id, parsed.data.licenseKey)
+    if (!attached) return NextResponse.json({ ...result.employee, warning: "Нет доступных лицензий этого типа" }, { status: 201 })
   }
+  return NextResponse.json(result.employee, { status: 201 })
 }

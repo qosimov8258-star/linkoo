@@ -6,6 +6,7 @@ import { dbErrorResponse } from "@/lib/db-errors"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
+import { selectedBranchName } from "@/lib/selected-branch"
 import {
   CASHBOX_TYPE_LABELS,
   cashboxNameKey,
@@ -81,10 +82,13 @@ let schemaReady: Promise<void> | null = null
 
 /** Adds the nullable cashier_id link next to the `cashier` name (idempotent, once per process). */
 export function ensureCashboxesSchema(): Promise<void> {
-  schemaReady ??= outsideTransaction(() => getDb().exec("ALTER TABLE cashboxes ADD COLUMN IF NOT EXISTS cashier_id INTEGER")).catch((error: unknown) => {
-      schemaReady = null
-      throw error
-    })
+  schemaReady ??= outsideTransaction(() =>
+    getDb().exec(`ALTER TABLE cashboxes ADD COLUMN IF NOT EXISTS cashier_id INTEGER;
+      CREATE TABLE IF NOT EXISTS cashbox_reference_order (cashbox_id INTEGER PRIMARY KEY, seq INTEGER NOT NULL)`),
+  ).catch((error: unknown) => {
+    schemaReady = null
+    throw error
+  })
   return schemaReady
 }
 
@@ -107,9 +111,11 @@ async function tableExists(db: PgDb, table: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 const COLUMNS = "id, name, currency, cashier, cashier_id, branch, payment_type, vansell, order_number, created_at"
-/** Demo order: position ascending with "Не указано" last, then newest first. */
-const ORDER_BY = "ORDER BY (COALESCE(order_number, 0) = 0), order_number, id DESC"
-const SEARCH = `(@needle = '' OR strpos(${keySql("name")}, @needle) > 0)`
+/** Demo order: the reference's own sequence first (cashbox_reference_order, when filled), then position ascending with "Не указано" last, then newest first. */
+const ORDER_BY = "ORDER BY COALESCE((SELECT r.seq FROM cashbox_reference_order r WHERE r.cashbox_id = cashboxes.id), 1000000), (COALESCE(order_number, 0) = 0), order_number, id DESC"
+/** Creation order used by the reference's group payment columns: position ascending with "Не указано" last, then oldest first. */
+const ORDER_BY_CREATED = "ORDER BY (COALESCE(order_number, 0) = 0), order_number, id"
+const SEARCH = `(@needle = '' OR strpos(${keySql("name")}, @needle) > 0) AND (@branch = '' OR branch = @branch)`
 
 function rowToCashbox(row: CashboxRow): Cashbox {
   const type = cashboxTypeOf(row.payment_type) ?? "cash"
@@ -130,11 +136,11 @@ function rowToCashbox(row: CashboxRow): Cashbox {
 }
 
 /** Plain array for every cashbox select (optional name search). */
-export async function listCashboxes(search = ""): Promise<Cashbox[]> {
+export async function listCashboxes(search = "", byCreation = false): Promise<Cashbox[]> {
   await ensureCashboxesSchema()
   const rows = (await getDb()
-    .prepare(`SELECT ${COLUMNS} FROM cashboxes WHERE ${SEARCH} ${ORDER_BY}`)
-    .all({ needle: cashboxNameKey(search) })) as CashboxRow[]
+    .prepare(`SELECT ${COLUMNS} FROM cashboxes WHERE ${SEARCH} ${byCreation ? ORDER_BY_CREATED : ORDER_BY}`)
+    .all({ needle: cashboxNameKey(search), branch: await selectedBranchName() })) as CashboxRow[]
   return rows.map(rowToCashbox)
 }
 
@@ -145,10 +151,11 @@ export async function listCashboxesPage(query: CashboxListQuery): Promise<Cashbo
   const needle = cashboxNameKey(query.search)
   const pageSize = query.pageSize ?? 25
   const page = query.page ?? 1
-  const countRow = (await db.prepare(`SELECT COUNT(*) AS n FROM cashboxes WHERE ${SEARCH}`).get({ needle })) as { n: string | number } | undefined
+  const branch = await selectedBranchName()
+  const countRow = (await db.prepare(`SELECT COUNT(*) AS n FROM cashboxes WHERE ${SEARCH}`).get({ needle, branch })) as { n: string | number } | undefined
   const rows = (await db
     .prepare(`SELECT ${COLUMNS} FROM cashboxes WHERE ${SEARCH} ${ORDER_BY} LIMIT @limit OFFSET @offset`)
-    .all({ needle, limit: pageSize, offset: (page - 1) * pageSize })) as CashboxRow[]
+    .all({ needle, branch, limit: pageSize, offset: (page - 1) * pageSize })) as CashboxRow[]
   return { count: Number(countRow?.n ?? 0), results: rows.map(rowToCashbox) }
 }
 
@@ -213,7 +220,7 @@ export async function getCashboxOptions(): Promise<CashboxOptions> {
     ? ((await db.prepare("SELECT id, name FROM branches ORDER BY lower(name), id").all()) as Array<{ id: number; name: string }>)
     : []
   return {
-    currencies: context.currencies.map((currency) => ({ code: currency.code, label: currency.label, name: currency.name })),
+    currencies: context.currencies.map((currency) => ({ code: currency.code, label: currency.label, name: currency.name })).sort((a, b) => a.label.localeCompare(b.label, "en", { sensitivity: "base" })),
     employees: employees
       .map((row) => ({ id: Number(row.id), name: employeeName(row), position: String(row.position ?? ""), active: Number(row.active ?? 1) === 1 }))
       .filter((employee) => employee.name),

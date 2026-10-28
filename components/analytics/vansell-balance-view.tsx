@@ -233,28 +233,28 @@ export function VansellBalanceView() {
 
   const nameCell = (row: BalanceRow) => (
     <div className="flex items-center justify-between gap-3">
-      <button type="button" onClick={() => update({ detail: row.key })} className="text-left font-medium text-[#129fdd] hover:underline">
+      <button type="button" onClick={() => update({ detail: row.key })} className="text-left text-[#333] hover:underline">
         {row.name || t("Не указано")}
       </button>
       {canEdit && row.id !== null && (
-        <span className="flex shrink-0 items-center gap-1.5">
+        <span className="-my-[6px] flex shrink-0 items-center pr-px">
           <button
             type="button"
             title={t("Добавить расход")}
             aria-label={t("Добавить расход")}
             onClick={() => setMovement({ kind: "expense", employeeId: row.id! })}
-            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#ff584b] text-white hover:opacity-85"
+            className="flex h-9 w-9 items-center justify-center hover:opacity-85"
           >
-            <Minus className="h-4 w-4" />
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#ff584b] text-white"><Minus className="h-4 w-4" /></span>
           </button>
           <button
             type="button"
             title={t("Добавить")}
             aria-label={t("Добавить")}
             onClick={() => setMovement({ kind: "add", employeeId: row.id! })}
-            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#8dc572] text-white hover:opacity-85"
+            className="flex h-9 w-9 items-center justify-center hover:opacity-85"
           >
-            <Plus className="h-4 w-4" />
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#8dc572] text-white"><Plus className="h-4 w-4" /></span>
           </button>
         </span>
       )}
@@ -270,18 +270,18 @@ export function VansellBalanceView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Баланс вансел")}</span>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс вансел")}</span>
         </div>
       </header>
 
-      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+      <div className="pt-[10px]">
         {data ? (
-          <BalanceSummaryCards boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
+          <BalanceSummaryCards compact marginClass="mx-[10px]" boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center pb-6">
             {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
@@ -290,7 +290,7 @@ export function VansellBalanceView() {
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
+        <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] pb-[8px] pt-[15px]">
           <BalanceFilterChip
             count={filterCount}
             onOpen={() => {
@@ -299,18 +299,18 @@ export function VansellBalanceView() {
             }}
             onClear={() => update({ period: null, users: [], page: 1 })}
           />
-          <label className="relative min-w-[200px] flex-1 border-b border-[#dbe0e8] pb-1.5">
+          <label style={{ left: "calc(50% - 182px)" }} className="absolute w-[182px] border-b border-[#e0e0e0] pb-1.5">
             <input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder={t("Поиск")}
-              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+              className="w-full bg-transparent pr-7 text-[13px] outline-none placeholder:text-[#9aa3b6]"
             />
             <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
           </label>
           <div className="ml-auto flex flex-wrap items-center gap-5">
             {canEdit && (
-              <button type="button" onClick={() => setLimitOpen(true)} className="flex h-10 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white">
+              <button type="button" onClick={() => setLimitOpen(true)} className="flex h-[30px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white">
                 <Pencil className="h-4 w-4" /> {t("Изменить лимит")}
                 {selected.size > 0 && <span className="rounded-full bg-white/25 px-2 text-[12px]">{selected.size}</span>}
               </button>
@@ -331,6 +331,8 @@ export function VansellBalanceView() {
 
         <section className="bg-white pb-10">
           <BalanceTable
+          fixedWidth={100}
+              selectionAfterFirst
             rows={rows}
             groups={GROUPS}
             currencies={visible}
@@ -346,6 +348,7 @@ export function VansellBalanceView() {
       </ExpandedOverlay>
 
       <BalanceFilterDialog
+        variant="card"
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
         from={period.from}

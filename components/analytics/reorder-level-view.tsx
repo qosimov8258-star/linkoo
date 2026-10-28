@@ -2,7 +2,7 @@
 
 import { Suspense, useState, type FormEvent } from "react"
 import Image from "next/image"
-import { BarChart, CircleAlert, Info, Loader2, Search } from "lucide-react"
+import { CircleAlert, Info, Loader2, Search } from "lucide-react"
 
 import { BalanceFilterChip, countActiveFilters } from "@/components/analytics/balance/filter-bar"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
@@ -17,8 +17,7 @@ import {
 } from "@/components/analytics/reorder-level-filters"
 import { ReorderLevelTable } from "@/components/analytics/reorder-level-table"
 import { useStockOptions, useUrlState } from "@/components/analytics/stock-move-filters"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
-import { formatDotDate } from "@/lib/finance/dates"
+import { RI, RefHeader } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { RecommendedListResult, RecommendedUnit } from "@/lib/stock-recommended"
 
@@ -37,8 +36,14 @@ export function ReorderLevelView() {
   )
 }
 
+const PERIOD_MONTHS = {
+  ru: ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."],
+  uz: ["Yan", "Fev", "Mar", "Apr", "May", "Iyn", "Iyl", "Avg", "Sen", "Okt", "Noy", "Dek"],
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+} as const
+
 function ReorderLevelContent() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const { searchParams, update } = useUrlState()
   const state = reorderStateFromParams(searchParams)
   const list = useCashJson<RecommendedListResult>(`/api/stock/recommended?${reorderApiQuery(state, { page: state.page, pageSize: state.pageSize })}`)
@@ -97,43 +102,73 @@ function ReorderLevelContent() {
   const sales = data?.sales
   const noWarehouseSales = Boolean(sales && sales.orderMovements === 0)
 
-  return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-4 sm:px-6 md:px-9">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-xl font-bold text-[#586174] sm:text-2xl">{t("Рекомендованный запас")}</span>
-        </div>
-      </header>
+  const periodWord = (iso: string) => {
+    const [y, m, d] = iso.split("-")
+    const months = PERIOD_MONTHS[language === "ru" || language === "uz" ? language : "en"]
+    return `${d} ${months[Number(m) - 1]} ${y}`
+  }
 
-      <section className="flex flex-wrap items-center gap-4 px-4 py-4 sm:px-6 md:px-9">
-        <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
-        <button type="button" onClick={openFilter} className="font-bold text-[#4f71dc]" title={t("Диапазон дат")}>
-          {formatDotDate(state.from)} - {formatDotDate(state.to)}
-        </button>
-        <label className="flex items-center gap-2 text-[#586174]">
-          <span className="text-[13px]">{t("Показать по типу ед.")}</span>
-          <select
-            value={state.unit}
-            onChange={(event) => update({ selectType: event.target.value === "measurement" ? null : event.target.value, page: null })}
-            className="h-9 rounded-md border border-[#dbe0e8] bg-white px-2 text-[#17233b]"
+  return (
+    <main className="min-h-screen bg-[#f2f5f8] font-sans text-[13px] text-[#333]">
+      <div className="pl-[30px] pr-7">
+        <RefHeader title={t("Рекомендованный запас")} />
+      </div>
+
+      <div className="border-t border-[#e8eaee] bg-white pb-[20px]">
+      {/* Five blocks spread with equal gaps (the reference's flex row): at 1296px the gaps are 0 and the blocks sit at 30 / 299.7 / 648 / 1068.4px. */}
+      <section className="flex h-[50px] justify-between px-[30px]">
+        <div className="relative w-[269.7px] shrink-0">
+          <div className="absolute left-0 top-[17px]">
+            <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
+          </div>
+        </div>
+        <div className="relative w-[348.3px] shrink-0">
+          <form onSubmit={submitSearch} className="absolute left-0 top-0 h-[41px] w-[182px] border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="h-[40px] w-[147px] bg-transparent pt-[10px] text-[13px] outline-none placeholder:text-black/30"
+            />
+            <button type="submit" aria-label={t("Поиск")} className="absolute left-[156px] top-[13px] text-[#ccc] hover:text-[#4f70e7]">
+              <Search className="h-6 w-6" />
+            </button>
+          </form>
+        </div>
+        <div className="relative w-[410px] shrink-0">
+          <button type="button" onClick={openFilter} className="absolute left-0 top-[25px] w-[200px] text-right text-[13px] font-bold text-[#4f71dc]" title={t("Диапазон дат")} data-no-translate>
+            {periodWord(state.from)} - {periodWord(state.to)}
+          </button>
+          <label className="absolute left-[210px] top-[9.5px] block h-[36px] w-[200px] border-b border-[#e8e8e8]">
+            <span className="pointer-events-none absolute left-0 top-[12px] text-[13px] font-semibold leading-[16.3px] text-black">{t("Показать по типу ед.")}{state.unit !== "measurement" ? `: ${t(REORDER_UNITS.find((unit) => unit.id === state.unit)?.label ?? "")}` : ""}</span>
+            <select
+              value={state.unit}
+              onChange={(event) => update({ selectType: event.target.value === "measurement" ? null : event.target.value, page: null })}
+              aria-label={t("Показать по типу ед.")}
+              className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0"
+            >
+              {REORDER_UNITS.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {t(unit.label)}
+                </option>
+              ))}
+            </select>
+            <svg viewBox="0 0 10 5" className="pointer-events-none absolute right-[10px] top-[21px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+          </label>
+        </div>
+        <div className="w-0" />
+        <div className="relative ml-[10.4px] w-[197.6px] shrink-0">
+          <button
+            type="button"
+            onClick={() => void downloadAll()}
+            disabled={downloading}
+            className="absolute left-0 top-[10px] flex h-[30px] w-[189.6px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] text-[13px] font-semibold text-white disabled:opacity-50"
           >
-            {REORDER_UNITS.map((unit) => (
-              <option key={unit.id} value={unit.id}>
-                {t(unit.label)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={() => void downloadAll()}
-          disabled={downloading}
-          className="ml-auto flex h-10 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white disabled:opacity-50"
-        >
-          {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <BarChart className="h-5 w-5" />} {t("Скачать все")}
-        </button>
+            {downloading ? <Loader2 className="mr-2 h-[18px] w-[18px] animate-spin" /> : <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white"><path d={RI.download} /></svg>}
+            {t("Скачать все")}
+          </button>
+        </div>
       </section>
       {downloadError && (
         <p className="px-4 pb-2 text-sm text-[#e57373] sm:px-6 md:px-9">
@@ -142,27 +177,17 @@ function ReorderLevelContent() {
       )}
       {state.unit === "box" && <UnitNote unit={state.unit} />}
 
-      <section className="flex flex-wrap items-center justify-between gap-4 border-t border-[#e1e5eb] px-4 py-3 sm:px-6 md:px-9">
-        <form onSubmit={submitSearch} className="relative w-full max-w-[350px] border-b border-[#dbe0e8] pb-1.5 focus-within:border-[#4f70e7]">
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("Поиск")}
-            aria-label={t("Поиск")}
-            className="w-full bg-transparent pr-8 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+      {(data?.count ?? 0) > state.pageSize && (
+        <section className="flex justify-end bg-white px-[20px] py-2">
+          <BalancePagination
+            page={data?.page ?? state.page}
+            pageSize={state.pageSize}
+            count={data?.count ?? 0}
+            sizes={REORDER_PAGE_SIZES}
+            onChange={(next) => update({ page: next.page > 1 ? next.page : null, pageSize: next.pageSize === 25 ? null : next.pageSize })}
           />
-          <button type="submit" aria-label={t("Поиск")} className="absolute right-0 top-0 text-[#9aa3b6] hover:text-[#4f70e7]">
-            <Search className="h-5 w-5" />
-          </button>
-        </form>
-        <BalancePagination
-          page={data?.page ?? state.page}
-          pageSize={state.pageSize}
-          count={data?.count ?? 0}
-          sizes={REORDER_PAGE_SIZES}
-          onChange={(next) => update({ page: next.page > 1 ? next.page : null, pageSize: next.pageSize === 25 ? null : next.pageSize })}
-        />
-      </section>
+        </section>
+      )}
 
       {!data && list.loading && (
         <div className="flex items-center justify-center gap-2 border-t border-[#e1e5eb] py-24 text-[#586174]">
@@ -186,7 +211,7 @@ function ReorderLevelContent() {
             <Loader2 className="h-8 w-8 animate-spin text-[#586174]" />
           ) : (
             <>
-              <Image src="/robot-mascot.png" alt="" width={120} height={120} className="h-28 w-28 object-contain" />
+              <Image src="/robot-empty.png" alt="" width={120} height={120} className="h-28 w-28 object-contain" />
               <p className="mt-4 text-[#9aa3b6]">{t("По вашему запросу ничего не найдено")}</p>
               {noWarehouseSales && (
                 <p className="mt-4 flex max-w-[640px] items-start gap-2 rounded-md bg-[#f2f5f8] px-4 py-3 text-left text-[14px] text-[#586174]">
@@ -204,10 +229,9 @@ function ReorderLevelContent() {
         </div>
       )}
       {data && !list.error && rows.length > 0 && (
-        <section className="border-t border-[#e1e5eb] pb-10">
-          <ReorderLevelTable rows={rows} ordering={state.ordering} onOrderingChange={(next) => update({ ordering: next || null, page: null })} loading={list.loading} />
-        </section>
+        <ReorderLevelTable rows={rows} ordering={state.ordering} unit={state.unit} onOrderingChange={(next) => update({ ordering: next || null, page: null })} loading={list.loading} />
       )}
+      </div>
 
       <ReorderFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} state={state} options={options} optionsError={optionsError} onApply={applyFilter} />
     </main>

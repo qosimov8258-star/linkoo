@@ -8,6 +8,16 @@ import { nameField, textField } from "@/lib/auth-request"
 // currency of Валюты (code or alias: SUM, USD, EUR / Euro, …). Both are resolved
 // by lib/branches-repo.ts (400 "Прайс-лист не найден" / "Валюта не найдена").
 // An omitted currency reads as "" = the base currency on create, unchanged on update.
+// locationLat / locationLng: the map point of the branch form (null = none; omitted = unchanged on update).
+const coordinate = (limit: number) =>
+  z
+    .number({ error: "Неверная координата" })
+    .finite({ error: "Неверная координата" })
+    .min(-limit, { error: "Неверная координата" })
+    .max(limit, { error: "Неверная координата" })
+    .nullable()
+    .optional()
+
 export const branchSchema = z.object({
   name: nameField("Укажите название филиала", 120),
   priceList: textField(200).optional(),
@@ -16,6 +26,8 @@ export const branchSchema = z.object({
     .transform((value) => value ?? ""),
   debtTracking: z.boolean().optional(),
   isMain: z.boolean().optional(),
+  locationLat: coordinate(90),
+  locationLng: coordinate(180),
 })
 
 export function branchErrorResponse(error: unknown): NextResponse | null {

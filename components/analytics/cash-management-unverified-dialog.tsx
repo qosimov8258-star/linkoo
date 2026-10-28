@@ -58,17 +58,38 @@ export function CashUnverifiedDialog({
   }
 
   return (
-    <CashModal title={t("Неподтвержденные транзакции")} onClose={onClose} size="lg" headerExtra={data ? <MiniPager page={page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} /> : null}>
+    <CashModal
+      title={t("Неподтвержденные транзакции")}
+      onClose={onClose}
+      size="lg"
+      headerExtra={
+        data ? (
+          <span className="mr-4 flex items-center gap-5 text-[13px] font-normal normal-case text-black">
+            <span className="flex items-center gap-1">
+              {PAGE_SIZE}
+              <span className="ml-1 block h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[#bdbdbd]" />
+            </span>
+            <MiniPager page={page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} />
+          </span>
+        ) : null
+      }
+    >
       {loading && !data && <LoadingBlock />}
       {loadError && <ErrorBlock error={loadError} onRetry={reload} />}
       {data && !data.rows.length && <EmptyBlock text="Неподтвержденных транзакций пока нет" />}
       {data && data.rows.length > 0 && (
-        <div className="flex flex-col">
+        <div className="-mx-[30px] -mt-[15px] flex flex-col">
+          <div className="grid h-[50px] grid-cols-[56px_minmax(0,1fr)_150px_170px] items-center gap-x-3 bg-[#5d6474] px-[30px] text-[13px] font-bold text-white">
+            <span>№</span>
+            <span>{t("Детали")}</span>
+            <span>{t("Указанная дата")}</span>
+            <span className="text-right">{t("Сумма")}</span>
+          </div>
           {data.rows.map((operation) => {
             const transfer = operation.type === 1 || operation.type === 2
             return (
-              <div key={operation.key} className="group grid grid-cols-[56px_minmax(0,1fr)] gap-x-3 gap-y-2 border-b border-dashed border-[#d8dee7] py-3 sm:grid-cols-[56px_minmax(0,1fr)_150px_170px]">
-                <span className="font-semibold text-[#17233b]">{operation.docNo}</span>
+              <div key={operation.key} className="group grid grid-cols-[56px_minmax(0,1fr)] gap-x-3 gap-y-2 border-b border-dotted border-[#d9e0e5] px-[30px] py-3 sm:grid-cols-[56px_minmax(0,1fr)_150px_170px]">
+                <span className="text-black">{operation.docNo}</span>
                 <OperationDetails operation={operation} showCashbox extended onPopup={onPopup} />
                 <span className="col-start-2 text-[13px] text-[#586174] sm:col-start-auto">{formatCashDate(operation.date, language)}</span>
                 <div className="col-start-2 flex flex-col items-start gap-2 sm:col-start-auto sm:items-end">

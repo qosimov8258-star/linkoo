@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Copy, MoreVertical, Pencil, Printer, Trash2 } from "lucide-react"
+import { Copy, Pencil, Printer, Trash2 } from "lucide-react"
 
 import type { CashOperation } from "@/lib/cash/types"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -11,6 +11,12 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // disabled for transfers), Печать and Удалить (disabled for the incoming
 // transfer leg — delete the outgoing leg, it removes both). Write items are
 // hidden for users without the manager role; deleted rows have no menu.
+
+const ICONS: Record<string, string> = {
+  "Изменить": "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+  "Печать": "M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z",
+  "Удалить": "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+}
 
 export function CashRowMenu({
   operation,
@@ -45,14 +51,18 @@ export function CashRowMenu({
   items.push({ label: "Печать", icon: Printer, disabled: !operation.canPrint, onClick: onPrint })
   if (canWrite) items.push({ label: "Удалить", icon: Trash2, disabled: !operation.canDelete || operation.type === 2, danger: true, onClick: onDelete })
 
+  // The reference menu lists only Изменить / Печать / Удалить (no "Дублировать").
+  const visible = items.filter((item) => item.label !== "Дублировать")
   return (
     <div ref={ref} className="relative inline-block">
-      <button type="button" onClick={() => setOpen((current) => !current)} aria-label={t("Действия")} className="rounded-full p-1.5 text-[#586174] hover:bg-[#e8edf3] hover:text-[#17233b]">
-        <MoreVertical className="h-5 w-5" />
+      <button type="button" onClick={() => setOpen((current) => !current)} aria-label={t("Действия")} className="flex h-12 w-12 items-center justify-center text-[#333]">
+        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden>
+          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+        </svg>
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-[30] mt-1 w-48 overflow-hidden rounded-md border border-[#e1e5eb] bg-white py-1 text-left shadow-xl">
-          {items.map((item) => (
+        <div className="absolute right-0 top-[40px] z-[30] w-[168px] rounded-[6px] bg-white py-1 text-left shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          {visible.map((item) => (
             <button
               key={item.label}
               type="button"
@@ -61,9 +71,12 @@ export function CashRowMenu({
                 setOpen(false)
                 item.onClick()
               }}
-              className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-[14px] hover:bg-[#f2f5f8] disabled:cursor-not-allowed disabled:opacity-40 ${item.danger ? "text-[#e57373]" : "text-[#17233b]"}`}
+              className="flex h-12 w-full items-center pl-[14px] text-left text-[13px] text-[#333] hover:bg-[#eee] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <item.icon className="h-4 w-4" /> {t(item.label)}
+              <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0 fill-[#757575]" aria-hidden>
+                <path d={ICONS[item.label] ?? ICONS["Изменить"]} />
+              </svg>
+              <span className="ml-[34px]">{t(item.label)}</span>
             </button>
           ))}
         </div>

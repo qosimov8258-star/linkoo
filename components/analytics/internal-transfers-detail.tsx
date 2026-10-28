@@ -1,16 +1,18 @@
 "use client"
 
 import { useState } from "react"
-import { CheckCircle2, FileSpreadsheet, Pencil, Printer, Send, Trash2, Undo2 } from "lucide-react"
+import { Pencil, Trash2 } from "lucide-react"
 
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { ConfirmDialog, EmptyBlock, ErrorBlock, FormField, LoadingBlock, inputClass, mutationError } from "@/components/analytics/cash-management-shared"
 import { TransferLogsPanel } from "@/components/analytics/internal-transfers-logs"
-import { InfoRow, TransferStatusLabel, docDate, formatQty, formatSum, formatUnitTotals, formatWeight, transferItemsSheet } from "@/components/analytics/internal-transfers-shared"
+import { docDate, formatQty, formatSum, formatUnitTotals, formatWeight, transferItemsSheet } from "@/components/analytics/internal-transfers-shared"
+import { RefTip } from "@/components/ref/ref-tip"
+import { formatMoney } from "@/lib/finance/currency"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { TRANSFER_EDITABLE, type Transfer, type TransferAction } from "@/lib/internal-transfers-types"
+import { TRANSFER_EDITABLE, TRANSFER_STATUS_COLORS, TRANSFER_STATUS_TITLES, type Transfer, type TransferAction } from "@/lib/internal-transfers-types"
 
 // Demo StockTransferDetail (c7 module 4638) shown in place of the clicked row:
 // "Передача № N" + actions — "Передать" / "Принять" (approved → give, given →
@@ -19,6 +21,43 @@ import { TRANSFER_EDITABLE, type Transfer, type TransferAction } from "@/lib/int
 // Left: Со склада, На склад, Прайс лист, Организация · Номер накладной, Номер
 // транспорта, Водитель · Статус, Дата доставки / создания / приемки /
 // передачи, Комментарий. Right: tabs "Товары" (module 4643) and "Логи".
+
+// Material glyphs of the reference's transfer card (timer = "Авто распределение по сериям", sync = "Отменить автораспределение").
+const ICON_TIMER = "M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42C16.07 4.74 14.12 4 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"
+const ICON_CHECK_CIRCLE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+const ICON_SYNC = "M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"
+const ICON_DOWNLOAD = "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"
+const ICON_REMOVE_CIRCLE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"
+const ICON_PRINT = "M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"
+
+/** Product table of the card: 362 / 174 / 200 / 196 / 275 px at 1296 wide (reference), in %. */
+const ITEM_COLS = [30.005, 14.41, 16.6, 16.26, 22.73]
+const cellBase = "border-b border-r border-[#efefef] p-0"
+const cell = "border-b border-r border-[#efefef] py-[8px]"
+
+type SortKey = "product" | "quantity" | "weight" | "price" | "sum"
+type SortState = { key: SortKey; desc: boolean } | null
+
+function sortItems(items: Transfer["items"], sort: SortState) {
+  if (!sort) return items
+  const value = (item: Transfer["items"][number]) =>
+    sort.key === "product" ? item.product.toLowerCase() : sort.key === "quantity" ? item.quantity : sort.key === "weight" ? item.quantity * item.weight : sort.key === "price" ? item.price : item.quantity * item.price
+  return [...items].sort((a, b) => {
+    const x = value(a)
+    const y = value(b)
+    return (sort.desc ? -1 : 1) * (x < y ? -1 : x > y ? 1 : 0)
+  })
+}
+
+/** One label/value line of the card (25px, label 400 / value 600 right aligned). */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <li className="flex h-[25px] items-center justify-between gap-3">
+      <span>{label}:</span>
+      <span className="text-right font-semibold">{children}</span>
+    </li>
+  )
+}
 
 type Pending = { action: TransferAction; title: string; text: string; withDate: boolean; tone: "red" | "blue" | "green"; label: string; success: string } | null
 
@@ -42,6 +81,7 @@ export function TransferDetailPanel({
   const { t, language } = useLanguage()
   const detail = useCashJson<Transfer>(`/api/internal-transfers/${id}`)
   const [tab, setTab] = useState<"items" | "logs">("items")
+  const [sort, setSort] = useState<SortState>(null)
   const [pending, setPending] = useState<Pending>(null)
   const [date, setDate] = useState(todayIso())
   const [comment, setComment] = useState("")
@@ -83,167 +123,189 @@ export function TransferDetailPanel({
   const editable = TRANSFER_EDITABLE.includes(status)
   // "Итого" per unit ("5 dona, 1,5 kg"): kilograms, pieces and litres are never added up.
   const qtyTotal = formatUnitTotals(data.items.map((item) => ({ qty: item.quantity, unit: item.unit })), t)
-  const iconButton = "flex h-10 w-10 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:cursor-not-allowed disabled:opacity-40"
-  const actionButton = "inline-flex h-[30px] items-center gap-1.5 rounded-sm px-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50"
-  const who = (moment: string, name: string) =>
-    moment ? (
-      <>
-        {docDate(moment, language, true)}
-        {name && <span className="block text-[12px] font-normal text-[#586174]">{name}</span>}
-      </>
-    ) : (
-      t("Не указано")
+  const iconButton = "flex h-12 w-12 items-center justify-center hover:bg-[#f2f5f8] disabled:cursor-not-allowed disabled:opacity-40"
+  const tipSlot = "mx-[7.5px]"
+  const actionButton = "inline-flex h-[30px] items-center justify-center gap-[6px] rounded-[2px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50"
+  const day = (moment: string) => docDate(moment, language) || t("Не указано")
+  const currency = data.currency
+  const sorted = sortItems(data.items, sort)
+  const toggleSort = (key: SortKey) => setSort((current) => (current?.key === key ? (current.desc ? null : { key, desc: true }) : { key, desc: false }))
+
+  const canCancel = canEdit && (status === "в пути" || status === "принят")
+  // The reference prints the status of the card as its own colored word (no dot), in the UI language.
+  const statusText = <span style={{ color: TRANSFER_STATUS_COLORS[status] }}>{t(TRANSFER_STATUS_TITLES[status])}</span>
+  const cancelMinus = () =>
+    open(
+      status === "в пути"
+        ? { action: "cancel_given", title: t("Отменить передачу"), text: `${t("Передача №")}${data.id}`, withDate: false, tone: "red", label: "Подтвердить", success: "Успешно сохранено" }
+        : { action: "cancel_accepted", title: t("Отменить приемку"), text: `${t("Приемка №")}${data.id}`, withDate: false, tone: "red", label: "Подтвердить", success: "Успешно сохранено" },
     )
 
   return (
-    <div className="bg-white text-[14px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-      <div className="relative flex min-h-[65px] flex-wrap items-center justify-between gap-3 border-b border-[#efefef] px-4 py-2 md:px-[30px]">
+    <div className="-mx-[15px] mb-[20px] mt-[20px] border-b border-dotted border-[#eee] bg-white text-[13px] text-[#333] [box-shadow:0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <div className="relative flex h-[67px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[23px]">
         <button type="button" onClick={onClose} className="absolute inset-0 cursor-pointer" aria-label={t("Закрыть")} />
-        <h3 className="relative z-[1] text-[16px] font-bold">
+        <h3 className="relative z-[1] text-[18px] font-semibold leading-[24px]">
           {t("Передача")} № {data.id}
         </h3>
-        <div className="relative z-[3] flex flex-wrap items-center gap-1.5">
-          {canEdit && status === "ожидает" && (
-            <button type="button" title={t("Подтвердить")} aria-label={t("Подтвердить")} className={iconButton} onClick={() => open({ action: "approve", title: t("Подтвердить"), text: `${t("Передача")} №${data.id}`, withDate: false, tone: "blue", label: "Подтвердить", success: "Успешно сохранено" })}>
-              <CheckCircle2 className="h-5 w-5 text-[rgb(79,113,220)]" />
-            </button>
+        <div className="relative z-[3] flex items-center">
+          {canEdit && status !== "отменен" && (
+            <RefTip text={t("Авто распределение по сериям")} side="bottom" gap={9} bold className={tipSlot}>
+              <button type="button" aria-label={t("Авто распределение по сериям")} className={iconButton} onClick={() => notify(t("Нет товаров с сериями"))}>
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]" aria-hidden><path d={ICON_TIMER} /></svg>
+              </button>
+            </RefTip>
           )}
-          {canEdit && (status === "потвержден" || status === "в пути") && (
+          {canEdit && (status === "ожидает" || status === "потвержден" || status === "в пути") && (
+            <RefTip text={status === "ожидает" ? t("Подтвердить") : request} side="right" gap={10} bold className={tipSlot}>
+              <button
+                type="button"
+                aria-label={status === "ожидает" ? t("Подтвердить") : request}
+                className={iconButton}
+                onClick={() =>
+                  open(
+                    status === "ожидает"
+                      ? { action: "approve", title: t("Подтвердить"), text: `${t("Передача")} №${data.id}`, withDate: false, tone: "blue", label: "Подтвердить", success: "Успешно сохранено" }
+                      : status === "потвержден"
+                        ? { action: "give", title: giveTitle, text: `${t("Передача")} № ${data.id} · ${t("Передан со склада")} ${data.fromWarehouse}`, withDate: true, tone: "blue", label: "Передать", success: "Успешно передан" }
+                        : { action: "accept", title: acceptTitle, text: `${t("Передача")} № ${data.id} · ${t("Принять на склад")} ${data.toWarehouse}`, withDate: true, tone: "green", label: "Принять", success: "Успешно сохранено" },
+                  )
+                }
+              >
+                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#4f71dc]" aria-hidden><path d={ICON_CHECK_CIRCLE} /></svg>
+              </button>
+            </RefTip>
+          )}
+          {canEdit && status !== "отменен" && (
+            <RefTip text={t("Отменить автораспределение")} side="right" gap={10} bold className={tipSlot}>
+              <button type="button" aria-label={t("Отменить автораспределение")} className={iconButton} onClick={() => notify(t("Нет товаров с сериями"))}>
+                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]" aria-hidden><path d={ICON_SYNC} /></svg>
+              </button>
+            </RefTip>
+          )}
+          <RefTip text={t("Скачать Excel")} side="left" gap={12} bold className={tipSlot}>
+            <button type="button" onClick={() => downloadExcelTable(`${t("Передача")} №${data.id}`, transferItemsSheet(data, t))} aria-label={t("Скачать Excel")} className={iconButton}>
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]" aria-hidden><path d={ICON_DOWNLOAD} /></svg>
+            </button>
+          </RefTip>
+          <RefTip text={t("Распечатать")} side="left" gap={12} bold className={tipSlot}>
+            <button type="button" onClick={() => onPrint(data)} aria-label={t("Распечатать")} className={iconButton}>
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]" aria-hidden><path d={ICON_PRINT} /></svg>
+            </button>
+          </RefTip>
+          {canEdit && (
             <button
               type="button"
-              title={request}
-              aria-label={request}
-              className={iconButton}
-              onClick={() =>
-                open(
-                  status === "потвержден"
-                    ? { action: "give", title: giveTitle, text: `${t("Передача")} № ${data.id} · ${t("Передан со склада")} ${data.fromWarehouse}`, withDate: true, tone: "blue", label: "Передать", success: "Успешно передан" }
-                    : { action: "accept", title: acceptTitle, text: `${t("Передача")} № ${data.id} · ${t("Принять на склад")} ${data.toWarehouse}`, withDate: true, tone: "green", label: "Принять", success: "Успешно сохранено" },
-                )
-              }
+              onClick={() => (editable ? onEdit(data) : notify(t("Изменять можно только передачу в статусе «ожидает» или «подтвержден»"), true))}
+              className={`${actionButton} ml-[7.5px] w-[118px] bg-[rgb(79,113,220)]`}
             >
-              <Send className="h-5 w-5 text-[#e57373]" />
+              <Pencil className="h-[18px] w-[18px]" /> {t("Изменить")}
             </button>
           )}
-          <button type="button" onClick={() => downloadExcelTable(`${t("Передача")} №${data.id}`, transferItemsSheet(data, t))} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className={iconButton}>
-            <FileSpreadsheet className="h-5 w-5 text-[#71ce87]" />
-          </button>
-          <button type="button" onClick={() => onPrint(data)} title={t("Накладная")} aria-label={t("Накладная")} className={iconButton}>
-            <Printer className="h-5 w-5" />
-          </button>
-          {canEdit && (
-            <button type="button" disabled={!editable} onClick={() => onEdit(data)} title={editable ? t("Изменить") : t("Изменять можно только передачу в статусе «ожидает» или «подтвержден»")} className={`${actionButton} bg-[rgb(79,113,220)]`}>
-              <Pencil className="h-4 w-4" /> {t("Изменить")}
-            </button>
-          )}
-          {canEdit && (status === "в пути" || status === "принят") && (
+          {canCancel && (
             <button
               type="button"
               title={status === "в пути" ? t("Отменить передачу") : t("Отменить приемку")}
               aria-label={status === "в пути" ? t("Отменить передачу") : t("Отменить приемку")}
-              className={iconButton}
-              onClick={() =>
-                open(
-                  status === "в пути"
-                    ? { action: "cancel_given", title: t("Отменить передачу"), text: `${t("Передача №")}${data.id}`, withDate: false, tone: "red", label: "Подтвердить", success: "Успешно сохранено" }
-                    : { action: "cancel_accepted", title: t("Отменить приемку"), text: `${t("Приемка №")}${data.id}`, withDate: false, tone: "red", label: "Подтвердить", success: "Успешно сохранено" },
-                )
-              }
+              className={`${iconButton} ml-[23px]`}
+              onClick={cancelMinus}
             >
-              <Undo2 className="h-5 w-5 text-[#e57373]" />
+              <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#e57373]" aria-hidden><path d={ICON_REMOVE_CIRCLE} /></svg>
             </button>
           )}
-          {canEdit && editable && (
+          {canEdit && status !== "отменен" && (
             <button
               type="button"
-              onClick={() => open({ action: "cancel", title: t("Подтверждение удаления"), text: `${t("Вы уверены что хотите удалить эти данные?")} (${t("Передача")} №${data.id})`, withDate: false, tone: "red", label: "Удалить", success: "Успешно удалено" })}
-              className={`${actionButton} bg-[#fa8072]`}
+              onClick={() => open({ action: "cancel", title: t("Подтверждение удаления"), text: t("Вы уверены что хотите удалить эти данные?"), withDate: false, tone: "red", label: "Удалить", success: "Успешно удалено" })}
+              className={`${actionButton} ${canCancel ? "ml-[15px]" : "ml-[23px]"} w-[106px] bg-[#fa8072]`}
             >
-              <Trash2 className="h-4 w-4" /> {t("Удалить")}
+              <Trash2 className="h-[18px] w-[18px]" /> {t("Удалить")}
             </button>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row">
-        <div className="border-b border-[#efefef] px-4 py-3 md:w-[360px] md:shrink-0 md:border-b-0 md:border-r md:px-[30px]">
-          <ul className="border-b border-[#efefef] pb-2">
-            <InfoRow label={t("Со склада")}>{data.fromWarehouse}</InfoRow>
-            <InfoRow label={t("На склад")}>{data.toWarehouse}</InfoRow>
-            {data.priceList && <InfoRow label={t("Прайс лист")}>{data.priceList}</InfoRow>}
-            <InfoRow label={t("Организация")}>{data.organization || t("Не указано")}</InfoRow>
-          </ul>
-          <ul className="border-b border-[#efefef] py-2">
-            <InfoRow label={t("Номер накладной")}>{data.invoiceNumber || t("Не указано")}</InfoRow>
-            <InfoRow label={t("Номер транспорта")}>{data.transportNumber || t("Не указано")}</InfoRow>
-            <InfoRow label={t("Водитель")}>{data.driver || t("Не указано")}</InfoRow>
-          </ul>
-          <ul className="pt-2">
-            <InfoRow label={t("Статус")}>
-              <TransferStatusLabel status={status} title />
-            </InfoRow>
-            <InfoRow label={t("Дата доставки")}>{docDate(data.deliveredAt, language) || t("Не указано")}</InfoRow>
-            <InfoRow label={t("Дата создания")}>{who(data.createdAt, data.createdBy)}</InfoRow>
-            <InfoRow label={t("Дата приемки")}>{who(data.acceptedAt, data.acceptedBy)}</InfoRow>
-            <InfoRow label={t("Дата передачи")}>{who(data.givenAt, data.givenBy)}</InfoRow>
-            {status === "отменен" && <InfoRow label={t("Отменен")}>{who(data.cancelledAt, data.cancelledBy)}</InfoRow>}
-            <InfoRow label={t("Комментарий")}>{data.comment || t("Комментарий отсутствует")}</InfoRow>
-          </ul>
-        </div>
+      <div className="mx-[15px] grid grid-cols-3 border-b border-[#efefef]">
+        <ul className="h-[185px] border-r border-[#efefef] pl-[15px] pr-[15px] pt-[15px]">
+          <Row label={t("Со склада")}>{data.fromWarehouse}</Row>
+          <Row label={t("На склад")}>{data.toWarehouse}</Row>
+          <Row label={t("Прайс лист")}>{data.priceList || t("Не указано")}</Row>
+          <Row label={t("Организация")}>{data.organization || t("Не указано")}</Row>
+        </ul>
+        <ul className="h-[185px] border-r border-[#efefef] pl-[15px] pr-[15px] pt-[15px]">
+          <Row label={t("Номер накладной")}>{data.invoiceNumber || t("Не указано")}</Row>
+          <Row label={t("Номер транспорта")}>{data.transportNumber || t("Не указано")}</Row>
+          <Row label={t("Водитель")}>{data.driver || t("Не указано")}</Row>
+        </ul>
+        <ul className="h-[185px] pl-[15px] pr-[15px] pt-[15px]">
+          <Row label={t("Статус")}>{statusText}</Row>
+          <Row label={t("Дата доставки")}>{day(data.deliveredAt)}</Row>
+          <Row label={t("Дата создания")}>{day(data.createdAt)}</Row>
+          <Row label={t("Дата приемки")}>{day(data.acceptedAt)}</Row>
+          <Row label={t("Дата передачи")}>{data.givenAt ? docDate(data.givenAt, language, true) : t("Не указано")}</Row>
+          {status === "отменен" && <Row label={t("Отменен")}>{day(data.cancelledAt)}</Row>}
+          <Row label={t("Комментарий")}>{data.comment || t("Комментарий отсутствует")}</Row>
+        </ul>
+      </div>
 
-        <div className="min-w-0 flex-1 px-4 pb-5 md:px-[30px]">
-          <div className="flex border-b border-[#efefef]">
-            {(["items", "logs"] as const).map((key) => (
-              <button key={key} type="button" onClick={() => setTab(key)} className={`h-11 px-5 text-[13px] font-semibold uppercase ${tab === key ? "border-b-2 border-[rgb(79,113,220)] text-[rgb(79,113,220)]" : "text-[#586174]"}`}>
-                {key === "items" ? t("Товары") : t("Логи")}
-              </button>
-            ))}
-          </div>
-          {tab === "logs" ? (
-            <TransferLogsPanel key={logsVersion} id={data.id} />
-          ) : data.items.length ? (
-            <div className="max-h-[560px] overflow-auto">
-              <table className="w-full min-w-[640px] border-collapse">
-                <thead>
-                  <tr className="border-b border-dashed border-[#e1e5eb] text-left font-semibold">
-                    <th className="py-3 pr-3">{t("Товар")}</th>
-                    <th className="py-3 pr-3 text-right">{t("Количество")}</th>
-                    <th className="py-3 pr-3 text-right">{t("Вес")}</th>
-                    <th className="py-3 pr-3">{t("Серия")}</th>
-                    <th className="py-3 pr-3 text-right">{t("Цена")}</th>
-                    <th className="py-3 text-right">{t("Сумма")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.items.map((item) => (
-                    <tr key={item.id} className="border-b border-dashed border-[#e1e5eb] hover:bg-[#f2f5f8]">
-                      <td className="py-3 pr-3">
-                        {item.product}
-                        {item.article && <span className="block text-[12px] text-[#9aa3b6]">{item.article}</span>}
-                      </td>
-                      <td className="whitespace-nowrap py-3 pr-3 text-right">{formatQty(item.quantity, item.unit ? t(item.unit) : "")}</td>
-                      <td className="whitespace-nowrap py-3 pr-3 text-right">{formatWeight(item.quantity * item.weight, t("кг"))}</td>
-                      <td className="py-3 pr-3">{item.series || "-"}</td>
-                      <td className="whitespace-nowrap py-3 pr-3 text-right">{formatSum(item.price)}</td>
-                      <td className="whitespace-nowrap py-3 text-right">{formatSum(item.quantity * item.price, data.currency)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="font-semibold">
-                    <td className="pt-3 pr-3">{t("Итого")}</td>
-                    <td className="whitespace-nowrap pt-3 pr-3 text-right">{qtyTotal}</td>
-                    <td className="whitespace-nowrap pt-3 pr-3 text-right">{formatWeight(data.weight, t("кг"))}</td>
-                    <td colSpan={2} />
-                    <td className="whitespace-nowrap pt-3 text-right">{formatSum(data.amount, data.currency)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          ) : (
-            <EmptyBlock text="Товаров не найдено" className="py-10" />
-          )}
+      <div className="px-[31px] pb-[20px]">
+        <div className="flex h-[49px] border-b border-[#f2f5f8]">
+          {(["items", "logs"] as const).map((key) => (
+            <button key={key} type="button" onClick={() => setTab(key)} className="relative h-[48px] w-[300px] pb-[3px] text-[13px] font-medium text-black">
+              {key === "items" ? t("Товары") : t("Логи")}
+              {tab === key && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-[rgb(79,113,220)]" />}
+            </button>
+          ))}
         </div>
+        {tab === "logs" ? (
+          <TransferLogsPanel key={logsVersion} id={data.id} />
+        ) : data.items.length ? (
+          <table className="w-full table-fixed border-collapse border-l border-[#efefef] text-[13px]">
+            <colgroup>
+              {ITEM_COLS.map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}
+            </colgroup>
+            <thead>
+              <tr className="h-[35.6px] bg-[#f0f4f9] text-left text-[13px] font-semibold text-[#374557]">
+                {([["product", t("Товар")], ["quantity", t("Количество")], ["weight", t("Вес")], ["price", t("Цена")], ["sum", t("Сумма")]] as Array<[SortKey, string]>).map(([key, label], index) => (
+                  <th key={key} className="p-0 font-semibold" style={{ paddingLeft: index === 0 ? 17.5 : 17.5 }}>
+                    <button type="button" onClick={() => toggleSort(key)} className="flex items-center gap-[4.9px] text-left">
+                      {label}
+                      <span className="relative block h-[20px] w-[15px]" aria-hidden>
+                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-0 h-[15px] w-[15px] ${sort?.key === key && !sort.desc ? "fill-[#4f71dc]" : "fill-[#9aa3b6]"}`}><path d="M7 14l5-5 5 5z" /></svg>
+                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-[5px] h-[15px] w-[15px] ${sort?.key === key && sort.desc ? "fill-[#4f71dc]" : "fill-[#9aa3b6]"}`}><path d="M7 10l5 5 5-5z" /></svg>
+                      </span>
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((item) => (
+                <tr key={item.id} className="hover:bg-[#f2f5f8]">
+                  <td className={`${cell} truncate pl-[17.5px]`}>{item.product}</td>
+                  <td className={`${cell} pl-[18px]`}>
+                    <div className="leading-[19.5px]">
+                      {formatQty(item.quantity, item.unit ? t(item.unit) : "")}
+                      {item.boxLabel && <p className="h-[18px] text-[12px] leading-[18px] text-[#4f71dc]">{item.boxLabel}</p>}
+                    </div>
+                  </td>
+                  <td className={`${cell} pl-[18px]`}>{formatMoney(item.quantity * item.weight, 3)}</td>
+                  <td className={`${cell} pl-[18px]`}>{formatSum(item.price, currency)}</td>
+                  <td className={`${cell} pl-[18px]`}>{formatSum(item.quantity * item.price, currency)}</td>
+                </tr>
+              ))}
+              <tr className="h-[39.1px] text-[15px] font-semibold">
+                <td className={`${cellBase} pl-[17.5px]`}>{t("Итого")}</td>
+                <td className={`${cellBase} pl-[18px]`}>{qtyTotal}</td>
+                <td className={`${cellBase} pl-[18px]`}>{formatWeight(data.weight, t("кг"))}</td>
+                <td className={cellBase} />
+                <td className={`${cellBase} pl-[18px]`}>{formatSum(data.amount, currency)}</td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <EmptyBlock text="Товаров не найдено" className="py-10" />
+        )}
       </div>
 
       {pending && (

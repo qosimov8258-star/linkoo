@@ -9,6 +9,8 @@ import { requireRole } from "@/lib/rbac"
 const clientTypeSchema = z.object({
   name: nameField("Укажите название типа клиента", 200),
   supplier: textField(200).optional(),
+  parentId: z.number().int().nullable().optional(),
+  innRequired: z.boolean().optional(),
 })
 
 export async function GET() {
@@ -26,7 +28,12 @@ export async function POST(request: Request) {
   if (parsed.error) return parsed.error
 
   try {
-    const clientType = await createClientType({ name: parsed.data.name, supplier: parsed.data.supplier || "Не указано" })
+    const clientType = await createClientType({
+      name: parsed.data.name,
+      supplier: parsed.data.supplier || "Не указано",
+      parentId: parsed.data.parentId ?? null,
+      innRequired: parsed.data.innRequired ?? false,
+    })
     return NextResponse.json(clientType, { status: 201 })
   } catch (error) {
     if (error instanceof ClientTypeError) return NextResponse.json({ error: error.message }, { status: error.status })

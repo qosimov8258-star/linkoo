@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react"
 
-import { BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterDialog, useFilterCard } from "@/components/analytics/balance/filter-bar"
 import { MultiSelect } from "@/components/analytics/client-balance-filters"
 import { withSelected, type StockOptions } from "@/components/analytics/stock-move-filters"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
@@ -96,6 +96,7 @@ export type ReorderDraft = Pick<ReorderState, "warehouses" | "divisions" | "type
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   const { t } = useLanguage()
+  if (useFilterCard()) return <>{children}</>
   return (
     <div className="flex flex-col gap-1">
       <span className="text-sm text-[#586174]">{t(label)}</span>
@@ -129,22 +130,22 @@ export function ReorderFilterDialog({
   }
   const set = <K extends keyof ReorderDraft>(key: K, value: ReorderDraft[K]) => setDraft((current) => ({ ...current, [key]: value }))
   return (
-    <BalanceFilterDialog open={open} onClose={onClose} from={state.from} to={state.to} onApply={(period) => onApply(period, draft)}>
+    <BalanceFilterDialog variant="card" hideDate open={open} onClose={onClose} from={state.from} to={state.to} onApply={(period) => onApply(period, draft)}>
       {optionsError && <p className="text-sm text-[#e57373] md:col-span-2">{t("Не удалось загрузить списки фильтра")}: {t(optionsError)}</p>}
       <Field label="Склад">
-        <MultiSelect value={draft.warehouses} options={withSelected(options.warehouses.map((warehouse) => warehouse.name), draft.warehouses)} onChange={(next) => set("warehouses", next)} />
+        <MultiSelect label="Склад" value={draft.warehouses} options={withSelected(options.warehouses.map((warehouse) => warehouse.name), draft.warehouses)} onChange={(next) => set("warehouses", next)} />
       </Field>
       <Field label="Организация">
-        <MultiSelect value={draft.divisions} options={withSelected(options.organizations, draft.divisions)} onChange={(next) => set("divisions", next)} />
+        <MultiSelect label="Организация" value={draft.divisions} options={withSelected(options.organizations, draft.divisions)} onChange={(next) => set("divisions", next)} />
       </Field>
       <Field label="Тип продукта">
-        <MultiSelect value={draft.typeParents} options={withSelected(options.types, draft.typeParents)} onChange={(next) => set("typeParents", next)} />
+        <MultiSelect label="Тип продукта" value={draft.typeParents} options={withSelected(options.types, draft.typeParents)} onChange={(next) => set("typeParents", next)} />
       </Field>
-      <Field label="Подкатегория">
-        <MultiSelect value={draft.typeChildren} options={withSelected(options.subcategories, draft.typeChildren)} onChange={(next) => set("typeChildren", next)} />
-      </Field>
+      {false && <Field label="Подкатегория">
+        <MultiSelect label="Подкатегория" value={draft.typeChildren} options={withSelected(options.subcategories, draft.typeChildren)} onChange={(next) => set("typeChildren", next)} />
+      </Field>}
       <Field label="По брендам">
-        <MultiSelect value={draft.brands} options={withSelected(options.brands, draft.brands)} onChange={(next) => set("brands", next)} />
+        <MultiSelect label="По брендам" value={draft.brands} options={withSelected(options.brands, draft.brands)} onChange={(next) => set("brands", next)} />
       </Field>
     </BalanceFilterDialog>
   )

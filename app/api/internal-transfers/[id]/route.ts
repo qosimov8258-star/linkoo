@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { toTransferInput, transferBodySchema, transferResponse } from "@/lib/internal-transfers-api"
-import { deleteTransfer, getTransfer, updateTransfer } from "@/lib/internal-transfers-repo"
+import { deleteTransfer, getTransfer, getTransferReferenceItems, updateTransfer } from "@/lib/internal-transfers-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -12,6 +12,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   if (!(await getCurrentUser())) return notSignedInResponse()
   const transfer = await getTransfer(parseIdSegment((await params).id) ?? 0)
   if (!transfer) return NextResponse.json({ error: "Передача не найдена" }, { status: 404 })
+  // the reference lists product lines for transfers whose own lines were never recorded locally
+  if (!transfer.items.length) transfer.items = await getTransferReferenceItems(transfer.id)
   return NextResponse.json(transfer)
 }
 

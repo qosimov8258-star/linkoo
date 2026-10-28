@@ -54,10 +54,20 @@ export function PhotoReportReviewView() {
   // strip below is wired to real staff.
   useEffect(() => {
     let cancelled = false
-    fetch("/api/employees")
-      .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
-      .then((data) => {
-        if (!cancelled) setEmployeeNames(data.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
+    // Like the reference, the strip lists the active members of the agents plan in the plan's own order; while the plan
+    // is not loaded it falls back to every employee by name.
+    Promise.all([
+      fetch("/api/employees").then((response) => (response.ok ? (response.json() as Promise<{ id: number; name: string }[]>) : [])),
+      fetch("/api/agent-plan-members").then((response) => (response.ok ? (response.json() as Promise<{ employeeId: number; active: boolean; position: number }[]>) : [])),
+    ])
+      .then(([employees, members]) => {
+        if (cancelled) return
+        const nameById = new Map(employees.map((employee) => [employee.id, employee.name]))
+        const planned = members
+          .filter((member) => member.active && nameById.get(member.employeeId))
+          .sort((a, b) => (a.position < 0 ? 1e6 + a.employeeId : a.position) - (b.position < 0 ? 1e6 + b.employeeId : b.position))
+          .map((member) => nameById.get(member.employeeId) as string)
+        setEmployeeNames(planned.length > 0 ? planned : employees.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
       })
       .catch(() => {
         if (!cancelled) setEmployeeNames([])
@@ -108,8 +118,8 @@ export function PhotoReportReviewView() {
 
   return (
     <ReportPage>
-      <header className="relative pl-[30px] pr-[38px]">
-        <RefHeader title={t("Проверка фотоотчетов")}>
+      <header className="relative pl-[28px] pr-[38px]">
+        <RefHeader title={t("Активность")}>
           <strong className="mr-[10px] text-[13px] font-bold text-[#4f71dc]">
             {t(`${formatDate(range.from)} - ${formatDate(range.to)}`)}
           </strong>
@@ -192,7 +202,7 @@ export function PhotoReportReviewView() {
             <span className="flex h-[35px] w-[35px] items-center justify-center rounded-full bg-[#a8adb7] text-white">
               <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-white" aria-hidden><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
             </span>
-            <span className="text-[13px] font-bold leading-[17px]">{t("Все")}<span className="block font-normal">0</span></span>
+            <span className="text-[13px] font-semibold leading-[18px]">{t("Все")}<span className="block font-normal">0</span></span>
           </button>
           {employeeNames.map((name, index) => (
             <button
@@ -201,9 +211,9 @@ export function PhotoReportReviewView() {
               onClick={() => setActiveEmployee(name)}
               className={`flex shrink-0 flex-col justify-center border-l border-[#efefef] px-[10px] text-center ${activeEmployee === name ? "bg-[#f2f5f8]" : ""}`}
             >
-              <strong className="block whitespace-nowrap text-[13px] font-bold leading-[17px]" title={name}>{name}</strong>
-              <span className="mt-[2px] block h-[18px] min-w-[85px] bg-[#5c6df3] text-[12px] leading-[18px] text-white">0</span>
-              <span className="mt-[2px] block text-[12px] leading-4 text-[#555]">0 SUM</span>
+              <strong className="block whitespace-nowrap text-[13px] font-semibold leading-[18px]" title={name}>{name}</strong>
+              <span className="mt-[2px] block h-[18px] min-w-[85px] bg-[#5c6df3] text-[13px] leading-[18px] text-white">0</span>
+              <span className="mt-[2px] block text-[13px] leading-[18px] text-[#666]">0 SUM</span>
             </button>
           ))}
         </div>

@@ -36,7 +36,7 @@ import { dbId, strictNum } from "@/lib/strict-number"
 // Schema
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 // The original table (id, client, amount, currency, status, created_at,
 // updated_at) is kept as is; the new columns are added next to it.
@@ -59,6 +59,7 @@ ALTER TABLE cashback_withdrawal_requests ADD COLUMN IF NOT EXISTS cash_entry_id 
 ALTER TABLE cashback_withdrawal_requests ADD COLUMN IF NOT EXISTS cash_doc_no BIGINT;
 ALTER TABLE cashback_withdrawal_requests ADD COLUMN IF NOT EXISTS decided_at TEXT NOT NULL DEFAULT '';
 ALTER TABLE cashback_withdrawal_requests ADD COLUMN IF NOT EXISTS decided_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE cashback_withdrawal_requests ADD COLUMN IF NOT EXISTS is_deleted INTEGER NOT NULL DEFAULT 0;
 DO $$ BEGIN
   IF (SELECT data_type FROM information_schema.columns
       WHERE table_schema = current_schema() AND table_name = 'cashback_withdrawal_requests' AND column_name = 'amount') = 'real' THEN
@@ -161,9 +162,9 @@ const BASE_SQL = `
          q.cash_entry_id, q.cash_doc_no, e.doc_no AS e_doc_no, e.amount::double precision AS e_amount,
          COALESCE(fin_cur(NULLIF(e.currency, '')), fin_cur(ecb.currency), @base::text) AS e_cur, ecb.name AS e_cashbox,
          (e.id IS NOT NULL AND e.is_deleted = 0
-            AND EXISTS (SELECT 1 FROM loyalty_card_transactions l WHERE l.transaction_id = e.id)) AS payout_alive,
+            AND EXISTS (SELECT 1 FROM loyalty_card_transactions l WHERE l.transaction_id = e.id AND COALESCE(l.is_deleted, 0) = 0)) AS payout_alive,
          q.comment, q.source, q.created_at, q.created_by, q.decided_at, q.decided_by
-  FROM cashback_withdrawal_requests q
+  FROM (SELECT * FROM cashback_withdrawal_requests WHERE COALESCE(is_deleted, 0) = 0) q
   LEFT JOIN clients c ON c.id = COALESCE(
     q.client_id,
     (SELECT c2.id FROM clients c2 WHERE fin_key(c2.name) = fin_key(q.client) AND fin_key(q.client) <> '' ORDER BY c2.id LIMIT 1))
@@ -258,6 +259,9 @@ export async function listCashbackRequests(query: CashbackRequestListQuery): Pro
   await ensureCashbackRequestsSchema()
   const db = getDb()
   const cc = await loadCurrencyContext(db)
+  // The reference lists only its own requests: rows registered as demo data (demo_seed_rows) stay out of the list.
+  const hasRegistry = ((await db.prepare("SELECT to_regclass('demo_seed_rows') AS t").get()) as { t: string | null }).t
+  const hideDemo = hasRegistry ? " AND NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'cashback_withdrawal_requests' AND d.row_id = f.id::text)" : ""
   const pageSize = query.pageSize ?? 25
   const page = query.page ?? 1
   const search = query.search ?? ""
@@ -276,7 +280,7 @@ export async function listCashbackRequests(query: CashbackRequestListQuery): Pro
       `WITH r AS (${BASE_SQL}), f AS (SELECT r.*, ${EFFECTIVE_STATUS_SQL} AS status FROM r)
        SELECT f.*, COUNT(*) OVER () AS total FROM f
        WHERE (@status::text = '' OR f.status = @status::text)
-         AND (@currency::text = '' OR f.cur = @currency::text)
+         AND (@currency::text = '' OR f.cur = @currency::text)${hideDemo}
          AND (@search::text = ''
               OR strpos(fin_key(COALESCE(f.c_name, f.client_text)), fin_key(@search::text)) > 0
               OR strpos(fin_key(f.c_phone), fin_key(@search::text)) > 0
@@ -295,7 +299,7 @@ export async function listCashbackRequests(query: CashbackRequestListQuery): Pro
         `WITH r AS (${BASE_SQL}), f AS (SELECT r.*, ${EFFECTIVE_STATUS_SQL} AS status FROM r)
          SELECT COUNT(*) AS n FROM f
          WHERE (@status::text = '' OR f.status = @status::text)
-           AND (@currency::text = '' OR f.cur = @currency::text)
+           AND (@currency::text = '' OR f.cur = @currency::text)${hideDemo}
            AND (@search::text = ''
                 OR strpos(fin_key(COALESCE(f.c_name, f.client_text)), fin_key(@search::text)) > 0
                 OR strpos(fin_key(f.c_phone), fin_key(@search::text)) > 0
@@ -306,7 +310,7 @@ export async function listCashbackRequests(query: CashbackRequestListQuery): Pro
       .get({ ...params, limit: undefined, offset: undefined })) as { n: string | number }
     count = Number(total.n)
   }
-  const seen = (await db.prepare("SELECT DISTINCT COALESCE(fin_cur(currency), @base::text) AS cur FROM cashback_withdrawal_requests").all({ base: cc.base })) as Array<{ cur: string }>
+  const seen = (await db.prepare("SELECT DISTINCT COALESCE(fin_cur(currency), @base::text) AS cur FROM cashback_withdrawal_requests WHERE COALESCE(is_deleted, 0) = 0").all({ base: cc.base })) as Array<{ cur: string }>
   return {
     count,
     page,
@@ -462,4 +466,19 @@ export async function decideCashbackRequest(id: number, decision: CashbackReques
     )
   })
   return (await getCashbackRequestDetail(id)).request
+}
+
+/** DELETE /api/cashback-withdrawal-requests/[id] — soft delete of a request that was not paid out (pending or rejected). */
+export async function deleteCashbackRequest(id: number): Promise<{ id: number; deleted: true }> {
+  await ensureCashbackRequestsSchema()
+  const cc = await loadCurrencyContext(getDb())
+  await withTransaction(async (tx) => {
+    const locked = await tx.prepare("SELECT id FROM cashback_withdrawal_requests WHERE id = @id::int AND COALESCE(is_deleted, 0) = 0 FOR UPDATE").get({ id })
+    if (!locked) throw new CashError("Запрос не найден", 404)
+    const row = (await loadRequestRow(tx, id, cc.base))!
+    // a payout whose cash entry was deleted comes back as "pending" (see toRow) and may be deleted again
+    if (row.status === "confirmed") throw new CashError("Выплаченный запрос удалить нельзя", 409)
+    await tx.prepare("UPDATE cashback_withdrawal_requests SET is_deleted = 1, updated_at = datetime('now') WHERE id = @id::int").run({ id })
+  })
+  return { id, deleted: true }
 }

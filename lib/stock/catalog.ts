@@ -59,6 +59,12 @@ function parsePrices(row: CatalogRow): Record<string, number> {
   return prices
 }
 
+/** Alive products that are not raw materials in disguise (product_kind_overrides; their raw_materials twin is listed instead). */
+function productFilter(t: StockTables): string {
+  const conditions = [t.col("products", "deleted") ? "COALESCE(p.deleted, 0) = 0" : "", t.has("product_kind_overrides") ? "p.id NOT IN (SELECT product_id FROM product_kind_overrides)" : ""].filter(Boolean)
+  return conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""
+}
+
 function catalogSql(t: StockTables): string {
   const pc = (column: string, fallback = "NULL") => (t.col("products", column) ? `p.${column}` : fallback)
   const rc = (column: string, fallback = "NULL") => (t.col("raw_materials", column) ? `r.${column}` : fallback)
@@ -69,7 +75,7 @@ function catalogSql(t: StockTables): string {
       ${pc("supplier")}::text AS supplier, ${pc("cost")}::double precision AS cost, ${pc("initial_cost")}::double precision AS initial_cost,
       ${pc("price_lists")}::text AS price_lists, NULL::text AS price_list, NULL::text AS cash_price, ${pc("min_stock")}::text AS min_stock,
       ${pc("weight")}::text AS weight, ${pc("volume")}::text AS volume, ${pc("sub_unit")}::text AS sub_unit
-      FROM products p ${t.col("products", "deleted") ? "WHERE COALESCE(p.deleted, 0) = 0" : ""}`)
+      FROM products p ${productFilter(t)}`)
   }
   if (t.has("raw_materials")) {
     parts.push(`SELECT 'raw_material', r.id, r.name, ${rc("article")}::text, ${rc("barcode")}::text, ${rc("type")}::text, ${rc("subcategory")}::text, ${rc("brand")}::text,

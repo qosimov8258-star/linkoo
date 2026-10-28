@@ -1,8 +1,7 @@
 "use client"
 
-import { AgentProfitReportView } from "@/components/analytics/product-profit-view"
+import { ProfitReportView } from "@/components/analytics/profit-report-view"
 
-// "Прибыль от агентов": the server P&L per agent / branch / zone (see product-profit-view.tsx).
 export function AgentProfitView() {
-  return <AgentProfitReportView />
+  return <ProfitReportView title="Прибыль от агентов" entity="Агент" source="agents" realizedLabel="ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ" fileName="agent-profit.xls" />
 }

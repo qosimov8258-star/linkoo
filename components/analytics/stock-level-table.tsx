@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Settings2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Settings2 } from "lucide-react"
 
 import { formatQty, qtyWithUnit } from "@/components/analytics/stock-level-state"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
@@ -73,7 +73,7 @@ export function StockColumnSettings({ mode, hidden, onChange }: { mode: StockLev
 function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
   if ((ordering || "name") === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
   if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+  return null
 }
 
 type Line = Pick<StockLevelStock, "total" | "reserved" | "transit" | "defects" | "available" | "value">
@@ -112,9 +112,9 @@ export function StockLevelTable({
       case "total":
         return <b>{qtyWithUnit(line.total, unit, t)}</b>
       case "reserved":
-        return <span className="font-semibold" style={{ color: line.reserved > 0 ? "#129fdd" : "#90a4ae" }}>{qtyWithUnit(line.reserved, unit, t)}</span>
+        return <span className="px-[3px] font-semibold" style={{ color: line.reserved > 0 ? "#129fdd" : "#90a4ae" }}>{qtyWithUnit(line.reserved, unit, t)}</span>
       case "transit":
-        return <b className="text-[#f0ad4e]">{qtyWithUnit(line.transit, unit, t)}</b>
+        return <b className="px-[3px] text-[#f0ad4e]">{qtyWithUnit(line.transit, unit, t)}</b>
       case "available":
         return (
           <span title={line.defects ? `${t("Брак")}: ${qtyWithUnit(line.defects, unit, t)}` : undefined}>
@@ -143,76 +143,69 @@ export function StockLevelTable({
       return next
     })
 
+  // The reference grid: 1236px frame, a 250px name column, the rest equal; 29px header with a soft shadow, 40px rows.
+  const template = { gridTemplateColumns: `250px repeat(${columns.length}, minmax(0, 1fr))` }
+  const head = "flex h-[29px] items-center justify-center text-center text-[13px] font-semibold text-[#374557]"
+  const cellClass = (column?: Column) => `flex min-h-[40px] min-w-0 items-center border-b border-[#efefef] px-[5px] pr-[6px] ${column?.align === "right" ? "justify-end text-right" : ""}`
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1000px] border-collapse text-[14px]">
-        <thead className="bg-[#edf1f6] text-[#263653]">
-          <tr>
-            <th className="border border-[#dfe4ea] px-3 py-3 text-left font-semibold">
-              <button type="button" onClick={() => onSort("name")} className="flex items-center gap-1">
-                {t("Товар")} <SortIcon ordering={ordering} sortKey="name" />
-              </button>
-            </th>
-            {columns.map((column) => (
-              <th key={column.id} className={`border border-[#dfe4ea] px-3 py-3 font-semibold ${column.align === "right" ? "text-right" : "text-left"}`}>
-                {column.sortKey ? (
-                  <button type="button" onClick={() => onSort(column.sortKey!)} className={`inline-flex items-center gap-1 ${column.align === "right" ? "flex-row-reverse" : ""}`}>
-                    {t(column.label)} <SortIcon ordering={ordering} sortKey={column.sortKey} />
-                  </button>
-                ) : (
-                  t(column.label)
-                )}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className={loading ? "opacity-60" : ""}>
+      <div className="min-w-[1000px] border border-black/10 text-[13px] text-[#333]">
+        <div style={template} className="relative z-10 grid h-[29px] [box-shadow:0_4px_14px_rgba(0,0,0,0.15)]">
+          <button type="button" onClick={() => onSort("name")} className={head}>
+            {t("Продукт")} {ordering ? <SortIcon ordering={ordering} sortKey="name" /> : null}
+          </button>
+          {columns.map((column) => (
+            <div key={column.id} className={head}>
+              {column.sortKey ? (
+                <button type="button" onClick={() => onSort(column.sortKey!)} className="inline-flex items-center gap-1">
+                  {t(column.label)} <SortIcon ordering={ordering} sortKey={column.sortKey} />
+                </button>
+              ) : (
+                t(column.label)
+              )}
+            </div>
+          ))}
+        </div>
+        <div className={loading ? "opacity-60" : ""}>
           {rows.map((row, index) => {
             const open = expanded.has(row.key)
+            const bg = index % 2 ? "bg-[#f4f8fb]" : "bg-white"
             return (
               <Fragment key={row.key}>
-                <tr className={index % 2 ? "bg-[#f0f5fa]" : "bg-white"}>
-                  <td className="border border-[#e1e5e9] px-3 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => toggle(row.key)}
-                        disabled={!row.stocks.length}
-                        aria-label={t(open ? "Свернуть" : "Развернуть")}
-                        className="text-[#586174] disabled:opacity-30"
-                      >
-                        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                      </button>
-                      <button type="button" onClick={() => onOpenItem(row)} className="text-left hover:text-[#4f71dc]">
-                        {row.name}
-                      </button>
-                    </div>
-                  </td>
+                <div style={template} className={`grid ${bg}`}>
+                  <div className={`${cellClass()} pl-[5px]`}>
+                    <button type="button" onClick={() => toggle(row.key)} disabled={!row.stocks.length} aria-label={t(open ? "Свернуть" : "Развернуть")} className="flex h-[26px] w-[24px] shrink-0 items-center disabled:opacity-30">
+                      <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#333]"><path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} /></svg>
+                    </button>
+                    <button type="button" onClick={() => onOpenItem(row)} className="min-w-0 break-words py-[3px] text-left hover:text-[#4f71dc]">
+                      {row.name}
+                    </button>
+                  </div>
                   {columns.map((column) => (
-                    <td key={column.id} className={`whitespace-nowrap border border-[#e1e5e9] px-3 py-2.5 ${column.align === "right" ? "text-right" : ""}`}>
+                    <div key={column.id} className={`${cellClass(column)} ${column.align === "right" ? "whitespace-nowrap" : "break-words py-[3px]"}`}>
                       {cell(row, row, column.id, false)}
-                    </td>
+                    </div>
                   ))}
-                </tr>
+                </div>
                 {open &&
                   row.stocks.map((stock, stockIndex) => (
-                    <tr key={stock.warehouse} className={stockIndex % 2 ? "bg-[#dce8f5]" : "bg-[#e8f1fb]"}>
-                      <td className="border border-[#d9e2ec] py-2 pl-12 pr-3 text-[#3b4a66]">
-                        {stock.warehouse}
+                    <div key={stock.warehouse} style={template} className={`grid ${stockIndex % 2 ? "bg-[#dce8f5]" : "bg-[#e8f1fb]"}`}>
+                      <div className={`${cellClass()} pl-[29px] text-[#3b4a66]`}>
+                        <span className="truncate">{stock.warehouse}</span>
                         {stock.branch && <span className="ml-2 text-xs text-[#7a8599]">{stock.branch}</span>}
-                      </td>
+                      </div>
                       {columns.map((column) => (
-                        <td key={column.id} className={`whitespace-nowrap border border-[#d9e2ec] px-3 py-2 ${column.align === "right" ? "text-right" : ""}`}>
+                        <div key={column.id} className={`${cellClass(column)} whitespace-nowrap`}>
                           {cell(row, stock, column.id, true)}
-                        </td>
+                        </div>
                       ))}
-                    </tr>
+                    </div>
                   ))}
               </Fragment>
             )
           })}
-        </tbody>
-      </table>
+        </div>
+      </div>
       {!rows.length && <div className="p-16 text-center text-[#8b95a5]">{loading ? t("Загрузка...") : t("Нет данных")}</div>}
     </div>
   )

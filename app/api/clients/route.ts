@@ -4,6 +4,7 @@ import { parseBody } from "@/lib/auth-request"
 import { clientErrorResponse, clientInputOf, clientSchema } from "@/lib/client-schema"
 import { createClient, listClients } from "@/lib/clients-repo"
 import { getCurrentUser } from "@/lib/current-user"
+import { createAccountForClient } from "@/lib/financial-accounts-repo"
 import { requireRole } from "@/lib/rbac"
 
 // GET /api/clients[?q=] → Client[] with the current ledger balance (balanceLines / currentBalances).
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const client = await createClient(clientInputOf(parsed.data), auth.user)
+    await createAccountForClient({ id: client.id, name: client.name, address: client.address, agent: client.agent, type: client.type })
     return NextResponse.json(client, { status: 201 })
   } catch (error) {
     return clientErrorResponse(error)

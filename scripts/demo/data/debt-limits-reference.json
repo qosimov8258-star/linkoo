@@ -1,0 +1,509 @@
+{
+ "_source": "reference GET market/debt_limit/?page_size=200 (81 rows) and market/market/?debt_limit_type=<type> (read-only, 2026-10-24)",
+ "limits": [
+  {
+   "market": 2903,
+   "division": 3,
+   "divisionName": "Electronika",
+   "amount": 600000.0
+  },
+  {
+   "market": 3147,
+   "division": 19,
+   "divisionName": "avto organizatsiya 2",
+   "amount": 5000000.0
+  },
+  {
+   "market": 3189,
+   "division": 59,
+   "divisionName": "05,08,2025",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 66,
+   "divisionName": "1112233",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 27,
+   "divisionName": "Турецкий Айран",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 34,
+   "divisionName": "ТестоваяОрганизация",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 18,
+   "divisionName": "производство организация",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 36,
+   "divisionName": "Парус",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 20,
+   "divisionName": "ООО ПРОФШ",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 4,
+   "divisionName": "Одежда",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 13,
+   "divisionName": "напитки",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 31,
+   "divisionName": "Глобал",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 22,
+   "divisionName": "Айти-Системс",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 11,
+   "divisionName": "xo'jalik mollari",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 28,
+   "divisionName": "tosh98",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 57,
+   "divisionName": "texnikalar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 29,
+   "divisionName": "TestOrganization",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 5,
+   "divisionName": "Texnika",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 65,
+   "divisionName": "test1",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 44,
+   "divisionName": "telefonlar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 6,
+   "divisionName": "Pampers",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 58,
+   "divisionName": "SmartPhone",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 7,
+   "divisionName": "shirinliklar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 40,
+   "divisionName": "Salohiddin Yemaklar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 39,
+   "divisionName": "Salohiddin Texnika",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 38,
+   "divisionName": "ROYAL",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 8,
+   "divisionName": "robototexnika",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 24,
+   "divisionName": "PEPSI",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 10,
+   "divisionName": "parfyumeriya",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 42,
+   "divisionName": "ORG",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 60,
+   "divisionName": "NEW ORG",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 35,
+   "divisionName": "Orbit",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 61,
+   "divisionName": "name of organisation",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 53,
+   "divisionName": "meva mahsulotlari",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 45,
+   "divisionName": "Maxsulotlar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 56,
+   "divisionName": "mevalar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 52,
+   "divisionName": "maishiy texnika buyumlari",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 55,
+   "divisionName": "linko texnika",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 41,
+   "divisionName": "Maishiy texnika",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 54,
+   "divisionName": "linko mevalar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 43,
+   "divisionName": "laptops",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 51,
+   "divisionName": "krug2Lit",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 50,
+   "divisionName": "krug1Cola",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 16,
+   "divisionName": "Konstavar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 15,
+   "divisionName": "IT maxsulotlari",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 1,
+   "divisionName": "Ichimliklar",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 21,
+   "divisionName": "HANGUK",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 23,
+   "divisionName": "hanguk13",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 9,
+   "divisionName": "energetik",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 37,
+   "divisionName": "waters",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 46,
+   "divisionName": "gulomfood tashkilot",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 3,
+   "divisionName": "Electronika",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 48,
+   "divisionName": "Dosya organization",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 47,
+   "divisionName": "DostonFood",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 49,
+   "divisionName": "doston2organizationCola",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 30,
+   "divisionName": "Buxoro 2",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 62,
+   "divisionName": "baby still",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 19,
+   "divisionName": "avto organizatsiya 2",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3189,
+   "division": 25,
+   "divisionName": "878",
+   "amount": 21645000.0
+  },
+  {
+   "market": 3164,
+   "division": 34,
+   "divisionName": "ТестоваяОрганизация",
+   "amount": 0.0
+  },
+  {
+   "market": 3205,
+   "division": 59,
+   "divisionName": "05,08,2025",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 66,
+   "divisionName": "1112233",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 71,
+   "divisionName": "7777",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 25,
+   "divisionName": "878",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 19,
+   "divisionName": "avto organizatsiya 2",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 62,
+   "divisionName": "baby still",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 30,
+   "divisionName": "Buxoro 2",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 49,
+   "divisionName": "doston2organizationCola",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 47,
+   "divisionName": "DostonFood",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 48,
+   "divisionName": "Dosya organization",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 3,
+   "divisionName": "Electronika",
+   "amount": 100.0
+  },
+  {
+   "market": 3205,
+   "division": 9,
+   "divisionName": "energetik",
+   "amount": 100.0
+  },
+  {
+   "market": 3493,
+   "division": 59,
+   "divisionName": "05,08,2025",
+   "amount": 0.0
+  },
+  {
+   "market": 3494,
+   "division": 59,
+   "divisionName": "05,08,2025",
+   "amount": 10000000.0
+  },
+  {
+   "market": 3496,
+   "division": 59,
+   "divisionName": "05,08,2025",
+   "amount": 250000.0
+  },
+  {
+   "market": 3497,
+   "division": 66,
+   "divisionName": "1112233",
+   "amount": 200.0
+  },
+  {
+   "market": 3497,
+   "division": 9,
+   "divisionName": "energetik",
+   "amount": 200.0
+  },
+  {
+   "market": 3497,
+   "division": 39,
+   "divisionName": "Salohiddin Texnika",
+   "amount": 200.0
+  },
+  {
+   "market": 3497,
+   "division": 25,
+   "divisionName": "878",
+   "amount": 200.0
+  },
+  {
+   "market": 4575,
+   "division": 66,
+   "divisionName": "1112233",
+   "amount": 0.0
+  },
+  {
+   "market": 4576,
+   "division": 59,
+   "divisionName": "05,08,2025",
+   "amount": 50000.0
+  }
+ ],
+ "modes": {
+  "0": [
+   4575,
+   3493,
+   4576,
+   3497,
+   3494,
+   3205
+  ],
+  "1": [
+   3164,
+   3497,
+   3496,
+   3189,
+   3147,
+   2903
+  ]
+ }
+}

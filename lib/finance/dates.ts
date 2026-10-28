@@ -133,8 +133,14 @@ const INTL_LOCALES: Record<string, string> = { ru: "ru-RU", en: "en-GB" }
 // so those two languages use explicit tables.
 const MONTHS: Record<string, { long: string[]; short: string[] }> = {
   uz: {
-    long: ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"],
-    short: ["yan", "fev", "mar", "apr", "may", "iyn", "iyl", "avg", "sen", "okt", "noy", "dek"],
+    // The reference app's moment "uz" locale (updateLocale).
+    long: ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentyabr", "oktyabr", "noyabr", "dekabr"],
+    short: ["yan", "fev", "mar", "apr", "may", "iyun", "iyul", "avg", "sen", "okt", "noy", "dek"],
+  },
+  en: {
+    // moment "en": Intl en-GB prints "Sept", the reference prints "Sep".
+    long: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    short: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
   },
   tk: {
     long: ["ýanwar", "fewral", "mart", "aprel", "maý", "iýun", "iýul", "awgust", "sentýabr", "oktýabr", "noýabr", "dekabr"],
@@ -164,5 +170,16 @@ export function formatStatementDate(iso: string, language = "ru", withTime = tru
   }
   const options: Intl.DateTimeFormatOptions = { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }
   if (withTime) Object.assign(options, { hour: "2-digit", minute: "2-digit", hour12: false })
-  return new Intl.DateTimeFormat(INTL_LOCALES[language] ?? "ru-RU", options).format(dateFromIso(iso))
+  // The reference prints "04 авг. 2026, 18:42" (no "г." that ICU adds for ru).
+  return new Intl.DateTimeFormat(INTL_LOCALES[language] ?? "ru-RU", options).format(dateFromIso(iso)).replace(/ г\.(,|$)/, "$1")
+}
+
+const RU_MONTH_ABBR = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
+
+/** "01 Окт. 2026 - 31 Окт. 2026": the current calendar month as the report builders label their default period. */
+export function monthRangeLabel(day: string = todayIso()): string {
+  const [year, month] = day.split("-").map(Number)
+  const last = new Date(year, month, 0).getDate()
+  const name = RU_MONTH_ABBR[month - 1]
+  return `01 ${name} ${year} - ${String(last).padStart(2, "0")} ${name} ${year}`
 }

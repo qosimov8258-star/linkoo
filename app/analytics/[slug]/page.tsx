@@ -57,8 +57,11 @@ import { QuestionnaireView } from "@/components/analytics/questionnaire-view"
 import { SurveyPlanView } from "@/components/analytics/survey-plan-view"
 import { TelegramBotPagesView } from "@/components/analytics/telegram-bot-pages-view"
 import { RefusalTypesView } from "@/components/analytics/refusal-types-view"
+import { CashShiftsView } from "@/components/analytics/cash-shifts-view"
+import { CashFlowView } from "@/components/analytics/cash-flow-view"
+import { CellTypesView } from "@/components/analytics/cell-types-view"
+import { CellsView } from "@/components/analytics/cells-view"
 import { ShiftsView } from "@/components/analytics/shifts-view"
-import { BranchesView } from "@/components/analytics/branches-view"
 import { EmployeesView } from "@/components/analytics/employees-view"
 import { PositionsView } from "@/components/analytics/positions-view"
 import { AccessRightsView } from "@/components/analytics/access-rights-view"
@@ -92,6 +95,10 @@ import { CashManagementView } from "@/components/analytics/cash-management-view"
 import { InvoiceIncomingsView } from "@/components/analytics/invoice-incomings-view"
 import { PriceAnalysisView } from "@/components/analytics/price-analysis-view"
 import { TransportView } from "@/components/analytics/transport-view"
+import { DocTemplatesView } from "@/components/analytics/doc-templates-view"
+import { OrderExcelView } from "@/components/analytics/order-excel-view"
+import { ReceiptTemplatesView } from "@/components/analytics/receipt-templates-view"
+import { PeriodClosingsView } from "@/components/settings/period-closings-view"
 import { SubscriptionsView } from "@/components/analytics/subscriptions-view"
 import { SessionsView } from "@/components/analytics/sessions-view"
 import {
@@ -124,16 +131,17 @@ export const dynamicParams = false
 export function generateStaticParams() {
   const slugs = new Set<string>([
     ...analyticsResources.map((resource) => resource.slug),
-    ...analyticsReports.filter((report) => report.href.startsWith("/analytics/")).map((report) => report.slug),
+    // Reports outside /analytics (map, tracking, integrations) are listed too: the page redirects them.
+    ...analyticsReports.map((report) => report.slug),
   ])
   return [...slugs].map((slug) => ({ slug }))
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params
-  const report = getAnalyticsReport(slug)
-  // The same rule as the page below: a resource redirects, a report renders only under /analytics/.
-  const page = getAnalyticsResource(slug) ?? (report?.href.startsWith("/analytics/") ? report : undefined)
+  // The same rule as the page below: a resource redirects, a report renders under /analytics/
+  // or redirects to its own page elsewhere; any other slug is not found.
+  const page = getAnalyticsResource(slug) ?? getAnalyticsReport(slug)
   if (!page) return notFoundMetadata()
 
   const t = await getServerT()
@@ -160,7 +168,9 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   const report = getAnalyticsReport(slug)
-  if (!report || !report.href.startsWith("/analytics/")) return <NotFoundContent />
+  if (!report) return <NotFoundContent />
+  // Reports that live outside /analytics (map, tracking, integrations) are reachable by slug too.
+  if (!report.href.startsWith("/analytics/")) redirect(report.href)
 
   if (report.slug === "visits-by-day") {
     return <VisitsByDayView />
@@ -381,12 +391,40 @@ export default async function AnalyticsPage({ params }: PageProps) {
     return <CatalogPageLayout><RefusalTypesView embedded /></CatalogPageLayout>
   }
 
-  if (report.slug === "shifts") {
-    return <ShiftsView />
+  if (report.slug === "cell-types") {
+    return <CatalogPageLayout><CellTypesView embedded /></CatalogPageLayout>
   }
 
-  if (report.slug === "branches") {
-    return <CatalogPageLayout><BranchesView embedded /></CatalogPageLayout>
+  if (report.slug === "cells") {
+    return <CatalogPageLayout><CellsView embedded /></CatalogPageLayout>
+  }
+
+  if (report.slug === "period-closings") {
+    return <CatalogPageLayout sidebarWidth={196}><PeriodClosingsView /></CatalogPageLayout>
+  }
+
+  if (report.slug === "document-templates") {
+    return <DocTemplatesView />
+  }
+
+  if (report.slug === "order-excel-settings") {
+    return <OrderExcelView />
+  }
+
+  if (report.slug === "receipt-settings") {
+    return <ReceiptTemplatesView />
+  }
+
+  if (report.slug === "cash-shifts") {
+    return <CashShiftsView />
+  }
+
+  if (report.slug === "cash-flow") {
+    return <CashFlowView />
+  }
+
+  if (report.slug === "shifts") {
+    return <CatalogPageLayout><ShiftsView /></CatalogPageLayout>
   }
 
   if (report.slug === "employees") {
@@ -398,7 +436,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "access-rights") {
-    return <CatalogPageLayout><AccessRightsView /></CatalogPageLayout>
+    return <CatalogPageLayout><AccessRightsView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "branch-kpi-plans") {
@@ -518,11 +556,11 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "transport") {
-    return <CatalogPageLayout><TransportView embedded /></CatalogPageLayout>
+    return <CatalogPageLayout><TransportView /></CatalogPageLayout>
   }
 
   if (report.slug === "subscriptions") {
-    return <CatalogPageLayout><SubscriptionsView embedded /></CatalogPageLayout>
+    return <SubscriptionsView />
   }
 
   if (report.slug === "sessions") {

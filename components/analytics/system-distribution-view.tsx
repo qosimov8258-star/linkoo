@@ -2,11 +2,38 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
-import { DashboardDialog } from "./dashboard-dialog"
-import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
+import type { AgentRouteSummary } from "@/lib/agent-visits-repo"
+import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
+import { DashboardDialog } from "./dashboard-dialog"
+import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportListSelectField, ReportPage } from "@/components/ref/report-kit"
 
-const data: (string | number)[][] = []
+type Row = (string | number)[]
+
+type PositionRef = { name: string }
+
+const HEADERS = [
+  "Агент", "Супервайзер", "ОКБ", "АКБ", "%", "План", "Факт", "Плановый визит",
+  "Внеплановый визит", "Выполнение маршрута, %", "Общий", "По маршруту",
+  "Вне маршрута", "Результативность, %", "Системность, %",
+]
+const PERCENT_COLUMNS = [4, 9, 13, 14]
+const HEADERS_SHORT = ["Агент", "Супервайзер", "ОКБ", "АКБ", "%", "План", "Факт", "Плановый визит", "Внеплановый визит", "Выполнение маршрута, %", "Общий", "По маршруту", "Вне маршрута", "%", "%"]
+
+/** Case / spacing-insensitive name key (positions are free text on the employee card). */
+function key(name: string) {
+  return name.replace(/\s+/g, " ").trim().toLowerCase()
+}
+
+function percent(part: number, whole: number) {
+  return whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0
+}
+
+function percentTone(value: number) {
+  if (value >= 80) return "!bg-[#94f56f]"
+  if (value >= 50) return "!bg-[#ffe27a]"
+  return "!bg-[#f54242]"
+}
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -20,30 +47,86 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
-function format(value: string | number) {
-  return typeof value === "number" ? new Intl.NumberFormat("ru-RU").format(value) : value
-}
-
-function downloadCsv() {
-  const header = [
-    "Агент", "Супервайзер", "ОКБ", "АКБ", "%", "План", "Факт", "Плановый визит",
-    "Внеплановый визит", "Выполнение маршрута, %", "Общий", "По маршруту",
-    "Вне маршрута", "Результативность, %", "Системность, %",
-  ]
-  downloadExcelTable("system-distribution.xls", [header, ...data])
-}
-
+// Системная дистрибуция, one row per agent, from the field activity data (GET /api/agent-visits?view=routes):
+// - ОКБ: clients whose responsible agent is the employee; АКБ: distinct clients of his counted orders in the period;
+// - План / Факт: planned client-days of his route and the client-days he visited (on the route / outside it);
+// - Результативность: visits that ended with an order; Системность: those on the route against the plan.
 export function SystemDistributionView() {
   const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
   const [from, setFrom] = useState(monthStart)
   const [to, setTo] = useState(today)
   const [position, setPosition] = useState("")
+  const [applied, setApplied] = useState({ from: monthStart(), to: today, position: "" })
+  const [summary, setSummary] = useState<AgentRouteSummary | null>(null)
+  const [positions, setPositions] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
   const [inDashboard, setInDashboard] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
   const overlayOpen = dashboardOpen
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/job-positions")
+      .then((response) => (response.ok ? (response.json() as Promise<PositionRef[]>) : []))
+      .then((data) => {
+        if (!cancelled) setPositions(Array.from(new Set(data.map((item) => item.name).filter(Boolean))))
+      })
+      .catch(() => {
+        if (!cancelled) setPositions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/agent-visits?view=routes&from=${applied.from}&to=${applied.to}`)
+      .then((response) => (response.ok ? (response.json() as Promise<AgentRouteSummary>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setSummary(data)
+      })
+      .catch(() => {
+        if (!cancelled) setSummary(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [applied.from, applied.to])
+
+  const rows = useMemo<Row[]>(
+    () =>
+      (summary?.agents ?? [])
+        .filter((agent) => !applied.position || key(agent.position) === key(applied.position))
+        .map((agent) => {
+          const fact = agent.route.visited + agent.outside.visited
+          const effective = agent.route.effective + agent.outside.effective
+          return [
+            agent.name, agent.supervisor, agent.okb, agent.akb, percent(agent.akb, agent.okb), agent.plan, fact, agent.route.visited, agent.outside.visited,
+            percent(agent.route.visited, agent.plan), effective, agent.route.effective, agent.outside.effective, percent(effective, fact), percent(agent.route.effective, agent.plan),
+          ]
+        }),
+    [summary, applied.position],
+  )
+
+  const totalsRow = useMemo<Row>(() => {
+    const sum = (index: number) => rows.reduce((acc, row) => acc + Number(row[index]), 0)
+    const [base, active, plan, fact, planned, effective, routeEffective] = [sum(2), sum(3), sum(5), sum(6), sum(7), sum(10), sum(11)]
+    return [
+      "Итого", "", base, active, percent(active, base), plan, fact, planned, sum(8),
+      percent(planned, plan), effective, routeEffective, sum(12), percent(effective, fact), percent(routeEffective, plan),
+    ]
+  }, [rows])
+
+  function downloadCsv() {
+    downloadExcelTable("system-distribution.xls", [HEADERS.map((label) => t(label)), ...rows, totalsRow.map((value, index) => (index === 0 ? t(String(value)) : value))])
+  }
 
   useEffect(() => {
     if (!overlayOpen) return
@@ -68,13 +151,13 @@ export function SystemDistributionView() {
       <ReportHeader title="Системная дистрибуция" onExcel={downloadCsv} onDashboard={() => setDashboardOpen(true)} inDashboard={inDashboard} />
 
       <ReportBand>
-        <ReportFilters applyDisabled={from > to}>
+        <ReportFilters applyDisabled={from > to} onApply={() => setApplied({ from, to, position })}>
           <ReportDateField label="Дата создания от" value={from} max={to} onChange={setFrom} />
           <ReportDateField label="Дата создания до" value={to} min={from} onChange={setTo} />
-          <ReportSelectField label="Должность" value={position} onChange={setPosition} options={["Агент", "Супервайзер"]} />
+          <ReportListSelectField label="Должность" value={position} onChange={setPosition} options={positions} />
         </ReportFilters>
 
-        {data.length === 0 ? <ReportEmpty /> : <SystemDistributionTable />}
+        {loading ? null : rows.length === 0 ? <ReportEmpty /> : <SystemDistributionTable rows={rows} totals={totalsRow} />}
       </ReportBand>
 
       {overlayOpen && (
@@ -102,52 +185,52 @@ export function SystemDistributionView() {
   )
 }
 
-function SystemDistributionTable() {
+function SystemDistributionTable({ rows, totals }: { rows: Row[]; totals: Row }) {
   const { t } = useLanguage()
-  const totals = ["Итого", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  const [sort, setSort] = useState<{ key: number; dir: "asc" | "desc" }>({ key: 0, dir: "asc" })
+  const heads = useMemo<MatrixHead[]>(
+    () =>
+      HEADERS_SHORT.map((label, index) => ({
+        label: t(label),
+        width: index < 2 ? 200 : 100,
+        sortable: true,
+        align: index < 2 ? "left" : "right",
+      })),
+    [t],
+  )
+  const ordered = useMemo(() => {
+    const dir = sort.dir === "asc" ? 1 : -1
+    return [...rows].sort((a, b) => {
+      const x = a[sort.key]
+      const y = b[sort.key]
+      return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "ru")) * dir
+    })
+  }, [rows, sort])
+  const toCell = (value: string | number, index: number) =>
+    index === 0 ? <span className="text-[#4f71dc]">{value}</span> : typeof value === "number" ? matrixNumber(value) : value
+  const matrixRows: MatrixRow[] = [
+    ...ordered.map((row, rowIndex) => ({
+      key: `${row[0]}-${rowIndex}`,
+      cells: row.map(toCell),
+      cellClass: (index: number) => (PERCENT_COLUMNS.includes(index) ? percentTone(Number(row[index])) : ""),
+    })),
+    { key: "total", tone: "total" as const, cells: totals.map((value, index) => (index === 0 ? t(String(value)) : typeof value === "number" ? matrixNumber(value) : value)) },
+  ]
   return (
-        <div className="mt-3 overflow-x-auto border border-slate-300 visits-scrollbar">
-          <table className="min-w-[1840px] border-collapse text-[13px] text-slate-800">
-            <thead className="bg-slate-50">
-              <tr>
-                <th colSpan={2} className="border-b border-r border-slate-300" />
-                <th colSpan={3} className="border-b border-r border-slate-300 py-4 text-center">{t("Количественная дистрибуция")}</th>
-                <th colSpan={5} className="border-b border-r border-slate-300 py-4 text-center">{t("Анализ визитов")}</th>
-                <th colSpan={4} className="border-b border-r border-slate-300 py-4 text-center">{t("Результативность")}</th>
-                <th className="border-b border-slate-300 py-4 text-center">{t("Системность")}</th>
-              </tr>
-              <tr>
-                {["Агент", "Супервайзер", "ОКБ", "АКБ", "%", "План", "Факт", "Плановый визит", "Внеплановый визит", "Выполнение маршрута, %", "Общий", "По маршруту", "Вне маршрута", "%", "%"].map((heading, index) => (
-                  <th key={`${heading}-${index}`} className="h-20 min-w-[125px] border-b border-r border-slate-300 px-2 text-center font-medium first:min-w-[245px]">
-                    {heading}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row, rowIndex) => (
-                <tr key={row[0]} className={rowIndex % 2 ? "bg-slate-50" : "bg-white"}>
-                  {row.map((value, index) => (
-                    <td
-                      key={index}
-                      className={`border-b border-r border-slate-300 px-2 py-4 ${index < 2 ? "text-left" : "text-right"} ${
-                        index === 4 || index === 9 || index === 14 ? "bg-red-500" : index === 13 ? "bg-[#94f56f]" : ""
-                      } ${index === 0 ? "font-medium text-[#5470e8]" : ""}`}
-                    >
-                      {format(value)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              <tr className="bg-[#555] font-bold text-white">
-                {totals.map((value, index) => (
-                  <td key={index} className={`border-r border-slate-300 px-2 py-4 ${index < 2 ? "text-left" : "text-right"}`}>
-                    {format(value)}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
+    <ReportMatrix
+      heads={heads}
+      headHeight={60}
+      groups={[
+        { title: "", span: 2 },
+        { title: t("Количественная дистрибуция"), span: 3 },
+        { title: t("Анализ визитов"), span: 5 },
+        { title: t("Результативность"), span: 4 },
+        { title: t("Системность"), span: 1 },
+      ]}
+      sortKey={sort.key}
+      sortDir={sort.dir}
+      onSort={(index) => setSort((current) => ({ key: index, dir: current.key === index && current.dir === "asc" ? "desc" : "asc" }))}
+      rows={matrixRows}
+    />
   )
 }

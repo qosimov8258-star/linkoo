@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { Send, X } from "lucide-react"
 
 import { balanceColor } from "@/components/analytics/balance/amount"
+import { ConfirmDialog as RequestConfirm } from "@/components/analytics/cash-management-shared"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { Field, fieldClass } from "@/components/analytics/store-reconciliation-filters"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
@@ -50,30 +51,6 @@ function DialogFrame({ title, width = 520, onClose, children, footer }: { title:
         {footer && <div className="flex justify-end gap-3 border-t border-[#efefef] px-6 py-4">{footer}</div>}
       </div>
     </div>
-  )
-}
-
-/** Small "are you sure" dialog (demo ConfirmDialog type submit). */
-export function ConfirmDialog({ message, loading, onClose, onConfirm }: { message: ReactNode; loading?: boolean; onClose: () => void; onConfirm: () => void }) {
-  const { t } = useLanguage()
-  return (
-    <DialogFrame
-      title={t("Подтверждение")}
-      width={440}
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" onClick={onClose} className="h-10 rounded-md px-5 font-semibold text-[#586174]">
-            {t("Отмена")}
-          </button>
-          <button type="button" disabled={loading} onClick={onConfirm} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white disabled:opacity-60">
-            {t("Подтвердить")}
-          </button>
-        </>
-      }
-    >
-      <div className="px-6 py-5 text-[14px] text-[#333]">{message}</div>
-    </DialogFrame>
   )
 }
 
@@ -201,7 +178,7 @@ export function TelegramDialog({
           </div>
         </div>
       </DialogFrame>
-      {confirm && <ConfirmDialog message={t("Подтвердить отправку сверку с клиентом через телеграм бот")} loading={sending} onClose={() => setConfirm(false)} onConfirm={() => void send()} />}
+      {confirm && <RequestConfirm title={t("Выполнить")} kind="request" text={t("Подтвердить отправку сверку с клиентом через телеграм бот")} confirmLabel="Да" busy={sending} onClose={() => setConfirm(false)} onConfirm={() => void send()} />}
     </>
   )
 }

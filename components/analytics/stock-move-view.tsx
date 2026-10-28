@@ -1,12 +1,11 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useState, type FormEvent } from "react"
-import { CircleAlert, Loader2, Search } from "lucide-react"
+import { CircleAlert, Loader2 } from "lucide-react"
 
 import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
-import { BalanceFilterButton, countActiveFilters } from "@/components/analytics/balance/filter-bar"
-import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { countActiveFilters } from "@/components/analytics/balance/filter-bar"
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { StockMoveCards } from "@/components/analytics/stock-move-cards"
 import { StockMoveDetail } from "@/components/analytics/stock-move-detail"
@@ -20,8 +19,8 @@ import {
   type MoveFilterDraft,
   type MoveToggle,
 } from "@/components/analytics/stock-move-filters"
-import { StockMoveColumnPicker, StockMoveTable } from "@/components/analytics/stock-move-table"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { StockMoveTable } from "@/components/analytics/stock-move-table"
+import { RI, RefHeader, RefPage } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { MOVE_GROUP_BY, moveColumns, type MoveField, type MoveGroupBy } from "@/lib/stock-movement-columns"
 import type { MoveListResult, MoveRow, MoveSumResult } from "@/lib/stock-movement-report"
@@ -179,19 +178,34 @@ function StockMoveContent() {
     }
   }
 
+  const lastPage = Math.max(1, Math.ceil((data?.count ?? 0) / state.pageSize))
+  const currentPage = Math.min(data?.page ?? state.page, lastPage)
+  const rangeFrom = data?.count ? (currentPage - 1) * state.pageSize + 1 : 0
+  const rangeTo = Math.min(currentPage * state.pageSize, data?.count ?? 0)
+  const scope = [...state.divisions, ...state.branches]
+  const groupLabel = t(MOVE_GROUP_BY.find((group) => group.id === state.groupBy)?.label ?? "")
+  const selectBox = "absolute top-[23px] block h-[36px] w-[200px] border-b border-[#e8e8e8]"
+  const floatLabel = "absolute -top-[13px] left-0 text-[10px] font-semibold leading-[12.2px] text-black"
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-4 sm:px-6 md:px-9">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-xl font-bold text-[#586174] sm:text-2xl">{t("Остаток на определенную дату")}</span>
-        </div>
-      </header>
+    <RefPage>
+      <div className="pl-[2px]">
+        <RefHeader title={t("Остаток на определенную дату")} />
+      </div>
 
-      <section className="flex flex-wrap items-center gap-4 px-4 py-4 sm:px-6 md:px-9">
-        <BalanceFilterButton count={filterCount} from={state.from} to={state.to} scope={[...state.divisions, ...state.branches]} onOpen={openFilter} />
-        <div className="ml-auto">
+      <div className="-mx-7 -mb-7 min-h-[calc(100vh-111px)] border-t border-[#e8eaee] bg-white px-[30px] pb-[30px] pt-[20px]">
+        <section className="flex h-[34px] items-center justify-between">
+          <div className="flex h-[34px] items-center">
+            <button type="button" onClick={openFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden>
+                <path d={RI.filter} />
+              </svg>
+              <span className="pl-2">
+                {t("Фильтр")}
+                {filterCount > 0 ? ` / ${filterCount}` : ""}
+              </span>
+            </button>
+            <span className="ml-[14px] whitespace-nowrap text-[13px] font-semibold text-[#4f71dc]">{scope.length ? scope.join(", ") : t("Во всей организации")}</span>
+          </div>
           <BalanceDownloadMenu
             disabled={downloading}
             items={[
@@ -199,106 +213,131 @@ function StockMoveContent() {
               { label: "Скачать упрощенный список", onClick: () => void download("simple") },
             ]}
           />
-        </div>
-      </section>
-      {downloadError && (
-        <p className="px-4 pb-2 text-sm text-[#e57373] sm:px-6 md:px-9">
-          {t("Не удалось выполнить запрос")}: {t(downloadError)}
-        </p>
-      )}
-
-      {sum.error && !sum.loading ? (
-        <p className="px-4 pb-4 text-sm text-[#e57373] sm:px-6 md:px-9">
-          {t("Не удалось выполнить запрос")}: {t(sum.error)}
-        </p>
-      ) : (
-        <StockMoveCards sum={sum.data} loading={sum.loading} showOthers={state.showOthers} />
-      )}
-
-      <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-4 py-3 sm:px-6 md:px-9">
-          <div className="flex overflow-hidden rounded-md border border-[#dbe0e8]">
-            {toggles.map((toggle) => (
-              <button
-                key={toggle.id}
-                type="button"
-                onClick={() => setToggle(toggle.id)}
-                className={`h-9 px-4 text-[13px] font-semibold uppercase ${state.toggle === toggle.id ? "bg-[#4f70e7] text-white" : "bg-white text-[#586174] hover:bg-[#f2f5f8]"}`}
-              >
-                {t(toggle.label)}
-              </button>
-            ))}
-          </div>
-          {state.toggle === "priceList" && (
-            <select
-              value={state.priceList}
-              onChange={(event) => update({ priceList: event.target.value || null, page: null })}
-              aria-label={t("Прайс лист")}
-              className="h-9 min-w-[180px] rounded-md border border-[#dbe0e8] bg-white px-3"
-            >
-              <option value="">{t("Прайс лист")}</option>
-              {[...new Set([state.priceList, ...options.priceLists].filter(Boolean))].map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          )}
-          <form onSubmit={submitSearch} className="relative w-full max-w-[260px] border-b border-[#dbe0e8] pb-1.5 focus-within:border-[#4f70e7]">
-            <input
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              placeholder={t("Поиск")}
-              aria-label={t("Поиск")}
-              className="w-full bg-transparent pr-8 text-[15px] outline-none placeholder:text-[#9aa3b6]"
-            />
-            <button type="submit" aria-label={t("Поиск")} className="absolute right-0 top-0 text-[#9aa3b6] hover:text-[#4f70e7]">
-              <Search className="h-5 w-5" />
-            </button>
-          </form>
-          <label className="flex items-center gap-2 text-[#586174]">
-            <span className="text-[13px]">{t("Группировка")}</span>
-            <select value={state.groupBy} onChange={(event) => setGroupBy(event.target.value as MoveGroupBy)} className="h-9 rounded-md border border-[#dbe0e8] bg-white px-2 text-[#17233b]">
-              {MOVE_GROUP_BY.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {t(group.label)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="ml-auto flex flex-wrap items-center gap-4">
-            <StockMoveColumnPicker columns={allColumns} hidden={hidden} onChange={changeHidden} />
-            <BalancePagination
-              page={data?.page ?? state.page}
-              pageSize={state.pageSize}
-              count={data?.count ?? 0}
-              sizes={MOVE_PAGE_SIZES}
-              onChange={(next) => update({ page: next.page > 1 ? next.page : null, pageSize: next.pageSize === 25 ? null : next.pageSize })}
-            />
-            <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
-          </div>
         </section>
-
-        {priceListMissing && <p className="border-t border-[#e1e5eb] px-4 py-3 text-center text-[#b7791f] sm:px-6 md:px-9">{t("Пожалуйста выберите прайс лист")}</p>}
-
-        {!data && list.loading && (
-          <div className="flex items-center justify-center gap-2 border-t border-[#e1e5eb] py-24 text-[#586174]">
-            <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
-          </div>
+        {downloadError && (
+          <p className="pt-2 text-[13px] text-[#e57373]">
+            {t("Не удалось выполнить запрос")}: {t(downloadError)}
+          </p>
         )}
-        {list.error && !list.loading && (
-          <div className="flex flex-col items-center gap-3 border-t border-[#e1e5eb] px-4 py-10 text-center text-[#586174]">
-            <CircleAlert className="h-10 w-10 text-[#e57373]" />
-            <p>
-              {t("Не удалось выполнить запрос")}: {t(list.error)}
-            </p>
-            <button type="button" onClick={list.reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
-              {t("Повторить")}
-            </button>
-          </div>
+
+        {sum.error && !sum.loading ? (
+          <p className="pt-4 text-[13px] text-[#e57373]">
+            {t("Не удалось выполнить запрос")}: {t(sum.error)}
+          </p>
+        ) : (
+          <StockMoveCards sum={sum.data} loading={sum.loading} showOthers={state.showOthers} />
         )}
-        {data && !list.error && (
-          <section className="border-t border-[#e1e5eb] pb-10">
+
+        <ExpandedOverlay expanded={expanded}>
+          <section className="relative h-[67px] border-t border-[#efefef]">
+            <div className="absolute left-0 top-[25px] flex h-[32px]">
+              {toggles.map((toggle, index) => (
+                <button
+                  key={toggle.id}
+                  type="button"
+                  onClick={() => setToggle(toggle.id)}
+                  style={{ minWidth: [66, 90.7, 146.7][index] }}
+                  className={`h-[32px] px-[16px] text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.toggle === toggle.id ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
+                >
+                  {t(toggle.label)}
+                </button>
+              ))}
+            </div>
+            {state.toggle === "priceList" && (
+              <label className="absolute left-[330px] top-[19px] w-[100px]">
+                <select
+                  value={state.priceList}
+                  onChange={(event) => update({ priceList: event.target.value || null, page: null })}
+                  aria-label={t("Прайс лист")}
+                  className="h-9 w-full border-b border-[#e0e0e0] bg-transparent text-[13px]"
+                >
+                  <option value="">{t("Прайс лист")}</option>
+                  {[...new Set([state.priceList, ...options.priceLists].filter(Boolean))].map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <form onSubmit={submitSearch} className="absolute left-[407.8px] top-[22px] block h-[36px] w-[200px] border-b border-[#e0e0e0]">
+              <input
+                value={searchDraft}
+                onChange={(event) => setSearchDraft(event.target.value)}
+                placeholder={t("Поиск")}
+                aria-label={t("Поиск")}
+                className="h-[31px] w-full bg-transparent pt-[13px] text-[13px] font-semibold leading-[18px] outline-none placeholder:font-semibold placeholder:text-black"
+              />
+            </form>
+            <label className={`${selectBox} left-[637.8px]`}>
+              <span className={floatLabel}>{t("Группировка")}</span>
+              <span className="pointer-events-none absolute left-0 top-[13px] text-[13px] font-semibold leading-[18px] text-[#333]">{groupLabel}</span>
+              <select value={state.groupBy} onChange={(event) => setGroupBy(event.target.value as MoveGroupBy)} aria-label={t("Группировка")} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0">
+                {MOVE_GROUP_BY.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {t(group.label)}
+                  </option>
+                ))}
+              </select>
+              <span aria-hidden className="pointer-events-none absolute left-[158px] top-[14px] text-[18px] leading-[18px] text-[#999]">×</span>
+              <svg viewBox="0 0 10 5" className="pointer-events-none absolute right-[10px] top-[21px] h-[5px] w-[10px] fill-[#333]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+            </label>
+            <label className={`${selectBox} left-[867.8px]`}>
+              <span className={floatLabel}>{t("Показать")}</span>
+              <span className="pointer-events-none absolute left-0 top-[13px] text-[13px] font-semibold leading-[18px] text-[#333]">{t("Количество")}</span>
+              <span aria-hidden className="pointer-events-none absolute left-[158px] top-[14px] text-[18px] leading-[18px] text-[#999]">×</span>
+              <svg viewBox="0 0 10 5" className="pointer-events-none absolute right-[10px] top-[21px] h-[5px] w-[10px] fill-[#333]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+            </label>
+            <div className="absolute right-0 top-[13px] flex h-[56px] items-center">
+              <label className="relative flex h-[56px] w-[56px] items-center justify-center text-[13px] text-[#333]">
+                <select
+                  value={state.pageSize}
+                  onChange={(event) => update({ page: null, pageSize: Number(event.target.value) === 25 ? null : Number(event.target.value) })}
+                  aria-label={t("Количество строк")}
+                  className="h-full w-full appearance-none bg-transparent text-[13px] outline-none"
+                >
+                  {MOVE_PAGE_SIZES.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+                <svg viewBox="0 0 10 5" className="pointer-events-none absolute left-[23px] top-[26px] h-[5px] w-[10px] fill-[#999]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+              </label>
+              <span className="ml-[11px] whitespace-nowrap text-[13px] text-[#5d6474]">
+                {rangeFrom} - {rangeTo} {t("из")} {data?.count ?? 0}
+              </span>
+              <button type="button" disabled={currentPage <= 1} onClick={() => update({ page: currentPage - 1 > 1 ? currentPage - 1 : null })} aria-label={t("Назад")} className="pl-[10px] pr-[5px] disabled:opacity-30">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-black/60" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-5l-3-3 3-3v6z" /></svg>
+              </button>
+              <button type="button" disabled={currentPage >= lastPage} onClick={() => update({ page: currentPage + 1 })} aria-label={t("Вперед")} className="disabled:opacity-30">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-black/60" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-11l3 3-3 3V9z" /></svg>
+              </button>
+              <span className="ml-[10px]">
+                <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+              </span>
+            </div>
+          </section>
+
+          {priceListMissing && <p className="py-3 text-center text-[#b7791f]">{t("Пожалуйста выберите прайс лист")}</p>}
+
+          {!data && list.loading && (
+            <div className="flex items-center justify-center gap-2 py-24 text-[#586174]">
+              <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
+            </div>
+          )}
+          {list.error && !list.loading && (
+            <div className="flex flex-col items-center gap-3 px-4 py-10 text-center text-[#586174]">
+              <CircleAlert className="h-10 w-10 text-[#e57373]" />
+              <p>
+                {t("Не удалось выполнить запрос")}: {t(list.error)}
+              </p>
+              <button type="button" onClick={list.reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+                {t("Повторить")}
+              </button>
+            </div>
+          )}
+          {data && !list.error && (
             <StockMoveTable
               rows={rows}
               columns={columns}
@@ -310,12 +349,12 @@ function StockMoveContent() {
               onCellClick={openCell}
               loading={list.loading}
             />
-          </section>
-        )}
-      </ExpandedOverlay>
+          )}
+        </ExpandedOverlay>
+      </div>
 
       <MoveFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} state={state} options={options} optionsError={optionsError} onApply={applyFilter} />
       <StockMoveDetail url={detailUrl} kind={state.kind} onKindChange={(kind) => update({ kind: kind || null })} onClose={closeDetail} />
-    </main>
+    </RefPage>
   )
 }

@@ -104,6 +104,8 @@ export type TransferItem = {
   /** Weight of one unit, kg. */
   weight: number
   series: string
+  /** "100 block": the line's quantity in the product's box unit (reference display data). */
+  boxLabel?: string
   /** Defective units (Брак): taken from the source's defects and kept as defects at the target. */
   defect?: boolean
   /** "cost": no price list, `price` is the cost of goods when the goods left. */

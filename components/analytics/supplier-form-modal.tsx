@@ -150,7 +150,7 @@ export function SupplierFormModal({
               {t("Категория")} <span className="text-red-500">*</span>
               <select value={draft.category} onChange={(event) => setDraft((value) => ({ ...value, category: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                 <option value="">{t("Выберите...")}</option>
-                {categoryOptions.map((item) => <option key={item}>{item}</option>)}
+                {categoryOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
               </select>
               {touched && !draft.category && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
             </label>
@@ -169,7 +169,7 @@ export function SupplierFormModal({
             {t("Филиал")}
             <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
               <option value="">{t("Выберите...")}</option>
-              {branchOptions.map((item) => <option key={item}>{item}</option>)}
+              {branchOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
             </select>
           </label>
 
@@ -177,7 +177,7 @@ export function SupplierFormModal({
             {t("Организация")}
             <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
               <option value="">{t("Выберите...")}</option>
-              {organizationOptions.map((item) => <option key={item}>{item}</option>)}
+              {organizationOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
             </select>
           </label>
 

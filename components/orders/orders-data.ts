@@ -24,27 +24,56 @@ export type Order = {
   /** "cash" | "bank" */
   paymentType?: string
   organization?: string
+  /** Shop name shown in the list (falls back to `client`). */
+  marketName?: string
+  deliveryMan?: string
+  expeditor?: string
+  /** Date the delivery was accepted (YYYY-MM-DD). */
+  acceptedDate?: string
+  totalPrice?: number
+  returnPrice?: number
+  factPrice?: number
+  weight?: number
+  discountPercent?: number
+  /** "cash" | "bank" — picks the payment icon in the list. */
+  payMethod?: string
+  /** Outstanding amount of this order (red payment icon while > 0). */
+  orderBalance?: number
+  invoiceActive?: boolean
+  transportNumber?: string
+  branchName?: string
+  stockName?: string
+  priceList?: string
+  paidAmount?: number
+  /** Client's operative / actual debt shown on the order card (SUM). */
+  operativeDebt?: number
+  actualDebt?: number
+  /** "standard" | "consignment" (the API's values; rows imported from the reference may carry "0" / "1"). */
+  dealType?: string
+  /** "Доставка" | "Самовывоз" (rows imported from the reference may carry "delivery" / "self"). */
+  deliveryType?: string
+  payTypeName?: string
+  /** Final payment date (YYYY-MM-DD) as the order card shows it. */
+  dueDate?: string
+  wrongDebt?: boolean
+  /** Creation timestamp "YYYY-MM-DD HH:MM:SS" (the list's `created` label has no year). */
+  createdAt?: string
+  invoiceNumber?: string
+  /** Invoice date (YYYY-MM-DD). */
+  invoiceDate?: string
+  invoiceContract?: string
+  /** Client's operative / actual debt per currency, as the reference order card lists them. */
+  operativeExpand?: { currency: string; amount: number }[]
+  actualExpand?: { currency: string; amount: number }[]
   /** Warehouse (warehouses.name) the goods are reserved in / shipped from (contract 4). */
   warehouse?: string
   /** Order currency (currencies.code); every line is in this currency. */
   currency?: string
-  /** Deliverer (employee name) of the order; empty = the client's deliverer. */
-  deliveryMan?: string
-  priceList?: string
   createdBy?: string
   comment?: string
-  /** "Доставка" | "Самовывоз" */
-  deliveryType?: string
-  /** "standard" | "consignment" */
-  dealType?: string
-  invoiceNumber?: string
-  invoiceDate?: string
-  invoiceActive?: boolean
   contract?: string
   /** ISO moment the order left the warehouse (В пути / Доставлено). */
   shippedAt?: string | null
-  /** UTC "YYYY-MM-DD HH:MM:SS" creation moment. */
-  createdAt?: string
   /** Client attributes, read-only (list / card). */
   clientBranch?: string
   clientPhone?: string
@@ -88,6 +117,28 @@ export function orderApiErrorText(
 /** 409 detail of "Агенту запрещено продавать товар" (Ограничение продуктов): the agent and the
  * products of the order it may not sell. */
 export type ProductRestrictionRefusal = { employeeId: number; agent: string; products: Array<{ id: number; name: string }> }
+
+/** Reference status labels (the app's /sales/order status codes 0-5) keyed by the stored status. */
+export const ORDER_STATUS_REF_LABEL: Record<string, string> = {
+  "В процессе": "В процессе",
+  "Есть на складе": "Есть на складе",
+  "В пути": "Передан доставщику",
+  "Доставлено": "Доставлен",
+  "Отменен": "Отменен",
+  "Не подтвержден": "Не подтвержден",
+}
+
+export const ORDER_STATUS_REF_OPTIONS = ["В процессе", "Есть на складе", "Передан доставщику", "Доставлен", "Отменен", "Не подтвержден"]
+
+
+/**
+ * Organization shown for an order. `product` holds the organization for imported orders but the items summary
+ * ("Name x2, Other x1") for orders edited/created here, so prefer the real column and ignore the summary.
+ */
+export function orderOrganization(order: Pick<Order, "organization" | "product">): string {
+  if (order.organization) return order.organization
+  return / x\d+(,|$)/.test(order.product) ? "" : order.product
+}
 
 /** Every order status, in workflow order. */
 export const ORDER_STATUSES = ["Не подтвержден", "В процессе", "Есть на складе", "В пути", "Доставлено", "Отменен"] as const

@@ -1,281 +1,167 @@
 "use client"
 
-import { LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
-import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
+import {
+  AddLink,
+  ConfirmDeleteDialog,
+  EmptyRows,
+  RowActions,
+  SettingsToolbar,
+  SortHead,
+  kitHead,
+  kitRow,
+  sortRows,
+  toggleOrdering,
+  useListControls,
+  usePaged,
+} from "@/components/analytics/settings-list-kit"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "наименование": "name", "название": "name", "должность": "name", "position": "name", "name": "name",
-}
+// "Должности" (demo #/post, Settings → Персонал; API main/jobs/): Id | Наименование | Дата создания,
+// newest first, Id and Дата создания sortable (multi-key like the demo's ?ordering=id,created_date),
+// ✎ / 🗑 appear on row hover. Dialog = one required field "Наименование".
 
-type Position = { id: number; name: string; date: string }
+type Position = { id: number; name: string; date: string; createdAt: string }
 
-const seedPositions: Position[] = []
+const COLUMNS = "240.5fr 607.5fr 427fr"
 
-export function PositionsView({ embedded = false }: { embedded?: boolean }) {
-  const { t, language } = useLanguage()
-  const [positions, setPositions] = useState(seedPositions)
-  const [query, setQuery] = useState("")
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/job-positions")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("failed")
-        return (await response.json()) as Position[]
-      })
-      .then((data) => {
-        if (!cancelled) setPositions(data)
-      })
-      .catch(() => {
-        if (!cancelled) window.alert(t("Не удалось загрузить должности с сервера"))
-      })
-    return () => {
-      cancelled = true
+function PositionDialog({ position, onClose, onSaved }: { position: Position | null; onClose: () => void; onSaved: () => void }) {
+  const { t } = useLanguage()
+  const [name, setName] = useState(position?.name ?? "")
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (saving) return
+    // The reference keeps "Сохранить" enabled and answers an empty name with the API field error.
+    if (!name.trim()) {
+      notify(`name: ${t("Это поле обязательно к заполнению")}`)
+      return
     }
-  }, [t])
-  const [page, setPage] = useState(1)
-  const [editing, setEditing] = useState<Position | null>(null)
-  const [name, setName] = useState("")
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const pageSize = 25
-
-  const filtered = useMemo(() => positions.filter((position) => position.name.toLowerCase().includes(query.toLowerCase())), [positions, query])
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  function openCreate() {
-    setName("")
-    setEditing({ id: 0, name: "", date: "" })
-  }
-
-  function openEdit(position: Position) {
-    setName(position.name)
-    setEditing(position)
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!name.trim()) return
+    setSaving(true)
     try {
-      if (editing?.id) {
-        const response = await fetch(`/api/job-positions/${editing.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim() }),
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(t(data.error || "Не удалось сохранить должность"))
-          return
-        }
-        const saved = (await response.json()) as Position
-        setPositions((list) => list.map((position) => (position.id === saved.id ? saved : position)))
-      } else {
-        const response = await fetch("/api/job-positions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim() }),
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(t(data.error || "Не удалось создать должность"))
-          return
-        }
-        const saved = (await response.json()) as Position
-        setPositions((list) => [saved, ...list])
-      }
-      setEditing(null)
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
-  async function remove(id: number) {
-    try {
-      const response = await fetch(`/api/job-positions/${id}`, { method: "DELETE" })
+      const response = await fetch(position ? `/api/job-positions/${position.id}` : "/api/job-positions", {
+        method: position ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      })
       if (!response.ok) {
-        // 409 while other records use it: the usage list says where.
-        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
-        const usage = data.usage?.map((item) => `${t(item.label)}: ${item.count}`).join(", ")
-        window.alert(`${t(data.error || "Не удалось удалить должность")}${usage ? ` (${usage})` : ""}`)
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        notify(t(data.error || "Не удалось сохранить должность"))
         return
       }
-      setPositions((list) => list.filter((position) => position.id !== id))
+      onSaved()
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("positions-template", [["Наименование"]])
-  }
-
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      const names: string[] = []
-      for (const row of dataRows) {
-        let value = ""
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            if (fieldByIndex.get(index) === "name") value = cell
-          })
-        } else {
-          value = row[0] ?? ""
-        }
-        if (value.trim()) names.push(value.trim())
-      }
-
-      if (!names.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-
-      const created: Position[] = []
-      let failed = 0
-      for (const item of names) {
-        try {
-          const response = await fetch("/api/job-positions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: item }),
-          })
-          if (response.ok) created.push((await response.json()) as Position)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setPositions((list) => [...created, ...list])
-      if (failed) window.alert(`${t("Импортировано")} ${created.length} ${t("из")} ${names.length}. ${t("Не удалось сохранить")}: ${failed}`)
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
+      setSaving(false)
     }
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
-      <div className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
-        <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={openCreate} className="text-[13px] text-[#4f71dc] hover:underline">
-            {t("+ добавить должность")}
-          </button>
-          <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
-
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-4 text-[13px]">Id</th>
-              <th className="px-5 py-4 text-[13px]">{t("Наименование")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Дата создания")}</th>
-              <th className="w-24" />
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((position) => (
-              <tr key={position.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4">{position.id}</td>
-                <td className="px-5 py-4">{position.name}</td>
-                <td className="px-5 py-4">{formatDateText(position.date, language)}</td>
-                <td>
-                  <div className="hidden items-center justify-end gap-3 pr-4 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => openEdit(position)} aria-label={t("Изменить")}>
-                      <Pencil className="h-5 w-5" />
-                    </button>
-                    <button type="button" onClick={() => remove(position.id)} aria-label={t("Удалить")}>
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {visible.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-slate-400">
-                  {t("Ничего не найдено")}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {editing && (
-        <Modal title={editing.id ? "Изменить должность" : "Добавить должность"} onClose={() => setEditing(null)} footer={<SaveButton onClick={() => void save({ preventDefault() {} } as FormEvent)}>{t("Сохранить")}</SaveButton>}>
-          <LineField label="Наименование" required autoFocus value={name} onChange={setName} />
-        </Modal>
-      )}
-
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{t("Импорт с Excel")}</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}>
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
-                {t("1. Скачать шаблон")}
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? t("Импорт...") : t("Сохранить")}
-              </button>
-            </footer>
-          </div>
-        </div>
-      )}
-    </main>
+    <Modal
+      title={position ? t("Изменить должность") : t("Добавить должность")}
+      titleClassName="text-[15px]"
+      closeInset="pr-[10px]"
+      onClose={onClose}
+      bodyClassName="px-[30px] pb-[42px] pt-[18px]"
+      footer={<SaveButton disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
+    >
+      <LineField label={t("Наименование")} required value={name} onChange={setName} />
+    </Modal>
   )
+}
+
+export function PositionsView({ embedded = false }: { embedded?: boolean }) {
+  const { t, language } = useLanguage()
+  const [positions, setPositions] = useState<Position[] | null>(null)
+  const [dialog, setDialog] = useState<{ position: Position | null } | null>(null)
+  const [deleting, setDeleting] = useState<Position | null>(null)
+  const [ordering, setOrdering] = useState<string[]>([])
+  const controls = useListControls()
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/job-positions", { cache: "no-store" })
+      if (!response.ok) throw new Error("load")
+      setPositions((await response.json()) as Position[])
+    } catch {
+      setPositions([])
+      notify(t("Не удалось загрузить должности с сервера"))
+    }
+  }, [t])
+  useEffect(() => { void load() }, [load])
+
+  const needle = controls.query.trim().toLowerCase()
+  const filtered = sortRows((positions ?? []).filter((position) => position.name.toLowerCase().includes(needle)), ordering, {
+    id: (position) => position.id,
+    created_date: (position) => position.createdAt,
+  })
+  const paged = usePaged(filtered, controls.page, controls.pageSize)
+
+  async function remove(position: Position) {
+    let response: Response
+    try {
+      response = await fetch(`/api/job-positions/${position.id}`, { method: "DELETE" })
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+      return
+    }
+    if (!response.ok) {
+      // 409 while other records use it: the usage list says where (its labels are i18n keys).
+      const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+      const usage = data.usage?.map((item) => `${t(item.label)}: ${item.count}`).join(", ")
+      notify(`${t(data.error || "Не удалось удалить должность")}${usage ? ` (${usage})` : ""}`)
+      return
+    }
+    setDeleting(null)
+    await load()
+  }
+
+  const body = (
+    <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <SettingsToolbar
+        left={<AddLink onClick={() => setDialog({ position: null })}>{t("добавить должность")}</AddLink>}
+        query={controls.query}
+        onQuery={controls.setQuery}
+        pager={{
+          pageSize: controls.pageSize,
+          onPageSize: controls.setPageSize,
+          from: paged.from,
+          to: paged.to,
+          total: paged.total,
+          onPrev: paged.page > 1 ? () => controls.setPage(paged.page - 1) : undefined,
+          onNext: paged.page < paged.pageCount ? () => controls.setPage(paged.page + 1) : undefined,
+        }}
+      />
+      <div className={kitHead} style={{ gridTemplateColumns: COLUMNS }}>
+        <span className="pl-[30px]"><SortHead className="!font-semibold" label="Id" field="id" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} /></span>
+        <span>{t("Наименование")}</span>
+        <SortHead className="!font-semibold" label={t("Дата создания")} field="created_date" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} />
+      </div>
+      {paged.rows.map((position) => (
+        <div key={position.id} className={kitRow} style={{ gridTemplateColumns: COLUMNS }}>
+          <span className="pl-[30px]">{position.id}</span>
+          <span className="pr-4">{position.name}</span>
+          <span>{formatDateText(position.date, language)}</span>
+          <RowActions onEdit={() => setDialog({ position })} onDelete={() => setDeleting(position)} />
+        </div>
+      ))}
+      {positions && paged.rows.length === 0 && <EmptyRows />}
+
+      {dialog && (
+        <PositionDialog
+          key={dialog.position?.id ?? "new"}
+          position={dialog.position}
+          onClose={() => setDialog(null)}
+          onSaved={() => { setDialog(null); void load() }}
+        />
+      )}
+      {deleting && <ConfirmDeleteDialog name={deleting.name} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
+    </section>
+  )
+  return embedded ? body : <main className="min-h-[calc(100vh-4rem)] bg-white">{body}</main>
 }

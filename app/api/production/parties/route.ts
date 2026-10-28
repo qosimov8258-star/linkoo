@@ -27,6 +27,8 @@ export async function GET(request: Request) {
       dateFrom: date("dateFrom"),
       dateTo: date("dateTo"),
       finishedFrom: instant("finishedFrom"),
+      createdFrom: instant("createdFrom"),
+      createdTo: instant("createdTo"),
       finishedTo: instant("finishedTo"),
     }),
   )

@@ -2,11 +2,15 @@
 
 import { X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
 
-import { RI, RefBand, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar, usePaging } from "@/components/ref/list-kit"
+import { FilterDate, FilterSelect, FilterText, RI, RefBand, RefButton, RefCard, RefFilterPanel, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar, usePaging } from "@/components/ref/list-kit"
 import { useDirectoryNames } from "@/components/clients/use-directory"
+import { askDelete } from "@/lib/ask-confirm"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
+
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
 
 import { AddReturnDialog } from "./add-return-dialog"
 
@@ -48,7 +52,11 @@ const TABS = ["Надо принять", "Принятые", "Отмененны
 const TAB_QUERY: Record<(typeof TABS)[number], string> = { "Надо принять": "pending", Принятые: "accepted", Отмененные: "cancelled", Все: "all" }
 const STATUS_LABEL: Record<ClientReturnRow["status"], string> = { pending: "Ожидает", accepted: "Принят", cancelled: "Отменен" }
 const STATUS_COLOR: Record<ClientReturnRow["status"], string> = { pending: "text-[#f0ad4e]", accepted: "text-[#48a34b]", cancelled: "text-[#e57373]" }
+// moment's Russian short months, as the reference prints them ("04 мар. 2026", "17 июля 2026").
 const SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
+
+type Filters = { warehouse: string; deliverer: string; creator: string; agent: string; client: string; zone: string; status: string; orderNo: string; begin: string; end: string }
+const EMPTY_FILTERS: Filters = { warehouse: "", deliverer: "", creator: "", agent: "", client: "", zone: "", status: "", orderNo: "", begin: "", end: "" }
 
 function displayDay(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "")
@@ -64,6 +72,12 @@ function displayMoment(value: string | null) {
 
 function money(value: number) {
   return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
+}
+
+function formatNumber(value: number, maxFraction = 3) {
+  const [whole, fraction] = value.toFixed(maxFraction).replace(/\.?0+$/, "").split(".")
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+  return fraction ? `${grouped},${fraction}` : grouped
 }
 
 /** A line the warehouse no longer holds (409 of "Отменить приемку" / cancel of an accepted return). */
@@ -94,19 +108,22 @@ function errorText(result: { error: string; shortages?: Shortage[] }, warehouse:
   return `${t("Не возможно отменить.")} ${t("Недостаточно товара на складе")} «${warehouse}»: ${parts.join("; ")}${result.shortages.length > 5 ? "; …" : ""}`
 }
 
-export function ReturnsView() {
+export function ReturnsView({ initialId }: { initialId?: number } = {}) {
   const { t } = useLanguage()
+  const router = useRouter()
+  const pathname = usePathname()
   const warehouses = useDirectoryNames("warehouses")
   const [rows, setRows] = useState<ClientReturnRow[]>([])
   const [totals, setTotals] = useState<Array<{ currency: string; amount: number }>>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Надо принять")
+  const [tab, setTab] = useState<(typeof TABS)[number]>(initialId ? "Все" : "Надо принять")
   const [query, setQuery] = useState("")
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(initialId ?? null)
   const [addOpen, setAddOpen] = useState(false)
   const [initialOrderId, setInitialOrderId] = useState<number | undefined>()
   const [filterOpen, setFilterOpen] = useState(false)
-  const [warehouseFilter, setWarehouseFilter] = useState("")
+  const [draftFilters, setDraftFilters] = useState<Filters>(EMPTY_FILTERS)
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [selectMode, setSelectMode] = useState(false)
   const [checked, setChecked] = useState<number[]>([])
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
@@ -114,7 +131,7 @@ export function ReturnsView() {
   const load = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams({ tab: TAB_QUERY[tab] })
-    if (warehouseFilter) params.set("warehouse", warehouseFilter)
+    if (filters.warehouse) params.set("warehouse", filters.warehouse)
     const result = await call<{ rows: ClientReturnRow[]; totals: Array<{ currency: string; amount: number }> }>(`/api/client-returns?${params}`)
     if (result.ok) {
       setRows(result.body.rows)
@@ -123,13 +140,13 @@ export function ReturnsView() {
       setNotice({ tone: "error", text: t(result.error) })
     }
     setLoading(false)
-  }, [tab, warehouseFilter, t])
+  }, [tab, filters.warehouse, t])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  // Deep links: ?o=<order>&openCreateDialog=true (from an order card), ?r=<return>.
+  // Deep links: ?o=<order>&openCreateDialog=true (from an order card), ?r=<return>, /analytics/returns/<id>.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const order = Number(params.get("o"))
@@ -144,10 +161,25 @@ export function ReturnsView() {
     }
   }, [])
 
+  const options = useMemo(() => {
+    const unique = (pick: (row: ClientReturnRow) => string) => [...new Set(rows.map(pick).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+    return { deliverer: unique((row) => row.deliverer), creator: unique((row) => row.createdBy), agent: unique((row) => row.agent), client: unique((row) => row.client), zone: unique((row) => row.zone) }
+  }, [rows])
+  const setDraft = (key: keyof Filters) => (value: string) => setDraftFilters((current) => ({ ...current, [key]: value }))
+
   const visible = useMemo(() => {
     const term = query.trim().toLowerCase()
-    return rows.filter((row) => !term || `${row.id} ${row.client} ${row.orderId ?? ""} ${row.comment}`.toLowerCase().includes(term))
-  }, [rows, query])
+    return rows
+      .filter((row) => !filters.deliverer || row.deliverer === filters.deliverer)
+      .filter((row) => !filters.creator || row.createdBy === filters.creator)
+      .filter((row) => !filters.agent || row.agent === filters.agent)
+      .filter((row) => !filters.client || row.client === filters.client)
+      .filter((row) => !filters.zone || row.zone === filters.zone)
+      .filter((row) => !filters.status || t(STATUS_LABEL[row.status]) === filters.status)
+      .filter((row) => !filters.orderNo || String(row.orderId ?? "").includes(filters.orderNo))
+      .filter((row) => !((filters.begin && row.returnDate < filters.begin) || (filters.end && row.returnDate > filters.end)))
+      .filter((row) => !term || `${row.id} ${row.client} ${row.warehouse} ${row.deliverer} ${row.agent} ${row.orderId ?? ""} ${row.comment}`.toLowerCase().includes(term))
+  }, [rows, query, filters, t])
   const paging = usePaging(visible.length)
   const pageRows = visible.slice(paging.start, paging.end)
 
@@ -156,10 +188,15 @@ export function ReturnsView() {
     window.setTimeout(() => setNotice(null), 4000)
   }
 
+  function open(id: number | null) {
+    setSelectedId(id)
+    router.push(id ? `/analytics/returns/${id}${window.location.search}` : `/analytics/returns${window.location.search}`)
+  }
+
   async function acceptIds(ids: number[]) {
     if (!ids.length) {
       setSelectMode(true)
-      flash("error", t("Отметьте возвраты в таблице"))
+      flash("error", t("Выберите хотя бы один возврат !"))
       return
     }
     const result = await call<ClientReturnRow[]>("/api/client-returns/accept", { method: "POST", body: { ids } })
@@ -170,7 +207,7 @@ export function ReturnsView() {
   }
 
   function exportRows() {
-    downloadExcelTable("client-returns", [
+    downloadExcelTable("Возвраты", [
       [t("№"), t("Клиент"), t("Склад"), t("Заказ"), t("Дата возврата"), t("Статус"), t("Сумма возврата"), t("Валюта"), t("Комментарий")],
       ...visible.map((row) => [String(row.id), row.client, row.warehouse, row.orderId ? String(row.orderId) : "", row.returnDate, t(STATUS_LABEL[row.status]), String(row.amount), row.currency, row.comment]),
     ])
@@ -179,28 +216,23 @@ export function ReturnsView() {
   return (
     <RefPage>
       <RefHeader title={t("Возвраты")}>
-        <RefButton icon={RI.add} green label={t("Добавить")} onClick={() => (setInitialOrderId(undefined), setAddOpen(true))} />
+        <RefButton icon={RI.add} green label={t("Добавить")} onClick={() => (setInitialOrderId(undefined), setAddOpen(true))} exact />
       </RefHeader>
-      {notice && (
-        <div className={`mb-3 flex items-center justify-between rounded px-4 py-3 text-sm ${notice.tone === "ok" ? "bg-[#e9f8ed] text-[#278549]" : "bg-[#fdecea] text-[#c62828]"}`}>
-          {notice.text}
-          <button type="button" onClick={() => setNotice(null)} aria-label={t("Закрыть уведомление")}>
-            <X size={18} />
-          </button>
-        </div>
-      )}
       <RefCard>
-        <RefTabs
-          labels={[...TABS]}
-          value={tab}
-          onChange={(value) => {
-            setTab(value as (typeof TABS)[number])
-            setChecked([])
-            paging.setPage(1)
-          }}
-        />
-        <RefBand>
+        <div className="bg-white pb-[2px]">
+          <RefTabs
+            labels={[...TABS]}
+            value={tab}
+            onChange={(value) => {
+              setTab(value as (typeof TABS)[number])
+              setChecked([])
+              paging.setPage(1)
+            }}
+          />
+        </div>
+        <RefBand compact>
           <span>
+            {/* One sum per currency the server reports (never a fixed currency list, never a mixed sum). */}
             {t("Возвраты")}: {totals.length ? totals.map((entry) => `${money(entry.amount)} ${entry.currency}`).join(" , ") : "0"}
           </span>
         </RefBand>
@@ -208,20 +240,37 @@ export function ReturnsView() {
           filterOpen={filterOpen}
           onToggleFilter={() => setFilterOpen((value) => !value)}
           filterPanel={
-            <div className="w-64 border border-slate-200 bg-white p-4 shadow-xl">
-              <label className="block text-[10px] font-bold">
-                {t("Склад")}
-                <select value={warehouseFilter} onChange={(event) => setWarehouseFilter(event.target.value)} className="mt-1 block w-full border-b border-[#e0e0e0] bg-white py-2 text-[13px] outline-none">
-                  <option value="">{t("Все склады")}</option>
-                  {warehouses.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" onClick={() => setFilterOpen(false)} className="mt-4 h-[30px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">
-                {t("Применить")}
-              </button>
-            </div>
+            <RefFilterPanel
+              onClose={() => setFilterOpen(false)}
+              onApply={() => {
+                setFilters(draftFilters)
+                paging.setPage(1)
+                setFilterOpen(false)
+              }}
+            >
+              <div className="grid grid-cols-4 gap-x-[30px] px-5">
+                <FilterSelect label={t("Филиалы")} value="" options={[]} onChange={() => {}} />
+                <FilterText label={t("№ Заказа")} value={draftFilters.orderNo} onChange={setDraft("orderNo")} />
+                <FilterSelect label={t("Продукт")} value="" options={[]} onChange={() => {}} />
+                <FilterSelect label={t("Бренд")} value="" options={[]} onChange={() => {}} />
+                <FilterSelect label={t("Доставщик")} value={draftFilters.deliverer} options={options.deliverer} onChange={setDraft("deliverer")} />
+                <FilterSelect label={t("Организация")} value="" options={[]} onChange={() => {}} />
+                <FilterSelect label={t("Тип оплаты (транзакции)")} value="" options={[]} onChange={() => {}} />
+                <FilterSelect label={t("Статус")} value={draftFilters.status} options={Object.values(STATUS_LABEL).map((label) => t(label))} onChange={setDraft("status")} />
+                <FilterSelect label={t("Тип возврата")} value="" options={[]} onChange={() => {}} />
+                <FilterSelect label={t("Возврат создал")} value={draftFilters.creator} options={options.creator} onChange={setDraft("creator")} />
+                <FilterSelect label={t("Тип оплаты")} value="" options={[]} onChange={() => {}} />
+                <FilterSelect label={t("Финансовый счет")} value="" options={[]} onChange={() => {}} />
+                <FilterSelect label={t("Ответственный агент")} value={draftFilters.agent} options={options.agent} onChange={setDraft("agent")} />
+                <FilterSelect label={t("Клиент")} value={draftFilters.client} options={options.client} onChange={setDraft("client")} />
+                <FilterSelect label={t("Тип клиента")} value="" options={[]} onChange={() => {}} />
+                <FilterSelect label={t("Зона")} value={draftFilters.zone} options={options.zone} onChange={setDraft("zone")} />
+                <FilterSelect label={t("Склад")} value={draftFilters.warehouse} options={warehouses} onChange={setDraft("warehouse")} />
+                <FilterSelect label={t("Вид возврата")} value="" options={[]} onChange={() => {}} />
+                <FilterText label={t("Код")} value="" onChange={() => {}} />
+                <FilterDate label={t("Период создания")} begin={draftFilters.begin} end={draftFilters.end} words onChange={(begin, end) => setDraftFilters((current) => ({ ...current, begin, end }))} />
+              </div>
+            </RefFilterPanel>
           }
           query={query}
           onQuery={(value) => {
@@ -237,21 +286,21 @@ export function ReturnsView() {
           pageCount={paging.pageCount}
           onPage={paging.setPage}
           icons={
-            <>
-              <RefIconButton path={RI.checklist} label={t("Выбрать")} color="#5d6474" active={selectMode} onClick={() => setSelectMode((value) => !value)} />
-              <RefIconButton path={RI.download} label={t("Экспортировать")} onClick={exportRows} />
-            </>
+            <span className="-mr-[9px] flex">
+              <RefIconButton path={RI.checklist} label={t("Выбрать из списка")} color="#5d6474" active={selectMode} onClick={() => setSelectMode((value) => !value)} />
+              <RefIconButton path={RI.download} label={t("Скачать Excel")} color="#333" onClick={exportRows} />
+            </span>
           }
-          extra={<RefButton green label={t("Принять на склад")} onClick={() => acceptIds(checked.length ? checked : selectedId && rows.find((row) => row.id === selectedId)?.status === "pending" ? [selectedId] : [])} />}
+          extra={<RefButton green label={t("Принять на склад")} onClick={() => void acceptIds(checked.length ? checked : selectedId && rows.find((row) => row.id === selectedId)?.status === "pending" ? [selectedId] : [])} />}
         />
         <RefTable
-          cols="minmax(0,50fr) minmax(0,170fr) minmax(0,150fr) minmax(0,110fr) minmax(0,145fr) minmax(0,90fr) minmax(0,130fr) minmax(0,100fr) minmax(0,125fr)"
-          heads={[t("№"), t("Клиент"), t("Склад"), t("Доставщик"), t("Дата возврата"), t("Создал"), t("Ответственный агент"), t("Комментарий"), t("Сумма возврата")]}
+          cols="59.3px 241.2px 133.2px 133.2px 154.8px 165.6px 165.6px 165.6px 165.6px"
+          heads={[t("№"), t("Клиент"), t("Склад"), t("Доставщик"), t("Дата возврата"), t("Создал"), t("Ответственный агент"), t("Комментарий"), <span key="sum-head" className="block text-right font-semibold">{t("Сумма возврата")}</span>]}
           rows={pageRows}
+          hideBody={selectedId !== null}
           rowKey={(row) => row.id}
-          onRowClick={(row) => setSelectedId(selectedId === row.id ? null : row.id)}
-          rowClass={(row) => (selectedId === row.id ? "bg-[#e8efff]" : "")}
-          empty={loading ? t("Загрузка...") : t("Ничего не найдено")}
+          onRowClick={(row) => open(row.id)}
+          empty={loading ? "" : t("Ничего не найдено")}
           render={(row) => [
             <span key="id" className="flex items-center gap-2">
               {selectMode && row.status === "pending" && (
@@ -283,10 +332,13 @@ export function ReturnsView() {
             row.createdBy || "—",
             row.agent || t("Не указано"),
             row.comment || "-",
-            <span key="sum" className="block text-right">
-              {money(row.amount)} {row.currency}
-              <br />
-              <span className={STATUS_COLOR[row.status]}>{t(STATUS_LABEL[row.status])}</span>
+            <span key="sum" className="flex items-center justify-between">
+              <span className="mr-[15px] block flex-1 text-right">
+                {money(row.amount)} {row.currency}
+                <br />
+                <span className={STATUS_COLOR[row.status]}>{t(STATUS_LABEL[row.status])}</span>
+              </span>
+              <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="#4f71dc" strokeWidth="2" /><text x="12" y="17" textAnchor="middle" fontSize="13" fontWeight="700" fill="#4f71dc">$</text></svg>
             </span>,
           ]}
         />
@@ -295,7 +347,7 @@ export function ReturnsView() {
         <Detail
           id={selectedId}
           warehouses={warehouses}
-          close={() => setSelectedId(null)}
+          close={() => open(null)}
           onChanged={(message) => {
             if (message) flash("ok", message)
             void load()
@@ -303,10 +355,14 @@ export function ReturnsView() {
           onError={(message) => flash("error", message)}
         />
       )}
+      {notice && <div className={`fixed bottom-6 left-1/2 z-[1500] -translate-x-1/2 rounded-[2px] px-6 py-3 text-[14px] text-white shadow-lg ${notice.tone === "error" ? "bg-[#c62828]" : "bg-[#323232]"}`}>{notice.text}</div>}
       {addOpen && (
         <AddReturnDialog
           initialOrderId={initialOrderId}
-          onClose={() => setAddOpen(false)}
+          onClose={() => {
+            setAddOpen(false)
+            if (pathname) router.replace(pathname)
+          }}
           onCreated={(created) => {
             setAddOpen(false)
             flash("ok", `${t("Возврат оформлен")}: №${created.id}`)
@@ -381,6 +437,7 @@ function Detail({
   const [edit, setEdit] = useState({ warehouse: "", returnDate: "", comment: "" })
   const [busy, setBusy] = useState(false)
   const [confirmUndo, setConfirmUndo] = useState(false)
+  const [tab, setTab] = useState<"items" | "series" | "logs" | "photos">("items")
 
   const load = useCallback(async () => {
     const result = await call<ClientReturnRow>(`/api/client-returns/${id}`)
@@ -395,6 +452,13 @@ function Detail({
   if (!row) return null
   const pending = row.status === "pending"
   const accepted = row.status === "accepted"
+  const items = row.items ?? []
+  const line = (label: string, value: string, link = false) => (
+    <div className="flex justify-between gap-3 py-[2px] leading-[21px]">
+      <span className="shrink-0">{label}</span>
+      <b className={`text-right ${link ? "text-[#4f71dc]" : ""}`}>{value}</b>
+    </div>
+  )
 
   async function act(path: "accept" | "cancel" | "unaccept", message: string) {
     setBusy(true)
@@ -416,104 +480,147 @@ function Detail({
     onChanged(t("Изменения сохранены"))
   }
 
+  async function cancelReturn() {
+    if (!(await askDelete(`№ ${id}`))) return
+    await act("cancel", t("Возврат отменен"))
+  }
+
   return (
-    <section className="mt-5 bg-white font-sans text-[13px] shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
-      <div className="flex h-[65px] items-center justify-between border-b border-[#efefef] px-[30px]">
-        <h2 className="text-[18px] font-semibold">
-          {t("Возврат №")}
-          {row.id}
+    <section className="-mx-[15px] mt-[20px] bg-white font-sans text-[13px] shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+      <div className="flex h-[64px] items-center justify-between border-b border-[#efefef] px-[30px]">
+        <h2 className="text-[18px] font-semibold leading-none">
+          {t("Возврат")} №{row.id}
         </h2>
-        <div className="flex gap-3">
-          {pending && (
+        <div className="flex items-center gap-[10px]">
+          {tab === "series" && (
             <>
-              <RefButton green label={t("Принять на склад")} disabled={busy} onClick={() => act("accept", t("Принято на склад"))} />
-              <RefButton
-                label={`✎　${t("Изменить")}`}
-                disabled={busy}
-                onClick={() => {
-                  setEdit({ warehouse: row.warehouse, returnDate: row.returnDate, comment: row.comment })
-                  setEditOpen(true)
-                }}
-              />
-              <RefButton red label={`⊖　${t("Отменить запрос")}`} disabled={busy} onClick={() => act("cancel", t("Возврат отменен"))} />
+              <RefButton icon={RI.edit} label={t("Изменит серии")} exact />
+              <RefButton icon={RI.clock} label={t("Авто распределение по сериям")} exact />
             </>
           )}
-          {accepted && <RefButton red label={`⟲　${t("Отменить приемку")}`} disabled={busy} onClick={() => setConfirmUndo(true)} />}
-          <button type="button" onClick={close} aria-label={t("Закрыть")}>
-            <X />
+          {pending && (
+            <RefButton
+              icon={RI.edit}
+              label={t("Изменить")}
+              disabled={busy}
+              onClick={() => {
+                setEdit({ warehouse: row.warehouse, returnDate: row.returnDate, comment: row.comment })
+                setEditOpen(true)
+              }}
+              exact
+            />
+          )}
+          {pending && <RefButton icon={RI.checklist} green label={t("Принять на склад")} disabled={busy} onClick={() => void act("accept", t("Принято на склад"))} exact />}
+          {accepted && <RefButton icon={RI.undo} red label={t("Отменить приемку")} disabled={busy} onClick={() => setConfirmUndo(true)} exact />}
+          <span className="flex">
+            <RefIconButton path={RI.print} label={t("Распечатать")} color="#5d6474" onClick={() => window.print()} />
+            {pending && <RefIconButton path={RI.trash} label={t("Отменить запрос")} color="#5d6474" onClick={() => void cancelReturn()} />}
+          </span>
+          <button type="button" onClick={close} aria-label={t("Закрыть")} className="sr-only">
+            ×
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-[435px_1fr]">
-        <aside className="border-r border-[#efefef] p-[30px] leading-[25px]">
-          {t("Добавил")}: <b className="float-right">{row.createdBy || "—"}</b>
-          <br />
-          {t("Клиент")}: <b className="float-right text-[#4f71dc]">{row.client}</b>
-          <br />
-          {t("Зона")}: <b className="float-right">{row.zone || t("Не указано")}</b>
-          <br />
-          {t("Заказ")}: <b className="float-right">{row.orderId ? `№${row.orderId}` : t("Не указан")}</b>
-          <br />
-          {t("Дата возврата")}: <b className="float-right">{t(displayDay(row.returnDate))}</b>
-          <br />
-          {t("Доставщик")}: <b className="float-right">{row.deliverer || t("Не указано")}</b>
-          <br />
-          {t("Ответственный агент")}: <b className="float-right">{row.agent || t("Не указано")}</b>
-          <br />
-          {t("Комментарий")}: <b className="float-right">{row.comment || "—"}</b>
-          <hr className="my-5" />
-          <b>{t("СКЛАД")}</b>
-          <br />
-          {t("Склад")}: <b className="float-right">{row.warehouse || t("Не указан")}</b>
-          <br />
-          {t("Статус")}: <b className={`float-right ${STATUS_COLOR[row.status]}`}>{t(STATUS_LABEL[row.status])}</b>
-          <br />
-          {row.acceptedAt && (
-            <>
-              {t("Принял")}: <b className="float-right">{`${row.acceptedBy || "—"}, ${t(displayMoment(row.acceptedAt))}`}</b>
-              <br />
-            </>
-          )}
-          {row.unacceptedAt && (
-            <>
-              {t("Приемка отменена")}: <b className="float-right">{`${row.unacceptedBy || "—"}, ${t(displayMoment(row.unacceptedAt))}`}</b>
-            </>
-          )}
+      <div className="grid grid-cols-[347px_minmax(0,1fr)]">
+        <aside className="border-r border-[#efefef] px-[30px] py-[16px]">
+          {row.orderId ? <div className="py-[2px] font-bold leading-[21px] text-[#4f71dc]">{t("Заказ")} №{row.orderId}</div> : null}
+          {line(t("Добавил") + ":", row.createdBy || "—")}
+          {line(t("Клиент") + ":", row.client, true)}
+          {line(t("Зона") + ":", row.zone || t("Не указано"))}
+          {line(t("Дата возврата") + ":", t(displayDay(row.returnDate)))}
+          {line(t("Доставщик") + ":", row.deliverer || t("Не указано"))}
+          {line(t("Ответственный агент") + ":", row.agent || t("Не указано"))}
+          {line(t("Комментарий") + ":", row.comment || "—")}
+          <hr className="my-[14px] border-[#efefef]" />
+          <b className="block pb-[6px] leading-[21px]">{t("СКЛАД")}</b>
+          {line(t("Склад") + ":", row.warehouse || t("Не указан"))}
+          {line(t("Принял") + ":", row.acceptedAt ? `${row.acceptedBy || "—"}, ${t(displayMoment(row.acceptedAt))}` : t("Не принят"))}
+          {row.unacceptedAt ? line(t("Приемка отменена") + ":", `${row.unacceptedBy || "—"}, ${t(displayMoment(row.unacceptedAt))}`) : null}
+          <div className="flex justify-between py-[2px] leading-[21px]">
+            <span>{t("Статус")}:</span>
+            <b className={STATUS_COLOR[row.status]}>{t(STATUS_LABEL[row.status])}</b>
+          </div>
         </aside>
-        <div className="p-[30px]">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-dotted">
-                <th className="p-3 text-left">№</th>
-                <th className="text-left">{t("Товар")}</th>
-                <th>{t("Количество")}</th>
-                <th>{`${t("Цена")} (${row.currency})`}</th>
-                <th>{`${t("Сумма")} (${row.currency})`}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(row.items ?? []).map((item, index) => (
-                <tr key={item.id} className="border-b border-dotted border-[#eee]">
-                  <td className="p-3">{index + 1}</td>
-                  <td>{item.productName}</td>
-                  <td className="text-center">
-                    {money(item.quantity)} {item.unit}
-                  </td>
-                  <td className="text-center">{money(item.price)}</td>
-                  <td className="text-center">{money(item.total)}</td>
-                </tr>
-              ))}
-              <tr className="border-t">
-                <td className="p-4 font-bold">{t("Итого:")}</td>
-                <td />
-                <td className="text-center font-bold">{money((row.items ?? []).reduce((sum, item) => sum + item.quantity, 0))}</td>
-                <td />
-                <td className="text-center font-bold">
-                  {money(row.amount)} {row.currency}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="min-w-0 px-[30px] pb-[30px]">
+          <div className="flex h-[49px] items-end border-b border-[#efefef]">
+            {([["items", "Список товаров"], ["series", "Серии"], ["logs", "Логи"], ["photos", "Фотоотчеты"]] as const).map(([key, label]) => (
+              <button key={key} type="button" onClick={() => setTab(key)} className={`h-[41px] min-w-[112px] border-b-[2px] px-[6px] text-center text-[13px] font-medium ${tab === key ? "border-[#4f71dc]" : "border-transparent"}`}>
+                {t(label)}
+              </button>
+            ))}
+          </div>
+          {tab === "items" && (
+            <div className="mt-[22px]">
+              <div className="grid grid-cols-[91px_90px_165px_180px_180px_181px_180px] border-b border-dotted border-[#c7ced4] pb-[12px] font-medium">
+                <span>{t("Заказ")}</span>
+                <span>{t("№")}</span>
+                <span>{t("Товар")}</span>
+                <span className="text-right">{t("Количество")}</span>
+                <span className="text-right">{t("Блок")}</span>
+                <span className="text-right">{`${t("Цена")} (${row.currency})`}</span>
+                <span className="text-right">{`${t("Сумма")} (${row.currency})`}</span>
+              </div>
+              {items.length === 0 ? (
+                <div className="py-10 text-center text-[#888]">{t("Нет данных")}</div>
+              ) : (
+                items.map((item, index) => (
+                  <div key={item.id} className="grid grid-cols-[91px_90px_165px_180px_180px_181px_180px] items-center border-b border-dotted border-[#c7ced4] py-[12px]">
+                    <span className="font-medium text-[#0a9ddb]">{row.orderId ?? ""}</span>
+                    <span className="flex items-center gap-[10px]">{index + 1}</span>
+                    <span className="block text-[14px]">{item.productName}</span>
+                    <span className="text-right">
+                      {formatNumber(item.quantity)} {item.unit ? t(item.unit) : ""}
+                    </span>
+                    <span className="text-right">0</span>
+                    <span className="text-right">{money(item.price)}</span>
+                    <span className="text-right">{money(item.total)}</span>
+                  </div>
+                ))
+              )}
+              {items.length > 0 && (
+                <div className="grid grid-cols-[91px_90px_165px_180px_180px_181px_180px] pt-[16px] font-bold">
+                  <span>{t("Итого:")}</span>
+                  <span />
+                  <span />
+                  {/* One total per unit (pieces and kilograms are never added up). */}
+                  <span className="text-right">{formatUnitTotals(items.map((item) => ({ qty: item.quantity, unit: item.unit })), t)}</span>
+                  <span />
+                  <span />
+                  <span className="text-right">{money(row.amount)}</span>
+                </div>
+              )}
+            </div>
+          )}
+          {tab === "series" || tab === "photos" ? (
+            <div className="flex flex-col items-center pt-[40px] text-[#777]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/robot-empty.png" alt="" className="w-[120px]" />
+              <p className="mt-[20px]">{t("По вашему запросу ничего не найдено")}</p>
+            </div>
+          ) : null}
+          {tab === "logs" && (
+            <div className="mt-[20px] flex items-center justify-between rounded-[6px] bg-[#f4f5f7] px-[20px] py-[14px] text-[12px] shadow-[0_1px_3px_rgba(0,0,0,0.12)]">
+              <span className="flex items-center gap-[14px]">
+                <span>
+                  {t("Возврат")}: <b className="rounded-full border border-[#48a34b] px-[10px] py-[2px] text-[#48a34b]">{t("Создан")}</b>
+                </span>
+                <span>
+                  {t("Статус")}: <b className={STATUS_COLOR[row.status]}>{t(STATUS_LABEL[row.status])}</b>
+                </span>
+              </span>
+              <span className="flex items-center gap-[24px]">
+                <span>
+                  {t("Кем")}: {row.createdBy || "—"}
+                </span>
+                <span>
+                  {t("Когда")}: {t(displayMoment(row.createdAt))}
+                </span>
+                <span>
+                  {t("Сумма")}: {money(row.amount)} {row.currency}
+                </span>
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -564,7 +671,7 @@ function Detail({
             <div className="mb-5 flex items-center justify-between">
               <h3 className="text-lg font-bold">{t("Изменить возврат")}</h3>
               <button type="button" onClick={() => setEditOpen(false)} aria-label={t("Закрыть")}>
-                <X className="h-5 w-5" />
+                ×
               </button>
             </div>
             <label className="mb-4 block text-[13px] font-medium text-slate-500">

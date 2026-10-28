@@ -1,14 +1,13 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { BarChart, ChevronDown } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Green "Скачать" dropdown of the balance pages ("Скачать все",
 // "Скачать упрощенным", "Акт сверки", …).
 
-export function BalanceDownloadMenu({ items, label = "Скачать", disabled = false }: { items: Array<{ label: string; onClick: () => void }>; label?: string; disabled?: boolean }) {
+export function BalanceDownloadMenu({ items, label = "Скачать", disabled = false, wide = false }: { items: Array<{ label: string; onClick: () => void }>; label?: string; disabled?: boolean; /** 130px button of the client balance / account debts pages. */ wide?: boolean }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -26,9 +25,10 @@ export function BalanceDownloadMenu({ items, label = "Скачать", disabled 
         type="button"
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white disabled:opacity-50"
+        className={`flex h-[34px] items-center rounded-[5px] bg-[#71ce87] pl-[12px] text-[13px] font-semibold text-white disabled:opacity-50 ${wide ? "w-[130px]" : ""}`}
       >
-        <BarChart className="h-5 w-5" /> {t(label)} <ChevronDown className="h-4 w-4" />
+        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z" /></svg>
+        <span className="pl-[12px] pr-[16px]">{t(label)}</span>
       </button>
       {open && (
         <div className="absolute right-0 z-[60] mt-1 min-w-[220px] overflow-hidden rounded-md border border-[#e1e5eb] bg-white shadow-lg">

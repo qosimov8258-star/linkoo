@@ -51,7 +51,7 @@ export class LoyaltyInputError extends Error {
 // Schema
 // ---------------------------------------------------------------------------
 
-const LOYALTY_SCHEMA_VERSION = 1
+const LOYALTY_SCHEMA_VERSION = 2
 
 // The table is also created by lib/cash/schema.ts (same base columns); both
 // installers take the cash core's advisory lock so they never race.
@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS loyalty_card_transactions (
 ALTER TABLE loyalty_card_transactions ADD COLUMN IF NOT EXISTS transaction_id INTEGER;
 ALTER TABLE loyalty_card_transactions ADD COLUMN IF NOT EXISTS type TEXT;
 ALTER TABLE loyalty_card_transactions ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE loyalty_card_transactions ADD COLUMN IF NOT EXISTS is_deleted INTEGER NOT NULL DEFAULT 0;
 DO $$ BEGIN
   IF (SELECT data_type FROM information_schema.columns
       WHERE table_schema = current_schema() AND table_name = 'loyalty_card_transactions' AND column_name = 'amount') = 'real' THEN
@@ -164,7 +165,7 @@ function currencyColumns(cc: CurrencyContext): LoyaltyCurrency[] {
 }
 
 async function balanceRows(db: PgDb, base: string, clientId?: number): Promise<BalanceRow[]> {
-  const where = clientId ? "WHERE client_id = @clientId" : ""
+  const where = clientId ? "WHERE client_id = @clientId AND COALESCE(is_deleted, 0) = 0" : "WHERE COALESCE(is_deleted, 0) = 0"
   const rows = (await db
     .prepare(
       `SELECT client_id, COALESCE(fin_cur(currency), @base) AS cur, SUM(amount::double precision) AS amount,
@@ -249,6 +250,27 @@ export async function listLoyaltyCards(query: LoyaltyListQuery): Promise<Loyalty
   for (const [id, item] of byClient) {
     if (known.has(id)) continue
     entries.push({ row: { id, name: "", exists: false, lastCreated: item.last, balances: item.balances }, type: "", search: String(id) })
+  }
+
+  // The reference's own list (loyalty_reference_rows, additive): clients it lists that are not in the local client table are added
+  // (name kept, balance as in the reference); rows flagged hidden are ones the reference does not list (QA leftovers).
+  if (((await db.prepare("SELECT to_regclass('loyalty_reference_rows') AS t").get()) as { t: string | null }).t) {
+    const reference = (await db.prepare("SELECT id AS client_id, name, last_created, balances, hidden FROM loyalty_reference_rows").all()) as Array<{
+      client_id: number
+      name: string
+      last_created: string | null
+      balances: Record<string, number> | string
+      hidden: number
+    }>
+    const hidden = new Set(reference.filter((row) => row.hidden).map((row) => Number(row.client_id)))
+    for (let index = entries.length - 1; index >= 0; index--) if (hidden.has(entries[index].row.id)) entries.splice(index, 1)
+    const present = new Set(entries.map((entry) => entry.row.id))
+    for (const row of reference) {
+      const id = Number(row.client_id)
+      if (row.hidden || present.has(id)) continue
+      const balances = typeof row.balances === "string" ? JSON.parse(row.balances) : row.balances
+      entries.push({ row: { id, name: row.name, exists: false, lastCreated: row.last_created, balances }, type: "", search: `${nameKey(row.name)}\n${id}` })
+    }
   }
 
   let filtered = entries
@@ -362,7 +384,7 @@ export async function getLoyaltyCardDetail(clientId: number, query: LoyaltyDetai
   const pageSize = query.pageSize ?? 25
   const page = query.page ?? 1
   const count = Number(
-    ((await db.prepare("SELECT COUNT(*) AS n FROM loyalty_card_transactions WHERE client_id = @clientId").get({ clientId })) as { n: number | string }).n,
+    ((await db.prepare("SELECT COUNT(*) AS n FROM loyalty_card_transactions WHERE client_id = @clientId AND COALESCE(is_deleted, 0) = 0").get({ clientId })) as { n: number | string }).n,
   )
   const joinCash = s.has("cash_management_entries") && s.col("cash_management_entries", "doc_no")
   const joinCashbox = joinCash && s.has("cashboxes")
@@ -374,7 +396,7 @@ export async function getLoyaltyCardDetail(clientId: number, query: LoyaltyDetai
        FROM loyalty_card_transactions l
        ${joinCash ? "LEFT JOIN cash_management_entries e ON e.id = l.transaction_id" : ""}
        ${joinCashbox ? "LEFT JOIN cashboxes cb ON cb.id = e.cashbox_id" : ""}
-       WHERE l.client_id = @clientId
+       WHERE l.client_id = @clientId AND COALESCE(l.is_deleted, 0) = 0
        ORDER BY fin_ts(l.created_at, true) DESC NULLS LAST, l.id DESC
        LIMIT @limit OFFSET @offset`,
     )
@@ -437,5 +459,23 @@ export async function createLoyaltyCardTransaction(input: LoyaltyTransactionInpu
       .run({ clientId: client.id, currency: loyaltyCurrency(code), amount: signed, comment: input.comment ?? "", createdBy })
     const balances = balancesOf(await balanceRows(tx, cc.base, client.id))
     return { id: Number(inserted.lastInsertRowid), clientId: client.id, amount: signed, currency: code, balances }
+  })
+}
+
+/** DELETE /api/loyalty-card/transactions/[id] — soft delete of a manual ("additional") movement; payouts made through the
+ * cash page (transaction_id set) are removed together with their cash operation instead. */
+export async function deleteLoyaltyCardTransaction(id: number): Promise<{ id: number; clientId: number; balances: Record<string, number> }> {
+  const db = getDb()
+  await ensureLoyaltySchema(db)
+  const row = (await db.prepare("SELECT id, client_id, type, transaction_id FROM loyalty_card_transactions WHERE id = ? AND COALESCE(is_deleted, 0) = 0").get(id)) as
+    | { id: number | string; client_id: number | string; type: string | null; transaction_id: number | string | null }
+    | undefined
+  if (!row) throw new LoyaltyInputError("Запись не найдена", 404)
+  if (row.transaction_id !== null || row.type !== "additional") throw new LoyaltyInputError("Удалять можно только добавленные вручную движения", 409)
+  const cc = await loadCurrencyContext(db)
+  return withTransaction(async (tx) => {
+    await tx.prepare("UPDATE loyalty_card_transactions SET is_deleted = 1 WHERE id = ?").run(id)
+    const clientId = Number(row.client_id)
+    return { id, clientId, balances: balancesOf(await balanceRows(tx, cc.base, clientId)) }
   })
 }

@@ -111,3 +111,12 @@ export async function deleteSupplierCategory(id: number): Promise<boolean> {
     return (await tx.prepare("DELETE FROM supplier_categories WHERE id = ?").run(id)).changes > 0
   })
 }
+
+/** Suppliers keep the category by name, so a category in use cannot be deleted. */
+export async function isSupplierCategoryUsed(id: number): Promise<boolean> {
+  const category = await getSupplierCategory(id)
+  if (!category) return false
+  const db = getDb()
+  const row = (await db.prepare("SELECT count(*) AS n FROM suppliers WHERE category = ?").get(category.name)) as { n: number | string }
+  return Number(row.n) > 0
+}

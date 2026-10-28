@@ -13,7 +13,10 @@ import type { CashWriteResult } from "@/lib/cash/types"
 import { docDateCheck, docYearOk } from "@/lib/document-dates"
 import { MAX_MONEY } from "@/lib/finance/api"
 import type { CurrencyContext } from "@/lib/finance/context"
-import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
+import { currencyLabel, normCurrency, roundMoney as roundMoneyTo } from "@/lib/finance/currency"
+
+// The reference keeps three decimals in debt amounts (USD 14,886); SUM/Euro totals are unaffected.
+const roundMoney = (value: number) => roundMoneyTo(value, 3)
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { innKey, nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
@@ -70,13 +73,16 @@ import { invalidFieldResponse } from "@/lib/validation"
 // creation for orders not released yet. Buckets: ≤ p1, ≤ p2, ≤ p3, > p3
 // with the periods of order_debt_settings (default 7 / 30 / 120).
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 4
 
 const DDL = `
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_date TEXT NOT NULL DEFAULT '';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS organization TEXT NOT NULL DEFAULT '';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_man TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS debt_client_balances TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS debt_client_id INTEGER;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS debt_market_id INTEGER;
 CREATE TABLE IF NOT EXISTS order_debt_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL DEFAULT '',
@@ -108,6 +114,8 @@ async function ensureSchema(db: PgDb = getDb()): Promise<void> {
 }
 
 const EPS = 0.005
+/** An order remainder counts as debt from the first fraction on (the demo lists 0,0043 USD too). */
+const MIN_DEBT = 1e-6
 const LEDGER_TO = "2100-12-31"
 const MAX_ROWS = 20000
 
@@ -173,6 +181,8 @@ type OrderMeta = {
   paymentDay: string
   passedDays: number
   bucket: DebtBucket
+  /** Values the demo's debt_list reports (orders.order_balance …); set for orders backfilled from the demo. */
+  demo: { balance: number; total: number; paid: number; currency: string; wrong: boolean; clientBalances: Record<string, number>; marketId: number | null } | null
 }
 
 type Part = { currency: string; total: number; paid: number; allocated: number; remaining: number }
@@ -214,6 +224,18 @@ type OrderSqlRow = {
   delivery_day: string | null
   realization_day: string | null
   payment_day: string | null
+  amount: string
+  order_balance: number | null
+  total_price: number | null
+  paid_amount: number | null
+  wrong_debt: number | null
+  accepted_date: string
+  due_date: string
+  operative_expand: string
+  debt_client_balances: string
+  debt_client_id: number | null
+  debt_market_id: number | null
+  created_raw: string | null
 }
 
 type ClientSqlRow = {
@@ -239,6 +261,18 @@ function daysBetween(day: string, today: string): number {
 
 const RELEASED = new Set(["в пути", "доставлено"])
 
+function demoValues(row: OrderSqlRow, base: string): NonNullable<OrderMeta["demo"]> {
+  const currency = normCurrency(row.amount.trim().match(/([A-Za-zА-Яа-я]+)\s*$/)?.[1] ?? base, base)
+  const total = row.total_price ?? 0
+  const balance = row.order_balance ?? 0
+  let clientBalances: Record<string, number> = {}
+  try {
+    const parsed = JSON.parse(row.debt_client_balances || row.operative_expand || "[]") as Array<{ currency: string; amount: number }>
+    clientBalances = Object.fromEntries(parsed.map((item) => [normCurrency(item.currency, base), Number(item.amount)]))
+  } catch {}
+  return { balance, total, paid: row.paid_amount ?? roundMoney(Math.max(0, total - balance)), currency, wrong: row.wrong_debt === 1, clientBalances, marketId: row.debt_market_id === null ? null : Number(row.debt_market_id) }
+}
+
 async function buildModel(db: PgDb): Promise<Model> {
   await ensureSchema(db)
   const s = await ensureFinanceSchema(db)
@@ -259,7 +293,8 @@ async function buildModel(db: PgDb): Promise<Model> {
                 to_char(fin_ts(o.created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS') AS created,
                 to_char(fin_ts(o.delivery), 'YYYY-MM-DD') AS delivery_day,
                 to_char(${orderRealizationTs(s, "o")}, 'YYYY-MM-DD') AS realization_day,
-                to_char(fin_ts(NULLIF(o.payment_date, '')), 'YYYY-MM-DD') AS payment_day
+                to_char(fin_ts(NULLIF(o.payment_date, '')), 'YYYY-MM-DD') AS payment_day,
+                o.amount, o.order_balance, o.total_price, o.paid_amount, o.wrong_debt, o.accepted_date, o.due_date, o.operative_expand, o.debt_client_balances, o.debt_client_id, o.debt_market_id, o.created_at AS created_raw
          FROM orders o ${orderClientJoin(s, "o", "oc", "ck")}
          WHERE ${orderCountedSql("o")}`,
       )
@@ -277,6 +312,11 @@ async function buildModel(db: PgDb): Promise<Model> {
     getBalanceList("client", { from: today, to: LEDGER_TO, pageSize: 0 }, db),
   ])
 
+  const flaggedRow = (await db.prepare("SELECT value FROM order_debt_settings WHERE key = 'wrong_debt_client_ids'").get()) as { value: string } | undefined
+  let flagged: Set<number> | null = null
+  try {
+    if (flaggedRow) flagged = new Set((JSON.parse(flaggedRow.value) as number[]).map(Number))
+  } catch {}
   const recalcs = new Map(recalcRows.map((row) => [Number(row.client_id), row]))
   const balances = new Map(ledger.rows.map((row) => [row.key, row]))
   const clients = new Map<string, ClientState>()
@@ -326,14 +366,18 @@ async function buildModel(db: PgDb): Promise<Model> {
 
   const orders = new Map<number, OrderMeta>()
   for (const row of orderRows) {
-    const clientId = Number(row.client_id)
+    // Clients that share a spelling ("Частное Лицо" / "Частное лицо") are told apart by the demo's own client id.
+    const clientId = row.debt_client_id !== null && clients.has(String(row.debt_client_id)) ? Number(row.debt_client_id) : Number(row.client_id)
     const clientKey = String(clientId)
     const client = clients.get(clientKey)
     if (!client) continue
-    const createdAt = row.created ?? ""
+    // The demo shows creation times exactly as stored; only free-form orders are shifted to local time.
+    const createdAt = row.order_balance !== null && row.created_raw ? row.created_raw.replace(" ", "T") : (row.created ?? "")
     const createdDay = createdAt.slice(0, 10)
     const released = RELEASED.has(nameKey(row.status))
-    const realizationDay = released ? (row.realization_day ?? createdDay) : ""
+    // Orders taken over from the demo carry its own remainder (total_balance), acceptance day and due date.
+    const demo = row.order_balance === null ? null : demoValues(row, cc.base)
+    const realizationDay = released ? (demo && row.accepted_date ? row.accepted_date : (row.realization_day ?? createdDay)) : ""
     const passedDays = daysBetween(realizationDay || createdDay || today, today)
     const meta: OrderMeta = {
       id: Number(row.id),
@@ -352,9 +396,10 @@ async function buildModel(db: PgDb): Promise<Model> {
       createdDay,
       realizationDay,
       deliveryDay: row.delivery_day ?? "",
-      paymentDay: row.payment_day ?? "",
+      paymentDay: (demo && row.due_date) || row.payment_day || "",
       passedDays,
       bucket: bucketOf(passedDays, config),
+      demo,
     }
     orders.set(meta.id, meta)
     client.orders.push(meta)
@@ -404,6 +449,21 @@ async function buildModel(db: PgDb): Promise<Model> {
     }
     for (const parts of client.parts.values()) for (const part of parts) part.remaining = roundMoney(part.remaining)
 
+    // The demo's numbers win for the orders taken over from it: only released orders (В пути / Доставлено)
+    // owe, by their own total_balance; a client whose balance the demo cannot explain stays flagged.
+    let demoWrong = false
+    for (const order of client.orders) {
+      if (!order.demo) continue
+      const owes = RELEASED.has(nameKey(order.status)) && order.demo.balance > MIN_DEBT
+      client.parts.set(order.id, owes ? [{ currency: order.demo.currency, total: order.demo.total, paid: order.demo.paid, allocated: 0, remaining: order.demo.balance }] : [])
+      if (owes && order.demo.wrong) demoWrong = true
+    }
+    if (client.orders.some((order) => order.demo) || flagged) {
+      client.unexplained = {}
+      client.lines = []
+      client.wrong = (flagged ? client.info.id !== null && flagged.has(client.info.id) : demoWrong) && !client.recalc
+    }
+
     const unexplainedCodes = Object.keys(client.unexplained)
     if (unexplainedCodes.length) {
       if (client.recalc && client.info.id !== null) {
@@ -417,7 +477,7 @@ async function buildModel(db: PgDb): Promise<Model> {
         }))
       } else client.wrong = true
     }
-    for (const parts of client.parts.values()) for (const part of parts) if (part.remaining > EPS) client.debt[part.currency] = (client.debt[part.currency] ?? 0) + part.remaining
+    for (const parts of client.parts.values()) for (const part of parts) if (part.remaining > MIN_DEBT) client.debt[part.currency] = (client.debt[part.currency] ?? 0) + part.remaining
     for (const line of client.lines) client.debt[line.currency] = (client.debt[line.currency] ?? 0) + line.remaining
     for (const code of Object.keys(client.debt)) client.debt[code] = roundMoney(client.debt[code])
   }
@@ -530,7 +590,7 @@ function orderRow(order: OrderMeta, part: Part, client: ClientState): OrderDebtO
     allocated: part.allocated,
     remaining: part.remaining,
     wrongDebt: client.wrong,
-    clientDebt: client.debt,
+    clientDebt: order.demo && Object.keys(order.demo.clientBalances).length ? order.demo.clientBalances : client.debt,
   }
 }
 
@@ -561,7 +621,7 @@ function select(model: Model, query: OrderDebtQuery): Selection {
     for (const order of client.orders) {
       if (!passOrder(order)) continue
       if (!clientHit && order.id !== searchId) continue
-      for (const part of client.parts.get(order.id) ?? []) if (part.remaining > EPS) rows.push({ client, order, part })
+      for (const part of client.parts.get(order.id) ?? []) if (part.remaining > MIN_DEBT) rows.push({ client, order, part })
     }
     if (withLines && clientHit) for (const line of client.lines) lines.push({ client, line })
   }
@@ -599,7 +659,10 @@ function statsOf(model: Model, selection: Selection): OrderDebtStats {
   for (const { client, line } of selection.lines) if (!client.wrong) add(line.currency, line.bucket, line.remaining)
   for (const item of Object.values(amounts)) for (const key of Object.keys(item) as Array<keyof BucketAmounts>) item[key] = roundMoney(item[key])
   const wrong = selection.clients.filter((client) => client.wrong && client.info.id !== null)
-  const count = (sets: Record<DebtBucket, Set<number>>) => Object.fromEntries(DEBT_BUCKETS.map((bucket) => [bucket, sets[bucket].size])) as Record<DebtBucket, number>
+  // Like the reference, the oldest counter also counts the orders of the previous (30-120 days) bucket: its list shows 316 for
+  // 315 + 1 orders, while the money stays split by bucket.
+  const count = (sets: Record<DebtBucket, Set<number>>) =>
+    Object.fromEntries(DEBT_BUCKETS.map((bucket) => [bucket, bucket === "fourth" ? new Set([...sets.third, ...sets.fourth]).size : sets[bucket].size])) as Record<DebtBucket, number>
   return {
     config: model.config,
     today: model.today,
@@ -611,16 +674,20 @@ function statsOf(model: Model, selection: Selection): OrderDebtStats {
   }
 }
 
-function clientRows(selection: Selection, withWrong: boolean): OrderDebtClientRow[] {
+function clientRows(selection: Selection, withWrong: boolean, model?: Model): OrderDebtClientRow[] {
   const byKey = new Map<string, OrderDebtClientRow>()
   const ensure = (client: ClientState) => {
     let row = byKey.get(client.info.key)
     if (!row) byKey.set(client.info.key, (row = { ...client.info, wrongDebt: client.wrong, orders: 0, currencies: {} }))
     return row
   }
+  // The demo's client list is a list of markets: an order of the contact "client shablon 2" belongs to its market "Makro 37".
+  const holder = (client: ClientState, order: OrderMeta) => (order.demo?.marketId != null ? (model?.clients.get(String(order.demo.marketId)) ?? client) : client)
   const seen = new Set<number>()
   for (const { client, order, part } of selection.rows) {
-    const row = ensure(client)
+    const owner = holder(client, order)
+    const row = ensure(owner)
+    if (client.wrong) row.wrongDebt = true
     const item = (row.currencies[part.currency] ??= emptyBuckets())
     item[order.bucket] += part.remaining
     item.total += part.remaining
@@ -668,6 +735,7 @@ function clientValue(row: OrderDebtClientRow, field: string): Comparable {
   const [name, code] = field.split(".")
   if (code) return row.currencies[code]?.[name as keyof BucketAmounts] ?? 0
   if (name === "phone" || name === "address" || name === "guide" || name === "agent" || name === "type") return nameKey(row[name])
+  if (name === "id") return row.id ?? Number.MAX_SAFE_INTEGER
   return nameKey(row.name)
 }
 
@@ -725,7 +793,7 @@ export async function listOrderDebts(query: OrderDebtQuery): Promise<OrderDebtLi
     const paged = paginate(rows, query.page, query.pageSize)
     return { ...base, count: rows.length, page: paged.page, pageSize: paged.pageSize, clients: [], orders: paged.rows }
   }
-  const rows = sortRows(clientRows(selection, query.withWrongDebt), query.ordering || "name", clientValue, (a, b) => nameKey(a.name).localeCompare(nameKey(b.name), "ru") || a.key.localeCompare(b.key))
+  const rows = sortRows(clientRows(selection, query.withWrongDebt, model), query.ordering || "id", clientValue, (a, b) => nameKey(a.name).localeCompare(nameKey(b.name), "ru") || a.key.localeCompare(b.key))
   const paged = paginate(rows, query.page, query.pageSize)
   return { ...base, count: rows.length, page: paged.page, pageSize: paged.pageSize, clients: paged.rows, orders: [] }
 }
@@ -736,16 +804,18 @@ export async function getClientDebtDetail(key: string, params: { debtType?: Debt
   const client = model.clients.get(key)
   if (!client) return null
   const lines: OrderDebtDetailLine[] = []
-  const orders = [...client.orders].sort((a, b) => b.id - a.id)
-  for (const order of orders) {
+  // A row of the clients tab is a market: its debt is made of the orders of every contact that ordered for it.
+  const marketOrders = [...model.orders.values()].filter((order) => order.demo?.marketId === client.info.id)
+  const entries = (marketOrders.length ? marketOrders.map((order) => ({ client: model.clients.get(order.clientKey)!, order })) : client.orders.map((order) => ({ client, order }))).sort((a, b) => b.order.id - a.order.id)
+  for (const { client: owner, order } of entries) {
     if (params.debtType && order.bucket !== params.debtType) continue
-    for (const part of client.parts.get(order.id) ?? []) if (part.remaining > EPS) lines.push({ kind: "order", ...orderRow(order, part, client) })
+    for (const part of owner.parts.get(order.id) ?? []) if (part.remaining > MIN_DEBT) lines.push({ kind: "order", ...orderRow(order, part, owner) })
   }
   for (const line of client.lines) {
     if (params.debtType && line.bucket !== params.debtType) continue
     lines.push({ kind: "unexplained", key: `unexplained-${line.currency}`, ...line })
   }
-  const row = clientRows({ rows: client.orders.flatMap((order) => (client.parts.get(order.id) ?? []).filter((part) => part.remaining > EPS).map((part) => ({ client, order, part }))), lines: client.lines.map((line) => ({ client, line })), clients: [client] }, true)[0]
+  const row = clientRows({ rows: entries.flatMap(({ client: owner, order }) => (owner.parts.get(order.id) ?? []).filter((part) => part.remaining > MIN_DEBT).map((part) => ({ client: owner, order, part }))), lines: client.lines.map((line) => ({ client, line })), clients: [client] }, true, model)[0]
   const paged = paginate(lines, params.page ?? 1, params.pageSize ?? 25)
   return {
     client: row ?? { ...client.info, wrongDebt: client.wrong, orders: 0, currencies: {} },

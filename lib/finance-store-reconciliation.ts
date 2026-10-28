@@ -495,6 +495,10 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
   await ensureStoreReconciliationSchema(db)
   const s = await ensureFinanceSchema(db)
   const variant = params.variant ?? "client"
+  // "Сверка счетов" lists the demo app's shops one by one (sales/client_balances): its archived rows replace the INN groups.
+  const refTable =
+    variant === "account" &&
+    ((await db.prepare("SELECT to_regclass('store_reconciliation_reference_rows') IS NOT NULL AS ok").get()) as { ok: boolean }).ok
   const today = todayIso()
   const asOf = params.debtDate ?? today
   const orderStatuses = (params.orderStatuses ?? [])
@@ -503,7 +507,7 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
 
   const [list, statuses, deadlines] = await Promise.all([
     getBalanceList(
-      variant,
+      refTable ? "client" : variant,
       {
         from: asOf,
         to: asOf,
@@ -545,7 +549,7 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
   let rows: StoreReconciliationRow[] = []
   for (const balanceRow of list.rows) {
     // A shop row is one client; an account row sums its clients (ledger members).
-    const memberIds = variant === "account" ? (balanceRow.members ?? []) : balanceRow.id !== null ? [balanceRow.id] : []
+    const memberIds = variant === "account" && !refTable ? (balanceRow.members ?? []) : balanceRow.id !== null ? [balanceRow.id] : []
     if (!memberIds.length) continue
     const money: Record<string, ReconciliationMoney> = Object.fromEntries(codes.map((code) => [code, emptyMoney()]))
     let orders = 0
@@ -580,7 +584,7 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
         created: String(balanceRow.info.created ?? ""),
         clients: memberIds.length,
       },
-      members: memberIds.map((id) => ({ id, name: variant === "client" ? balanceRow.name : "" })),
+      members: memberIds.map((id) => ({ id, name: variant === "client" || refTable ? balanceRow.name : "" })),
       status: status && (RECONCILIATION_STATUS_VALUES as readonly string[]).includes(status.status) ? (status.status as ReconciliationStatus) : null,
       statusDate: status?.created_at || null,
       confirmedDate: status?.confirmed_at || null,
@@ -594,6 +598,8 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
       orders,
     })
   }
+
+  if (refTable) rows = await applyReferenceRows(db, rows, { codes, rates, baseCurrency: list.baseCurrency, params, missing })
 
   // Page filters the shared list does not know.
   const wantedStatuses = params.messageStatuses ?? []
@@ -669,6 +675,71 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
     }),
     missingRates: [...missing],
   }
+}
+
+type ReferenceShop = { id: number; name: string; created_date: string; orders: number; money: Record<string, [number, number]> }
+
+/** "Сверка счетов": rows = the demo app's shops (store_reconciliation_reference_rows) with its cash / bank balances,
+ * keeping the local client details when the shop exists here; clients created after those rows come from the ledger. */
+async function applyReferenceRows(
+  db: PgDb,
+  rows: StoreReconciliationRow[],
+  ctx: { codes: string[]; rates: Record<string, number | null>; baseCurrency: string; params: StoreReconciliationParams; missing: Set<string> },
+): Promise<StoreReconciliationRow[]> {
+  const { codes, rates, baseCurrency, params, missing } = ctx
+  const shops = (await db.prepare("SELECT id, name, created_date, orders, money FROM store_reconciliation_reference_rows ORDER BY id").all()) as ReferenceShop[]
+  const clientIds = new Set(((await db.prepare("SELECT id FROM clients").all()) as Array<{ id: number }>).map((row) => Number(row.id)))
+  const byId = new Map(rows.filter((row) => row.id !== null).map((row) => [row.id as number, row]))
+  const maxShop = shops.reduce((max, shop) => Math.max(max, Number(shop.id)), 0)
+  const attributeFilter = Boolean(
+    params.zones?.length || params.agents?.length || params.clientTypes?.length || params.branches?.length || params.organizations?.length ||
+      params.clientCreatedFrom || params.clientCreatedTo || params.orderDaysMin !== undefined || params.orderDaysMax !== undefined ||
+      params.paymentDaysMin !== undefined || params.paymentDaysMax !== undefined,
+  )
+  const search = (params.search ?? "").trim().toLowerCase()
+  const money = (shop: ReferenceShop): { money: Record<string, ReconciliationMoney>; total: number } => {
+    const out: Record<string, ReconciliationMoney> = {}
+    let total = 0
+    for (const code of codes) {
+      const [cash, bank] = shop.money?.[code] ?? [0, 0]
+      out[code] = { cash: roundMoney(cash), bank: roundMoney(bank), total: roundMoney(cash + bank) }
+      if (!out[code].total) continue
+      const converted = convertAmount(out[code].total, code, baseCurrency, rates)
+      if (converted === null) missing.add(code)
+      else total += converted
+    }
+    return { money: out, total: roundMoney(total) }
+  }
+  const result: StoreReconciliationRow[] = []
+  for (const shop of shops) {
+    const id = Number(shop.id)
+    const base = byId.get(id)
+    const next = money(shop)
+    if (base) {
+      result.push({ ...base, currencies: next.money, total: next.total, orders: Number(shop.orders) || 0 })
+    } else if (!clientIds.has(id) && !attributeFilter && (!search || shop.name.toLowerCase().includes(search) || String(id) === search)) {
+      result.push({
+        key: String(id),
+        id,
+        name: shop.name,
+        info: { inn: "", phone: "", type: "", zone: "", agent: "", branch: "", created: String(shop.created_date ?? "").slice(0, 10), clients: 1 },
+        members: [{ id, name: shop.name }],
+        status: null,
+        statusDate: null,
+        confirmedDate: null,
+        paymentDeadline: null,
+        lastOrder: null,
+        lastPayment: null,
+        orderDays: null,
+        paymentDays: null,
+        total: next.total,
+        currencies: next.money,
+        orders: Number(shop.orders) || 0,
+      })
+    }
+  }
+  for (const row of rows) if (row.id !== null && row.id > maxShop) result.push(row)
+  return result
 }
 
 /** Names of the clients of account rows (the Списать / Добавить client choice). */

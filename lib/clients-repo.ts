@@ -4,6 +4,7 @@ import { CLIENT_COLUMNS, getDb, outsideTransaction, withTransaction, type PgDb }
 import { ensureClientZones, resolveClientZone } from "@/lib/client-zones-repo"
 import { clientLedgerBalances } from "@/lib/orders-repo"
 import { keySql, nameKey, quoteIdent } from "@/lib/platform-refs"
+import { selectedBranchName } from "@/lib/selected-branch"
 import type { Client } from "@/components/clients/clients-data"
 
 // Clients.
@@ -51,9 +52,14 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+-- «Статус объекта»; a client without a row counts as active.
+CREATE TABLE IF NOT EXISTS client_object_status (
+  client_id INTEGER PRIMARY KEY,
+  is_active INTEGER NOT NULL DEFAULT 1
+);
 `
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 declare global {
   var __linkoClientsSchema: { version: number; ready: Promise<void> } | undefined
@@ -72,6 +78,19 @@ export function ensureClientsSchema(): Promise<void> {
     globalThis.__linkoClientsSchema = { version: SCHEMA_VERSION, ready }
   }
   return globalThis.__linkoClientsSchema!.ready
+}
+
+const SELECT_CLIENT = `SELECT c.*, s.is_active AS object_active
+  FROM clients c LEFT JOIN client_object_status s ON s.client_id = c.id`
+
+async function saveObjectStatus(db: PgDb, id: number, isActive: boolean | undefined) {
+  if (isActive === undefined) return
+  await db
+    .prepare(
+      `INSERT INTO client_object_status (client_id, is_active) VALUES (@id, @isActive)
+       ON CONFLICT (client_id) DO UPDATE SET is_active = excluded.is_active RETURNING client_id`,
+    )
+    .run({ id, isActive: isActive ? 1 : 0 })
 }
 
 type ClientRow = {
@@ -105,6 +124,7 @@ type ClientRow = {
   attributes?: string | null
   in_route?: number | null
   is_problem?: number | null
+  object_active?: number | null
 }
 
 function rowToClient(row: ClientRow): Client {
@@ -123,6 +143,7 @@ function rowToClient(row: ClientRow): Client {
     tab: row.tab,
     inRoute: row.in_route === 1,
     isProblem: row.is_problem === 1,
+    isActive: row.object_active == null ? true : row.object_active === 1,
     branch: row.branch || undefined,
     salesChannel: row.sales_channel || undefined,
     realizationBy: row.realization_by || undefined,
@@ -153,12 +174,15 @@ function parseBalanceLines(raw: string | null | undefined): string[] | undefined
   }
 }
 
+/** The form's "Linko магазин" rows live in the attributes map under this key (the other "_" keys are internal). */
+const LINKO_MARKETS_KEY = "__linko_markets"
+
 function parseAttributes(raw: string | null | undefined): Record<string, string> | undefined {
   if (!raw) return undefined
   try {
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
-    const entries = Object.entries(parsed as Record<string, unknown>).filter(([k, v]) => !k.startsWith("_") && typeof v === "string" && v !== "") as [string, string][]
+    const entries = Object.entries(parsed as Record<string, unknown>).filter(([k, v]) => (!k.startsWith("_") || k === LINKO_MARKETS_KEY) && typeof v === "string" && v !== "") as [string, string][]
     return entries.length ? Object.fromEntries(entries) : undefined
   } catch {
     return undefined
@@ -183,6 +207,7 @@ async function attachLedger(clients: Client[]): Promise<Client[]> {
   for (const client of clients) {
     const ledger = balances.get(client.id)
     if (!ledger) continue
+    // The ledger is the one source of the balance (lib/finance): it replaces any stored line.
     client.balanceLines = ledger.lines
     client.currentBalances = ledger.byCurrency
     client.lastOrder = ledger.lastOrder
@@ -194,11 +219,12 @@ async function attachLedger(clients: Client[]): Promise<Client[]> {
 export async function listClients(search?: string, options: { withBalances?: boolean } = {}): Promise<Client[]> {
   await ensureClientsSchema()
   const db = getDb()
+  const branch = await selectedBranchName()
   const rows = search
     ? ((await db
-        .prepare("SELECT * FROM clients WHERE name ILIKE @q OR phone ILIKE @q ORDER BY id DESC")
-        .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%` })) as ClientRow[])
-    : ((await db.prepare("SELECT * FROM clients ORDER BY id DESC").all()) as ClientRow[])
+        .prepare(`${SELECT_CLIENT} WHERE (c.name ILIKE @q OR c.phone ILIKE @q) AND (@branch::text = '' OR c.branch = @branch) ORDER BY c.id DESC`)
+        .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`, branch })) as ClientRow[])
+    : ((await db.prepare(`${SELECT_CLIENT} WHERE (@branch::text = '' OR c.branch = @branch) ORDER BY c.id DESC`).all({ branch })) as ClientRow[])
   const clients = rows.map(rowToClient)
   return options.withBalances === false ? clients : attachLedger(clients)
 }
@@ -206,7 +232,7 @@ export async function listClients(search?: string, options: { withBalances?: boo
 export async function getClient(id: number, options: { withBalances?: boolean } = {}): Promise<Client | null> {
   if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
   await ensureClientsSchema()
-  const row = (await getDb().prepare("SELECT * FROM clients WHERE id = ?").get(id)) as ClientRow | undefined
+  const row = (await getDb().prepare(`${SELECT_CLIENT} WHERE c.id = ?`).get(id)) as ClientRow | undefined
   if (!row) return null
   const client = rowToClient(row)
   return options.withBalances === false ? client : (await attachLedger([client]))[0]
@@ -357,6 +383,7 @@ export async function createClient(input: ClientInput, user?: { displayName: str
          )`,
       )
       .run({ ...writeParams(checked, checked.balance ?? null), createdBy: user?.displayName ?? "" })
+    await saveObjectStatus(tx, Number(result.lastInsertRowid), input.isActive)
     return Number(result.lastInsertRowid)
   })
   return (await getClient(id))!
@@ -451,6 +478,7 @@ export async function updateClient(id: number, input: ClientInput, user?: { disp
          WHERE id = @id`,
       )
       .run({ ...writeParams(checked, balance), id })
+    await saveObjectStatus(tx, id, input.isActive)
     await cascadeRename(tx, id, row.name, checked.name)
     return true
   })

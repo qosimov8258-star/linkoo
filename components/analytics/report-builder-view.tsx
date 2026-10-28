@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Bookmark, ChevronDown, ChevronUp, Download, FolderOpen, Search, X } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
-import { ReportPage } from "@/components/ref/report-kit"
+import { ReportPage, monthRangeLabel } from "@/components/ref/report-kit"
 import { CHECKBOX } from "./visit-builder-view"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -119,7 +119,7 @@ export function ReportBuilderView() {
   const { t } = useLanguage()
   const [mode, setMode] = useState<"stock" | "warehouse">("stock")
   const [settingsOpen, setSettingsOpen] = useState(true)
-  const [dateRange, setDateRange] = useState("01 Авг. 2026 - 31 Авг. 2026")
+  const [dateRange, setDateRange] = useState(() => monthRangeLabel())
 
   const [columnSearch, setColumnSearch] = useState("")
   const [verticalSearch, setVerticalSearch] = useState("")
@@ -258,8 +258,8 @@ export function ReportBuilderView() {
 
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]">
-        <RefHeader title={t("Конструктор")}>
+      <div className="pl-[28px] pr-[38px]">
+        <RefHeader title="Конструктор">
           <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {([["stock", "ТЕКУЩИЙ ОСТАТОК"], ["warehouse", "СКЛАД"]] as const).map(([key, label]) => (
               <button key={key} onClick={() => setMode(key)} className={`h-[30px] px-4 text-[13px] font-medium ${mode === key ? "bg-[#2bcd53] text-white" : "bg-white text-black"}`}>{t(label)}</button>
@@ -295,7 +295,7 @@ export function ReportBuilderView() {
         <div className="ml-auto flex items-center gap-[19px]">
           <input value={dateRange} onChange={(event) => setDateRange(event.target.value)} className="w-[190px] bg-transparent text-right text-[12px] font-bold text-[#4f71dc] outline-none" />
           <button onClick={() => setSettingsOpen((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
-            {settingsOpen ? t("Скрыть настройки ▲") : t("Показать настройки ▼")}
+            <span data-no-translate>{settingsOpen ? "Скрыть настройки ▲" : "Показать настройки ▼"}</span>
           </button>
           <button onClick={generateReport} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
             {t("Сформировать отчет")}
@@ -354,7 +354,7 @@ export function ReportBuilderView() {
             ))}
 
             <button onClick={addCustomFilter} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
-              {t("Добавить индивидуальный фильтр")}
+              <span data-no-translate>Добавить индивидуальный фильтр</span>
             </button>
           </div>
         </section>

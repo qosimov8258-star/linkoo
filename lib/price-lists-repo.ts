@@ -196,7 +196,7 @@ export const PRICE_LIST_SORT_KEYS = Object.keys(ORDER_COLUMNS)
 function orderBy(ordering: string): string {
   const desc = ordering.startsWith("-")
   const column = ORDER_COLUMNS[desc ? ordering.slice(1) : ordering]
-  if (!column) return "COALESCE(p.position, 0), p.id"
+  if (!column) return "p.position ASC NULLS LAST, p.id"
   return `${column} ${desc ? "DESC" : "ASC"} NULLS LAST, p.id ${desc ? "DESC" : "ASC"}`
 }
 

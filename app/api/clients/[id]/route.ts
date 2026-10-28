@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { releaseClientAccount } from "@/lib/financial-accounts-repo"
 
 import { parseBody, parseId } from "@/lib/auth-request"
 import { clientErrorResponse, clientInputOf, clientSchema } from "@/lib/client-schema"
@@ -48,6 +49,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   const id = parseId((await params).id)
   if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
   try {
+    await releaseClientAccount(id)
     const ok = await deleteClient(id)
     if (!ok) return NextResponse.json(NOT_FOUND, { status: 404 })
     return NextResponse.json({ ok: true })

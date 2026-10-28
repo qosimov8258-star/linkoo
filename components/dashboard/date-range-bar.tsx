@@ -47,8 +47,9 @@ export function DateRangeBar({
     let cancelled = false
     fetch("/api/auth/me")
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: { displayName?: string } | null) => {
-        if (!cancelled && data?.displayName) setDisplayName(data.displayName)
+      .then((data: { displayName?: string; fullName?: string } | null) => {
+        const name = data?.fullName || data?.displayName
+        if (!cancelled && name) setDisplayName(name)
       })
       .catch(() => {})
     return () => {
@@ -59,13 +60,9 @@ export function DateRangeBar({
   return (
     <div className="flex h-[75px] items-center justify-between rounded-[2px] bg-white px-[30px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <div className="flex items-center">
-        <span className="flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-full bg-[#5d6474]/80">
-          <svg viewBox="0 0 24 24" className="mt-[6px] h-6 w-6 fill-white/80" aria-hidden>
-            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-          </svg>
-        </span>
+        <span className="h-[30px] w-[30px] rounded-full bg-[url('/default-avatar.png')] bg-cover bg-center" aria-hidden />
         <h4 className="mx-[10px] text-[16px] font-semibold leading-5 text-[#333]">{displayName}</h4>
-        {origin && <span className="-ml-[5px] text-[12px] font-semibold text-[#999]">{t("Сервер")}: ({origin})</span>}
+        {origin && <span className="-ml-[5px] text-[12px] font-semibold leading-[15px] text-[#999]">{t("Сервер")}: ({origin})</span>}
       </div>
 
       <div className="flex items-center gap-[10px]">
@@ -75,12 +72,13 @@ export function DateRangeBar({
             onClick={() => {
               setPickerOpen((open) => !open)
             }}
-            className="w-[200px] text-right text-[13px] font-bold text-[#4f71dc]"
+            className={`w-[200px] text-right text-[13px] font-bold capitalize text-[#4f71dc] ${label === "Укажите Дату" ? "underline" : ""}`}
           >
             {t(label)}
           </button>
           {pickerOpen && (
             <DateRangePicker
+              positionClassName="left-[-5px] top-[calc(100%+21px)]"
               begin={begin}
               end={end}
               onClose={() => setPickerOpen(false)}
@@ -97,7 +95,7 @@ export function DateRangeBar({
               key={btn}
               type="button"
               onClick={() => onPeriodChange(btn)}
-              className={`h-8 min-w-[70px] rounded-[5px] px-4 text-[13px] font-normal uppercase ${
+              className={`h-8 min-w-[70px] rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${
                 btn === period
                   ? "bg-[#4f71dc] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
                   : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"

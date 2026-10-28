@@ -1,36 +1,26 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
+import { branchExists, createTransport, listTransport } from "@/lib/transport-repo"
+import { transportSchema } from "@/lib/transport-schema"
 import { parseJsonBody } from "@/lib/validation"
-import { createTransportVehicle, listTransportVehicles, parseTransportVehicleInput, TRANSPORT_STATUSES } from "@/lib/transport-repo"
-
-const transportVehicleSchema = z.object({
-  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
-  plateNumber: z.string().optional(),
-  driver: z.string().optional(),
-  branch: z.string().optional(),
-  status: z.enum(TRANSPORT_STATUSES).optional(),
-  note: z.string().optional(),
-})
 
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listTransportVehicles()))
+  return NextResponse.json(await listTransport())
 }
 
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseJsonBody(request, transportVehicleSchema)
+  const parsed = await parseJsonBody(request, transportSchema)
   if (parsed.error) return parsed.error
+  if (parsed.data.branchId !== null && !(await branchExists(parsed.data.branchId))) {
+    return NextResponse.json({ error: "Филиал не найден" }, { status: 400 })
+  }
 
-  const input = parseTransportVehicleInput(parsed.data)
-  if (!input) return NextResponse.json({ error: "Наименование обязательно" }, { status: 400 })
-
-  const item = (await createTransportVehicle(input))
-  return NextResponse.json(item, { status: 201 })
+  return NextResponse.json(await createTransport(parsed.data), { status: 201 })
 }

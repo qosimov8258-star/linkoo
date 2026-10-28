@@ -1,10 +1,11 @@
 "use client"
 
-import { Plus, Trash2 } from "lucide-react"
+import { Check, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { buildCashQuery, useCashJson } from "@/components/analytics/cash/use-cash"
-import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, parseAmount } from "@/components/analytics/cash-management-shared"
+import { MaterialCheckbox } from "@/components/analytics/cash-material"
+import { CashModal, ConfirmDialog, FormField, SearchSelect, inputClass, parseAmount } from "@/components/analytics/cash-management-shared"
 import { formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
 import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -115,52 +116,51 @@ export function RepricingFormDialog({
     <CashModal
       title={t("Добавление")}
       onClose={onClose}
-      size="full"
+      closeInset={6}
+      size="screen"
       footer={
         <>
-          <span className="mr-auto text-[14px] text-[#586174]">
-            {t("Сумма переоценки")}: <b className="text-[#17233b]">{formatSum(total, effectiveCurrency)}</b>
-          </span>
-          {error && <span className="text-[13px] text-[#e57373]">{error}</span>}
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
+          {lines.length > 0 && (
+            <span className="pl-[15px] text-[14px] text-black">
+              {t("Сумма переоценки")}: <b className="font-semibold text-[#0e9fe0]">{formatSum(total, effectiveCurrency)}</b>
+            </span>
+          )}
+          {error && <span className="ml-auto mr-4 text-[13px] text-[#f44336]">{error}</span>}
+          <button type="button" disabled={busy} onClick={() => void submit()} className={`${error ? "" : "ml-auto "}mr-[16px] h-9 text-[13px] font-semibold uppercase text-[#129fdd] hover:underline disabled:opacity-60`}>
             {t("Сохранить")}
-          </PrimaryButton>
+          </button>
         </>
       }
     >
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="flex flex-col gap-3 lg:w-[30%] lg:shrink-0 lg:border-r lg:border-[#efefef] lg:pr-6">
-          <FormField label={t("Прайс лист")} required error={showErrors && !priceListId ? t("Это поле обязательно к заполнению") : undefined}>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex w-[450px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-[#efefef] px-[30px] pb-6 pt-[30px]">
+          <FormField label={t("Прайс лист")} required showRequired semibold error={showErrors && !priceListId ? t("Это поле обязательно к заполнению") : undefined}>
             <SearchSelect value={priceListId} options={listOptions} invalid={showErrors && !priceListId} onChange={change} />
           </FormField>
-          <FormField label={t("Валюта")} required>
+          {/* A repricing is always in its price list's currency (the server refuses another one). */}
+          <FormField label={t("Валюта")} required showRequired semibold>
             <SearchSelect value={effectiveCurrency} options={currencyOptions} disabled allowClear={false} onChange={() => {}} />
           </FormField>
           {list && <p className="-mt-2 text-[12px] text-[#9aa3b6]">{t("Валюта переоценки — валюта прайс-листа")}</p>}
-          <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} placeholder={`${t("Оставить комментарий")}...`} className={`${inputClass} h-auto py-2`} />
-          {(list?.dependents ?? 0) > 0 && (
-            <label className="flex items-start gap-3 text-[14px] text-[#17233b]">
-              <input type="checkbox" checked={connected} onChange={(event) => setConnected(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[#4f71dc]" />
-              <span>
-                {t("Создать переоценку для связанных прайс-листов")} ({list?.dependents})
-              </span>
-            </label>
-          )}
+          <FormField label={`${t("Оставить комментарий")}...`} semibold>
+            <input value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} className={inputClass} />
+          </FormField>
+          {(list?.dependents ?? 0) > 0 && <MaterialCheckbox checked={connected} onChange={setConnected} label={`${t("Создать переоценку для связанных прайс-листов")} (${list?.dependents})`} />}
         </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <strong>{t("Список товаров")}</strong>
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-[30px] pt-[10px]">
+            <span className="text-[13px] font-semibold text-black">{t("Список товаров")}</span>
             <button
               type="button"
               onClick={() => (ready ? setImportOpen(true) : setShowErrors(true))}
-              className="text-[13px] lowercase text-[rgb(79,113,220)] hover:underline"
+              className="h-9 rounded-[3px] bg-[#eee] px-4 text-[13px] lowercase text-black hover:bg-[#e4e4e4]"
             >
               {t("Импортировать c Excel")}
             </button>
           </div>
-          <div className="mt-3 grid grid-cols-1 items-end gap-3 bg-[#f1f5f8] px-4 pb-3 pt-2 md:grid-cols-[minmax(0,1fr)_120px_140px_140px_auto]" title={ready ? undefined : t("Выберите прайс лист и валюту")}>
-            <FormField label={t("Наименование")}>
+          <div className="mt-[10px] grid grid-cols-1 items-end bg-[#f0f4f7] px-[38px] pb-[18px] pt-[8px] md:grid-cols-[479px_98px_150px_103px_auto]">
+            <FormField label={t("Наименование")} semibold className="bg-[#fafafa]">
               <SearchSelect
                 value={addKey}
                 disabled={!ready}
@@ -170,12 +170,12 @@ export function RepricingFormDialog({
               />
             </FormField>
             <span className="pb-2.5 text-[13px] text-[#586174]">{addRow ? oldLabel(addRow) : ""}</span>
-            <FormField label={t("Новая цена")}>
+            <FormField label={t("Новая цена")} semibold>
               <input value={addPrice} disabled={!ready} inputMode="decimal" onChange={(event) => setAddPrice(event.target.value)} onKeyDown={(event) => event.key === "Enter" && add()} className={inputClass} />
             </FormField>
             <span className="pb-2.5 text-[13px] text-[#586174]">{addRow && valid(addPrice) ? formatSum((parseAmount(addPrice) - oldPrice(addRow)) * addRow.available, effectiveCurrency) : ""}</span>
-            <button type="button" onClick={add} disabled={!addRow || !valid(addPrice)} title={t("Применить")} aria-label={t("Применить")} className="flex h-10 w-10 items-center justify-center rounded-md bg-[rgb(79,113,220)] text-white disabled:opacity-40">
-              <Plus className="h-5 w-5" />
+            <button type="button" onClick={add} title={t("Применить")} aria-label={t("Применить")} className="flex h-10 w-10 items-center justify-center text-[#4f71dc]">
+              <Check className="h-6 w-6" strokeWidth={2} />
             </button>
           </div>
           {picker.error && <p className="mt-2 text-[13px] text-[#e57373]">{t(picker.error)}</p>}
@@ -232,7 +232,7 @@ export function RepricingFormDialog({
               </table>
             </div>
           ) : (
-            <p className="py-16 text-center text-[13px] text-[#9aa3b6]">{ready ? t("Товаров нет") : t("Выберите прайс лист и валюту")}</p>
+            ready ? <p className="py-16 text-center text-[13px] text-[#9aa3b6]">{t("Товаров нет")}</p> : null
           )}
         </div>
       </div>

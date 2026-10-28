@@ -218,17 +218,18 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
   const dialogRow = rows.find((row) => row.key === dialogKey)
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-4 sm:px-6 md:px-9">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-xl font-bold text-[#586174] sm:text-2xl">{t(config.title)}</span>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
+        <div className="flex min-w-0 flex-wrap items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t(config.title)}</span>
         </div>
       </header>
+      <div className="h-[36px] border-b border-[#e1e5eb]" />
 
-      <section className="flex flex-wrap items-center gap-4 px-4 py-4 sm:px-6 md:px-9">
-        <BalanceFilterButton count={filterCount} from={from} to={to} scope={scope} onOpen={openFilter} />
+      <section className="flex flex-wrap items-center gap-4 px-[30px] pb-[10px] pt-[20px]">
+        <BalanceFilterButton count={filterCount} from={from} to={to} scope={scope} onOpen={openFilter} hidePeriod />
         <div className="ml-auto">
           <BalanceDownloadMenu
             disabled={downloading || !data}
@@ -240,19 +241,19 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
         </div>
       </section>
       {downloadError && (
-        <p className="px-4 pb-2 text-sm text-[#e57373] sm:px-6 md:px-9">
+        <p className="px-[30px] pb-2 text-sm text-[#e57373]">
           {t("Не удалось выполнить запрос")}: {t(downloadError)}
         </p>
       )}
 
-      <section className="flex flex-wrap items-center justify-between gap-4 border-t border-[#e1e5eb] px-4 py-3 sm:px-6 md:px-9">
+      <section className="flex flex-wrap items-center justify-between gap-4 border-t border-[#e1e5eb] px-[30px] py-3">
         <form onSubmit={submitSearch} className="relative w-full max-w-[350px] border-b border-[#dbe0e8] pb-1.5 focus-within:border-[#4f70e7]">
           <input
             value={searchDraft}
             onChange={(event) => setSearchDraft(event.target.value)}
             placeholder={t("Поиск")}
             aria-label={t("Поиск")}
-            className="w-full bg-transparent pr-8 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+            className="w-full bg-transparent pr-8 text-[13px] font-bold outline-none placeholder:font-bold placeholder:text-[#17233b]"
           />
           <button type="submit" aria-label={t("Поиск")} className="absolute right-0 top-0 text-[#9aa3b6] hover:text-[#4f70e7]">
             <Search className="h-5 w-5" />
@@ -290,7 +291,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
             <Loader2 className="h-8 w-8 animate-spin text-[#586174]" />
           ) : (
             <>
-              <Image src="/robot-mascot.png" alt="" width={120} height={120} className="h-28 w-28 object-contain" />
+              <Image src="/robot-empty.png" alt="" width={120} height={120} priority className="h-28 w-28 object-contain" />
               <p className="mt-4 text-center text-[#9aa3b6]">{t("По вашему запросу ничего не найдено")}</p>
             </>
           )}
@@ -326,7 +327,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
 
       <BalanceFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} from={from} to={to} onApply={applyFilter}>
         <div className="flex flex-col gap-1">
-          <span className="text-sm text-[#586174]">{t("Филиалы")}</span>
+          <span className="text-[13px] font-semibold text-black">{t("Филиалы")}</span>
           <MultiSelect
             value={draft.branches}
             options={withSelected(
@@ -337,7 +338,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-sm text-[#586174]">{t("Организация")}</span>
+          <span className="text-[13px] font-semibold text-black">{t("Организация")}</span>
           <MultiSelect
             value={draft.divisions}
             options={withSelected(
@@ -349,7 +350,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
         </div>
         {config.categoryFilter && (
           <div className="flex flex-col gap-1 md:col-span-2">
-            <span className="text-sm text-[#586174]">{t("Категория расходов")}</span>
+            <span className="text-[13px] font-semibold text-black">{t("Категория расходов")}</span>
             <MultiSelect value={draft.categories} options={categoryOptions} onChange={(next) => setDraft((value) => ({ ...value, categories: next }))} />
           </div>
         )}

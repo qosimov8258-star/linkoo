@@ -6,7 +6,7 @@ import { incomingChangeResponse, incomingNotFound, supplierIncomingSchema } from
 import { changeIncomingStatus, deleteIncoming, parseIncomingInput, updateIncoming } from "@/lib/supplier-incomings-repo"
 import { parseProcurementBody, parseRouteId, procurementWrite } from "@/lib/supplier-refs"
 
-const statusSchema = z.object({ action: z.enum(["accept", "unaccept", "cancel"], { error: "Неизвестное действие" }) })
+const statusSchema = z.object({ action: z.enum(["accept", "unaccept", "cancel"], { error: "Неизвестное действие" }), date: z.string().optional() })
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -22,7 +22,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   if (parsed.error) return parsed.error
 
   return procurementWrite(async () =>
-    incomingChangeResponse(await changeIncomingStatus(id, parsed.data.action, auth.user.displayName), "Действие недоступно для текущего статуса поставки"),
+    incomingChangeResponse(await changeIncomingStatus(id, parsed.data.action, auth.user.displayName, parsed.data.date), "Действие недоступно для текущего статуса поставки"),
   )
 }
 

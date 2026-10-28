@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useState } from "react"
-import { ChevronDown, ChevronRight, Download, Filter, Trash2 } from "lucide-react"
+import { CreditCard, Download, Filter, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useAcceptGroups, useAgentPayments } from "@/components/analytics/cash/use-cash"
 import {
@@ -56,6 +56,7 @@ export function CashAcceptDialog({
   const { t, language } = useLanguage()
   const [period, setPeriod] = useState({ from: "", to: "" })
   const [filterOpen, setFilterOpen] = useState(false)
+  const [periodOpen, setPeriodOpen] = useState(false)
   const [branches, setBranches] = useState<string[]>([])
   const [agentCashboxes, setAgentCashboxes] = useState<string[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -103,21 +104,30 @@ export function CashAcceptDialog({
 
   return (
     <CashModal
-      title={t("Принять наличные")}
+      title={
+        <span className="flex items-center gap-[40px]">
+          {t("Принять наличные")}
+          <span className="relative flex items-center gap-[40px] text-[13px] font-semibold normal-case">
+            <button type="button" onClick={() => setFilterOpen((current) => !current)} className="inline-flex h-[30px] items-center gap-2 rounded-[2px] bg-[#4f71dc] px-[14px] font-bold text-white hover:brightness-95">
+              <Filter className="h-4 w-4" />
+              {filterCount ? `${t("Фильтр")}: ${filterCount} ${t("элемента")}` : t("Показать фильтр")}
+            </button>
+            <button type="button" onClick={() => setPeriodOpen((current) => !current)} className="font-bold text-[#4f71dc] hover:underline">
+              {period.from || period.to ? `${period.from || "…"} — ${period.to || "…"}` : t("Укажите Период Создания")}
+            </button>
+            {periodOpen && (
+              <span className="absolute left-[200px] top-[36px] z-[5] flex items-center gap-2 bg-white p-3 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+                <input type="date" value={period.from} onChange={(event) => setPeriod((current) => ({ ...current, from: event.target.value }))} className="h-9 border-b border-[#e8e8e8] px-1 font-normal" aria-label={t("Укажите период создания")} />
+                <span>—</span>
+                <input type="date" value={period.to} onChange={(event) => setPeriod((current) => ({ ...current, to: event.target.value }))} className="h-9 border-b border-[#e8e8e8] px-1 font-normal" aria-label={t("Укажите период создания")} />
+              </span>
+            )}
+          </span>
+        </span>
+      }
       onClose={onClose}
       size="xl"
-      headerExtra={
-        <div className="flex flex-wrap items-center gap-2 text-[13px] font-normal normal-case">
-          <button type="button" onClick={() => setFilterOpen((current) => !current)} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#4f70e7] px-3 font-semibold text-[#4f70e7]">
-            <Filter className="h-4 w-4" />
-            {filterCount ? `${t("Фильтр")}: ${filterCount} ${t("элемента")}` : t("Показать фильтр")}
-          </button>
-          <span className="text-[#586174]">{t("Укажите период создания")}</span>
-          <input type="date" value={period.from} onChange={(event) => setPeriod((current) => ({ ...current, from: event.target.value }))} className="h-9 rounded-md border border-[#dbe0e8] px-2" aria-label={t("Укажите период создания")} />
-          <span>—</span>
-          <input type="date" value={period.to} onChange={(event) => setPeriod((current) => ({ ...current, to: event.target.value }))} className="h-9 rounded-md border border-[#dbe0e8] px-2" aria-label={t("Укажите период создания")} />
-        </div>
-      }
+      top={186}
     >
       {filterOpen && (
         <div className="mb-4 grid grid-cols-1 gap-3 rounded-md bg-[#f7f9fc] p-3 sm:grid-cols-2">
@@ -132,16 +142,15 @@ export function CashAcceptDialog({
 
       {groups.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-[14px]">
+          <table className="w-full min-w-[720px] text-[13px]">
             <thead>
-              <tr className="bg-[#626b7e] text-left text-white">
-                <th className="w-8 px-2 py-3" />
-                <th className="px-3 py-3 font-semibold">{t("Создал")}</th>
-                <th className="px-3 py-3 font-semibold">{t("Касса")}</th>
-                <th className="px-3 py-3 font-semibold">{t("Филиал")}</th>
-                <th className="px-3 py-3 font-semibold">{t("Организация")}</th>
-                <th className="px-3 py-3 text-right font-semibold">{t("Сумма")}</th>
-                <th className="w-32 px-3 py-3" />
+              <tr className="border-b border-dotted border-[#d9e0e5] text-left text-black">
+                <th className="px-0 py-[15px] font-bold">{t("Создал")}</th>
+                <th className="px-3 py-[15px] font-bold">{t("Касса")}</th>
+                <th className="px-3 py-[15px] font-bold">{t("Филиал")}</th>
+                <th className="px-3 py-[15px] font-bold">{t("Организация")}</th>
+                <th className="px-3 py-[15px] font-bold">{t("Сумма")}</th>
+                <th className="w-32 px-3 py-[15px]" />
               </tr>
             </thead>
             <tbody>
@@ -154,15 +163,14 @@ export function CashAcceptDialog({
                         setExpanded(open ? null : item.key)
                         setPage(1)
                       }}
-                      className={`cursor-pointer border-b border-dashed border-[#d8dee7] hover:bg-[#f2f5f8] ${open ? "bg-[#f2f5f8]" : ""}`}
+                      className={`cursor-pointer border-b border-dotted border-[#d9e0e5] ${open ? "bg-[#f7f9fb]" : ""}`}
                     >
-                      <td className="px-2 py-3 text-[#9aa3b6]">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
-                      <td className="px-3 py-3 font-semibold">{item.agent || t("Не указано")}</td>
-                      <td className="px-3 py-3">{item.agentCashbox?.name ?? t("Не указано")}</td>
-                      <td className="px-3 py-3">{item.branch || "—"}</td>
-                      <td className="px-3 py-3">{item.organization || "—"}</td>
-                      <td className="px-3 py-3 text-right font-semibold whitespace-nowrap text-[#4f71dc]">{formatCash(item.amount, item.currency)}</td>
-                      <td className="px-3 py-3 text-right">
+                      <td className="py-[12px] pr-3">{item.agent || t("Не указано")}</td>
+                      <td className="px-3 py-[12px]">{item.agentCashbox?.name ?? t("Не указано")}</td>
+                      <td className="px-3 py-[12px]">{item.branch || "—"}</td>
+                      <td className="px-3 py-[12px]">{item.organization || "—"}</td>
+                      <td className="px-3 py-[12px] whitespace-nowrap text-[#4f71dc]">{formatCash(item.amount, item.currency)}</td>
+                      <td className="px-3 py-[8px] text-right">
                         {canWrite && (
                           <button
                             type="button"
@@ -170,8 +178,9 @@ export function CashAcceptDialog({
                               event.stopPropagation()
                               setTarget({ group: item, payment: null })
                             }}
-                            className="rounded-md bg-[#71ce87] px-4 py-1.5 font-semibold text-white hover:brightness-95"
+                            className="inline-flex h-[30px] items-center gap-2 rounded-[3px] bg-[#71ce87] px-[14px] font-bold text-white hover:brightness-95"
                           >
+                            <CreditCard className="h-4 w-4" />
                             {t("Принять")}
                           </button>
                         )}
@@ -274,10 +283,10 @@ export function CashAcceptDialog({
               })}
             </tbody>
           </table>
-          <p className="mt-3 text-right text-[14px] text-[#586174]">
+          <p className="mt-[10px] border-t border-[#efefef] pb-[10px] pt-[20px] text-[14px] text-black">
             {t("Общая сумма")}:{" "}
             {Object.entries(totals).map(([currency, amount], index) => (
-              <b key={currency} className="text-[#17233b]">
+              <b key={currency} className="text-[16px] font-semibold text-[#0e9fe0]">
                 {index > 0 && ", "}
                 {formatCash(amount, currency)}
               </b>

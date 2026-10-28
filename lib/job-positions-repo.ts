@@ -3,8 +3,9 @@ import "server-only"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { isUniqueViolation } from "@/lib/auth-request"
 import { cascadeNameRename, existingReferences, keySql, nameKey, usageOf, type Usage } from "@/lib/platform-refs"
+import { refDateTime } from "@/lib/ref-date"
 
-export type JobPosition = { id: number; name: string; date: string }
+export type JobPosition = { id: number; name: string; date: string; createdAt: string }
 
 type Row = { id: number; name: string; created_at: string }
 
@@ -53,18 +54,8 @@ export class JobPositionError extends Error {
   }
 }
 
-function formatDate(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-      .format(new Date(iso.replace(" ", "T") + "Z"))
-      .replace(" г.", "")
-  } catch {
-    return iso
-  }
-}
-
 function rowToPosition(row: Row): JobPosition {
-  return { id: row.id, name: row.name, date: formatDate(row.created_at) }
+  return { id: row.id, name: row.name, date: refDateTime(row.created_at), createdAt: row.created_at }
 }
 
 export type JobPositionInput = { name: string }

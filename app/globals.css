@@ -159,20 +159,20 @@
   background: #168bd2;
 }
 
-.leaflet-control-zoom {
+.leaflet-container:not(.tracking-plain) .leaflet-control-zoom {
   border: none !important;
   border-radius: 6px !important;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18) !important;
 }
 
-.leaflet-control-zoom a {
+.leaflet-container:not(.tracking-plain) .leaflet-control-zoom a {
   border-radius: 0 !important;
   border-bottom: 1px solid #e5e7eb !important;
   color: #17233b !important;
 }
 
-.leaflet-control-zoom a:last-child {
+.leaflet-container:not(.tracking-plain) .leaflet-control-zoom a:last-child {
   border-bottom: none !important;
 }
 
@@ -197,6 +197,9 @@
   align-items: center;
 }
 main { background-color: transparent !important; }
+/* Report pages of the reference (balances, expenses by category): white body under a grey header band. */
+main.ref-white { background-color: #fff !important; }
+main.ref-white [data-ref-header] { background-color: #f2f5f8 !important; }
 thead.text-white th,
 thead[class*="bg-[#5d6474]"] th {
   font-size: 13px;
@@ -278,4 +281,4 @@ table thead th:has(input[type='checkbox']) { cursor: default; }
 .zone-label { background: transparent !important; border: 0 !important; box-shadow: none !important; font-size: 15px; font-weight: 700; color: #1d2b44; text-shadow: 0 0 3px #fff, 0 0 3px #fff; padding: 0 !important; }
 .zone-label::before { display: none !important; }
 
-.leaflet-tile-pane { filter: saturate(0.35) brightness(1.06) contrast(0.95); }
+.leaflet-container:not(.tracking-plain) .leaflet-tile-pane { filter: saturate(0.35) brightness(1.06) contrast(0.95); }

@@ -1,6 +1,6 @@
 "use client"
 
-import { CheckCircle2, XCircle } from "lucide-react"
+import { CheckCircle2 } from "lucide-react"
 
 import { buildCashQuery, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { formatCashDate } from "@/components/analytics/cash-management-shared"
@@ -234,7 +234,7 @@ export function ReviewIcon({ reviewed, t, className = "h-5 w-5" }: { reviewed: b
   const label = reviewed ? t("Одобрено") : t("Не одобрено")
   return (
     <span title={label} role="img" aria-label={label} className="inline-flex shrink-0">
-      {reviewed ? <CheckCircle2 className={`${className} text-[#71ce87]`} /> : <XCircle className={`${className} text-[#e66767]`} />}
+      {reviewed ? <CheckCircle2 className={`${className} text-[#71ce87]`} /> : <svg viewBox="0 0 24 24" className={`${className} fill-[#e66767]`}><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>}
     </span>
   )
 }

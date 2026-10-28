@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Check, ChevronDown, Search, X } from "lucide-react"
 
+import { FilterCardSelect, useFilterCard } from "@/components/analytics/balance/filter-bar"
 import { formatMoney } from "@/lib/finance/currency"
 import { monthEndIso, monthStartIso, nowLocalIso, todayIso } from "@/lib/finance/dates"
 import type { FinanceCurrency } from "@/lib/finance/types"
@@ -423,6 +424,7 @@ export function VansellLimitDialog({
 /** "Пользователи" multi-select of the filter popup (searchable checkbox list). */
 export function VansellUsersSelect({ options, value, onChange }: { options: VansellEmployeeOption[]; value: string[]; onChange: (next: string[]) => void }) {
   const { t } = useLanguage()
+  const card = useFilterCard()
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
   const selected = new Set(value)
@@ -433,33 +435,39 @@ export function VansellUsersSelect({ options, value, onChange }: { options: Vans
   const toggle = (id: string) => onChange(selected.has(id) ? value.filter((item) => item !== id) : [...value, id])
   return (
     <div className="flex flex-col gap-1 md:col-span-2">
-      <span className="text-sm text-[#586174]">{t("Пользователи")}</span>
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="flex min-h-10 items-center justify-between gap-2 rounded-md border border-[#dbe0e8] px-3 py-2 text-left"
-      >
-        <span className={names.length ? "text-[#17233b]" : "text-[#9aa3b6]"}>{names.length ? names.join(", ") : t("Выберите...")}</span>
-        <span className="flex items-center gap-1 text-[#9aa3b6]">
-          {value.length > 0 && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={t("Очистить")}
-              onClick={(event) => {
-                event.stopPropagation()
-                onChange([])
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") onChange([])
-              }}
-            >
-              <X className="h-4 w-4" />
-            </span>
-          )}
-          <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
-        </span>
-      </button>
+      {card ? (
+        <FilterCardSelect label={t("Пользователи")} text={names.join(", ")} onClick={() => setOpen((current) => !current)} />
+      ) : (
+        <>
+        <span className="text-sm text-[#586174]">{t("Пользователи")}</span>
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="flex min-h-10 items-center justify-between gap-2 rounded-md border border-[#dbe0e8] px-3 py-2 text-left"
+        >
+          <span className={names.length ? "text-[#17233b]" : "text-[#9aa3b6]"}>{names.length ? names.join(", ") : t("Выберите...")}</span>
+          <span className="flex items-center gap-1 text-[#9aa3b6]">
+            {value.length > 0 && (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={t("Очистить")}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onChange([])
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") onChange([])
+                }}
+              >
+                <X className="h-4 w-4" />
+              </span>
+            )}
+            <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+          </span>
+        </button>
+        </>
+      )}
       {open && (
         <div className="rounded-md border border-[#dbe0e8] bg-white">
           <label className="flex items-center gap-2 border-b border-[#efefef] px-3 py-2">

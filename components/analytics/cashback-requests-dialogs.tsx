@@ -1,7 +1,11 @@
 "use client"
 
 import { useEffect, useState, type ReactNode } from "react"
-import { Loader2, X } from "lucide-react"
+import { createPortal } from "react-dom"
+import { Loader2 } from "lucide-react"
+
+import { RefSearchSelect } from "@/components/analytics/ref-search-select"
+import { FilterSelect, RefFilterPanel } from "@/components/ref/list-kit"
 
 import {
   CASHBACK_REQUEST_STATUSES,
@@ -66,50 +70,27 @@ export function CashbackRequestsFilterPopup({
   }
   if (!open) return null
   const choices = draft.currency && !currencies.some((item) => item.code === draft.currency) ? [{ code: draft.currency, label: currencyLabel(draft.currency) }, ...currencies] : currencies
-  const select = "mt-1 block h-9 w-full cursor-pointer border-b border-[#dbe0e8] bg-transparent text-[13px] text-[#333] outline-none focus:border-[#4f70e7]"
+  const currencyByLabel = new Map(choices.map((item) => [item.label, item.code]))
+  const statusByLabel = new Map(CASHBACK_REQUEST_STATUSES.map((status) => [t(CASHBACK_REQUEST_STATUS_LABELS[status]), status]))
+  const labelOfCurrency = choices.find((item) => item.code === draft.currency)?.label ?? ""
+  const labelOfStatus = draft.status ? t(CASHBACK_REQUEST_STATUS_LABELS[draft.status as (typeof CASHBACK_REQUEST_STATUSES)[number]] ?? "") : ""
   return (
     <>
       <div className="fixed inset-0 z-[95]" onClick={onClose} />
-      <form
-        className="absolute left-0 top-0 z-[96] w-[310px] max-w-[calc(100vw-2rem)] bg-white px-5 py-[10px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onApply(draft)
-          onClose()
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-[15px] text-[#5d6474]">{t("Фильтр")}</span>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="p-2 text-[#8f8f8f]">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <label className="mt-2 block text-[13px] text-[#999]">
-          {t("Валюта")}
-          <select value={draft.currency} onChange={(event) => setDraft((value) => ({ ...value, currency: event.target.value }))} className={select}>
-            <option value="">{t("Все")}</option>
-            {choices.map((item) => (
-              <option key={item.code} value={item.code}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="mt-3 block text-[13px] text-[#999]">
-          {t("Статус")}
-          <select value={draft.status} onChange={(event) => setDraft((value) => ({ ...value, status: event.target.value }))} className={select}>
-            <option value="">{t("Все")}</option>
-            {CASHBACK_REQUEST_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {t(CASHBACK_REQUEST_STATUS_LABELS[status])}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" className="mt-[15px] h-9 rounded bg-[#4f70e7] px-4 text-[13px] font-semibold uppercase text-white">
-          {t("Применить")}
-        </button>
-      </form>
+      <div className="absolute left-0 top-0 z-[96]">
+        <RefFilterPanel
+          narrow
+          onClose={onClose}
+          onApply={() => {
+            onApply(draft)
+            onClose()
+          }}
+          applyClassName="mt-2"
+        >
+          <FilterSelect label={t("Валюта")} value={labelOfCurrency} options={choices.map((item) => item.label)} onChange={(label) => setDraft((value) => ({ ...value, currency: currencyByLabel.get(label) ?? "" }))} />
+          <FilterSelect label={t("Статус")} value={labelOfStatus} options={[...statusByLabel.keys()]} onChange={(label) => setDraft((value) => ({ ...value, status: statusByLabel.get(label) ?? "" }))} />
+        </RefFilterPanel>
+      </div>
     </>
   )
 }
@@ -125,26 +106,36 @@ function DialogFrame({ title, width, onClose, children }: { title: ReactNode; wi
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose])
-  return (
-    <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/30 px-4 py-10" onClick={onClose}>
-      <div role="dialog" aria-modal="true" className="w-full rounded bg-white shadow-xl" style={{ maxWidth: width }} onClick={(event) => event.stopPropagation()}>
-        <div className="flex h-[60px] items-center justify-between gap-4 border-b border-[#efefef] pl-[30px] pr-[10px]">
-          <h2 className="truncate text-[14px] font-bold uppercase text-[#333]">{title}</h2>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-[38px] w-[38px] shrink-0 items-center justify-center text-[#666]">
-            <X className="h-6 w-6" />
+  // Material-UI modal dialog: centred, 54 % black overlay, 60px title bar.
+  return createPortal(
+    <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-black/[0.54] font-sans text-[13px] text-[#333]" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="bg-white shadow-[0_10px_32px_rgba(0,0,0,0.19),0_6px_10px_rgba(0,0,0,0.23)]"
+        style={{ width, maxWidth: "100%" }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[10px]">
+          <span className="truncate text-[13px] font-bold uppercase text-[#333]">{title}</span>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
           </button>
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
 function InfoLine({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <li className="flex items-center justify-between gap-4 leading-[25px]">
+    <li className="flex w-full flex-wrap justify-between leading-[25px]">
       <span>{label}:</span>
-      <span className="max-w-[60%] truncate text-right font-semibold">{children}</span>
+      <span className="max-w-[50%] truncate text-right font-semibold">{children}</span>
     </li>
   )
 }
@@ -227,9 +218,7 @@ export function CashbackRequestDecisionDialog({
   }
 
   const req = detail.request
-  const available = detail.balance
-  const short = !reject && req.amount > available
-  const button = "h-9 rounded px-4 text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-black/5 disabled:opacity-50"
+  const button = "h-9 min-w-[88px] cursor-pointer px-4 text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-black/5 disabled:opacity-50"
   return (
     <DialogFrame title={title} width={500} onClose={onClose}>
       <form
@@ -239,51 +228,36 @@ export function CashbackRequestDecisionDialog({
           void submit()
         }}
       >
-        <div className="px-[30px] pb-5 pt-[15px]">
+        <div className="px-[30px] py-[15px]">
           <ul>
             <InfoLine label={t("Клиент")}>{req.client.name || t("Не указано")}</InfoLine>
             <InfoLine label={t("Сумма")}>{requestAmount(req.amount)}</InfoLine>
             <InfoLine label={t("Валюта")}>{currencyLabel(req.currency) || t("Не указано")}</InfoLine>
             <InfoLine label={t("Статус")}>{t(cashbackRequestStatusLabel(req.status))}</InfoLine>
-            {req.client.exists && (
-              <InfoLine label={t("Баланс кэшбэка")}>
-                <span style={{ color: available > 0 ? "#92ce95" : available < 0 ? "#e27676" : undefined }}>
-                  {formatMoney(available, 3)} {currencyLabel(req.currency)}
-                </span>
-              </InfoLine>
-            )}
           </ul>
         </div>
-        <div className="border-y border-[#efefef] px-[30px] pb-6 pt-4">
+        <div className="flex border-b border-[#efefef] pl-[30px] pr-[10px]">
           {!pending ? (
-            <p className="font-semibold text-[#e57373]">{t("Запрос уже обработан")}</p>
+            <p className="py-3 font-semibold text-[#e57373]">{t("Запрос уже обработан")}</p>
           ) : reject ? (
-            <p className="text-[15px] font-semibold text-black">{t("Вы действительно хотите отклонить этот запрос?")}</p>
+            <div className="-mt-[10px] mb-5 text-[15px] font-semibold text-black">{t("Вы действительно хотите отклонит этот запрос?")}</div>
           ) : (
-            <label className="block text-[13px] text-[#999]">
-              {t("Касса")}
-              <select
-                value={cashboxId}
-                onChange={(event) => setCashboxId(event.target.value)}
-                autoFocus
-                aria-invalid={Boolean(errors.cashbox)}
-                className="mt-1 block h-9 w-full cursor-pointer border-b border-[#dbe0e8] bg-transparent text-[13px] text-[#333] outline-none focus:border-[#4f70e7]"
-              >
-                <option value="">{t("Не выбрано")}</option>
-                {detail.cashboxes.map((cashbox) => (
-                  <option key={cashbox.id} value={cashbox.id}>
-                    {cashbox.name} · {formatMoney(cashbox.balance)} {currencyLabel(cashbox.currency)}
-                  </option>
-                ))}
-              </select>
-              {errors.cashbox && <span className="mt-1 block text-[12px] text-[#e57373]">{t(errors.cashbox)}</span>}
-              {!detail.cashboxes.length && <span className="mt-1 block text-[12px] text-[#c27c0e]">{t("Нет касс в валюте запроса")}</span>}
-            </label>
+            <div className="-mb-[10px] -mt-[4px] w-full">
+              <RefSearchSelect
+                label={t("Касса")}
+                items={detail.cashboxes.map((cashbox) => ({ value: String(cashbox.id), label: cashbox.name }))}
+                selected={detail.cashboxes.filter((cashbox) => String(cashbox.id) === cashboxId).map((cashbox) => ({ value: String(cashbox.id), label: cashbox.name }))}
+                onChange={(next) => setCashboxId(next[0]?.value ?? "")}
+                error={errors.cashbox ? t(errors.cashbox) : undefined}
+                searchable={false}
+                rowHeight={32}
+                dense
+              />
+            </div>
           )}
-          {pending && short && !errors.form && <p className="mt-3 text-[12px] text-[#c27c0e]">{t("Недостаточно кэшбэка у клиента")}</p>}
-          {errors.form && <p className="mt-3 text-[13px] font-semibold text-[#e57373]">{t(errors.form)}</p>}
         </div>
-        <div className="flex justify-end gap-1 p-[10px]">
+        {errors.form && <p className="px-[30px] pt-3 text-[13px] font-semibold text-[#e57373]">{t(errors.form)}</p>}
+        <div className="flex justify-end p-[10px]">
           {reject && pending ? (
             <>
               <button type="button" onClick={onClose} className={button}>

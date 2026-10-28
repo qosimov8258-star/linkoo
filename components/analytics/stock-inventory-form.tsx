@@ -1,11 +1,13 @@
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
-import { Check, FileSpreadsheet, Info, Plus, Trash2 } from "lucide-react"
+import { useMemo, useState } from "react"
+import { Plus, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
-import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
+import { CashModal, ConfirmDialog, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
+import { MaterialAlert, MaterialDate, MaterialRadio } from "@/components/analytics/cash-material"
 import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
+import { RefSearchSelect } from "@/components/analytics/ref-search-select"
 import { InventoryImportDialog } from "@/components/analytics/stock-inventory-dialogs"
 import { InventoryProductPicker } from "@/components/analytics/stock-inventory-picker"
 import { diffColor, formatDiff, formatQty, formatSum } from "@/components/analytics/stock-inventory-shared"
@@ -41,28 +43,6 @@ const validAmount = (value: string) => {
   return text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0
 }
 
-function Radio({ checked, disabled, label, onChange, hint }: { checked: boolean; disabled?: boolean; label: string; onChange: () => void; hint?: string }) {
-  return (
-    <label className={`flex items-center gap-2 py-1 text-[14px] ${disabled ? "cursor-not-allowed text-[#9aa3b6]" : "cursor-pointer text-[#17233b]"}`}>
-      <input type="radio" checked={checked} disabled={disabled} onChange={onChange} className="h-4 w-4 accent-[rgb(79,113,220)]" />
-      <span className="flex-1">{label}</span>
-      {hint && (
-        <span title={hint} className="text-[#4f71dc]">
-          <Info className="h-4 w-4" />
-        </span>
-      )}
-    </label>
-  )
-}
-
-function Hint({ text, children }: { text: string | null; children: ReactNode }) {
-  return (
-    <span title={text ?? undefined} className="inline-flex">
-      {children}
-    </span>
-  )
-}
-
 export function InventoryFormDialog({
   inventory,
   options,
@@ -81,7 +61,8 @@ export function InventoryFormDialog({
   const [warehouse, setWarehouse] = useState(inventory?.warehouse ?? "")
   const [invDate, setInvDate] = useState(inventory?.type === "custom_date" ? inventory.invDate : "")
   const [forDayEnd, setForDayEnd] = useState(inventory?.type === "custom_date" ? inventory.forDayEnd : false)
-  const [comment, setComment] = useState(inventory?.comment ?? "")
+  // The reference form has no comment field; an edited document keeps the comment it already has.
+  const [comment] = useState(inventory?.comment ?? "")
   const [lines, setLines] = useState<InventoryLine[]>(
     () => inventory?.items.map((item) => ({ key: item.key, name: item.name, unit: item.unit, article: item.article, amount: String(item.amount) })) ?? [],
   )
@@ -155,8 +136,7 @@ export function InventoryFormDialog({
   }, 0)
 
   const submit = async () => {
-    if (!warehouse) return setError(t("Выберите склад"))
-    if (type === "custom_date" && !invDate) return setError(t("Укажите дату"))
+    if (requireHeader()) return
     if (!lines.length) return setError(t("Вы еще не выбрали ни одного товара"))
     const bad = lines.find((line) => !validAmount(line.amount))
     if (bad) return setError(`${t("Введите количество")}: ${bad.name}`)
@@ -182,9 +162,20 @@ export function InventoryFormDialog({
     onSaved(result.data, !editing, "Успешно сохранено")
   }
 
-  const needsDateText = type === "custom_date" ? t("Выберите склад и дату") : t("Выберите склад")
-  const linkButton = "text-[13px] font-medium uppercase text-[rgb(79,113,220)] hover:underline disabled:cursor-not-allowed disabled:text-[#9aa3b6] disabled:no-underline"
-  const colorButton = "inline-flex h-[34px] items-center gap-1.5 rounded-sm px-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50"
+  const requiredText = t("Это поле обязательно к заполнению")
+  const [showErrors, setShowErrors] = useState(false)
+  const [alertText, setAlertText] = useState("")
+  const warehouseError = showErrors && !warehouse ? requiredText : ""
+  const dateError = showErrors && type === "custom_date" && !invDate ? requiredText : ""
+  /** Like the reference: an alert box plus the red message under the empty field. */
+  const requireHeader = () => {
+    if (ready) return false
+    setShowErrors(true)
+    setAlertText(`${!warehouse ? "stock" : "date"}: ${requiredText}`)
+    return true
+  }
+  // Only active warehouses are offered; an edited document keeps its own warehouse even if it was deactivated since.
+  const warehouseItems = [...new Set([...(options?.activeWarehouses ?? options?.warehouses ?? []), ...(inventory?.warehouse ? [inventory.warehouse] : [])])].map((name) => ({ value: name, label: name }))
 
   return (
     <>
@@ -192,107 +183,119 @@ export function InventoryFormDialog({
         title={editing ? `${t("Изменение")} №${inventory.id}` : t("Инвентаризация")}
         onClose={() => {
           // Escape inside the picker / import / confirm closes only that layer.
-          if (!pickerOpen && !importOpen && !ask) onClose()
+          if (!pickerOpen && !importOpen && !ask && !alertText) onClose()
         }}
-        size="full"
+        size="screen"
         footer={
           <>
-            <div className="mr-auto flex flex-wrap items-center gap-x-5 gap-y-1 text-[14px]">
+            <div className="flex items-center gap-4 text-[14px] text-black">
               <span>
-                {t("Общее кол-во:")} <b className="text-[16px] text-[#129fdd]">{totalQty}</b>
+                {t("Общее кол-во:")} <b className="text-[16px] font-semibold text-[#129fdd]">{totalQty}</b>
               </span>
               <span>
-                {t("Сумма")}: <b className="text-[16px]" style={{ color: diffColor(totalSum) ?? "#129fdd" }}>{formatSum(totalSum, currency)}</b>
+                {t("Сумма")}: <b className="text-[16px] font-semibold" style={{ color: diffColor(totalSum) ?? "#129fdd" }}>{formatSum(totalSum, currency)}</b>
               </span>
               {error && <span className="text-[13px] text-[#e57373]">{error}</span>}
             </div>
-            <PrimaryButton busy={busy} onClick={() => void submit()}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void submit()}
+              className="h-9 px-4 text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#129fdd]/10 disabled:opacity-50"
+            >
               {editing ? t("Сохранить") : t("Добавить")}
-            </PrimaryButton>
+            </button>
           </>
         }
       >
-        <div className="flex flex-col gap-5 lg:flex-row">
-          <div className="flex flex-col gap-3 lg:w-[300px] lg:shrink-0 lg:border-r lg:border-[#efefef] lg:pr-6">
-            <div>
-              <div className="text-[13px] text-[#586174]">{t("Тип инвентаризации")}</div>
-              {STOCK_INVENTORY_TYPES.map((value) => (
-                <Radio
-                  key={value}
-                  checked={type === value}
-                  disabled={editing}
-                  label={t(STOCK_INVENTORY_TYPE_LABELS[value])}
-                  onChange={() => change(`${t("Вы уверены, что хотите сменить тип инвентаризации")}?`, () => setType(value))}
-                />
-              ))}
-            </div>
-            <FormField label={t("Выберите склад")} required>
-              <SearchSelect
-                value={warehouse}
-                options={[...new Set([...(options?.activeWarehouses ?? options?.warehouses ?? []), ...(inventory?.warehouse ? [inventory.warehouse] : [])])].map((name) => ({ value: name, label: name }))}
-                placeholder={t("Склад")}
-                allowClear={false}
-                selectedLabel={warehouse}
-                onChange={(value) => value !== warehouse && change(`${t("Вы уверены, что хотите сменить склад")}?`, () => setWarehouse(value))}
+        <div className="w-[300px] shrink-0 overflow-y-auto border-r border-[#efefef] px-[30px] pt-[20px]">
+          <div className="text-[13px] leading-4 text-[#333]">{t("Тип инвентаризации")}</div>
+          <div className="mt-px">
+            {STOCK_INVENTORY_TYPES.map((value) => (
+              <MaterialRadio
+                key={value}
+                checked={type === value}
+                disabled={editing}
+                label={t(STOCK_INVENTORY_TYPE_LABELS[value])}
+                onChange={() => change(`${t("Вы уверены, что хотите сменить тип инвентаризации")}?`, () => setType(value))}
               />
-            </FormField>
-            {type === "custom_date" ? (
-              <>
-                <FormField label={t("Дата создания")} required>
-                  <input
-                    type="date"
-                    value={invDate}
-                    max={todayIso()}
-                    onChange={(event) => {
-                      const value = event.target.value
-                      change(`${t("Вы уверены, что хотите сменить дату")}?`, () => setInvDate(value))
-                    }}
-                    className={inputClass}
-                  />
-                </FormField>
-                <div>
-                  <div className="text-[13px] text-[#586174]">{t("Время инвентаризации")}</div>
-                  <Radio checked={!forDayEnd} label={t("На начало дня")} hint={t(START_HINT)} onChange={() => change(`${t("Вы уверены, что хотите сменить время")}?`, () => setForDayEnd(false))} />
-                  <Radio checked={forDayEnd} label={t("На конец дня")} hint={t(END_HINT)} onChange={() => change(`${t("Вы уверены, что хотите сменить время")}?`, () => setForDayEnd(true))} />
-                </div>
-              </>
-            ) : (
-              editing && (
-                <FormField label={t("Дата создания")}>
-                  <span className={`${inputClass} flex items-center bg-[#f2f5f8]`}>{date}</span>
-                </FormField>
-              )
-            )}
-            <FormField label={t("Комментарий")}>
-              <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} className={`${inputClass} h-auto py-2`} />
-            </FormField>
+            ))}
+          </div>
+          <RefSearchSelect
+            className="mt-[3px]"
+            dense
+            label={t("Выберите склад")}
+            required
+            searchable={false}
+            rowHeight={32}
+            error={warehouseError}
+            items={warehouseItems}
+            selected={warehouse ? [{ value: warehouse, label: warehouse }] : []}
+            onChange={(next) => {
+              const value = next[0]?.value ?? ""
+              if (value !== warehouse) change(`${t("Вы уверены, что хотите сменить склад")}?`, () => setWarehouse(value))
+            }}
+          />
+          {type === "custom_date" ? (
+            <>
+              <MaterialDate
+                label={t("Дата создания")}
+                required
+                value={invDate}
+                max={todayIso()}
+                error={dateError}
+                onChange={(value) => change(`${t("Вы уверены, что хотите сменить дату")}?`, () => setInvDate(value))}
+              />
+              <div className="mt-[27px] text-[13px] leading-4 text-[#333]">{t("Время инвентаризации")}</div>
+              <div className="mt-px">
+                <MaterialRadio checked={!forDayEnd} label={t("На начало дня")} hint={t(START_HINT)} onChange={() => change(`${t("Вы уверены, что хотите сменить время")}?`, () => setForDayEnd(false))} />
+                <MaterialRadio checked={forDayEnd} label={t("На конец дня")} hint={t(END_HINT)} onChange={() => change(`${t("Вы уверены, что хотите сменить время")}?`, () => setForDayEnd(true))} />
+              </div>
+            </>
+          ) : (
+            editing && (
+              <div className="mt-[3px] text-[13px]">
+                <span className="text-[10px] font-bold text-black">{t("Дата создания")}</span>
+                <div className="mt-1 border-b border-[#e0e0e0] pb-2 text-black">{date}</div>
+              </div>
+            )
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1 overflow-y-auto px-[30px] pt-[20px]">
+          <div className="flex h-[34px] items-center justify-between">
+            <strong className="text-[13px] font-semibold text-[#333]">{t("Список товаров")}</strong>
+            <div className="flex items-center gap-[15px]">
+              <button
+                type="button"
+                onClick={() => (requireHeader() ? undefined : balances.data && setPickerOpen(true))}
+                className="mr-[16px] text-[13px] uppercase text-black hover:underline"
+              >
+                {t("добавить из списка")}
+              </button>
+              <button
+                type="button"
+                onClick={() => (requireHeader() ? undefined : setPanel(panel === "add" ? "none" : "add"))}
+                className="inline-flex h-[34px] w-[160px] items-center rounded-sm bg-[rgb(79,113,220)] pl-3 pr-2 text-[13px] font-semibold text-white hover:brightness-95"
+              >
+                <Plus className="h-[18px] w-[18px] shrink-0" /> <span className="flex-1 text-center">{t("Добавить товар")}</span>
+              </button>
+              {!editing && (
+                <button
+                  type="button"
+                  onClick={() => (requireHeader() ? undefined : setPanel(panel === "excel" ? "none" : "excel"))}
+                  className="inline-flex h-[34px] w-[205px] items-center rounded-sm bg-[#71ce87] pl-3 pr-2 text-[13px] font-semibold text-white hover:brightness-95"
+                >
+                  <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden>
+                    <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" />
+                  </svg>
+                  <span className="flex-1 text-center">{t("Импортировать c Excel")}</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <strong className="text-[15px]">{t("Список товаров")}</strong>
-              <div className="flex flex-wrap items-center gap-3">
-                <Hint text={ready ? null : needsDateText}>
-                  <button type="button" disabled={!ready || !balances.data} onClick={() => setPickerOpen(true)} className={linkButton}>
-                    {t("добавить из списка")}
-                  </button>
-                </Hint>
-                <Hint text={ready ? null : needsDateText}>
-                  <button type="button" disabled={!ready} onClick={() => setPanel(panel === "add" ? "none" : "add")} className={`${colorButton} bg-[rgb(79,113,220)]`}>
-                    <Plus className="h-4 w-4" /> {t("Добавить товар")}
-                  </button>
-                </Hint>
-                {!editing && (
-                  <Hint text={ready ? null : needsDateText}>
-                    <button type="button" disabled={!ready} onClick={() => setPanel(panel === "excel" ? "none" : "excel")} className={`${colorButton} bg-[#71ce87]`}>
-                      <FileSpreadsheet className="h-4 w-4" /> {t("Импортировать c Excel")}
-                    </button>
-                  </Hint>
-                )}
-              </div>
-            </div>
-
-            {ready && balances.error && <p className="mt-2 text-[13px] text-[#e57373]">{t(balances.error)}</p>}
+          {ready && balances.error && <p className="mt-2 text-[13px] text-[#e57373]">{t(balances.error)}</p>}
 
             {ready && panel === "excel" && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-[#efefef] px-4 py-2">
@@ -306,42 +309,43 @@ export function InventoryFormDialog({
             )}
 
             {ready && panel === "add" && (
-              <div className="mt-3 flex flex-wrap items-end gap-3 bg-[#f1f5f8] p-3">
-                <FormField label={t("Наименование")} className="min-w-[220px] flex-[3]">
-                  <SearchSelect
-                    value={addKey}
-                    loading={balances.loading}
-                    options={balanceRows.map((row) => ({ value: row.key, label: `${row.name} (${formatQty(row.qty, row.unit)})`, hint: row.article || undefined }))}
-                    placeholder={t("Наименование")}
-                    onChange={(value) => setAddKey(value)}
+              <div className="mt-3 flex h-[72px] items-start bg-[#f1f5f8] pl-[38px]">
+                <RefSearchSelect
+                  className="w-[432px]"
+                  label={t("Наименование")}
+                  searchable={false}
+                  rowHeight={32}
+                  labelShift={-3}
+                  items={balanceRows.map((row) => ({ value: row.key, label: `${row.name} (${formatQty(row.qty, row.unit)})` }))}
+                  selected={addKey ? [{ value: addKey, label: balanceMap.get(addKey)?.name ?? addKey }] : []}
+                  loading={balances.loading}
+                  onChange={(next) => setAddKey(next[0]?.value ?? "")}
+                />
+                <div className="ml-[18px] mt-[18px] flex w-[150px] items-center border-b border-[#e8e8e8]">
+                  <input
+                    value={addAmount}
+                    inputMode="decimal"
+                    placeholder={t("Факт. остаток")}
+                    onChange={(event) => setAddAmount(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        applyAddRow()
+                      }
+                    }}
+                    className="h-9 min-w-0 flex-1 bg-transparent pt-2 text-[13px] outline-none placeholder:font-semibold placeholder:text-black"
                   />
-                </FormField>
-                <FormField label={t("Факт. остаток")} className="w-[160px]">
-                  <span className="flex items-center gap-2">
-                    <input
-                      value={addAmount}
-                      inputMode="decimal"
-                      onChange={(event) => setAddAmount(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault()
-                          applyAddRow()
-                        }
-                      }}
-                      className={inputClass}
-                    />
-                    <span className="text-[#17233b]">{balanceMap.get(addKey)?.unit}</span>
-                  </span>
-                </FormField>
+                  <span className="text-[13px] text-black">{balanceMap.get(addKey)?.unit}</span>
+                </div>
                 <button
                   type="button"
                   disabled={!addKey || !validAmount(addAmount)}
                   onClick={applyAddRow}
                   title={t("Применить")}
                   aria-label={t("Применить")}
-                  className="flex h-10 w-10 items-center justify-center rounded-full text-[rgb(79,113,220)] hover:bg-white disabled:text-[#9aa3b6]"
+                  className="ml-[44px] mt-[29px] flex h-5 w-5 items-center justify-center text-[#4f71dc]"
                 >
-                  <Check className="h-5 w-5" />
+                  <Plus className="h-5 w-5" strokeWidth={1.6} />
                 </button>
               </div>
             )}
@@ -408,21 +412,11 @@ export function InventoryFormDialog({
                   </tbody>
                 </table>
               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center gap-1 py-16 text-center text-[#adadad]">
-                <span>{t("Вы еще не выбрали ни одного товара")}.</span>
-                {ready ? (
-                  <button type="button" onClick={() => setPanel("add")} className="text-[rgb(79,113,220)] hover:underline">
-                    {t("Добавить")} {t("товар")}?
-                  </button>
-                ) : (
-                  <span>{needsDateText}</span>
-                )}
-              </div>
-            )}
+            ) : null}
           </div>
-        </div>
       </CashModal>
+
+      {alertText && <MaterialAlert message={alertText} onClose={() => setAlertText("")} />}
 
       {pickerOpen && balances.data && (
         <InventoryProductPicker

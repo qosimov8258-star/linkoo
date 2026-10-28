@@ -115,6 +115,14 @@ function verified(ctx: SourceContext, alias: string, table: string): string {
   return ctx.s.col(table, "is_verified") ? `COALESCE(${alias}.is_verified, 1) = 1` : "true"
 }
 
+/** Rows seeded as demo data (registry demo_seed_rows) feed the stock and the cash pages but never the supplier
+ * debt: the reference's supplier balances are built from its real documents only. */
+function notDemoRow(ctx: SourceContext, alias: string, table: string): string {
+  return ctx.s.has("demo_seed_rows")
+    ? `NOT EXISTS (SELECT 1 FROM demo_seed_rows dsr WHERE dsr.table_name = '${table}' AND dsr.row_id = ${alias}.id::text)`
+    : "true"
+}
+
 const CME = "cash_management_entries"
 
 /** Cash operation type of a cash entry (NULL = legacy row, typed by category/sign). */
@@ -300,6 +308,11 @@ export function orderClientJoin(s: FinanceSchema, o = "o", c = "oc", keys = "cli
 function cashboxSources(ctx: SourceContext): string[] {
   const out: string[] = []
   const cbCur = "COALESCE(fin_cur(cb.currency), @base)"
+  // With the reference copy of the cash transactions present, the cashbox ledger is: those rows + the operations made afterwards
+  // (ids above the cut-off of each real table) — the same rule the cash list uses. Older real rows (demo, legacy, corrections)
+  // never move a cashbox report any more.
+  const refRows = ctx.s.has("cash_reference_rows") && ctx.s.has("cash_list_cutoff")
+  const above = (src: string, alias: string) => (refRows ? ` AND ${alias}.id > COALESCE((SELECT max_id FROM cash_list_cutoff WHERE src = '${src}'), 0)` : "")
   if (ctx.s.has(CME)) {
     const op = entryOp(ctx)
     out.push(
@@ -331,7 +344,37 @@ function cashboxSources(ctx: SourceContext): string[] {
           cby: col(ctx, "e", CME, "created_by", "''"),
           href: "'/analytics/cash-management'",
         },
-        `FROM cash_management_entries e JOIN cashboxes cb ON cb.id = e.cashbox_id WHERE ${entryCounts(ctx)}`,
+        `FROM cash_management_entries e JOIN cashboxes cb ON cb.id = e.cashbox_id WHERE ${entryCounts(ctx)}${above("cash", "e")}`,
+      ),
+    )
+  }
+  if (refRows) {
+    out.push(
+      select(
+        ctx,
+        {
+          ek: "cb.id",
+          cur: cbCur,
+          ts: "r.ts",
+          col: "CASE WHEN r.op = 2 THEN 'transfer_income' WHEN r.op = 1 THEN 'transfer_expense' WHEN r.amount >= 0 THEN 'income' ELSE 'expenses' END",
+          amt: "r.amount",
+          org: "fin_place(r.organization)",
+          pt: "fin_pt(cb.payment_type)",
+          src: "'cash_reference'",
+          src_id: "r.id",
+          title: `CASE r.op WHEN 1 THEN 'Перевод с кассы' WHEN 2 THEN 'Перевод на кассу' WHEN 5 THEN 'Расход' WHEN 7 THEN 'Снято со счета клиента'
+                  WHEN 9 THEN 'Доп. расход на поставку' WHEN 10 THEN 'Расход на поставку' WHEN 22 THEN 'Выдача денег для кэшбека'
+                  WHEN 8 THEN 'Принято денег' WHEN 3 THEN 'Оплата заказа' ELSE 'Приход' END`,
+          descr: "r.category_name",
+          cmt: "r.comment",
+          cat: "CASE WHEN r.op IN (1, 2) THEN '' ELSE r.category_name END",
+          cp: "CASE WHEN r.client_name <> '' THEN r.client_name ELSE r.supplier_name END",
+          br: "fin_place(r.branch)",
+          cb: "cb.name",
+          cby: "r.cby",
+          href: "'/analytics/cash-management'",
+        },
+        "FROM cash_reference_rows r JOIN cashboxes cb ON cb.id = r.cashbox_id WHERE r.verified = 1",
       ),
     )
   }
@@ -376,7 +419,7 @@ function cashboxSources(ctx: SourceContext): string[] {
         href: "'/analytics/customer-payments'",
       },
       `FROM customer_payments p LEFT JOIN cashbox_keys ckb ON ckb.k = fin_key(p.kassa) JOIN cashboxes cb ON cb.id = ${cpCashbox}
-       WHERE p.accepted = 1 AND ${alive(ctx, "p", CP)}`,
+       WHERE p.accepted = 1 AND ${alive(ctx, "p", CP)}${above("customer", "p")}`,
     ),
   )
   // Supplier payments leave their cashbox_id (legacy: the cashbox named by
@@ -408,7 +451,7 @@ function cashboxSources(ctx: SourceContext): string[] {
         href: "'/analytics/supplier-payments'",
       },
       `FROM supplier_payments sp LEFT JOIN cashbox_keys ckb ON ckb.k = fin_key(sp.kassa) JOIN cashboxes cb ON cb.id = ${spCashbox}
-       WHERE ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}`,
+       WHERE ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}${above("supplier", "sp")}`,
     ),
   )
   return out
@@ -717,7 +760,8 @@ function supplierSources(ctx: SourceContext): string[] {
         cby: col(ctx, "i", "supplier_incomings", "accepted_by", "i.initiator"),
         href: "'/analytics/supplier-incomings'",
       },
-      `FROM supplier_incomings i ${join("i.supplier")} WHERE i.status = 'принят' AND fin_key(i.supplier) <> ''`,
+      `FROM supplier_incomings i ${join("i.supplier")} WHERE i.status = 'принят' AND fin_key(i.supplier) <> ''
+         AND fin_key(i.supplier) <> fin_key('Инвенторизация') AND ${notDemoRow(ctx, "i", "supplier_incomings")}`,
     ),
   )
   out.push(
@@ -776,7 +820,8 @@ function supplierSources(ctx: SourceContext): string[] {
         href: "'/analytics/supplier-payments'",
       },
       `FROM supplier_payments sp ${join("sp.supplier")}
-       WHERE (fin_key(sp.supplier) <> '' OR ${spSupplier} IS NOT NULL) AND ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}`,
+       WHERE (fin_key(sp.supplier) <> '' OR ${spSupplier} IS NOT NULL) AND ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}
+         AND ${notDemoRow(ctx, "sp", SP)}`,
     ),
   )
   if (ctx.s.has("supplier_balance_transactions")) {
@@ -837,7 +882,7 @@ function vansellSources(ctx: SourceContext): string[] {
           cby: col(ctx, "v", t, "created_by", "''"),
           editable: "true",
         },
-        `FROM ${t} v`,
+        `FROM ${t} v WHERE ${alive(ctx, "v", t)}`,
       ),
     )
   }
@@ -1058,6 +1103,29 @@ function employeeSources(ctx: SourceContext): string[] {
         },
         `FROM cash_entry_staff s JOIN cash_management_entries e ON e.id = s.entry_id JOIN cashboxes cb ON cb.id = e.cashbox_id
          WHERE ${entryCounts(ctx)}`,
+      ),
+    )
+  }
+  // "Зачислить" of "Зарплата и установка планов": the salary ("Зарплата") and the KPI bonus ("Зачислено KPI") of an approved record,
+  // dated with the last day of its month (lib/salary-records-repo.ts, table salary_credits).
+  if (ctx.s.has("salary_credits")) {
+    const creditType = "c.type"
+    out.push(
+      select(
+        ctx,
+        {
+          ek: "e.id",
+          cur: "COALESCE(fin_cur(c.currency), @base)",
+          ts: ts("fin_ts(c.created_date)"),
+          col: "c.type",
+          amt: "c.amount",
+          src: "'salary_credit'",
+          src_id: "c.id",
+          title: `CASE ${creditType} WHEN 'monthly' THEN 'Зарплата' WHEN 'performance_bonus' THEN 'Зачислено KPI'
+                  ELSE 'Нет типа' END`,
+          href: "'/analytics/salary-planning'",
+        },
+        "FROM salary_credits c JOIN employees e ON e.id = c.user_id WHERE c.amount <> 0 AND c.type IN ('monthly', 'performance_bonus')",
       ),
     )
   }

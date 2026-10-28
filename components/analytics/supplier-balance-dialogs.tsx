@@ -561,8 +561,8 @@ export function MultiSelectField({ label, options, value, onChange }: { label: s
   const toggle = (name: string) => onChange(value.includes(name) ? value.filter((item) => item !== name) : [...value, name])
   return (
     <div ref={ref} className="relative flex flex-col gap-1">
-      <span className="text-sm text-[#586174]">{label}</span>
-      <button type="button" onClick={() => setOpen((current) => !current)} className="flex h-10 items-center justify-between gap-2 rounded-md border border-[#dbe0e8] px-3 text-left text-[#17233b]">
+      <span className="text-[13px] font-semibold text-black">{label}</span>
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex h-9 items-center justify-between gap-2 border-b border-[#dbe0e8] px-0 text-left text-[13px] text-[#17233b]">
         <span className="truncate">{value.length ? value.join(", ") : t("Все")}</span>
         <ChevronDown className="h-4 w-4 shrink-0 text-[#9aa3b6]" />
       </button>

@@ -1,6 +1,7 @@
 "use client"
 
-import { ChevronDown, Loader2, Search, X } from "lucide-react"
+import { Check as StaffCheck } from "@/components/staff/staff-kit"
+import { Loader2, Search, X } from "lucide-react"
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
 import type { CategoryOptionKey } from "@/lib/cash/types"
@@ -8,6 +9,7 @@ import type { CategoryErrorBody } from "@/lib/categories-schema"
 import { primaryCategoryOption, type CategoryKind } from "@/lib/category-options"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CategoryOptionsPicker } from "./category-options-picker"
+import { Field, dictionaryInputClass } from "./dictionaries-shared"
 import { EXPENSE_CATEGORIES_API, type ExpenseCategory } from "./expense-categories-data"
 import { INCOME_CATEGORIES_API, type IncomeCategory } from "./income-categories-data"
 
@@ -200,40 +202,33 @@ export function CategoryFormModal({
       : isEdit ? "Изменить категорию расходов" : "Добавить категорию расходов"
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/45 p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/45 px-4 pb-4 pt-[64px]" onMouseDown={onClose}>
       <form
         onSubmit={save}
         onMouseDown={(event) => event.stopPropagation()}
         className={`relative w-full rounded bg-white shadow-2xl ${kind === "income" ? "max-w-[550px]" : "max-w-[500px]"}`}
         aria-busy={busy}
       >
-        <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-3">
-          <b className="text-[14px] uppercase text-[#333]">{t(title)}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="rounded-full p-2 text-[#666] hover:bg-slate-100">
-            <X className="h-5 w-5" />
+        <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[15px]">
+          <b className="text-[13px] uppercase text-[#333]">{t(title)}</b>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333] hover:opacity-70">
+            <X className="h-6 w-6" strokeWidth={1.6} />
           </button>
         </header>
-        <div className="relative min-h-[300px] space-y-5 px-[30px] pb-6 pt-5">
+        <div className={`relative min-h-[300px] space-y-3 pl-[30px] pt-[10px] ${kind === "income" ? "pb-[19px] pr-[54px]" : "pb-[20px] pr-[52px]"}`}>
           {busy && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80">
               <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
             </div>
           )}
-          <label className="block">
-            <span className="text-[13px] text-[#999]">
-              {t("Наименование")} <span className="text-red-500">*</span>
-            </span>
+          <Field label={t("Наименование")} required filled={Boolean(draft.name)} error={nameError ? t(nameError) : ""}>
             <input
-              autoFocus
               value={draft.name}
               maxLength={255}
               onChange={(event) => patch({ name: event.target.value }, "name")}
-              className={`mt-1 block w-full border-b py-1.5 text-[15px] text-[#333] outline-none ${
-                nameError ? "border-rose-500" : "border-[#e0e0e0] focus:border-[#4f70e7]"
-              }`}
+              className={`${dictionaryInputClass} ${nameError ? "border-rose-500" : ""}`}
             />
-            {nameError && <p className="mt-1 text-[12px] text-rose-500">{t(nameError)}</p>}
-          </label>
+          </Field>
 
           {kind === "expense" && (
             <ParentSelect
@@ -246,7 +241,7 @@ export function CategoryFormModal({
             />
           )}
 
-          <div className="space-y-3">
+          <div className={`space-y-[6px] ${kind === "income" ? "pt-[7px]" : "-mt-[2px]"}`}>
             <Checkbox checked={draft.showOptions} onChange={(checked) => patch({ showOptions: checked }, "options")} label={t("Дополнительные параметры")} />
             {kind === "income" ? (
               <Checkbox checked={draft.otherIncome} onChange={(checked) => patch({ otherIncome: checked })} label={t("Прочий приход")} />
@@ -272,8 +267,8 @@ export function CategoryFormModal({
 
           {errors.general && <p className="text-sm font-medium text-rose-600">{t(errors.general)}</p>}
         </div>
-        <footer className="flex justify-end border-t border-[#efefef] p-4">
-          <button type="submit" disabled={busy} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+        <footer className="flex h-[57px] items-center justify-end border-t border-[#efefef] px-[10px]">
+          <button type="submit" disabled={busy} className="h-9 rounded bg-[#6ccd8b] px-4 text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:opacity-60">
             {saving ? t("Сохранение...") : t("Сохранить")}
           </button>
         </footer>
@@ -283,12 +278,7 @@ export function CategoryFormModal({
 }
 
 function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
-  return (
-    <label className="flex cursor-pointer items-start gap-3 text-[14px] leading-5 text-[#333]">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-px h-[18px] w-[18px] shrink-0 accent-[#4f70e7]" />
-      <span>{label}</span>
-    </label>
-  )
+  return <StaffCheck checked={checked} onChange={onChange} className="!items-start !gap-[2px] leading-5" label={<span className="block pr-[34px] pt-[2px] text-black">{label}</span>} />
 }
 
 /** Searchable select of the parent expense category (underlined like the other fields). */
@@ -327,9 +317,9 @@ function ParentSelect({
   const visible = (needle ? options.filter((item) => item.name.toLowerCase().includes(needle)) : options).slice(0, 200)
 
   return (
-    <div ref={ref} className="relative">
-      <span className="text-[13px] text-[#999]">{t("Родительская категория")}</span>
-      <div className={`mt-1 flex items-center border-b ${error ? "border-rose-500" : open ? "border-[#4f70e7]" : "border-[#e0e0e0]"}`}>
+    <div ref={ref} className="relative mt-[4px] pt-4">
+      <span className={`pointer-events-none absolute left-0 font-semibold text-[#333] transition-all ${selectedName ? "top-0 text-[10px]" : "top-[28px] text-[13px]"}`}>{t("Родительская категория")}</span>
+      <div className={`flex h-9 items-center border-b ${error ? "border-rose-500" : open ? "border-[#4f70e7]" : "border-[#e0e0e0]"}`}>
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
@@ -337,14 +327,14 @@ function ParentSelect({
           aria-expanded={open}
           className="min-w-0 flex-1 truncate py-1.5 text-left text-[15px] text-[#333]"
         >
-          {selectedName || <span className="text-[#bbb]">{t("Не указано")}</span>}
+          {selectedName}
         </button>
         {value !== null && (
           <button type="button" onClick={() => onChange(null)} aria-label={t("Очистить")} className="p-1 text-[#999] hover:text-[#333]">
             <X className="h-4 w-4" />
           </button>
         )}
-        <ChevronDown className="h-4 w-4 shrink-0 text-[#999]" />
+        <span className="mr-1 block h-0 w-0 shrink-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[#9e9e9e]" />
       </div>
       {error && <p className="mt-1 text-[12px] text-rose-500">{error}</p>}
       {open && (

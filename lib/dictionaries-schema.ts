@@ -225,9 +225,9 @@ export function wantsDictionaryPage(params: URLSearchParams): boolean {
 }
 
 /** SELECT expression: local ISO creation time ("" when unknown). */
-export const CREATED_ISO_SQL = `COALESCE(to_char(fin_ts(NULLIF(created_at, ''), true), 'YYYY-MM-DD"T"HH24:MI:SS'), '')`
+export const CREATED_ISO_SQL = `COALESCE(to_char(fin_ts(NULLIF(created_at, '')), 'YYYY-MM-DD"T"HH24:MI:SS'), '')`
 /** ORDER BY expression of the creation time. */
-export const CREATED_ORDER_SQL = "fin_ts(NULLIF(created_at, ''), true)"
+export const CREATED_ORDER_SQL = "fin_ts(NULLIF(created_at, ''))"
 
 const MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
 
@@ -237,9 +237,11 @@ export function createdDateLabel(iso: string): string {
   return `${iso.slice(8, 10)} ${MONTHS[Number(iso.slice(5, 7)) - 1] ?? ""} ${iso.slice(0, 4)}`
 }
 
-/** Case-insensitive name comparison for in-memory sorting (ru first). */
+const NAME_COLLATOR = new Intl.Collator("en", { ignorePunctuation: true })
+
+/** Name comparison for in-memory sorting, like the demo's DB collation (punctuation ignored, digits as text, lower case first). */
 export function compareNames(a: string, b: string): number {
-  return a.localeCompare(b, "ru", { sensitivity: "base", numeric: true })
+  return NAME_COLLATOR.compare(a, b)
 }
 
 /** One level of a tree sorted by `ordering` (fields: name, division, created_date), id as tie-break. */

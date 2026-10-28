@@ -15,6 +15,26 @@ import { nameKey } from "@/lib/platform-refs"
 // "Организация не найдена" / "Тип клиента не найден"). organization / store_type keep the names (the
 // organization rename cascade and delete check of lib/organizations-repo.ts find surveys by them);
 // reads show the current names of linked ones. The Excel import may send the names instead.
+// The survey form's sequence number (orderNo), its four switches (flags) and its questions are
+// stored with the survey (surveys.order_no / flags / questions, JSON); an update that omits them
+// keeps the stored ones.
+
+export type SurveyQuestion = {
+  text: string
+  type: string
+  maxAnswers: string
+  format: string
+  orderNo: string
+  required: boolean
+  answers: string[]
+}
+
+export type SurveyFlags = { required: boolean; storeCheck: boolean; scoring: boolean; perfect: boolean }
+
+/** Question types and answer formats of the survey form (components/analytics/survey-form.tsx); "" = not chosen. */
+const QUESTION_TYPES = ["Выбрать одну", "Выбрать несколько", "Вводит текст", "Продукт"] as const
+const QUESTION_FORMATS = ["Текст", "Число"] as const
+const NO_FLAGS: SurveyFlags = { required: false, storeCheck: false, scoring: false, perfect: false }
 
 export type Survey = {
   id: number
@@ -28,6 +48,9 @@ export type Survey = {
   storeType: string
   clientTypeId: number | null
   comment: string
+  orderNo: string
+  flags: SurveyFlags
+  questions: SurveyQuestion[]
 }
 
 type Row = {
@@ -39,6 +62,9 @@ type Row = {
   store_type: string
   client_type_id: number | null
   comment: string
+  order_no: string | null
+  flags: string | null
+  questions: string | null
   created_at: string
 }
 
@@ -78,7 +104,11 @@ function ensureSchema(): Promise<void> {
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
       `)
-      await db.exec("ALTER TABLE surveys ADD COLUMN IF NOT EXISTS organization_id INTEGER, ADD COLUMN IF NOT EXISTS client_type_id INTEGER")
+      await db.exec(
+        `ALTER TABLE surveys ADD COLUMN IF NOT EXISTS organization_id INTEGER, ADD COLUMN IF NOT EXISTS client_type_id INTEGER,
+           ADD COLUMN IF NOT EXISTS order_no TEXT NOT NULL DEFAULT '', ADD COLUMN IF NOT EXISTS flags TEXT NOT NULL DEFAULT '{}',
+           ADD COLUMN IF NOT EXISTS questions TEXT NOT NULL DEFAULT '[]'`,
+      )
     }).catch((error) => {
       globalThis.__linkoSurveysSchema = undefined
       throw error
@@ -116,6 +146,39 @@ function liveId(value: number | null | undefined, known: Map<number, string>): n
   return known.has(Number(value)) ? Number(value) : null
 }
 
+function parseJson(text: string | null | undefined): unknown {
+  try {
+    return JSON.parse(text || "null")
+  } catch {
+    return null
+  }
+}
+
+/** Stored switches (anything else reads as all off). */
+function readFlags(text: string | null | undefined): SurveyFlags {
+  const value = parseJson(text)
+  const flags = (value && typeof value === "object" ? value : {}) as Record<string, unknown>
+  return { required: flags.required === true, storeCheck: flags.storeCheck === true, scoring: flags.scoring === true, perfect: flags.perfect === true }
+}
+
+/** Stored questions (anything that is not a question list reads as none). */
+function readQuestions(text: string | null | undefined): SurveyQuestion[] {
+  const value = parseJson(text)
+  if (!Array.isArray(value)) return []
+  const str = (item: unknown) => (typeof item === "string" ? item : "")
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((question) => ({
+      text: str(question.text),
+      type: str(question.type),
+      maxAnswers: str(question.maxAnswers),
+      format: str(question.format),
+      orderNo: str(question.orderNo),
+      required: question.required === true,
+      answers: Array.isArray(question.answers) ? question.answers.map(str) : [],
+    }))
+}
+
 function rowToSurvey(row: Row, refs: Directory): Survey {
   // A deleted one reads as "older survey" (name only), so the edit dialog never sends back an id
   // the API refuses.
@@ -131,6 +194,9 @@ function rowToSurvey(row: Row, refs: Directory): Survey {
     storeType: (clientTypeId !== null ? refs.clientTypes.get(clientTypeId) : undefined) ?? (NOT_SET.has(nameKey(row.store_type ?? "")) ? "" : row.store_type),
     clientTypeId,
     comment: row.comment ?? "",
+    orderNo: row.order_no ?? "",
+    flags: readFlags(row.flags),
+    questions: readQuestions(row.questions),
   }
 }
 
@@ -139,6 +205,19 @@ function rowToSurvey(row: Row, refs: Directory): Survey {
 // ---------------------------------------------------------------------------
 
 const id = z.number().int().positive().max(2_147_483_647)
+
+/** A sequence number of the form: "" or a whole number (up to 9 digits). */
+const sequence = z.string().trim().regex(/^\d{0,9}$/, { error: "Введите целое число" })
+
+const questionSchema = z.object({
+  text: z.string().trim().max(1000, "Не более 1000 символов"),
+  type: z.union([z.enum(QUESTION_TYPES), z.literal("")], { error: "Неверное значение" }),
+  maxAnswers: sequence,
+  format: z.union([z.enum(QUESTION_FORMATS), z.literal("")], { error: "Неверное значение" }),
+  orderNo: sequence,
+  required: z.boolean(),
+  answers: z.array(z.string().trim().max(500, "Не более 500 символов")).max(200, "Слишком много значений"),
+})
 
 /** POST / PUT body. organizationId (or the organization name) is required; clientTypeId / storeType optional (null / "" = none). */
 export const surveyBodySchema = z.object({
@@ -149,11 +228,34 @@ export const surveyBodySchema = z.object({
   clientTypeId: id.nullish(),
   storeType: z.string().trim().max(255, "Не более 255 символов").optional(),
   comment: z.string().max(2000, "Не более 2000 символов").optional(),
+  orderNo: sequence.optional(),
+  flags: z
+    .object({ required: z.boolean(), storeCheck: z.boolean(), scoring: z.boolean(), perfect: z.boolean() })
+    .partial()
+    .optional(),
+  questions: z.array(questionSchema).max(200, "Слишком много значений").optional(),
 })
 
 export type SurveyBody = z.infer<typeof surveyBodySchema>
 
-type SurveyValues = { name: string; active: boolean; organizationId: number; organization: string; clientTypeId: number | null; storeType: string; comment: string }
+type SurveyValues = {
+  name: string
+  active: boolean
+  organizationId: number
+  organization: string
+  clientTypeId: number | null
+  storeType: string
+  comment: string
+}
+
+/** The form fields kept as they are: orderNo / flags / questions (an omitted one keeps `current`). */
+function formParams(body: SurveyBody, current?: Row) {
+  return {
+    orderNo: body.orderNo ?? current?.order_no ?? "",
+    flags: JSON.stringify(body.flags ? { ...NO_FLAGS, ...body.flags } : current ? readFlags(current.flags) : NO_FLAGS),
+    questions: JSON.stringify(body.questions ?? (current ? readQuestions(current.questions) : [])),
+  }
+}
 
 /** Resolves and checks the organization and the client type (they must exist). */
 async function surveyValues(body: SurveyBody): Promise<SurveyValues> {
@@ -214,23 +316,25 @@ export async function createSurvey(body: SurveyBody): Promise<Survey> {
   const values = await surveyValues(body)
   const result = await getDb()
     .prepare(
-      `INSERT INTO surveys (name, active, organization, organization_id, store_type, client_type_id, comment)
-       VALUES (@name, @active, @organization, @organizationId, @storeType, @clientTypeId, @comment)`,
+      `INSERT INTO surveys (name, active, organization, organization_id, store_type, client_type_id, comment, order_no, flags, questions)
+       VALUES (@name, @active, @organization, @organizationId, @storeType, @clientTypeId, @comment, @orderNo, @flags, @questions)`,
     )
-    .run(params(values))
+    .run({ ...params(values), ...formParams(body) })
   return (await getSurvey(Number(result.lastInsertRowid)))!
 }
 
 export async function updateSurvey(surveyId: number, body: SurveyBody): Promise<Survey | null> {
   await ensureSchema()
-  if (!(await getDb().prepare("SELECT id FROM surveys WHERE id = ?").get(surveyId))) return null
+  const current = (await getDb().prepare("SELECT * FROM surveys WHERE id = ?").get(surveyId)) as Row | undefined
+  if (!current) return null
   const values = await surveyValues(body)
   await getDb()
     .prepare(
       `UPDATE surveys SET name = @name, active = @active, organization = @organization, organization_id = @organizationId,
-         store_type = @storeType, client_type_id = @clientTypeId, comment = @comment, updated_at = datetime('now') WHERE id = @id`,
+         store_type = @storeType, client_type_id = @clientTypeId, comment = @comment, order_no = @orderNo, flags = @flags,
+         questions = @questions, updated_at = datetime('now') WHERE id = @id`,
     )
-    .run({ ...params(values), id: surveyId })
+    .run({ ...params(values), ...formParams(body, current), id: surveyId })
   return getSurvey(surveyId)
 }
 

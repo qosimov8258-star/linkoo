@@ -23,8 +23,8 @@ export function UnitStatCards({ begin, end, visible, summary }: { begin: Date; e
   return (
     <div className="mt-5 grid grid-cols-1 items-start gap-4 sm:grid-cols-3">
       {cards.map((card) => (
-        <div key={card.key} className={`${CARD_CLASS} min-h-[93px] p-5`}>
-          <p className="text-[13px]">{card.title}</p>
+        <div key={card.key} className={`${CARD_CLASS} min-h-[92.3px] px-5 pb-5 pt-[17px]`}>
+          <p className="text-[13px] leading-[18px]">{card.title}</p>
           <p className="mt-2 text-[16px] font-bold leading-5">{summary ? card.value : ""}</p>
         </div>
       ))}

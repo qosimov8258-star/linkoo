@@ -2,16 +2,18 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, Info, MoreVertical, Plus, Search } from "lucide-react"
+import { Info } from "lucide-react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, formatCashDate, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { formatCategoryDate } from "@/components/analytics/categories-grid"
 import { ContractDetailPanel } from "@/components/analytics/contracts-detail"
 import { ContractFormDialog, ContractImportDialog } from "@/components/analytics/contracts-dialogs"
 import { ContractStatusBadge } from "@/components/analytics/contracts-fields"
-import { ContractsFilterBar, EMPTY_CONTRACT_FILTERS, type ContractFilters } from "@/components/analytics/contracts-filter"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ContractsFilterBar, ContractsFilterPopup, EMPTY_CONTRACT_FILTERS, type ContractFilters } from "@/components/analytics/contracts-filter"
+import { ContractIncomeImportDialog } from "@/components/analytics/contracts-income-import"
+import { ListBTable } from "@/components/analytics/list-b-table"
+import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import {
   CONTRACT_STATUS_EXCEL,
   CONTRACT_TABS,
@@ -33,7 +35,6 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // Data: /api/contracts/** (lib/contracts-repo.ts). The URL keeps the state.
 
 const TAB_LABELS: Record<ContractTab, string> = { active: "Активные", completed: "Завершенные", all: "Все" }
-const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
 
 type ViewState = {
   tab: ContractTab
@@ -105,12 +106,6 @@ function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
   }
 }
 
-function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
-  if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
-  if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
-}
-
 export function ContractsView() {
   const { t, language } = useLanguage()
   const searchParams = useSearchParams()
@@ -121,6 +116,7 @@ export function ContractsView() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [incomeImportOpen, setIncomeImportOpen] = useState(false)
   // undefined = closed, null = create, contract = edit.
   const [form, setForm] = useState<ContractDetail | null | undefined>(undefined)
   const [detailVersion, setDetailVersion] = useState(0)
@@ -163,13 +159,6 @@ export function ContractsView() {
   const closeSnackbar = useCallback(() => setMessage(null), [])
 
   const sort = (key: string) => update({ ordering: state.ordering === key ? `-${key}` : state.ordering === `-${key}` ? "" : key, page: 1 })
-  const sortHeader = (key: string, label: ReactNode) => (
-    <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 font-semibold">
-      {label}
-      <SortIcon ordering={state.ordering} sortKey={key} />
-    </button>
-  )
-
   const clearFilters = () => {
     // Demo handleClearFilterDialog: empty query (also back to the "Все" tab).
     setSearchDraft("")
@@ -210,103 +199,103 @@ export function ContractsView() {
     )
   }
 
-  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
-  const td = "px-3 py-3 align-middle"
+  const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
+  const from = data && data.count > 0 ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = data ? Math.min(data.count, state.page * state.pageSize) : 0
+  const sortHead = (key: string, label: ReactNode) => (
+    <button type="button" onClick={() => sort(key)} className="text-left font-semibold hover:opacity-80">
+      {label}
+      {state.ordering === key ? <span className="ml-1 text-[10px]">▲</span> : state.ordering === `-${key}` ? <span className="ml-1 text-[10px]">▼</span> : null}
+    </button>
+  )
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Договоры")}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {canEdit && (
-            <div ref={menuRef} className="relative">
-              <button type="button" onClick={() => setMenuOpen((value) => !value)} aria-label={t("Меню")} className="flex h-11 w-11 items-center justify-center rounded-full text-[#586174] hover:bg-white">
-                <MoreVertical className="h-6 w-6" />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 top-12 z-[60] min-w-[220px] overflow-hidden rounded-md border border-[#e1e5eb] bg-white py-1 shadow-lg">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false)
-                      setImportOpen(true)
-                    }}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] hover:bg-[#f2f5f8]"
-                  >
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#71ce87] text-white">
-                      <FileSpreadsheet className="h-4 w-4" />
-                    </span>
-                    {t("Импортировать с excel")}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {canEdit && (
-            <button
-              type="button"
-              onClick={() => setForm(null)}
-              title={t("Создать договор")}
-              aria-label={t("Создать договор")}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(79,113,220)] text-white shadow-md hover:brightness-95"
-            >
-              <Plus className="h-6 w-6" />
+    <RefPage>
+      <RefHeader title={t("Договоры")}>
+        {canEdit && (
+          <div ref={menuRef} className="relative mr-[2px] -mt-[4px]">
+            <button type="button" onClick={() => setMenuOpen((value) => !value)} aria-label={t("Меню")} className="flex h-12 w-12 items-center justify-center">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.more} /></svg>
             </button>
-          )}
-        </div>
-      </header>
-
-      <section className="mx-4 mt-4 overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] md:mx-6">
-        <div className="grid min-w-[360px] grid-cols-3">
-          {CONTRACT_TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => update({ tab, page: 1, detailId: null })}
-              className={`h-[52px] border-b-[3px] px-2 text-[15px] ${state.tab === tab ? "border-[rgb(79,113,220)] font-semibold text-[#17233b]" : "border-transparent text-[#586174] hover:text-[#17233b]"}`}
-            >
-              {t(TAB_LABELS[tab])}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
-          <ContractsFilterBar
-            filters={state.filters}
-            tab={state.tab}
-            open={filterOpen}
-            onOpen={() => setFilterOpen(true)}
-            onClose={() => setFilterOpen(false)}
-            onClear={clearFilters}
-            onApply={(filters) => {
-              setFilterOpen(false)
-              update({ filters, page: 1, detailId: null })
-            }}
-            options={formOptions.data}
-          />
-          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
-            <input
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              placeholder={t("Поиск")}
-              aria-label={t("Поиск")}
-              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
-            />
-            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-          </label>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize, detailId: null })} />
-            <button type="button" onClick={() => void downloadExcel()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
-              <FileSpreadsheet className="h-5 w-5" />
-            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-[50px] z-[60] flex h-14 w-[280px] items-center rounded-[2px] bg-white pl-5 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setImportOpen(true)
+                  }}
+                  className="flex w-full items-center text-left text-[13px] text-[#333]"
+                >
+                  <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#71ce87]">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={RI.chart} /></svg>
+                  </span>
+                  <span className="ml-[26px]">{t("Импортировать с excel")}</span>
+                </button>
+              </div>
+            )}
           </div>
-        </div>
+        )}
+        {canEdit && (
+          <button type="button" onClick={() => setForm(null)} title={t("Создать договор")} aria-label={t("Создать договор")} className="flex h-10 w-10 items-center justify-center rounded-[3px] bg-[#4f71dc] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] hover:brightness-95">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+          </button>
+        )}
+      </RefHeader>
+
+      <RefTabs
+        separate
+        labels={CONTRACT_TABS.map((tab) => TAB_LABELS[tab])}
+        value={TAB_LABELS[state.tab]}
+        onChange={(label) => update({ tab: CONTRACT_TABS.find((tab) => TAB_LABELS[tab] === label) ?? "all", page: 1, detailId: null })}
+      />
+
+      <RefCard className="mt-5 bg-white">
+        <RefToolbar
+          filterOpen={filterOpen}
+          filterPanel={
+            <ContractsFilterPopup
+              filters={state.filters}
+              options={formOptions.data}
+              onClose={() => setFilterOpen(false)}
+              onApply={(filters) => {
+                setFilterOpen(false)
+                update({ filters, page: 1, detailId: null })
+              }}
+            />
+          }
+          leftSlot={
+            <ContractsFilterBar
+              filters={state.filters}
+              tab={state.tab}
+              open={filterOpen}
+              onOpen={() => setFilterOpen(true)}
+              onClose={() => setFilterOpen(false)}
+              onClear={clearFilters}
+              onApply={(filters) => {
+                setFilterOpen(false)
+                update({ filters, page: 1, detailId: null })
+              }}
+              options={formOptions.data}
+            />
+          }
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(pageSize) => update({ pageSize, page: 1, detailId: null })}
+          from={from}
+          to={to}
+          total={data?.count ?? 0}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page, detailId: null })}
+          icons={
+            <>
+              <RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={() => void downloadExcel()} color="#5d6474" />
+              <RefIconButton path={RI.chart} label={t("Импортировать приход")} onClick={() => setIncomeImportOpen(true)} color="#5d6474" />
+            </>
+          }
+        />
 
         {list.error && (
           <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
@@ -319,71 +308,47 @@ export function ContractsView() {
           </div>
         )}
 
-        <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[960px] border-collapse text-[14px]">
-            <thead>
-              <tr className="border-b border-[#e1e5eb] text-[#17233b]">
-                <th className={`${th} w-[8%] pl-6`}>{sortHeader("contract_number", t("№"))}</th>
-                <th className={`${th} w-[12%]`}>{sortHeader("created_date", t("Дата создания"))}</th>
-                <th className={`${th} w-[25%]`}>{t("Клиент")}</th>
-                <th className={`${th} w-[15%]`}>{t("Зона")}</th>
-                <th className={`${th} w-[15%]`}>{sortHeader("agent", t("Агент"))}</th>
-                <th className={`${th} w-[15%]`}>{sortHeader("inn", t("ИНН"))}</th>
-                <th className={`${th} w-[10%] text-center`}>{t("Статус")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const open = state.detailId === row.id
-                return (
-                  <Fragment key={row.id}>
-                    <tr
-                      onClick={() => update({ detailId: open ? null : row.id })}
-                      className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}
-                    >
-                      <td className={`${td} whitespace-nowrap pl-6 font-semibold`}>{row.fullNumber || 0}</td>
-                      <td className={`${td} whitespace-nowrap`}>{row.createdDate ? formatCashDate(row.createdDate, language, false) : t("Не указан")}</td>
-                      <td className={td}>{clientCell(row)}</td>
-                      <td className={td}>{row.clients[0]?.zone || t("Не указан")}</td>
-                      <td className={td}>{row.agent.name || t("Не указан")}</td>
-                      <td className={td}>{row.inn || t("Не указан")}</td>
-                      <td className={`${td} text-center`}>
-                        <ContractStatusBadge status={row.status} />
-                      </td>
-                    </tr>
-                    {open && (
-                      <tr>
-                        <td colSpan={7} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
-                          <ContractDetailPanel
-                            key={`${row.id}-${detailVersion}`}
-                            id={row.id}
-                            canEdit={canEdit}
-                            onClose={() => update({ detailId: null })}
-                            onEdit={(contract) => setForm(contract)}
-                            onChanged={list.reload}
-                            onDeleted={() => {
-                              update({ detailId: null })
-                              list.reload()
-                            }}
-                            notify={notify}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                )
-              })}
-              {!rows.length && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-16 text-center text-[#9aa3b6]">
-                    {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className={list.loading ? "opacity-60" : undefined}>
+          <ListBTable
+            cols="111px 166px 346px 208px 207px 210px 136px"
+            minWidth={1100}
+            heads={[sortHead("contract_number", t("№")), sortHead("created_date", t("Дата создания")), t("Клиент"), t("Зона"), sortHead("agent", t("Агент")), sortHead("inn", t("ИНН")), <span key="status" className="block text-center">{t("Статус")}</span>]}
+            rows={rows}
+            rowKey={(row) => row.id}
+            onRowClick={(row) => update({ detailId: state.detailId === row.id ? null : row.id })}
+            replaceRow={(row) => state.detailId === row.id}
+            empty={list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
+            render={(row) => [
+              row.fullNumber || 0,
+              row.createdDate ? formatCategoryDate(row.createdDate.slice(0, 10), language) : t("Не указан"),
+              clientCell(row),
+              row.clients[0]?.zone || t("Не указан"),
+              row.agent.name || t("Не указан"),
+              row.inn || t("Не указан"),
+              <span key="status" className="block text-center"><ContractStatusBadge status={row.status} /></span>,
+            ]}
+            expanded={(row) =>
+              state.detailId === row.id ? (
+                <div className="-mx-[15px] my-5">
+                  <ContractDetailPanel
+                    key={`${row.id}-${detailVersion}`}
+                    id={row.id}
+                    canEdit={canEdit}
+                    onClose={() => update({ detailId: null })}
+                    onEdit={(contract) => setForm(contract)}
+                    onChanged={list.reload}
+                    onDeleted={() => {
+                      update({ detailId: null })
+                      list.reload()
+                    }}
+                    notify={notify}
+                  />
+                </div>
+              ) : null
+            }
+          />
         </div>
-      </section>
+      </RefCard>
 
       {form !== undefined && (
         <ContractFormDialog
@@ -412,7 +377,9 @@ export function ContractsView() {
         />
       )}
 
+      {incomeImportOpen && <ContractIncomeImportDialog onClose={() => setIncomeImportOpen(false)} />}
+
       <CashSnackbar message={message} onClose={closeSnackbar} />
-    </main>
+    </RefPage>
   )
 }

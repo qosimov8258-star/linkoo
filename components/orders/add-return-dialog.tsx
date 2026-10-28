@@ -179,17 +179,17 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
 
   return createPortal(
     <div className="fixed inset-0 z-[110] flex flex-col bg-white font-sans text-[13px] text-[#333]">
-      <header className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#efefef] px-[14px]">
+      <header className="flex h-[59px] shrink-0 items-center justify-between border-b border-[#efefef] pl-[30px] pr-[28px]">
         <h2 className="text-[13px] font-bold uppercase">{t("Добавление возврата")}</h2>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-600">
           <X className="h-6 w-6" />
         </button>
       </header>
-      <div className="grid min-h-0 flex-1 grid-cols-[405px_minmax(0,1fr)]">
-        <aside className="overflow-y-auto border-r border-[#efefef] px-[14px] py-[16px] pr-[60px]">
-          <div className="space-y-[14px]">
+      <div className="grid min-h-0 flex-1 grid-cols-[450px_minmax(0,1fr)]">
+        <aside className="overflow-y-auto border-r border-[#efefef] px-[30px] pb-[16px] pt-[31px]">
+          <div className="space-y-[10px]">
             {modes.map((item) => (
-              <label key={item.key} className="flex cursor-pointer items-center gap-[8px] text-[12px] font-semibold">
+              <label key={item.key} className="flex cursor-pointer items-center gap-[8px] text-[13px] font-semibold">
                 <span className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 ${mode === item.key ? "border-slate-700" : "border-slate-600"}`}>
                   {mode === item.key && <span className="h-[8px] w-[8px] rounded-full bg-slate-700" />}
                 </span>
@@ -198,7 +198,7 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
               </label>
             ))}
           </div>
-          <p className="mb-[2px] mt-[26px] text-[12px] font-semibold">{t("Детали")}</p>
+          <p className="mb-[2px] mt-[20px] text-[13px] font-semibold">{t("Детали")}</p>
           <DateField label={t("Дата возврата")} required value={date} onChange={(value) => (setDate(value), edited())} />
           <SelectField label={t("Клиент")} required placeholderLabel value={clientId} onChange={(value) => (setClientId(value), setOrderId(""), edited())} options={options.clients} onClear={() => (setClientId(""), setOrderId(""), edited())} />
           {mode === "order" ? (
@@ -211,17 +211,17 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
           <SelectField label={t("Ответственный агент")} placeholderLabel value={agent} onChange={setAgent} options={options.people} onClear={() => setAgent("")} />
           <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder={t("Оставить комментарий...")} className="mt-[22px] h-[34px] w-full border-b border-slate-300 bg-transparent text-[13px] font-semibold outline-none placeholder:text-slate-800" />
           {mode === "order" && (
-            <label className="mt-[22px] flex cursor-pointer items-center gap-[8px] text-[12px] font-semibold">
+            <label className="mt-[22px] flex cursor-pointer items-center gap-[8px] text-[13px] font-semibold">
               <Checkbox checked={manual} onChange={setManual} />
               {t("Указать стоимость в ручную")}
             </label>
           )}
         </aside>
-        <main className="relative min-w-0 overflow-y-auto px-[14px] py-[12px]">
-          <span className="text-[12px] font-semibold">{t("Список товаров")}</span>
+        <main className="relative min-w-0 overflow-y-auto px-[30px] pb-[12px]">
+          <div className="flex h-[58px] items-center"><span className="text-[13px] font-semibold">{t("Список товаров")}</span></div>
           {mode === "order" ? (
             !order ? (
-              <p className="mt-[130px] text-center text-[12px] text-slate-400">{client ? t("Выберите отгруженный заказ клиента.") : t("Для добавления товаров выберите клиента.")}</p>
+              <p className="mt-[130px] text-center text-[13px] text-slate-400">{client ? t("Выберите отгруженный заказ клиента.") : t("Для добавления товаров выберите клиента.")}</p>
             ) : (
               <table className="mt-4 w-full text-left">
                 <thead>
@@ -274,7 +274,7 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
               </table>
             )
           ) : !client ? (
-            <p className="mt-[130px] text-center text-[12px] text-slate-400">{t("Для добавления товаров выберите клиента.")}</p>
+            <p className="mt-[130px] text-center text-[13px] text-slate-400">{t("Для добавления товаров выберите клиента.")}</p>
           ) : (
             <>
               <div className="mt-4 flex items-end gap-4 bg-[#f1f4f7] px-3 pb-3 pt-2">
@@ -283,7 +283,7 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
                 </div>
                 <input type="number" min="0" step="any" value={pick.quantity} onChange={(event) => (setPick({ ...pick, quantity: event.target.value }), edited())} placeholder={t("Кол-во")} className="h-[34px] w-[120px] border-b border-slate-300 bg-transparent outline-none" />
                 <input type="number" min="0" step="any" value={pick.price} onChange={(event) => (setPick({ ...pick, price: event.target.value }), edited())} placeholder={`${t("Цена")} (${shownCurrency})`} className="h-[34px] w-[160px] border-b border-slate-300 bg-transparent outline-none" />
-                <button type="button" onClick={addFreeLine} className="text-[12px] font-semibold text-[#0a9ddb]">
+                <button type="button" onClick={addFreeLine} className="text-[13px] font-semibold text-[#0a9ddb]">
                   + {t("добавить товар")}
                 </button>
               </div>
@@ -312,19 +312,19 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
         </main>
       </div>
       <footer className="flex h-[56px] shrink-0 items-center justify-between border-t border-[#efefef] px-[14px]">
-        <span className="text-[12px] font-semibold">
+        <span className="text-[13px] font-semibold">
           {t("Общая стоимость:")} <span className="text-[#0a9ddb]">{`${total.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${shownCurrency}`}</span> &nbsp; {t("Общее кол-во:")} <span className="text-[#0a9ddb]">{totalQty}</span>
         </span>
         <div className="flex items-center gap-6">
           {error ? (
-            <span className="text-[12px] text-[#e57373]">{error}</span>
+            <span className="text-[13px] text-[#e57373]">{error}</span>
           ) : (
-            overLines.length > 0 && <span className="text-[12px] text-[#e57373]">{`${overLines[0].productName}: ${t("Количество возврата больше доступного")}`}</span>
+            overLines.length > 0 && <span className="text-[13px] text-[#e57373]">{`${overLines[0].productName}: ${t("Количество возврата больше доступного")}`}</span>
           )}
-          <button type="button" disabled={saving || overLines.length > 0} onClick={() => save(false)} className="text-[12px] font-bold uppercase text-[#0a9ddb] disabled:opacity-50">
+          <button type="button" disabled={saving || overLines.length > 0} onClick={() => save(false)} className="text-[13px] font-bold uppercase text-[#0a9ddb] disabled:opacity-50">
             {t("Сохранить")}
           </button>
-          <button type="button" disabled={saving || overLines.length > 0} onClick={() => save(true)} className="text-[12px] font-bold uppercase text-[#48a34b] disabled:opacity-50">
+          <button type="button" disabled={saving || overLines.length > 0} onClick={() => save(true)} className="text-[13px] font-bold uppercase text-[#48a34b] disabled:opacity-50">
             {t("Сохранить и принять на склад")}
           </button>
         </div>

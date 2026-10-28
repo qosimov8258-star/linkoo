@@ -1,43 +1,40 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
-import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import {
-  createSubscription,
-  listSubscriptions,
-  parseSubscriptionInput,
-  SUBSCRIPTION_PERIODS,
-  SUBSCRIPTION_STATUSES,
-} from "@/lib/subscriptions-repo"
-import { strictNum } from "@/lib/strict-number"
+import { listSubscriptions } from "@/lib/subscriptions-repo"
+import { notSignedInResponse, parseIdSegment } from "@/lib/validation"
 
-const subscriptionSchema = z.object({
-  planName: z.string().trim().min(1).max(255, "Не более 255 символов"),
-  price: strictNum(z.number().finite().optional()),
-  billingPeriod: z.enum(SUBSCRIPTION_PERIODS).optional(),
-  status: z.enum(SUBSCRIPTION_STATUSES).optional(),
-  renewsAt: z.string().optional(),
-  note: z.string().optional(),
-})
+// Подписки: the employees with / without a license subscription (the license packages, purchases,
+// attach / detach / extend live under /api/subscriptions/*). Filter ids are positive int4 ids
+// ("1e3", "-1", "1.5" or values beyond int4 are no filter); page / page size are whole numbers.
 
-export async function GET() {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listSubscriptions()))
+/** A whole number in min..max, else the fallback. */
+function wholeNumber(value: string | null, fallback: number, min: number, max: number): number {
+  if (!value || !/^\d{1,9}$/.test(value)) return fallback
+  return Math.min(max, Math.max(min, Number(value)))
 }
 
-export async function POST(request: Request) {
-  const auth = await requireRole("manager")
-  if ("error" in auth) return auth.error
-
-  const parsed = await parseJsonBody(request, subscriptionSchema)
-  if (parsed.error) return parsed.error
-
-  const input = parseSubscriptionInput(parsed.data)
-  if (!input) return NextResponse.json({ error: "Тариф обязателен" }, { status: 400 })
-
-  const item = (await createSubscription(input))
-  return NextResponse.json(item, { status: 201 })
+export async function GET(request: Request) {
+  const user = await getCurrentUser()
+  if (!user) return notSignedInResponse()
+  const params = new URL(request.url).searchParams
+  const id = (name: string) => parseIdSegment(params.get(name))
+  const result = await listSubscriptions({
+    tab: params.get("tab") === "without" ? "without" : "with",
+    search: (params.get("search") ?? "").trim().slice(0, 200),
+    ordering: params.get("ordering") ?? "subscription_end_date",
+    page: wholeNumber(params.get("page"), 1, 1, 1_000_000),
+    pageSize: wholeNumber(params.get("pageSize"), 25, 1, 2000),
+    filters: {
+      license: (params.get("license") ?? "").trim().slice(0, 100),
+      accessRightId: id("accessRight"),
+      branchId: id("branch"),
+      zoneId: id("zone"),
+      priceListId: id("priceList"),
+      jobId: id("job"),
+      organizationId: id("organization"),
+      ending: params.get("ending") === "1",
+    },
+  })
+  return NextResponse.json(result)
 }

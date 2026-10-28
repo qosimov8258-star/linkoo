@@ -132,9 +132,9 @@ export async function tableColumns(db: PgDb, tables: string[]): Promise<Map<stri
   return map
 }
 
-/** "YYYY-MM-DDTHH:mm:ss" (Asia/Tashkent) of a created_at value (UTC datetime('now') text). */
+/** "YYYY-MM-DDTHH:mm:ss" of a created_at value, shown as stored (the demo prints its naive timestamps unshifted). */
 export function localCreatedDate(value: unknown): string {
-  return parseAnyDate(value == null ? "" : String(value), true) ?? ""
+  return parseAnyDate(value == null ? "" : String(value)) ?? ""
 }
 
 /** `options` / `parameter` pair written for the dialog's single choice. */

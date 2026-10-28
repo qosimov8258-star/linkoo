@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react"
 import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { incomingPaymentTypes, supplyCostLines, type Incoming } from "./supplier-incomings-data"
+import { notify } from "@/lib/notify"
 
 export const LOG_LABELS: Record<string, string> = {
   created: "Поставка создана",
@@ -106,12 +107,12 @@ export function IncomingExpenseDialog({ incoming, onClose, onSaved }: { incoming
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        window.alert(data.error ? t(data.error) : t("Не удалось добавить расход"))
+        notify(data.error ? t(data.error) : t("Не удалось добавить расход"))
         return
       }
       onSaved(data as Incoming)
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
@@ -264,13 +265,13 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        window.alert(data.error ? t(data.error) : t("Не удалось сохранить наценку"))
+        notify(data.error ? t(data.error) : t("Не удалось сохранить наценку"))
         return
       }
-      window.alert(`${t("Цены обновлены")}: ${data.updated}`)
+      notify(`${t("Цены обновлены")}: ${data.updated}`)
       onSaved()
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }

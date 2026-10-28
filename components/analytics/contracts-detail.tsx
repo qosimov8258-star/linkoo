@@ -1,12 +1,12 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
-import { CheckCircle2, Info, Pencil, RotateCcw, Trash2, XCircle } from "lucide-react"
+import { Info } from "lucide-react"
 
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { ConfirmDialog, EmptyBlock, ErrorBlock, LoadingBlock, formatCashDate, mutationError } from "@/components/analytics/cash-management-shared"
-import { ContractStatusBadge } from "@/components/analytics/contracts-fields"
-import type { ContractDetail, ContractStatus } from "@/lib/contracts-types"
+import { formatCategoryDate } from "@/components/analytics/categories-grid"
+import { CONTRACT_STATUS_LABELS, type ContractDetail, type ContractStatus } from "@/lib/contracts-types"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -18,9 +18,9 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 function InfoRow({ label, children, column = false }: { label: string; children: ReactNode; column?: boolean }) {
   return (
-    <li className={`flex gap-x-3 border-b border-dashed border-[#e1e5eb] py-1.5 leading-[22px] last:border-none ${column ? "flex-col" : "flex-wrap justify-between"}`}>
-      <span className="text-[#586174]">{label}:</span>
-      <span className={`font-semibold text-[#17233b] ${column ? "" : "text-right"}`}>{children}</span>
+    <li className={`flex gap-x-3 py-[3px] text-[13px] leading-[19px] ${column ? "flex-col" : "flex-wrap justify-between"}`}>
+      <span className="text-[#333]">{label}:</span>
+      <span className={`font-semibold text-[#333] ${column ? "mt-[6px]" : "text-right"}`}>{children}</span>
     </li>
   )
 }
@@ -73,57 +73,28 @@ export function ContractDetailPanel({
   if (detail.error && !data) return <ErrorBlock error={detail.error} onRetry={detail.reload} />
   if (!data) return null
 
-  const iconButton = "flex h-10 w-10 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40"
+  const statusColor = data.status === "active" ? "#6ccd8b" : data.status === "completed" ? "#4f71dc" : "#e57373"
   return (
-    <div className="bg-white text-[14px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-      <div className="relative flex min-h-[65px] items-center justify-between gap-3 border-b border-[#efefef] px-4 md:px-[30px]">
+    <div className="bg-white text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <div className="relative flex h-[65px] items-center justify-between gap-3 border-b border-[#efefef] px-[30px]">
         <button type="button" onClick={onClose} className="absolute inset-0 cursor-pointer" aria-label={t("Закрыть")} />
         <h3 className="relative z-[1] truncate text-[18px] font-semibold text-[#333]">
           {t("Договоры")} {data.fullNumber}
         </h3>
         {canEdit && (
-          <div className="relative z-[3] flex items-center">
-            {data.status === "active" ? (
-              <>
-                <button type="button" disabled={busy} onClick={() => void changeStatus("completed")} title={t("Завершить")} aria-label={t("Завершить")} className={iconButton}>
-                  <CheckCircle2 className="h-5 w-5" />
-                </button>
-                <button type="button" disabled={busy} onClick={() => void changeStatus("cancelled")} title={t("Отменить")} aria-label={t("Отменить")} className={iconButton}>
-                  <XCircle className="h-5 w-5" />
-                </button>
-              </>
-            ) : (
-              <button type="button" disabled={busy} onClick={() => void changeStatus("active")} title={t("Активировать")} aria-label={t("Активировать")} className={iconButton}>
-                <RotateCcw className="h-5 w-5" />
-              </button>
-            )}
-            <button type="button" disabled={busy} onClick={() => onEdit(data)} title={t("Изменить")} aria-label={t("Изменить")} className={iconButton}>
-              <Pencil className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setDeleteError("")
-                setConfirmDelete(true)
-              }}
-              title={t("Удалить")}
-              aria-label={t("Удалить")}
-              className={iconButton}
-            >
-              <Trash2 className="h-5 w-5" />
-            </button>
-          </div>
+          <button type="button" disabled={busy} onClick={() => onEdit(data)} title={t("Изменить")} aria-label={t("Изменить")} className="relative z-[3] flex h-10 w-10 items-center justify-center disabled:opacity-40">
+            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
+          </button>
         )}
       </div>
 
       <div className="flex flex-col md:flex-row">
-        <div className="border-b border-[#efefef] px-4 py-4 md:w-[340px] md:shrink-0 md:border-b-0 md:border-r md:px-[30px]">
+        <div className="border-b border-[#efefef] px-[30px] pb-[30px] pt-[18px] md:w-[340px] md:shrink-0 md:border-b-0 md:border-r">
           <ul>
             <InfoRow label={t("Официальное название")} column>
               {data.officialName || t("Не указано")}
             </InfoRow>
-            <InfoRow label={t("Дата создания")}>{data.createdDate ? formatCashDate(data.createdDate, language, false) : t("Не указан")}</InfoRow>
+            <InfoRow label={t("Дата создания")}>{data.createdDate ? formatCategoryDate(data.createdDate.slice(0, 10), language) : t("Не указан")}</InfoRow>
             <InfoRow label={t("Клиент")}>
               {data.clients.length
                 ? data.clients.map((client, index) => (
@@ -139,13 +110,13 @@ export function ContractDetailPanel({
             <InfoRow label={t("Организация")}>{data.organization.name || t("Не указано")}</InfoRow>
             <InfoRow label={t("Комментарий")}>{data.comment || t("Не указано")}</InfoRow>
             <InfoRow label={t("Статус")}>
-              <ContractStatusBadge status={data.status} />
+              <span style={{ color: statusColor }}>{t(CONTRACT_STATUS_LABELS[data.status])}</span>
             </InfoRow>
           </ul>
         </div>
 
-        <div className="min-w-0 flex-1 px-4 pb-5 md:px-5">
-          <p className="mb-2.5 mt-5 font-semibold">{t("Транзакции")}</p>
+        <div className="min-w-0 flex-1 px-[20px] pb-5">
+          <p className="mb-[26px] mt-[21px] font-semibold">{t("Транзакции")}</p>
           {data.transactions.length ? (
             <div className="max-h-[500px] overflow-auto">
               <table className="w-full min-w-[640px] border-collapse">
@@ -210,7 +181,19 @@ export function ContractDetailPanel({
               </table>
             </div>
           ) : (
-            <EmptyBlock text={`${t("По вашему запросу ничего не найдено")}...`} className="py-10" />
+            <>
+              <div className="grid grid-cols-[185px_269px_269px_1fr] border-b-2 border-dotted border-[#d9e0e5] pb-[12px] pl-[5px] text-[13px]">
+                <span>№</span>
+                <span>{t("Дата")}</span>
+                <span>{t("Создал")}</span>
+                <span>{t("Сумма")}</span>
+              </div>
+              <div className="flex flex-col items-center pb-[30px] pt-[30px] text-[#888]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/robot-empty.png" alt="" className="w-[120px]" />
+                <span className="-mt-[10px] text-[13px]">{`${t("По вашему запросу ничего не найдено")}...`}</span>
+              </div>
+            </>
           )}
         </div>
       </div>

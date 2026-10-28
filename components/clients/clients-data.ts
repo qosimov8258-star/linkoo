@@ -17,6 +17,8 @@ export type Client = {
   inRoute?: boolean
   /** Shown under the «Проблемные» tab. */
   isProblem?: boolean
+  /** «Статус объекта»: an inactive confirmed client is marked red in the list. */
+  isActive?: boolean
   salesChannel?: string
   realizationBy?: string
   address?: string

@@ -1,13 +1,15 @@
 "use client"
 
+import { askDelete } from "@/lib/ask-confirm"
 import { useEffect, useState, type FormEvent } from "react"
-import { Factory, Pencil, Plus } from "lucide-react"
+import { Pencil } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader, RefPage } from "@/components/ref/list-kit"
 import { ActivityTab } from "@/components/analytics/production/stage-activity"
 import { EquipmentTab, OperationsTab, ProductsTab, StaffTab, type Equipment, type StaffMember } from "@/components/analytics/production/stage-tabs"
 import { api, Field, inputClass, Modal, RobotEmpty, SaveButton, useApiData, type Stage } from "@/components/analytics/production/production-ui"
+import { notify } from "@/lib/notify"
 
 type Tab = "products" | "operations" | "staff" | "equipment" | "activity"
 type Warehouse = { id: number; name: string }
@@ -39,60 +41,50 @@ export function ProductionStagesView() {
   const equipment = allEquipment.filter((entry) => entry.stageId === stage?.id)
   const staff = allStaff.filter((entry) => entry.stageId === stage?.id)
 
+  const CARD_SHADOW = "shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 text-slate-800">
-      <header className="px-8 py-4">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-semibold text-blue-600" />
-          <span className="text-2xl text-slate-500">|</span>
-          <span className="text-2xl font-semibold text-slate-600">{t("Этапы производства")}</span>
-        </div>
-      </header>
+    <RefPage>
+      <RefHeader title={t("Этапы производства")} />
 
-      <div className="grid min-h-[calc(100vh-8.5rem)] md:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="border-r border-slate-300">
-          <div className="flex items-center justify-between border-b border-slate-300 px-6 py-5">
-            <h2 className="font-semibold">{t("Этапы производства")}</h2>
-            <button onClick={() => setStageDialog("new")} aria-label={t("Добавить этап")} title={t("Добавить этап")} className="rounded bg-[#5b7ce6] p-1.5 text-white">
-              <Plus className="h-4 w-4" />
-            </button>
+      <div className="-mx-7 flex items-start">
+        <aside className="w-[280px] shrink-0 font-sans text-[13px] text-[#333]">
+          <div className="flex h-[57px] items-center justify-between pl-[30px] pr-[10px]">
+            <h2 className="text-[13px] font-bold">{t("Этапы производства")}</h2>
           </div>
-          <div className="max-h-[calc(100vh-14rem)] overflow-y-auto">
+          <div className="shadow-[1px_0_6px_rgba(0,0,0,0.2)]">
             {stages.map((entry) => (
-              <div key={entry.id} className={`group flex items-center border-b border-slate-200 ${selectedId === entry.id ? "bg-white text-blue-600 shadow-sm" : "hover:bg-white/70"}`}>
-                <button onClick={() => setSelectedId(entry.id)} className="flex min-w-0 flex-1 items-center gap-3 px-6 py-4 text-left">
-                  <Factory className="h-5 w-5 shrink-0 text-slate-500" />
+              <div key={entry.id} className={`group flex h-[50px] items-center border-b border-[#e9ecf0] ${selectedId === entry.id ? "bg-white" : "hover:bg-white/60"}`}>
+                <button onClick={() => setSelectedId(entry.id)} className="flex h-full min-w-0 flex-1 items-center pl-[30px] text-left">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/production-stage.svg" alt="" className="mr-[10px] h-5 w-5 shrink-0" />
                   <span className="truncate">{entry.name}</span>
                 </button>
-                <button onClick={() => setStageDialog(entry)} aria-label={t("Изменить")} className="mr-3 p-1 text-slate-400 opacity-0 hover:text-blue-600 group-hover:opacity-100 focus:opacity-100">
+                <button onClick={() => setStageDialog(entry)} aria-label={t("Изменить")} className="mr-3 p-1 text-[#9aa1ae] opacity-0 hover:text-[#4f71dc] group-hover:opacity-100 focus:opacity-100">
                   <Pencil className="h-4 w-4" />
                 </button>
               </div>
             ))}
-            {!stages.length && !loading && <p className="px-6 py-8 text-center text-sm text-slate-400">{t("Этапов пока нет — добавьте первый этап")}</p>}
+            {!stages.length && !loading && <p className="px-6 py-8 text-center text-[#888]">{t("Этапов пока нет — добавьте первый этап")}</p>}
           </div>
         </aside>
 
-        <section className="min-w-0 px-6 pb-10 md:px-8">
-          <nav className="grid grid-cols-3 overflow-hidden rounded-sm bg-white shadow sm:grid-cols-5">
+        <section className="ml-[30px] mr-[30px] min-w-0 flex-1">
+          <nav className={`flex h-[54px] bg-white text-[13px] text-black ${CARD_SHADOW}`}>
             {TABS.map(([value, label]) => (
-              <button key={value} onClick={() => setTab(value)} className={`border-b-2 px-3 py-5 ${tab === value ? "border-blue-600 font-semibold text-blue-600" : "border-transparent"}`}>
-                {t(label)}
+              <button key={value} type="button" onClick={() => setTab(value)} className="h-[54px] px-[6px] font-[Arial,sans-serif]">
+                <span className={`flex h-[52px] items-center border-b-2 px-[20px] ${tab === value ? "border-[#4f71dc] font-semibold text-[#4f71dc]" : "border-transparent"}`}>{t(label)}</span>
               </button>
             ))}
           </nav>
 
           {!stage ? (
-            <div className="mt-6 flex min-h-[370px] items-center justify-center bg-white shadow">
-              <RobotEmpty text="Выберите производство..." size={190} />
+            <div className={`mt-5 flex h-[294px] flex-col items-center justify-center bg-white ${CARD_SHADOW}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/robot-empty.png" alt="" className="w-[196px]" />
+              <p className="-mt-[8px] text-[15px] text-[#666]">{t("Выберите производство...")}</p>
             </div>
           ) : (
             <div key={stage.id}>
-              <p className="mt-5 text-slate-500">
-                {t("Производство")}: <strong className="text-slate-700">{stage.name}</strong>
-                {stage.warehouse && <> · {t("Склад")}: <strong className="text-slate-700">{stage.warehouse}</strong></>}
-                {stage.responsible && <> · {t("Ответственный")}: <strong className="text-slate-700">{stage.responsible}</strong></>}
-              </p>
               {tab === "products" && <ProductsTab stage={stage} equipment={equipment} />}
               {tab === "operations" && <OperationsTab stage={stage} equipment={equipment} />}
               {tab === "staff" && <StaffTab stage={stage} staff={staff} reload={reloadStaff} />}
@@ -114,7 +106,7 @@ export function ProductionStagesView() {
           }}
         />
       )}
-    </main>
+    </RefPage>
   )
 }
 
@@ -134,19 +126,19 @@ function StageDialog({ stage, onClose, onSaved }: { stage: Stage | null; onClose
       const responsibleId = employees.find((entry) => entry.name === responsible)?.id ?? (responsible !== "" && responsible === stage?.responsible ? (stage?.responsibleId ?? null) : null)
       onSaved(await api<Stage>(stage ? `/api/production/stages/${stage.id}` : "/api/production/stages", { method: stage ? "PUT" : "POST", body: { name, warehouse, responsible, responsibleId } }))
     } catch (error) {
-      window.alert((error as Error).message)
+      notify((error as Error).message)
     } finally {
       setSaving(false)
     }
   }
 
   async function remove() {
-    if (!stage || !window.confirm(`${t("Удалить этап")} «${stage.name}»?`)) return
+    if (!stage || !(await askDelete(stage.name))) return
     try {
       await api(`/api/production/stages/${stage.id}`, { method: "DELETE" })
       onSaved(null)
     } catch (error) {
-      window.alert((error as Error).message)
+      notify((error as Error).message)
     }
   }
 

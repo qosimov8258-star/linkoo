@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useSearchParams } from "next/navigation"
-import { CheckCircle2, CreditCard, Info, List, Search, X } from "lucide-react"
+import { CheckCircle2, CreditCard, Info, List, X } from "lucide-react"
 
 import {
   AccountDebtFilterDialog,
@@ -296,10 +296,12 @@ export function AccountDebtsView() {
       }
     : {
         label: "Клиент",
+        raw: true,
+        width: 220,
         sortKey: "name",
         render: (row: BalanceRow) => (
           <div className="min-w-0">
-            <button type="button" onClick={() => openAct(row)} className="text-left font-medium text-[#4f70e7] hover:underline">
+            <button type="button" onClick={() => openAct(row)} className="text-left text-[#333] hover:text-[#4f71dc]">
               {row.name || "No"}
             </button>
             {(row.info.inn || Number(row.info.clients) > 1) && (
@@ -322,20 +324,20 @@ export function AccountDebtsView() {
     ) : null
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="text-2xl font-bold text-[#586174]">{t("Долги по счетам")}</h1>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-4 pl-[30px] pr-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <h1 className="text-[18px] font-bold text-[#5d6474]">{t("Долги по счетам")}</h1>
         </div>
-        <div className="my-3 flex rounded-md border border-[#dbe0e8] bg-white">
+        <div className="flex h-[32px] w-[720px] max-w-full bg-white">
           {(["created", "realization"] as const).map((value) => (
             <button
               key={value}
               type="button"
               onClick={() => value !== mode && update({ mode: value })}
-              className={`group relative flex items-center gap-2 px-5 py-3 text-[15px] font-semibold first:rounded-l-md last:rounded-r-md ${mode === value ? "bg-[#71ce87] text-white" : "text-[#586174] hover:bg-[#f7f9fb]"}`}
+              className={`group relative flex flex-1 items-center justify-center gap-2 px-5 text-[13px] font-normal ${mode === value ? "bg-[#71ce87] text-white" : "text-[#586174] hover:bg-[#f7f9fb]"}`}
             >
               <Info className="h-4 w-4" />
               {t(value === "created" ? "По дате создание транзакции" : "По дате реализации")}
@@ -354,20 +356,21 @@ export function AccountDebtsView() {
         </div>
       </header>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
+      <section className="flex flex-wrap items-center gap-4 px-[30px] pb-[10px] pt-[21px]">
         <BalanceFilterButton count={filterCount} from={from} to={to} scope={scope} onOpen={() => setFilterOpen(true)} extra={realizedBadge} />
         <div className="ml-auto flex flex-wrap items-center gap-3">
           {!byType && canGroupPay && (
             <button
               type="button"
               onClick={() => setGroupPaymentOpen(true)}
-              className="flex h-11 items-center gap-2 rounded-md border border-[#4f70e7] px-5 font-semibold text-[#4f70e7] hover:bg-[#f2f5fd]"
+              className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white"
             >
               <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
-              {selected.size > 0 && <span className="rounded-full bg-[#4f70e7] px-2 text-[12px] text-white">{selected.size}</span>}
+              {selected.size > 0 && <span className="rounded-full bg-white px-2 text-[12px] text-[#4f71dc]">{selected.size}</span>}
             </button>
           )}
           <BalanceDownloadMenu
+            wide
             disabled={exporting}
             label={exporting ? "Загрузка..." : "Скачать"}
             items={byType ? [{ label: "Скачать все", onClick: downloadAll }] : [{ label: "Скачать все", onClick: downloadAll }, { label: "Скачать упрощенным", onClick: downloadShort }]}
@@ -376,11 +379,11 @@ export function AccountDebtsView() {
         {exportError && <p className="w-full text-right text-sm text-[#e57373]">{exportError}</p>}
       </section>
 
-      <BalanceSummaryCards boxes={SUMMARY_BOXES} totals={data?.totals ?? {}} currencies={currencies} loading={loading} />
+      <BalanceSummaryCards digits={3} compact boxes={SUMMARY_BOXES} totals={data?.totals ?? {}} currencies={currencies} loading={loading} />
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
-          <div className="flex overflow-hidden rounded-sm">
+        <section className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-[#efefef] px-[30px] pb-[4px] pt-[10px]">
+          <div className="hidden overflow-hidden rounded-sm">
             {(["marketExpanded", "marketType"] as const).map((value) => (
               <button
                 key={value}
@@ -410,14 +413,13 @@ export function AccountDebtsView() {
             </div>
           )}
 
-          <form onSubmit={submitSearch} className="flex min-w-[220px] flex-1 items-center gap-2 border-b border-[#dbe0e8] pb-1">
-            <Search className="h-4 w-4 text-[#9aa3b6]" />
+          <form onSubmit={submitSearch} className="flex w-[256px] items-center gap-2 border-b border-[#e0e0e0] pb-1">
             <input
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={t(byType ? "Тип клиента" : "Клиент")}
               aria-label={t(byType ? "Тип клиента" : "Клиент")}
-              className="h-8 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[#586174]"
+              className="h-8 flex-1 bg-transparent pt-[6px] text-[13px] outline-none placeholder:font-semibold placeholder:text-black"
             />
             {(searchDraft || search) && (
               <button
@@ -434,14 +436,14 @@ export function AccountDebtsView() {
             )}
           </form>
 
-          {byType ? (
+          <div className="ml-auto flex items-center gap-5">{byType ? (
             <span className="whitespace-nowrap text-[#586174]">
               {rows.length ? 1 : 0} - {rows.length} {t("из")} {rows.length}
             </span>
           ) : (
             <BalancePagination page={page} pageSize={pageSize} count={data?.count ?? 0} onChange={(next) => setState((current) => ({ ...current, ...next }))} />
           )}
-          <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} /></div>
         </section>
 
         {error && (
@@ -457,6 +459,9 @@ export function AccountDebtsView() {
 
         <div className="pb-10">
           <BalanceTable
+              fixedWidth={100}
+              rowPad={8}
+              selectionAfterFirst
             rows={rows}
             groups={GROUPS}
             currencies={currencies.length ? currencies : ["SUM"]}

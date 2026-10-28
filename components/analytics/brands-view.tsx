@@ -5,14 +5,17 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
-import { formatStatementDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { formatCategoryDate } from "./categories-grid"
 import { BrandFormDialog } from "./brands-form"
 import { BRANDS_API, BRAND_ORDERINGS, type Brand, type BrandListResult } from "./brands-data"
 import {
   DictionaryDeleteDialog,
+  DICT_HEAD,
+  DICT_ROW,
+  DictionaryPage,
+  DictionaryRowActions,
   DictionaryToolbar,
-  MessageRow,
   SortHeader,
   dictionaryListUrl,
   useClampPage,
@@ -26,8 +29,6 @@ import {
 // (Изменить / Удалить) per row. Create / update dialog = brands-form.tsx, delete confirm =
 // dictionaries-shared.tsx. URL state: ?search ?ordering ?page ?pageSize ?openCreateDialog=true,
 // ?brand=<id>&openUpdateDialog=true | openDeleteDialog=true.
-
-const COLUMNS = 6
 
 export function BrandsView({ embedded = false }: { embedded?: boolean }) {
   if (embedded) return <BrandsGrid />
@@ -49,60 +50,56 @@ function BrandsGrid() {
   useClampPage(data?.count, loading, state, update)
 
   const rows = data?.results ?? []
-  const created = (brand: Brand) => (brand.createdAt ? formatStatementDate(brand.createdAt, language, false).replace(/\s*г\.$/, "") : brand.createdDate)
+  const created = (brand: Brand) => (brand.createdAt ? formatCategoryDate(brand.createdAt, language) : brand.createdDate)
   const sort = (next: string) => update({ ordering: next, page: 1 })
 
+  const cols = "grid-cols-[109.3px_202.5px_303.7px_303.8px_1fr]"
+  const headerCell = "px-0 font-semibold"
+
   return (
-    <section className="min-w-0 flex-1 px-6 pb-6 pt-4 lg:px-9">
-      <DictionaryToolbar addLabel={canEdit ? t("Добавить бренд") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} />
+    <DictionaryPage>
+      <DictionaryToolbar plus="icon" addLabel={canEdit ? t("Добавить бренд") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} />
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-left text-[14px]">
-          <thead className="bg-[#626b7e] text-white">
-            <tr>
-              <SortHeader label="Id" field="id" ordering={state.ordering} onSort={sort} className="w-20 pl-6" />
-              <SortHeader label={t("Фото")} field="image" ordering={state.ordering} onSort={sort} className="w-28" />
-              <SortHeader label={t("Наименование")} field="name" ordering={state.ordering} onSort={sort} />
-              <SortHeader label={t("Организация")} field="division" ordering={state.ordering} onSort={sort} />
-              <SortHeader label={t("Дата создания")} field="created_date" ordering={state.ordering} onSort={sort} />
-              <th className="w-16" />
-            </tr>
-          </thead>
-          <tbody className={loading && data ? "opacity-60" : undefined}>
+        <div className="min-w-[760px]">
+          <div className={`${DICT_HEAD} ${cols}`}>
+            <SortHeader as="div" label="Id" field="id" ordering={state.ordering} onSort={sort} className={headerCell} />
+            <SortHeader as="div" label={t("Фото")} field="image" ordering={state.ordering} onSort={sort} className={headerCell} />
+            <SortHeader as="div" label={t("Наименование")} field="name" ordering={state.ordering} onSort={sort} className={headerCell} />
+            <SortHeader as="div" label={t("Организация")} field="division" ordering={state.ordering} onSort={sort} className={headerCell} />
+            <SortHeader as="div" label={t("Дата создания")} field="created_date" ordering={state.ordering} onSort={sort} className={headerCell} />
+          </div>
+          <div className={loading && data ? "opacity-60" : undefined}>
             {loading && !data ? (
-              <MessageRow colSpan={COLUMNS}>{t("Загрузка...")}</MessageRow>
+              <p className="px-9 py-10 text-center text-slate-400">{t("Загрузка...")}</p>
             ) : error ? (
-              <MessageRow colSpan={COLUMNS} tone="error">
-                {t(error)}
-              </MessageRow>
+              <p className="px-9 py-10 text-center text-red-600">{t(error)}</p>
             ) : rows.length === 0 ? (
-              <MessageRow colSpan={COLUMNS}>{t("По вашему запросу ничего не найдено")}</MessageRow>
+              <p className="px-9 py-10 text-center text-slate-400">{t("По вашему запросу ничего не найдено")}</p>
             ) : (
               rows.map((brand) => (
-                <tr key={brand.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="py-3 pl-6 pr-4 text-[#586174]">{brand.id}</td>
-                  <td className="px-4 py-2">
-                    <span className="flex h-10 w-10 items-center justify-center overflow-hidden">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
-                      {brand.photoUrl && <img src={brand.photoUrl} alt="" className="max-h-10 max-w-10 object-contain" />}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 font-medium">{brand.name}</td>
-                  <td className="px-4 py-3">{brand.organization || t("Не указано")}</td>
-                  <td className="whitespace-nowrap px-4 py-3">{created(brand)}</td>
-                  <td className="px-2 py-3 text-right">
+                <div key={brand.id} className={`${DICT_ROW} ${cols}`}>
+                  <div className="pb-[7px] pt-[9px] pr-4">{brand.id}</div>
+                  <div className="pb-[7px] pt-[9px] pr-4">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
+                    {brand.photoUrl && <img src={brand.photoUrl} alt="" className="h-5 w-10 object-contain" />}
+                  </div>
+                  <div className="break-words pb-[7px] pt-[9px] pr-4">{brand.name}</div>
+                  <div className="break-words pb-[7px] pt-[9px] pr-4">{brand.organization || t("Не указано")}</div>
+                  <div className="whitespace-nowrap pb-[7px] pt-[9px] pr-4">{created(brand)}</div>
+                  <div className="absolute right-[36px] top-[7px]">
                     {canEdit && (
                       <RowMenu
                         onEdit={() => setDialog({ kind: "update", id: brand.id })}
                         onDelete={() => setDialog({ kind: "delete", id: brand.id, name: brand.name })}
                       />
                     )}
-                  </td>
-                </tr>
+                  </div>
+                </div>
               ))
             )}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
 
       {(dialog?.kind === "create" || dialog?.kind === "update") && (
@@ -135,7 +132,7 @@ function BrandsGrid() {
       )}
 
       <CashSnackbar message={notice} onClose={closeNotice} />
-    </section>
+    </DictionaryPage>
   )
 }
 
@@ -168,8 +165,8 @@ function RowMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => voi
     if (anchor) return setAnchor(null)
     const rect = button.getBoundingClientRect()
     // Below the button when there is room, otherwise above it (menu ≈ 100 px).
-    const top = rect.bottom + 100 > window.innerHeight ? Math.max(8, rect.top - 100) : rect.top
-    setAnchor({ top, right: Math.max(8, window.innerWidth - rect.right) })
+    const top = rect.bottom + 100 > window.innerHeight ? Math.max(8, rect.top - 100) : rect.top - 9
+    setAnchor({ top, right: Math.max(8, window.innerWidth - rect.right - 12) })
   }
   const item = (label: string, icon: ReactNode, action: () => void) => (
     <button
@@ -179,7 +176,7 @@ function RowMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => voi
         setAnchor(null)
         action()
       }}
-      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] text-[#333] hover:bg-slate-100"
+      className="flex h-12 w-full items-center gap-[34px] pl-[22px] text-left text-[13px] text-[#333] hover:bg-[#f2f5f8]"
     >
       {icon}
       {label}
@@ -198,9 +195,9 @@ function RowMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => voi
         <MoreVertical className="h-5 w-5" />
       </button>
       {anchor && (
-        <div role="menu" style={{ top: anchor.top, right: anchor.right }} className="fixed z-50 min-w-[160px] rounded bg-white py-1 text-left shadow-lg ring-1 ring-black/5">
-          {item(t("Изменить"), <Pencil className="h-4 w-4 text-[#666]" />, onEdit)}
-          {item(t("Удалить"), <Trash2 className="h-4 w-4 text-[#666]" />, onDelete)}
+        <div role="menu" style={{ top: anchor.top, right: anchor.right }} className="fixed z-50 w-[168px] rounded-[2px] bg-white py-[3px] text-left shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          {item(t("Изменить"), <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>, onEdit)}
+          {item(t("Удалить"), <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>, onDelete)}
         </div>
       )}
     </div>

@@ -1,22 +1,17 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { CheckBox, EmptyState, HoverActions, ImportDialog, LineField, LineSelect, ListToolbar, Modal, SaveLink, ToggleRow, grayHead, listRow } from "@/components/analytics/catalog-ui"
+import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { CheckBox, EmptyState, HoverActions, LineField, LineSelect, ListToolbar, Modal, SaveLink, ToggleRow, grayHead, listRow } from "@/components/analytics/catalog-ui"
+import { DictionaryDeleteDialog } from "@/components/analytics/dictionaries-shared"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { refDate } from "@/lib/ref-date"
 
-type ClientType = { id: number; name: string; supplier: string; date: string }
+type ClientType = { id: number; name: string; supplier: string; date: string; parentId: number | null; innRequired: boolean }
 
-const initialTypes: ClientType[] = []
-
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "наименование": "name", "название": "name", "name": "name",
-  "доставщик": "supplier", "supplier": "supplier",
-}
+const emptyDraft = { name: "", supplier: "", parent: "", hasParent: false, innRequired: false }
 
 /** The server's message (409: duplicate name, or the usage list of a type in use). */
 async function errorOf(response: Response, t: (key: string) => string): Promise<string> {
@@ -27,22 +22,20 @@ async function errorOf(response: Response, t: (key: string) => string): Promise<
 
 export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   const { t, language } = useLanguage()
-  const [items, setItems] = useState(initialTypes)
-  const [query, setQuery] = useState("")
-  const [parentCategory, setParentCategory] = useState(false)
-  const [needInn, setNeedInn] = useState(false)
+  const [items, setItems] = useState<ClientType[]>([])
   const [editing, setEditing] = useState<ClientType | null>(null)
-  const [draft, setDraft] = useState({ name: "", supplier: "" })
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const [suppliers, setSuppliers] = useState<string[]>([])
+  const [deleting, setDeleting] = useState<ClientType | null>(null)
+  const [draft, setDraft] = useState(emptyDraft)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+  const [deliverers, setDeliverers] = useState<string[]>([])
 
   useEffect(() => {
-    fetch("/api/clients")
+    fetch("/api/employees")
       .then((response) => (response.ok ? response.json() : []))
-      .then((rows: { deliverer?: string }[]) => {
-        if (Array.isArray(rows)) setSuppliers([...new Set(rows.map((row) => row.deliverer ?? "").filter((name) => name && name !== "Не указано"))].sort((a, b) => a.localeCompare(b, "ru")))
+      .then((rows: { firstName?: string; lastName?: string }[]) => {
+        if (Array.isArray(rows)) setDeliverers([...new Set(rows.map((row) => `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "en")))
       })
       .catch(() => {})
   }, [])
@@ -65,109 +58,50 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
     }
   }, [])
 
-  const visible = items.filter((item) => `${item.name} ${item.supplier}`.toLowerCase().includes(query.toLowerCase()))
-  function openAdd() { setEditing({ id: 0, name: "", supplier: "", date: "" }); setDraft({ name: "", supplier: "" }) }
-  function openEdit(item: ClientType) { setEditing(item); setDraft({ name: item.name, supplier: item.supplier }) }
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.name.trim()) return
+  const parentOptions = items.filter((item) => item.parentId === null && item.id !== editing?.id).map((item) => item.name)
+  const valid = draft.name.trim() !== "" && draft.supplier !== "" && (!draft.hasParent || draft.parent !== "")
+
+  function openAdd() {
+    setError("")
+    setEditing({ id: 0, name: "", supplier: "", date: "", parentId: null, innRequired: false })
+    setDraft(emptyDraft)
+  }
+  function openEdit(item: ClientType) {
+    setError("")
+    setEditing(item)
+    const parent = items.find((row) => row.id === item.parentId)
+    setDraft({ name: item.name, supplier: item.supplier === "Не указано" ? "" : item.supplier, parent: parent?.name ?? "", hasParent: item.parentId !== null, innRequired: item.innRequired })
+  }
+
+  async function save() {
+    if (!editing) return
+    // The reference keeps "Сохранить" enabled and answers an incomplete form with the API field error.
+    if (!valid) {
+      setError(t("Это поле обязательно к заполнению"))
+      return
+    }
+    setSaving(true)
+    setError("")
     try {
-      if (editing?.id) {
-        const response = await fetch(`/api/client-types/${editing.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: draft.name.trim(), supplier: draft.supplier.trim() }),
-        })
-        if (!response.ok) return window.alert(await errorOf(response, t))
-        const saved = (await response.json()) as ClientType
-        setItems((current) => current.map((item) => (item.id === saved.id ? saved : item)))
-      } else {
-        const response = await fetch("/api/client-types", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: draft.name.trim(), supplier: draft.supplier.trim() }),
-        })
-        if (!response.ok) return window.alert(await errorOf(response, t))
-        const saved = (await response.json()) as ClientType
-        setItems((current) => [saved, ...current])
+      const isEdit = editing.id > 0
+      const parentId = draft.hasParent ? items.find((row) => row.name === draft.parent)?.id ?? null : null
+      const response = await fetch(isEdit ? `/api/client-types/${editing.id}` : "/api/client-types", {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: draft.name.trim(), supplier: draft.supplier, parentId, innRequired: draft.innRequired }),
+      })
+      if (!response.ok) {
+        setError(await errorOf(response, t))
+        return
       }
+      const list = await fetch("/api/client-types").then((res) => (res.ok ? res.json() : null)).catch(() => null)
+      if (Array.isArray(list)) setItems(list as ClientType[])
       setEditing(null)
+      setNotice({ text: "Успешно сохранено", tone: "success" })
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
-  async function remove(id: number) {
-    try {
-      const response = await fetch(`/api/client-types/${id}`, { method: "DELETE" })
-      if (!response.ok) return window.alert(await errorOf(response, t))
-      setItems((current) => current.filter((row) => row.id !== id))
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("client-types-template", [[t("Наименование"), t("Доставщик")]])
-  }
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-      const parsed: { name: string; supplier: string }[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.name = row[0] ?? ""
-          record.supplier = row[1] ?? ""
-        }
-        if (!record.name) continue
-        parsed.push({
-          name: record.name.trim(),
-          supplier: record.supplier.trim() || t("Не указано"),
-        })
-      }
-      if (!parsed.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-      const created: ClientType[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/client-types", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(item),
-          })
-          if (response.ok) created.push((await response.json()) as ClientType)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setItems((current) => [...created, ...current])
-      if (failed) window.alert(`${t("Импортировано")} ${created.length} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`)
+      setError(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
+      setSaving(false)
     }
   }
 
@@ -175,38 +109,54 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   const gridCols = "grid-cols-[422px_312px_1fr]"
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
-      <ListToolbar
-        slim
-        addLabel={t("добавить тип клиента")}
-        onAdd={openAdd}
-      />
-      <div className={`${grayHead} ${gridCols}`}>
+      <ListToolbar slim addLabel={t("добавить тип клиента")} onAdd={openAdd} />
+      <div className={`${grayHead} ${gridCols} pt-[2px]`}>
         <span>{t("Наименование")}</span><span>{t("Доставщик")}</span><span>{t("Дата создания")}</span>
       </div>
-      {visible.map((item) => (
+      {items.map((item) => (
         <div key={item.id} className={`${listRow} ${gridCols}`}>
-          <span className="pr-4 font-bold">{item.name}</span>
+          <span className="pr-4 font-semibold">{item.name}</span>
           <span>{item.supplier}</span>
           <span>{formatDateText(refDate(item.date) || item.date, language)}</span>
-          <HoverActions offset={70} onEdit={() => openEdit(item)} onDelete={() => void remove(item.id)} />
+          <HoverActions offset={35} onEdit={() => openEdit(item)} onDelete={() => setDeleting(item)} />
         </div>
       ))}
-      {visible.length === 0 && <EmptyState />}
+      {items.length === 0 && <EmptyState />}
 
       {editing && (
         <Modal
           title={editing.id ? t("Изменить тип клиента") : t("Добавить тип клиента")}
           onClose={() => setEditing(null)}
-          footer={<SaveLink onClick={() => void save({ preventDefault() {} } as FormEvent)}>{t("Сохранить")}</SaveLink>}
+          bodyClassName="px-[30px] pb-[24px] pt-[17px]"
+          footer={<SaveLink disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveLink>}
         >
-          <ToggleRow checked={parentCategory} onChange={setParentCategory} label={t("Добавить родительскую категорию")} />
-          <div className="mt-[27px]"><LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} /></div>
-          <div className="mt-[27px]"><LineSelect label={t("Доставщик")} required value={draft.supplier} onChange={(value) => setDraft({ ...draft, supplier: value })} onClear={() => setDraft({ ...draft, supplier: "" })} options={[...new Set([...(draft.supplier ? [draft.supplier] : []), ...suppliers])]} /></div>
-          <div className="mt-[16px]"><CheckBox checked={needInn} onChange={setNeedInn} label={t("Требуется ИНН")} /></div>
+          <div className="min-h-[259px]">
+            <ToggleRow checked={draft.hasParent} onChange={(hasParent) => setDraft({ ...draft, hasParent })} label={t("Добавить родительскую категорию")} />
+            {draft.hasParent && <div className="mt-[31px]"><LineSelect label={t("Родительская категория")} value={draft.parent} onChange={(parent) => setDraft({ ...draft, parent })} options={parentOptions} onClear={() => setDraft({ ...draft, parent: "" })} /></div>}
+            <div className={draft.hasParent ? "mt-[12px]" : "mt-[20px]"}><LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} /></div>
+            <div className="mt-[27px]"><LineSelect label={t("Доставщик")} required value={draft.supplier} onChange={(value) => setDraft({ ...draft, supplier: value })} onClear={() => setDraft({ ...draft, supplier: "" })} options={deliverers} /></div>
+            <div className="mt-[12px]"><CheckBox checked={draft.innRequired} onChange={(innRequired) => setDraft({ ...draft, innRequired })} label={t("Требуется ИНН")} /></div>
+            {error && <p className="mt-[12px] text-[12px] text-[#e5484d]">{error}</p>}
+          </div>
         </Modal>
       )}
 
-      {importOpen && <ImportDialog file={importFile} onFile={setImportFile} onTemplate={downloadTemplate} onSave={saveImport} saving={importSaving} onClose={() => { setImportOpen(false); setImportFile(null) }} />}
+      {deleting && (
+        <DictionaryDeleteDialog
+          api="/api/client-types"
+          id={deleting.id}
+          name={`${t("Тип клиента")}: ${deleting.name}`}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setItems((list) => list.filter((item) => item.id !== deleting.id))
+            setDeleting(null)
+            setNotice({ text: "Успешно удалено", tone: "success" })
+          }}
+          onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      <CashSnackbar message={notice} onClose={() => setNotice(null)} />
     </div>
   )
 }
