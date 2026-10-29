@@ -756,12 +756,23 @@ async function seedPermissions(pool: Pool): Promise<void> {
     END $$;
   `)
   const codes = PERMISSION_CATALOG.map((item) => item.code)
+  // Update-then-insert instead of ON CONFLICT (code): older databases hold
+  // duplicate codes and so have no unique index on permissions.code, which made
+  // ON CONFLICT fail (42P10) and broke every login.
   await pool.query(
-    `INSERT INTO permissions (category, type, label, code, sort_order)
-     SELECT category, type, label, code, ord::int
-       FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) WITH ORDINALITY AS t(category, type, label, code, ord)
-     ON CONFLICT (code) DO UPDATE
-       SET category = EXCLUDED.category, type = EXCLUDED.type, label = EXCLUDED.label, sort_order = EXCLUDED.sort_order`,
+    `WITH t AS (
+       SELECT category, type, label, code, ord::int AS ord
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) WITH ORDINALITY AS t(category, type, label, code, ord)
+     ), updated AS (
+       UPDATE permissions p
+          SET category = t.category, type = t.type, label = t.label, sort_order = t.ord
+         FROM t
+        WHERE p.code = t.code
+       RETURNING p.code
+     )
+     INSERT INTO permissions (category, type, label, code, sort_order)
+     SELECT category, type, label, code, ord FROM t
+      WHERE NOT EXISTS (SELECT 1 FROM permissions p WHERE p.code = t.code)`,
     [
       PERMISSION_CATALOG.map((item) => item.category),
       PERMISSION_CATALOG.map((item) => item.type),
