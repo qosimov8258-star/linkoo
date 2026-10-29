@@ -19,7 +19,11 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  allowedDevOrigins: ["26.225.180.79"],
+  // Extra hosts allowed to load the dev server (comma-separated, e.g. a LAN IP).
+  allowedDevOrigins: (process.env.ALLOWED_DEV_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }]
   },

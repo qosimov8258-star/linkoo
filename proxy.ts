@@ -174,7 +174,7 @@ function corsHeaders(origin: string | null): HeadersInit {
   }
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
   const isApi = pathname === "/api" || pathname.startsWith("/api/")
   const origin = request.headers.get("origin")
