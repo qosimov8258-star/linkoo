@@ -191,7 +191,7 @@ export function SalesByAgentsView() {
 
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]"><RefHeader title={t("Продажа по агентам")} /></div>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title={t("Прибыль от агентов")} /></div>
       <section className={`${fullscreen ? "fixed inset-0 z-[80] overflow-auto bg-white p-5" : "border-b border-[#d9d9d9] bg-white px-[30px] pb-[1px] pt-[21px]"}`}>
         <ReportTopRow
           filterLabel="Фильтр / 1"

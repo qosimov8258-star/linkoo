@@ -109,8 +109,8 @@ async function tableExists(db: PgDb, table: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 const COLUMNS = "id, name, currency, cashier, cashier_id, branch, payment_type, vansell, order_number, created_at"
-/** Demo order: the reference's own sequence first (cashbox_reference_order, when filled), then position ascending with "Не указано" last, then newest first. */
-const ORDER_BY = "ORDER BY COALESCE((SELECT r.seq FROM cashbox_reference_order r WHERE r.cashbox_id = cashboxes.id), 1000000), (COALESCE(order_number, 0) = 0), order_number, id DESC"
+/** Reference order (Настройки → Кассы): position ascending with "Не указано" last, then newest first. */
+const ORDER_BY = "ORDER BY (COALESCE(order_number, 0) = 0), order_number, id DESC"
 /** Creation order used by the reference's group payment columns: position ascending with "Не указано" last, then oldest first. */
 const ORDER_BY_CREATED = "ORDER BY (COALESCE(order_number, 0) = 0), order_number, id"
 const SEARCH = `(@needle = '' OR strpos(${keySql("name")}, @needle) > 0) AND (@branch = '' OR branch = @branch)`

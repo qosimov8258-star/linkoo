@@ -103,7 +103,7 @@ export function ClientSalesPaymentsView() {
 
   return (
     <ReportPage>
-      <ReportHeader title={t("Продажа и оплата по магазинам")} onExcel={rows.length ? download : undefined} onDashboard={() => setDashboardOpen(true)} inDashboard={saved} />
+      <ReportHeader title={t("Продажа и оплата по магазинам")} onExcel={download} onDashboard={() => setDashboardOpen(true)} inDashboard={saved} />
 
       <ReportBand>
         <ReportFilters applyDisabled={from > to} onApply={() => from <= to && setApplied({ from, to, ...filters })}>
