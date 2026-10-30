@@ -1398,25 +1398,41 @@ async function seedPermissions(pool: Pool): Promise<void> {
       END IF;
     END $$;
   `)
-  // The upsert below needs a unique index on permissions.code (the CREATE TABLE above declares it; a
-  // database whose table was created without it gets it here, so the bootstrap never fails on ON CONFLICT).
+  // permissions.code is unique (the CREATE TABLE above declares it); a database whose table was created
+  // without it gets the index here, skipped while it still holds duplicate codes (the upsert below works
+  // either way, so the bootstrap and every sign-in never fail on it).
   await pool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (
         SELECT 1 FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
          WHERE i.indrelid = 'permissions'::regclass AND i.indisunique AND i.indnatts = 1 AND a.attname = 'code'
       ) THEN
-        CREATE UNIQUE INDEX IF NOT EXISTS permissions_code_key ON permissions (code);
+        BEGIN
+          CREATE UNIQUE INDEX IF NOT EXISTS permissions_code_key ON permissions (code);
+        EXCEPTION WHEN unique_violation THEN
+          RAISE NOTICE 'permissions_code_key skipped: duplicate permission codes exist';
+        END;
       END IF;
     END $$;
   `)
   const codes = PERMISSION_CATALOG.map((item) => item.code)
+  // Update-then-insert instead of ON CONFLICT (code): older databases hold
+  // duplicate codes and so have no unique index on permissions.code, which made
+  // ON CONFLICT fail (42P10) and broke every login.
   await pool.query(
-    `INSERT INTO permissions (category, type, label, code, sort_order)
-     SELECT category, type, label, code, ord::int
-       FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) WITH ORDINALITY AS t(category, type, label, code, ord)
-     ON CONFLICT (code) DO UPDATE
-       SET category = EXCLUDED.category, type = EXCLUDED.type, label = EXCLUDED.label, sort_order = EXCLUDED.sort_order`,
+    `WITH t AS (
+       SELECT category, type, label, code, ord::int AS ord
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) WITH ORDINALITY AS t(category, type, label, code, ord)
+     ), updated AS (
+       UPDATE permissions p
+          SET category = t.category, type = t.type, label = t.label, sort_order = t.ord
+         FROM t
+        WHERE p.code = t.code
+       RETURNING p.code
+     )
+     INSERT INTO permissions (category, type, label, code, sort_order)
+     SELECT category, type, label, code, ord FROM t
+      WHERE NOT EXISTS (SELECT 1 FROM permissions p WHERE p.code = t.code)`,
     [
       PERMISSION_CATALOG.map((item) => item.category),
       PERMISSION_CATALOG.map((item) => item.type),

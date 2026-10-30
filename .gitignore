@@ -12,7 +12,8 @@ __v0_jsx-dev-runtime.ts
 
 # Local SQLite database
 /data/*.db
-/data/*.db-journal
+/data/*.db-*
+/data/*.db.*
 
 # Common ignores
 node_modules
@@ -30,6 +31,8 @@ diag-files.png
 # Local Claude Code settings
 .claude/settings.local.json
 
-# Ad-hoc reference screenshots pasted into public/ during development
+# Ad-hoc reference screenshots pasted during development
+/image.png
+/image copy*.png
 /public/image.png
 /public/image copy*.png

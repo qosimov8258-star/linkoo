@@ -19,7 +19,7 @@ import { DomTranslator } from '@/lib/i18n/dom-translator'
 import { LanguageProvider } from '@/lib/i18n/language-context'
 import './globals.css'
 
-// Set (and overwritten) by middleware.ts on every request it handles.
+// Set (and overwritten) by proxy.ts on every request it handles.
 const PATH_HEADER = 'x-linko-path'
 const URL_HEADER = 'x-linko-url'
 

@@ -48,8 +48,9 @@ export type ClientReturnRow = {
   itemCount?: number
 }
 
-const TABS = ["Надо принять", "Принятые", "Отмененные", "Все"] as const
-const TAB_QUERY: Record<(typeof TABS)[number], string> = { "Надо принять": "pending", Принятые: "accepted", Отмененные: "cancelled", Все: "all" }
+// Like the reference: three tabs, and the list opens on «Все».
+const TABS = ["Надо принять", "Принятые", "Все"] as const
+const TAB_QUERY: Record<(typeof TABS)[number], string> = { "Надо принять": "pending", Принятые: "accepted", Все: "all" }
 const STATUS_LABEL: Record<ClientReturnRow["status"], string> = { pending: "Ожидает", accepted: "Принят", cancelled: "Отменен" }
 const STATUS_COLOR: Record<ClientReturnRow["status"], string> = { pending: "text-[#f0ad4e]", accepted: "text-[#48a34b]", cancelled: "text-[#e57373]" }
 // moment's Russian short months, as the reference prints them ("04 мар. 2026", "17 июля 2026").
@@ -116,7 +117,7 @@ export function ReturnsView({ initialId }: { initialId?: number } = {}) {
   const [rows, setRows] = useState<ClientReturnRow[]>([])
   const [totals, setTotals] = useState<Array<{ currency: string; amount: number }>>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<(typeof TABS)[number]>(initialId ? "Все" : "Надо принять")
+  const [tab, setTab] = useState<(typeof TABS)[number]>("Все")
   const [query, setQuery] = useState("")
   const [selectedId, setSelectedId] = useState<number | null>(initialId ?? null)
   const [addOpen, setAddOpen] = useState(false)
