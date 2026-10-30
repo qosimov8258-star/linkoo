@@ -133,7 +133,9 @@ export async function createUser(input: CreateUserInput): Promise<DashboardUser 
   try {
     return await withTransaction(async (tx) => {
       // Serialises concurrent creates, so two requests for the same login
-      // cannot both pass the check (the second gets 409, not a 500).
+      // cannot both pass the check (the second gets 409, not a 500). The
+      // employee form takes the same lock before it creates or renames the
+      // employee's account (lib/employees-account.ts lockAccountLogins).
       await tx.prepare("SELECT pg_advisory_xact_lock(hashtext('users:create'))").get()
       const existing = await tx.prepare("SELECT id FROM users WHERE lower(username) = lower(?)").get(input.username)
       if (existing) return null

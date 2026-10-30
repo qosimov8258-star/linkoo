@@ -2,6 +2,7 @@ import "server-only"
 
 import { isUniqueViolation } from "@/lib/auth-request"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { withEmployeeLinks } from "@/lib/employees-usage"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { cascadeNameRename, discoverReferences, keySql, nameKey, usageOf, type Usage } from "@/lib/platform-refs"
@@ -192,9 +193,10 @@ export async function getBranch(id: number): Promise<BranchRecord | null> {
   return row ? rowToBranch(row) : null
 }
 
-/** Where the branch is used (warehouses, cashboxes, employees, suppliers, clients, balance entries …). */
+/** Where the branch is used (warehouses, cashboxes, employees, suppliers, clients, balance entries …).
+ * Employees count once each: by their branch_ids (JSON) or, for older ones, the main branch name. */
 export async function branchUsage(db: PgDb, branch: { id: number; name: string }): Promise<BranchUsage[]> {
-  return usageOf(db, await branchReferences(db), { id: branch.id, name: branch.name })
+  return withEmployeeLinks(db, "branches", branch, await usageOf(db, await branchReferences(db), { id: branch.id, name: branch.name }))
 }
 
 async function lockBranches(db: PgDb) {
@@ -328,7 +330,8 @@ export async function deleteBranch(id: number): Promise<boolean> {
   await ensureSchema()
   return withTransaction(async (tx) => {
     await lockBranches(tx)
-    const current = (await tx.prepare("SELECT * FROM branches WHERE id = ?").get(id)) as Row | undefined
+    // The row lock also waits for an employee save holding FOR KEY SHARE on the branch (lib/employees-usage.ts).
+    const current = (await tx.prepare("SELECT * FROM branches WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
     if (!current) return false
     if (current.is_main === 1) throw new BranchError("Нельзя удалить основной филиал", 409)
     // The branch's own plans and "KPI план филиалов" rows go with it (the KPI tables are created lazily by that module);
@@ -367,13 +370,7 @@ export async function listBranchPlans(branchId: number): Promise<BranchPlan[]> {
   if (!isRowId(branchId)) return []
   const db = getDb()
   await ensureSchema()
-  // Plans inserted by the demo seed (registered in demo_seed_rows) are not real data: the reference's branches have none.
-  // The registry is looked up first (a failing query would abort a surrounding transaction).
-  const hasRegistry = ((await db.prepare("SELECT to_regclass('demo_seed_rows') AS t").get()) as { t: string | null }).t
-  const hideDemo = hasRegistry
-    ? " AND NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'branch_plans' AND d.row_id = p.id::text)"
-    : ""
-  return ((await db.prepare(`SELECT p.* FROM branch_plans p WHERE p.branch_id = ?${hideDemo} ORDER BY p.id`).all(branchId)) as PlanRow[]).map(rowToPlan)
+  return ((await db.prepare("SELECT p.* FROM branch_plans p WHERE p.branch_id = ? ORDER BY p.id").all(branchId)) as PlanRow[]).map(rowToPlan)
 }
 
 /** Adds a plan to the branch (null = no such branch). The branch is held against a parallel delete

@@ -130,45 +130,6 @@ CREATE TABLE IF NOT EXISTS cash_entry_children (
 );
 CREATE INDEX IF NOT EXISTS cash_entry_children_entry_idx ON cash_entry_children (entry_id);
 
--- Archived reference operations of the cash management list (read-only; the ledger never reads this table:
--- cashbox balances come from the real tables). cash_list_cutoff = the highest id per source at import time:
--- rows of the real tables above it are new operations and appear in the list next to the reference rows.
-CREATE TABLE IF NOT EXISTS cash_reference_rows (
-  id INTEGER PRIMARY KEY,
-  op INTEGER NOT NULL,
-  ts TIMESTAMP,
-  cts TIMESTAMP,
-  cby TEXT NOT NULL DEFAULT '',
-  cashbox_id INTEGER NOT NULL,
-  pt TEXT NOT NULL DEFAULT 'cash',
-  amount DOUBLE PRECISION NOT NULL DEFAULT 0,
-  base_amount DOUBLE PRECISION,
-  rate DOUBLE PRECISION,
-  client_id INTEGER,
-  client_name TEXT NOT NULL DEFAULT '',
-  supplier_id INTEGER,
-  supplier_name TEXT NOT NULL DEFAULT '',
-  category_id INTEGER,
-  category_kind TEXT NOT NULL DEFAULT '',
-  category_name TEXT NOT NULL DEFAULT '',
-  branch TEXT NOT NULL DEFAULT '',
-  organization TEXT NOT NULL DEFAULT '',
-  comment TEXT NOT NULL DEFAULT '',
-  employee_id INTEGER,
-  employee_name TEXT NOT NULL DEFAULT '',
-  order_id INTEGER,
-  supply_id INTEGER,
-  supply_expense_id INTEGER,
-  money_request_id INTEGER,
-  contract TEXT NOT NULL DEFAULT '',
-  verified INTEGER NOT NULL DEFAULT 1,
-  extra TEXT NOT NULL DEFAULT '{}'
-);
-CREATE TABLE IF NOT EXISTS cash_list_cutoff (
-  src TEXT PRIMARY KEY,
-  max_id INTEGER NOT NULL DEFAULT 0
-);
-
 ALTER TABLE income_categories ADD COLUMN IF NOT EXISTS options TEXT;
 ALTER TABLE expense_categories ADD COLUMN IF NOT EXISTS options TEXT;
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportFilterPanel, ReportGridTable, ReportModeButtons, ReportPage, ReportPager, ReportRangeField, ReportSearchField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
@@ -89,6 +89,20 @@ export function MaterialReportView() {
   const [type, setType] = useState("Все типы")
   const [brand, setBrand] = useState("Все бренды")
   const [organization, setOrganization] = useState("Все организации")
+  // "Организация": this company's organizations (Настройки → Организация).
+  const [organizations, setOrganizations] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/organizations")
+      .then((response) => (response.ok ? (response.json() as Promise<Array<{ name?: unknown }>>) : []))
+      .then((list) => {
+        if (!cancelled && Array.isArray(list)) setOrganizations([...new Set(list.map((item) => String(item.name ?? "").trim()).filter(Boolean))])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [movement, setMovement] = useState("Все движения")
   const [stockFilter, setStockFilter] = useState("Все остатки")
   const [priceList, setPriceList] = useState("Основной прайс-лист")
@@ -320,7 +334,7 @@ export function MaterialReportView() {
         <ReportFilterPanel onClose={() => setFilterOpen(false)} onApply={() => { setPage(1); setFilterOpen(false) }}>
           <ReportRangeField label="Диапазон дат" from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />
           {sel("Филиалы", branch, setBranch, "Все филиалы", unique((row) => row.branch))}
-          {sel("Организация", organization, setOrganization, "Все организации", ["Linko"])}
+          {sel("Организация", organization, setOrganization, "Все организации", organizations)}
           {sel("Склад", warehouse, setWarehouse, "Все склады", unique((row) => row.warehouse))}
           {sel("Тип продукта", type, setType, "Все типы", unique((row) => row.type))}
           {sel("Бренд", brand, setBrand, "Все бренды", unique((row) => row.brand))}

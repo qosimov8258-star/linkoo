@@ -45,6 +45,7 @@ export function MaterialDate({
   required,
   value,
   onChange,
+  min,
   max,
   error,
   className = "",
@@ -55,6 +56,8 @@ export function MaterialDate({
   required?: boolean
   value: string
   onChange: (value: string) => void
+  /** Earliest day the picker offers ("YYYY-MM-DD"). */
+  min?: string
   max?: string
   error?: string
   className?: string
@@ -89,6 +92,7 @@ export function MaterialDate({
         ref={input}
         type="date"
         value={value}
+        min={min}
         max={max}
         onChange={(event) => onChange(event.target.value)}
         onClick={() => input.current?.showPicker?.()}
@@ -100,10 +104,11 @@ export function MaterialDate({
   )
 }
 
-/** The reference's alert box (400 × 300): blue "!" mark, bold message, full-width OK button. */
+/** The reference's alert box (400 × 300): blue "!" mark, bold message, full-width OK button. Above every
+ * full-screen form (they go up to z 1500), so a notice raised from one is never hidden behind it. */
 export function MaterialAlert({ message, onClose }: { message: ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/45" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[1700] flex items-center justify-center bg-black/45" onMouseDown={onClose}>
       <div
         className="flex h-[300px] w-[400px] flex-col bg-white px-[15px] pb-[20px] pt-[25px] shadow-[0_10px_30px_rgba(0,0,0,0.19),0_6px_10px_rgba(0,0,0,0.23)]"
         onMouseDown={(event) => event.stopPropagation()}

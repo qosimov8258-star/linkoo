@@ -474,7 +474,7 @@ export const LEGACY_ADMIN_PASSWORD = "123"
 // Bumped whenever bootstrapSchema gains a step, so a running dev server (whose
 // globalThis survives hot reloads) runs the new steps once instead of keeping
 // the promise of the old bootstrap.
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 5
 
 // ---------------------------------------------------------------------------
 // Columns that modules add to the tables created here
@@ -716,6 +716,17 @@ const BOOTSTRAP_COLUMNS: Record<string, ReadonlyArray<readonly [string, string]>
     ["client_id", "INTEGER"],
     ["employee_id", "INTEGER"],
   ],
+  // lib/permissions-repo.ts (Права доступа → Возможности); older databases created permissions without it.
+  permissions: [["categories", "TEXT NOT NULL DEFAULT '[]'"]],
+  // lib/employees-schema.ts (read by /api/auth/me, the Сотрудники pages and their option lists).
+  employees: [
+    ["access_right_id", "INTEGER"],
+    ["job_id", "INTEGER"],
+    ["branch_ids", "TEXT NOT NULL DEFAULT '[]'"],
+    ["organization_ids", "TEXT NOT NULL DEFAULT '[]'"],
+    ["details", "TEXT NOT NULL DEFAULT '{}'"],
+    ["password_hash", "TEXT"],
+  ],
   // lib/inventory-items-schema.ts
   inventory_items: [
     ["product_id", "INTEGER"],
@@ -800,7 +811,7 @@ async function bootstrapSchema(): Promise<void> {
       product TEXT NOT NULL DEFAULT '',
       created TEXT NOT NULL DEFAULT '',
       delivery TEXT NOT NULL DEFAULT '',
-      agent TEXT NOT NULL DEFAULT 'Admin Ritm',
+      agent TEXT NOT NULL DEFAULT '',
       amount TEXT NOT NULL DEFAULT '0 SUM',
       balance TEXT NOT NULL DEFAULT '0 SUM',
       negative INTEGER NOT NULL DEFAULT 0,
@@ -1040,14 +1051,14 @@ async function bootstrapSchema(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS repricings (
       id SERIAL PRIMARY KEY,
-      created_by TEXT NOT NULL DEFAULT 'Admin Ritm',
+      created_by TEXT NOT NULL DEFAULT '',
       created_at_label TEXT NOT NULL DEFAULT '',
       price_list_id INTEGER REFERENCES price_lists(id) ON DELETE SET NULL,
       product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
       amount DOUBLE PRECISION NOT NULL DEFAULT 0,
       currency TEXT NOT NULL DEFAULT 'SUM',
       status TEXT NOT NULL DEFAULT 'проведен',
-      "user" TEXT NOT NULL DEFAULT 'Admin Ritm',
+      "user" TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -1067,7 +1078,7 @@ async function bootstrapSchema(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS write_offs (
       id SERIAL PRIMARY KEY,
-      creator TEXT NOT NULL DEFAULT 'Admin Ritm',
+      creator TEXT NOT NULL DEFAULT '',
       warehouse TEXT NOT NULL DEFAULT '',
       date TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'закрыт',
@@ -1082,7 +1093,7 @@ async function bootstrapSchema(): Promise<void> {
       id SERIAL PRIMARY KEY,
       from_warehouse TEXT NOT NULL DEFAULT '',
       to_warehouse TEXT NOT NULL DEFAULT '',
-      created_by TEXT NOT NULL DEFAULT 'Admin Ritm',
+      created_by TEXT NOT NULL DEFAULT '',
       created_at_label TEXT NOT NULL DEFAULT '',
       delivered_at TEXT NOT NULL DEFAULT '',
       amount DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -1134,7 +1145,7 @@ async function bootstrapSchema(): Promise<void> {
       branch TEXT NOT NULL DEFAULT '',
       phone TEXT NOT NULL DEFAULT 'Не указан',
       email TEXT NOT NULL DEFAULT 'Не указан',
-      initiator TEXT NOT NULL DEFAULT 'Admin Ritm',
+      initiator TEXT NOT NULL DEFAULT '',
       paid DOUBLE PRECISION NOT NULL DEFAULT 0,
       time TEXT NOT NULL DEFAULT '',
       comment TEXT NOT NULL DEFAULT '',
@@ -1147,7 +1158,7 @@ async function bootstrapSchema(): Promise<void> {
       id SERIAL PRIMARY KEY,
       from_whom TEXT NOT NULL DEFAULT '',
       warehouse TEXT NOT NULL DEFAULT '',
-      added_by TEXT NOT NULL DEFAULT 'Admin Ritm',
+      added_by TEXT NOT NULL DEFAULT '',
       date TEXT NOT NULL DEFAULT '',
       time TEXT NOT NULL DEFAULT '',
       amount DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -1226,7 +1237,7 @@ async function bootstrapSchema(): Promise<void> {
       category TEXT NOT NULL DEFAULT '',
       type TEXT NOT NULL DEFAULT '',
       label TEXT NOT NULL,
-      code TEXT NOT NULL,
+      code TEXT NOT NULL UNIQUE,
       sort_order INTEGER NOT NULL DEFAULT 0,
       categories TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1276,6 +1287,8 @@ async function bootstrapSchema(): Promise<void> {
   await createClientZones(pool)
   await seedPermissions(pool)
   await convertRealColumns(pool)
+  await clearDemoColumnDefaults(pool)
+  await normalizeEmployeePositions(pool)
   await seedAdminIfEmpty(pool)
   await flagLegacyAdminPassword(pool)
 }
@@ -1385,6 +1398,18 @@ async function seedPermissions(pool: Pool): Promise<void> {
       END IF;
     END $$;
   `)
+  // The upsert below needs a unique index on permissions.code (the CREATE TABLE above declares it; a
+  // database whose table was created without it gets it here, so the bootstrap never fails on ON CONFLICT).
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+         WHERE i.indrelid = 'permissions'::regclass AND i.indisunique AND i.indnatts = 1 AND a.attname = 'code'
+      ) THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS permissions_code_key ON permissions (code);
+      END IF;
+    END $$;
+  `)
   const codes = PERMISSION_CATALOG.map((item) => item.code)
   await pool.query(
     `INSERT INTO permissions (category, type, label, code, sort_order)
@@ -1437,6 +1462,70 @@ async function convertRealColumns(pool: Pool): Promise<void> {
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {})
       console.warn(`[db] could not convert real columns of ${table} (${columns.join(", ")}) to double precision:`, (error as Error).message)
+    } finally {
+      client.release()
+    }
+  }
+}
+
+// --- no other company's name as a column default ---------------------------------
+// Older databases created the author columns of orders (agent), repricings
+// (created_by, "user"), write_offs (creator), internal_transfers (created_by),
+// supplier_incomings (initiator) and supplier_returns (added_by) with
+// DEFAULT 'Admin Ritm', the reference's demo account: a row inserted without
+// the column carried another company's user. A fresh database gets '' (the DDL
+// above); here an existing one gets the same default. Stored rows are never
+// rewritten. Only columns whose default is still the demo name are altered, so
+// a current database takes no table lock; a table whose lock is busy is logged
+// and retried on the next start.
+const DEMO_DEFAULT = "'Admin Ritm'::%"
+
+// employees.position was stored as "access right|job" for a while and pages showed the raw pipe
+// ("Kassir|", "|Haydovchi"). It is "access right · job" now (lib/employees-usage.ts composePosition);
+// rows still in the old form are rewritten once. Idempotent: only a text with exactly one "|" matches.
+async function normalizeEmployeePositions(pool: Pool): Promise<void> {
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    await client.query("SET LOCAL lock_timeout = '5s'")
+    await client.query(
+      `UPDATE employees
+          SET position = concat_ws(' · ', NULLIF(btrim(split_part(position, '|', 1)), ''), NULLIF(btrim(split_part(position, '|', 2)), ''))
+        WHERE position ~ '^[^|]*[|][^|]*$'`,
+    )
+    await client.query("COMMIT")
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {})
+    console.warn("[db] could not rewrite the old employees.position texts:", (error as Error).message)
+  } finally {
+    client.release()
+  }
+}
+
+async function clearDemoColumnDefaults(pool: Pool): Promise<void> {
+  const { rows } = await pool.query<{ table_name: string; column_name: string }>(
+    `SELECT c.table_name, c.column_name
+       FROM information_schema.columns c
+       JOIN information_schema.tables t
+         ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+      WHERE c.table_schema = current_schema() AND c.column_default LIKE $1
+      ORDER BY c.table_name, c.column_name`,
+    [DEMO_DEFAULT],
+  )
+  if (!rows.length) return
+  const byTable = new Map<string, string[]>()
+  for (const row of rows) byTable.set(row.table_name, [...(byTable.get(row.table_name) ?? []), row.column_name])
+  const ident = (name: string) => `"${name.replace(/"/g, '""')}"`
+  for (const [table, columns] of byTable) {
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      await client.query("SET LOCAL lock_timeout = '5s'")
+      await client.query(`ALTER TABLE ${ident(table)} ${columns.map((column) => `ALTER COLUMN ${ident(column)} SET DEFAULT ''`).join(", ")}`)
+      await client.query("COMMIT")
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {})
+      console.warn(`[db] could not clear the demo default of ${table} (${columns.join(", ")}):`, (error as Error).message)
     } finally {
       client.release()
     }

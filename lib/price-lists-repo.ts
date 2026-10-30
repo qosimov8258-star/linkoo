@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 
 import { dbErrorResponse } from "@/lib/db-errors"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { withEmployeeLinks } from "@/lib/employees-usage"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { priceListKey } from "@/lib/item-prices"
@@ -144,14 +145,21 @@ function dateLabel(iso: string): string {
   return `${iso.slice(8, 10)} ${MONTHS[Number(iso.slice(5, 7)) - 1] ?? ""} ${iso.slice(0, 4)}`
 }
 
-function rowToPriceList(row: Row): PriceList {
+/** The rows as the API returns them. A list without a currency is in the base currency (like lib/item-prices.ts),
+ * never a hard-coded one; the base is read only when such a row exists (price_lists.currency is NOT NULL). */
+async function rowsToPriceLists(db: PgDb, rows: Row[]): Promise<PriceList[]> {
+  const base = rows.some((row) => !String(row.currency ?? "").trim()) ? (await loadCurrencyContext(db)).base : ""
+  return rows.map((row) => rowToPriceList(row, base))
+}
+
+function rowToPriceList(row: Row, base: string): PriceList {
   const methodId = storedMethodId(row.calc_method)
   const method = calcMethodById(methodId)
   const linked = !isNoLink(row.linked_list)
   return {
     id: Number(row.id),
     name: row.name,
-    currency: normCurrency(row.currency),
+    currency: normCurrency(row.currency, base),
     createdDate: dateLabel(row.created_iso ?? ""),
     createdAt: row.created_iso ?? "",
     linkedList: linked ? (row.linked_name ?? row.linked_list ?? NONE) : NONE,
@@ -176,10 +184,11 @@ function activeCondition(active: PriceListActive): string {
 /** Plain list (pickers of other pages): active lists by default, ordered by position. */
 export async function listPriceLists(options: { active?: PriceListActive } = {}): Promise<PriceList[]> {
   await ensurePriceListsSchema()
-  const rows = (await getDb()
+  const db = getDb()
+  const rows = (await db
     .prepare(`${SELECT} WHERE ${activeCondition(options.active ?? "true")} ORDER BY COALESCE(p.position, 0), p.id`)
     .all()) as Row[]
-  return rows.map(rowToPriceList)
+  return rowsToPriceLists(db, rows)
 }
 
 export type PriceListListQuery = { search: string; page: number; pageSize: number; ordering: string; active: PriceListActive }
@@ -211,7 +220,7 @@ export async function listPriceListsPage(query: PriceListListQuery): Promise<Pri
   const rows = (await db
     .prepare(`${SELECT} ${where} ORDER BY ${orderBy(query.ordering)}${paging}`)
     .all({ needle, limit: query.pageSize, offset: (query.page - 1) * query.pageSize })) as Row[]
-  return { count: Number(count?.n ?? 0), results: rows.map(rowToPriceList) }
+  return { count: Number(count?.n ?? 0), results: await rowsToPriceLists(db, rows) }
 }
 
 async function readRow(db: PgDb, id: number, lock = false): Promise<Row | undefined> {
@@ -224,8 +233,10 @@ export async function getPriceList(id: number, withUsage = false): Promise<(Pric
   const db = getDb()
   const row = await readRow(db, id)
   if (!row) return null
-  const priceList = rowToPriceList(row)
-  return withUsage ? { ...priceList, usage: await priceListUsage(db, { id: priceList.id, name: priceList.name }) } : priceList
+  const [priceList] = await rowsToPriceLists(db, [row])
+  return withUsage
+    ? { ...priceList, usage: await withEmployeeLinks(db, "price_lists", { id: Number(priceList.id) }, await priceListUsage(db, { id: priceList.id, name: priceList.name })) }
+    : priceList
 }
 
 /** Price lists by id (repricing / grid helpers); missing ids are skipped. */
@@ -233,14 +244,14 @@ export async function priceListsByIds(db: PgDb, ids: number[]): Promise<PriceLis
   if (!ids.length) return []
   await ensurePriceListsSchema()
   const rows = (await db.prepare(`${SELECT} WHERE p.id = ANY(?::int[])`).all(ids)) as Row[]
-  return rows.map(rowToPriceList)
+  return rowsToPriceLists(db, rows)
 }
 
 /** Lists whose "Связанный прайс лист" is `name` (fin_key). */
 export async function dependentPriceLists(db: PgDb, name: string): Promise<PriceList[]> {
   await ensurePriceListsSchema()
   const rows = (await db.prepare(`${SELECT} WHERE fin_key(p.linked_list) = fin_key(?) ORDER BY COALESCE(p.position, 0), p.id`).all(name)) as Row[]
-  return rows.map(rowToPriceList)
+  return rowsToPriceLists(db, rows)
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +395,7 @@ export async function createPriceList(input: PriceListInput): Promise<PriceList>
       .run(fields)
     const id = Number(result.lastInsertRowid)
     await clearOtherDefaults(tx, fields, id)
-    return rowToPriceList((await readRow(tx, id))!)
+    return (await rowsToPriceLists(tx, [(await readRow(tx, id))!]))[0]
   })
 }
 
@@ -412,7 +423,7 @@ export async function updatePriceList(id: number, input: PriceListInput): Promis
       )
       .run({ ...fields, id })
     await clearOtherDefaults(tx, fields, id)
-    return { priceList: rowToPriceList((await readRow(tx, id))!), renamed }
+    return { priceList: (await rowsToPriceLists(tx, [(await readRow(tx, id))!]))[0], renamed }
   })
 }
 
@@ -425,7 +436,8 @@ export async function deletePriceList(id: number): Promise<boolean> {
     const current = await readRow(tx, id, true)
     if (!current) return false
     if (isDefaultRow(current)) throw new PriceListError(DEFAULT_DELETE, 409)
-    const usage = await priceListUsage(tx, { id: Number(current.id), name: current.name })
+    // Employees whose form lists the price list (details priceListIds / marketPriceListIds) count too.
+    const usage = await withEmployeeLinks(tx, "price_lists", { id: Number(current.id) }, await priceListUsage(tx, { id: Number(current.id), name: current.name }))
     if (usage.length) throw new PriceListError("Удаление невозможно из-за связи с другими данными", 409, undefined, usage)
     const result = await tx.prepare("DELETE FROM price_lists WHERE id = ?").run(id)
     return result.changes > 0

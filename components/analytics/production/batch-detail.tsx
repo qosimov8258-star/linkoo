@@ -278,19 +278,23 @@ function TotalRow({ value, cols }: { value: number; cols: string }) {
 
 function DefectTable({ title, rows, onDelete }: { title: string; rows: Movement[]; onDelete?: (id: number) => void }) {
   const { t } = useLanguage()
-  // Name | amount | photo (the reference lists the defect's photo in the third column).
-  const grid = onDelete ? "636px 281px minmax(0,1fr) 40px" : "636px 281px minmax(0,1fr)"
+  // Name | amount | photo (the reference lists the defect's photo in the third column) | comment of the
+  // defect line. Name and amount line up with the "Произведенные продукты" tab (454 / 182 px); on a
+  // narrower card they give way first, so the comment keeps at least 160 px.
+  const columns = "minmax(0,454px) minmax(0,182px) 72px minmax(160px,1fr)"
+  const grid = onDelete ? `${columns} 40px` : columns
   return (
     <div>
       <div className={`relative grid h-[56px] items-center font-semibold ${DOTTED}`} style={{ gridTemplateColumns: grid }}>
         <div className="pl-2">{t(title)}</div>
         <div className="pl-2">{t("Кол-во")}</div>
         <div />
+        <div className="pl-2">{t("Комментарий")}</div>
         {onDelete && <div />}
       </div>
       {rows.map((row) => (
-        <div key={row.id} title={row.comment || undefined} className={`relative grid min-h-[60px] items-center ${DOTTED}`} style={{ gridTemplateColumns: grid }}>
-          <span className="pl-[13px]">{row.name}</span>
+        <div key={row.id} className={`relative grid min-h-[60px] items-center ${DOTTED}`} style={{ gridTemplateColumns: grid }}>
+          <span className="break-words pl-[13px]">{row.name}</span>
           <span className="pl-[13px]">{formatAmount(row.amount, row.unit)}</span>
           <span>
             {row.image && (
@@ -300,6 +304,7 @@ function DefectTable({ title, rows, onDelete }: { title: string; rows: Movement[
               </a>
             )}
           </span>
+          <span className="whitespace-pre-wrap break-words py-2 pl-2">{row.comment || "-"}</span>
           {onDelete && (
             <button onClick={() => onDelete(row.id)} aria-label={t("Удалить")} className="flex h-8 w-8 items-center justify-center justify-self-end">
               <Trash2 className="h-4 w-4 text-[#5d6474]" />

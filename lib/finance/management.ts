@@ -7,6 +7,7 @@ import { nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { ensureFinanceSchema, type FinanceSchema } from "@/lib/finance/schema"
 import { stockValuesAsOf } from "@/lib/finance/stock"
+import { syncTransferValues } from "@/lib/internal-transfers-repo"
 import type { BalanceListResult, ManagementBalanceResult, ManagementBranch, ManagementLine, ManagementSection } from "@/lib/finance/types"
 
 // "Управленческий баланс по филиалам": a balance sheet per branch built on the
@@ -190,6 +191,9 @@ async function supplyExpenseBalances(db: PgDb, s: FinanceSchema, base: string, f
 }
 
 export async function getManagementBalance(params: ManagementParams, db: PgDb = getDb()): Promise<ManagementBalanceResult> {
+  // internal_transfers.amount (read by the movement SQL) follows the cost ledger: refresh it first (a no-op
+  // inside a transaction; cheap when nothing changed). A back-dated stock document can change it.
+  await syncTransferValues()
   const s = await ensureFinanceSchema(db)
   const filters = { from: params.from, to: params.to, organizations: params.organizations ?? [] }
   const [cashboxes, clients, suppliers, employees, branchRows, cc0] = await Promise.all([

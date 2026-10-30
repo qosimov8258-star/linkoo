@@ -254,10 +254,16 @@ async function computeMonth(db: PgDb, ctx: MonthContext, employees: AttendanceEm
 
 const EMPLOYEE_COLUMNS = "id, first_name, last_name, position, branch, created_at, active"
 
-/** Active employees, newest first, by name search and branch ids. */
-async function shownEmployees(db: PgDb, search: string, branchIds: number[]): Promise<AttendanceEmployee[]> {
+/** Active employees, newest first, by name search and branch ids; `employeeIds` (the reader's field
+ * scope, lib/field-activity/actor.ts) keeps only those employees (undefined = every employee). */
+async function shownEmployees(db: PgDb, search: string, branchIds: number[], employeeIds?: number[]): Promise<AttendanceEmployee[]> {
+  if (employeeIds && !employeeIds.length) return []
   const where = ["active = 1"]
   const params: Record<string, unknown> = {}
+  if (employeeIds) {
+    params.scopeIds = employeeIds
+    where.push("id = ANY(@scopeIds::int[])")
+  }
   if (branchIds.length) {
     // branches is created by lib/branches-repo.ts on first use (not in the bootstrap): a fresh
     // database without it has no branch to filter by.
@@ -279,12 +285,13 @@ async function shownEmployees(db: PgDb, search: string, branchIds: number[]): Pr
   return rows.map(toEmployee)
 }
 
-/** GET /api/work-attendance: the month matrix (month 1..12). */
-export async function listAttendance(params: { year: number; month: number; search: string; branchIds: number[] }): Promise<AttendanceMonth> {
+/** GET /api/work-attendance: the month matrix (month 1..12); `employeeIds` = the reader's field
+ * scope (undefined = every employee). */
+export async function listAttendance(params: { year: number; month: number; search: string; branchIds: number[]; employeeIds?: number[] }): Promise<AttendanceMonth> {
   await ensureAttendanceSchema()
   const db = getDb()
   const ctx = await monthContext(db, params.year, params.month)
-  const employees = await shownEmployees(db, params.search, params.branchIds)
+  const employees = await shownEmployees(db, params.search, params.branchIds, params.employeeIds)
   const days = await computeMonth(db, ctx, employees)
   const users: AttendanceUser[] = employees.map((employee) => {
     const dates = [...(days.get(employee.id)?.values() ?? [])].sort((a, b) => a.date.localeCompare(b.date))

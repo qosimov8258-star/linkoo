@@ -63,7 +63,7 @@ export function MarketingCampaignsView() {
   const addPromo = async () => {
     const name = form.name.trim();
     if (!name || !form.start || !form.end) return;
-    await create({
+    const created = await create({
       name,
       start: form.start,
       end: form.end,
@@ -71,6 +71,8 @@ export function MarketingCampaignsView() {
       active: form.active,
       config: form.config,
     } as Omit<Promo, "id">);
+    // Refused by the server (its reason is shown in the app alert): keep the form and what was typed.
+    if (!created) return;
     setAddOpen(false);
     setForm(emptyPromoForm());
   };

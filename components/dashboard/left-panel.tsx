@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { SelectField } from "./select-field"
 import { CARD_CLASS } from "./stat-cards"
 import { MONTHS_NOMINATIVE } from "@/lib/dashboard-date-range"
@@ -10,6 +11,7 @@ import { notify } from "@/lib/notify"
 const subTabs = ["Сегодня", "За месяц", "Своя"]
 const TAB_PERIOD: Record<string, string> = { "Сегодня": "today", "За месяц": "month", "Своя": "ownDate" }
 const YEARS = Array.from({ length: 11 }, (_, index) => String(2016 + index))
+const RECALC_PERMISSION = ["settings.manage"] as const
 
 export function LeftPanel({
   month,
@@ -26,6 +28,8 @@ export function LeftPanel({
   const [activeTab, setActiveTab] = useState("Своя")
   const [recalculating, setRecalculating] = useState(false)
   const [loading, setLoading] = useState(false)
+  /** "Перерасчет" changes Посещаемость: settings.manage on the server (POST /api/work-attendance/recalc), hidden otherwise. */
+  const canRecalc = useCanManage(RECALC_PERMISSION)
 
   // the reference app loads the picked tab and mirrors it in the address bar as ?period=
   function selectTab(tab: string) {
@@ -48,7 +52,7 @@ export function LeftPanel({
   // month 1..12), then the attendance tiles reload.
   async function handleRecalc() {
     const monthIndex = MONTHS_NOMINATIVE.indexOf(month)
-    if (monthIndex < 0 || recalculating) return
+    if (!canRecalc || monthIndex < 0 || recalculating) return
     setRecalculating(true)
     try {
       const response = await fetch("/api/work-attendance/recalc", {
@@ -92,6 +96,7 @@ export function LeftPanel({
         </div>
         <div className="mt-[18px] mr-[8px] flex items-end justify-end gap-[10px]">
           <span className="text-[13px] font-semibold leading-[16.25px]">{t("данные за")}</span>
+          {canRecalc && (
           <button
             type="button"
             onClick={handleRecalc}
@@ -103,6 +108,7 @@ export function LeftPanel({
             </svg>
             <span className="pl-2 pr-4">{t("Перерасчет")}</span>
           </button>
+          )}
         </div>
       </div>
       )}

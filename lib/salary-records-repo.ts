@@ -1,7 +1,9 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction } from "@/lib/db"
 import { getEmployee } from "@/lib/employees-repo"
+import { loadCurrencyContext } from "@/lib/finance/context"
+import { normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
 
 /**
@@ -50,48 +52,78 @@ type Row = {
   indicators: string
 }
 
-async function ensureSchema(db: ReturnType<typeof getDb>) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS salary_records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      first_name TEXT NOT NULL DEFAULT '',
-      second_name TEXT NOT NULL DEFAULT '',
-      position TEXT NOT NULL DEFAULT '',
-      phone TEXT,
-      month INTEGER NOT NULL,
-      year INTEGER NOT NULL,
-      salary DOUBLE PRECISION NOT NULL DEFAULT 0,
-      currency TEXT NOT NULL DEFAULT 'SUM',
-      currencies TEXT NOT NULL DEFAULT '[]',
-      total_bonus DOUBLE PRECISION NOT NULL DEFAULT 0,
-      total_salary DOUBLE PRECISION NOT NULL DEFAULT 0,
-      is_approved INTEGER NOT NULL DEFAULT 0,
-      indicators TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE (user_id, month, year)
-    );
-  `)
-  await db.exec(`CREATE TABLE IF NOT EXISTS salary_last_dates (month INTEGER NOT NULL, year INTEGER NOT NULL, last_date TEXT, PRIMARY KEY (month, year))`)
-  // The employee-balance transactions made by "Зачислить" (type monthly = the salary, performance_bonus = the KPI bonus); the finance
-  // ledger ("Баланс сотрудников", reports) reads them. Dated with the last day of the record's month, like the reference.
-  await db.exec(
-    `CREATE TABLE IF NOT EXISTS salary_credits (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL, type TEXT NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'SUM', amount DOUBLE PRECISION NOT NULL DEFAULT 0, created_date TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '')`,
-  )
-  // KPI statistics of the "Скачать EXCEL" sheet (the reference computes them from orders; here they are stored per month).
-  await db.exec(`CREATE TABLE IF NOT EXISTS salary_kpi_columns (month INTEGER NOT NULL, year INTEGER NOT NULL, pos INTEGER NOT NULL, name TEXT NOT NULL, PRIMARY KEY (month, year, pos))`)
-  await db.exec(
-    `CREATE TABLE IF NOT EXISTS salary_kpi_rows (user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL, work_days INTEGER, worked_days INTEGER, PRIMARY KEY (user_id, month, year))`,
-  )
-  await db.exec(
-    `CREATE TABLE IF NOT EXISTS salary_kpi_facts (
-      user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL, kpi_name TEXT NOT NULL,
-      plan DOUBLE PRECISION, sale DOUBLE PRECISION, returns DOUBLE PRECISION, fact DOUBLE PRECISION, percent DOUBLE PRECISION, level DOUBLE PRECISION, bonus DOUBLE PRECISION,
-      PRIMARY KEY (user_id, month, year, kpi_name))`,
-  )
+const SCHEMA_VERSION = 2
+
+declare global {
+  var __linkoSalaryRecordsSchema: { version: number; ready: Promise<void> } | undefined
+}
+
+/** salary_records / salary_last_dates / salary_credits, once per process and outside any request transaction. */
+function ensureSchema(): Promise<void> {
+  if (globalThis.__linkoSalaryRecordsSchema?.version !== SCHEMA_VERSION) {
+    const ready = outsideTransaction(() =>
+      withTransaction(async (tx) => {
+        await tx.exec("SELECT pg_advisory_xact_lock(hashtext('linko:salary_records:schema'))")
+        // The currency of a record is a code of Валюты (the base currency when none is chosen), always written by the code.
+        await tx.exec(`
+          CREATE TABLE IF NOT EXISTS salary_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            first_name TEXT NOT NULL DEFAULT '',
+            second_name TEXT NOT NULL DEFAULT '',
+            position TEXT NOT NULL DEFAULT '',
+            phone TEXT,
+            month INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            salary DOUBLE PRECISION NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT '',
+            currencies TEXT NOT NULL DEFAULT '[]',
+            total_bonus DOUBLE PRECISION NOT NULL DEFAULT 0,
+            total_salary DOUBLE PRECISION NOT NULL DEFAULT 0,
+            is_approved INTEGER NOT NULL DEFAULT 0,
+            indicators TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (user_id, month, year)
+          );
+        `)
+        await tx.exec(`CREATE TABLE IF NOT EXISTS salary_last_dates (month INTEGER NOT NULL, year INTEGER NOT NULL, last_date TEXT, PRIMARY KEY (month, year))`)
+        // The employee-balance transactions made by "Зачислить" (type monthly = the salary, performance_bonus = the KPI bonus); the finance
+        // ledger ("Баланс сотрудников", reports) reads them. Dated with the last day of the record's month, like the reference.
+        await tx.exec(
+          `CREATE TABLE IF NOT EXISTS salary_credits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL, type TEXT NOT NULL,
+            currency TEXT NOT NULL DEFAULT '', amount DOUBLE PRECISION NOT NULL DEFAULT 0, created_date TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '')`,
+        )
+      }),
+    ).catch((error: unknown) => {
+      globalThis.__linkoSalaryRecordsSchema = undefined
+      throw error
+    })
+    globalThis.__linkoSalaryRecordsSchema = { version: SCHEMA_VERSION, ready }
+  }
+  return globalThis.__linkoSalaryRecordsSchema!.ready
+}
+
+/** Wrong input of a salary write (answered 400 with this Russian i18n key). */
+export class SalaryInputError extends Error {}
+
+/** The currency of a salary: a currency of Валюты given by its code or name ("USD", "AQSh dollari"), stored as its code;
+ * the base currency when none is given. An unknown currency is refused. */
+async function salaryCurrency(db: ReturnType<typeof getDb>, value: string): Promise<string> {
+  const context = await loadCurrencyContext(db)
+  const text = value.normalize("NFC").trim()
+  if (!text) return context.base
+  const code = normCurrency(text, context.base)
+  const name = text.toLocaleLowerCase("ru")
+  const found = context.currencies.find((currency) => currency.code === code || currency.name.normalize("NFC").trim().toLocaleLowerCase("ru") === name)
+  if (!found) throw new SalaryInputError("Неизвестная валюта")
+  return found.code
+}
+
+/** The base currency of Валюты (the currency of a record created without a salary). */
+async function baseCurrencyCode(db: ReturnType<typeof getDb>): Promise<string> {
+  return (await loadCurrencyContext(db)).base
 }
 
 function parseJson<T>(text: string, fallback: T): T {
@@ -141,8 +173,8 @@ function totals(salary: number, currency: string, currencies: SalaryCurrencyTota
 export type SalaryListParams = { month: number; year: number; tab: "all" | "true" | "false"; search?: string; page?: number; pageSize?: number }
 
 export async function listSalaryRecords(params: SalaryListParams): Promise<{ count: number; results: SalaryRecord[]; lastDate: string | null }> {
+  await ensureSchema()
   const db = getDb()
-  await ensureSchema(db)
   const rows = (await db
     .prepare("SELECT * FROM salary_records WHERE month = ? AND year = ? ORDER BY id ASC")
     .all(params.month, params.year)) as Row[]
@@ -159,8 +191,8 @@ export async function listSalaryRecords(params: SalaryListParams): Promise<{ cou
 
 /** Every record of the month (the Excel export / copy need the whole month, not one page). */
 export async function allSalaryRecords(month: number, year: number): Promise<SalaryRecord[]> {
+  await ensureSchema()
   const db = getDb()
-  await ensureSchema(db)
   return ((await db.prepare("SELECT * FROM salary_records WHERE month = ? AND year = ? ORDER BY id ASC").all(month, year)) as Row[]).map(rowToRecord)
 }
 
@@ -191,9 +223,9 @@ async function touchLastDate(db: ReturnType<typeof getDb>, month: number, year: 
 
 /** Creates (or updates the salary of) the employees' records for the month. */
 export async function setSalaries(month: number, year: number, currency: string, entries: Array<{ userId: number; salary: number }>): Promise<number> {
+  await ensureSchema()
   const db = getDb()
-  await ensureSchema(db)
-  const cur = currency || "SUM"
+  const cur = await salaryCurrency(db, currency)
   let done = 0
   for (const entry of entries) {
     const existing = await findRow(db, entry.userId, month, year)
@@ -229,26 +261,34 @@ function creditDate(month: number, year: number) {
 
 /** "Зачислить" writes the salary and the KPI bonus of the record to the employee's balance, "Отменить зачисление" removes them. */
 export async function setApproved(month: number, year: number, userIds: number[], approved: boolean): Promise<number> {
-  const db = getDb()
-  await ensureSchema(db)
-  let done = 0
-  for (const userId of userIds) {
-    const existing = await findRow(db, userId, month, year)
-    if (!existing) continue
-    const result = await db
-      .prepare("UPDATE salary_records SET is_approved = ?, updated_at = datetime('now') WHERE user_id = ? AND month = ? AND year = ?")
-      .run(approved ? 1 : 0, userId, month, year)
-    done += result.changes
-    if (approved === (existing.is_approved === 1)) continue
-    await db.prepare("DELETE FROM salary_credits WHERE user_id = ? AND month = ? AND year = ?").run(userId, month, year)
-    if (!approved) continue
-    const record = rowToRecord(existing)
-    const date = creditDate(month, year)
-    const insert = db.prepare("INSERT INTO salary_credits (user_id, month, year, type, currency, amount, created_date, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    if (record.salary) await insert.run(userId, month, year, "monthly", record.currency, record.salary, date, "Зарплата")
-    for (const item of record.currencies) if (item.totalBonus) await insert.run(userId, month, year, "performance_bonus", item.name, item.totalBonus, date, "КПИ")
-  }
-  return done
+  await ensureSchema()
+  const ids = [...new Set(userIds)].sort((a, b) => a - b)
+  if (!ids.length) return 0
+  // One transaction, the month's records locked in user order: a parallel "Зачислить" (a double click, a second tab)
+  // waits for this one and then sees the record already approved, so the credits are never written twice; a failure
+  // leaves no record approved without its credits.
+  return withTransaction(async (db) => {
+    const rows = (await db
+      .prepare("SELECT * FROM salary_records WHERE month = ? AND year = ? AND user_id = ANY(?::int[]) ORDER BY user_id FOR UPDATE")
+      .all(month, year, ids)) as Row[]
+    let done = 0
+    for (const existing of rows) {
+      const userId = existing.user_id
+      const result = await db
+        .prepare("UPDATE salary_records SET is_approved = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(approved ? 1 : 0, existing.id)
+      done += result.changes
+      if (approved === (existing.is_approved === 1)) continue
+      await db.prepare("DELETE FROM salary_credits WHERE user_id = ? AND month = ? AND year = ?").run(userId, month, year)
+      if (!approved) continue
+      const record = rowToRecord(existing)
+      const date = creditDate(month, year)
+      const insert = db.prepare("INSERT INTO salary_credits (user_id, month, year, type, currency, amount, created_date, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      if (record.salary) await insert.run(userId, month, year, "monthly", record.currency, record.salary, date, "Зарплата")
+      for (const item of record.currencies) if (item.totalBonus) await insert.run(userId, month, year, "performance_bonus", item.name, item.totalBonus, date, "КПИ")
+    }
+    return done
+  })
 }
 
 /** "Установить KPI": replaces the KPI plans of the employees (a plan of 0/empty drops the KPI). Missing records are created. */
@@ -257,8 +297,8 @@ export async function setPlans(
   year: number,
   users: Array<{ userId: number; plans: Array<{ id: number; name: string; planType: string; plan: number }> }>,
 ): Promise<number> {
+  await ensureSchema()
   const db = getDb()
-  await ensureSchema(db)
   let done = 0
   for (const user of users) {
     const indicators: SalaryIndicator[] = user.plans.filter((item) => item.plan > 0).map((item) => ({ id: item.id, name: item.name, plan: item.plan, planType: item.planType }))
@@ -270,13 +310,14 @@ export async function setPlans(
     }
     const info = await userInfo(user.userId)
     if (!info) continue
-    const t = totals(0, "SUM", [])
+    const base = await baseCurrencyCode(db)
+    const t = totals(0, base, [])
     await db
       .prepare(
         `INSERT INTO salary_records (user_id, first_name, second_name, position, phone, month, year, salary, currency, currencies, total_bonus, total_salary, indicators)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'SUM', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
       )
-      .run(user.userId, info.first, info.second, info.position, info.phone, month, year, JSON.stringify(t.currencies), t.totalBonus, t.totalSalary, JSON.stringify(indicators))
+      .run(user.userId, info.first, info.second, info.position, info.phone, month, year, base, JSON.stringify(t.currencies), t.totalBonus, t.totalSalary, JSON.stringify(indicators))
     done += 1
   }
   if (done) await touchLastDate(db, month, year)
@@ -290,8 +331,8 @@ export async function copyMonth(
   userIds: number[],
   options: { copyKpi: boolean; copySalary: boolean },
 ): Promise<number> {
+  await ensureSchema()
   const db = getDb()
-  await ensureSchema(db)
   const source = (await allSalaryRecords(from.month, from.year)).filter((record) => !userIds.length || userIds.includes(record.userId))
   let done = 0
   for (const record of source) {
@@ -307,7 +348,7 @@ export async function copyMonth(
         .run(salary, currency, JSON.stringify(indicators), JSON.stringify(t.currencies), t.totalBonus, t.totalSalary, existing.id)
     } else {
       const salary = options.copySalary ? record.salary : 0
-      const currency = options.copySalary ? record.currency : "SUM"
+      const currency = options.copySalary ? record.currency : await baseCurrencyCode(db)
       const t = totals(salary, currency, [])
       await db
         .prepare(
@@ -338,8 +379,8 @@ export async function copyMonth(
 
 /** "Перерасчет KPI": re-derives the totals of the month and stamps the "ДАННЫЕ ЗА" date. */
 export async function recalculate(month: number, year: number): Promise<number> {
+  await ensureSchema()
   const db = getDb()
-  await ensureSchema(db)
   const records = await allSalaryRecords(month, year)
   for (const record of records) {
     const t = totals(record.salary, record.currency, record.currencies)
@@ -357,20 +398,10 @@ export type SalaryKpiStats = {
   rows: Record<number, { workDays: number | null; workedDays: number | null; facts: Record<string, Array<number | null>> }>
 }
 
+/** No KPI statistics are stored for this company yet, so the sheet carries the salary columns only. (The reference
+ * account's monthly statistics that the removed demo scripts wrote into salary_kpi_columns / _rows / _facts are not read.) */
 export async function salaryKpiStats(month: number, year: number): Promise<SalaryKpiStats> {
-  const db = getDb()
-  await ensureSchema(db)
-  const columns = (await db.prepare("SELECT name FROM salary_kpi_columns WHERE month = ? AND year = ? ORDER BY pos ASC").all(month, year)) as Array<{ name: string }>
-  const rows = (await db.prepare("SELECT user_id, work_days, worked_days FROM salary_kpi_rows WHERE month = ? AND year = ?").all(month, year)) as Array<{ user_id: number; work_days: number | null; worked_days: number | null }>
-  const facts = (await db
-    .prepare("SELECT user_id, kpi_name, plan, sale, returns, fact, percent, level, bonus FROM salary_kpi_facts WHERE month = ? AND year = ?")
-    .all(month, year)) as Array<{ user_id: number; kpi_name: string; plan: number | null; sale: number | null; returns: number | null; fact: number | null; percent: number | null; level: number | null; bonus: number | null }>
-  const num = (value: number | string | null) => (value === null ? null : Number(value))
-  const result: SalaryKpiStats = { columns: columns.map((item) => item.name), rows: {} }
-  for (const row of rows) result.rows[row.user_id] = { workDays: row.work_days, workedDays: row.worked_days, facts: {} }
-  for (const fact of facts) {
-    const entry = (result.rows[fact.user_id] ??= { workDays: null, workedDays: null, facts: {} })
-    entry.facts[fact.kpi_name] = [fact.plan, fact.sale, fact.returns, fact.fact, fact.percent, fact.level, fact.bonus].map(num)
-  }
-  return result
+  void month
+  void year
+  return { columns: [], rows: {} }
 }

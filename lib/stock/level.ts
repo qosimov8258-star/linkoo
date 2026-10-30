@@ -57,9 +57,7 @@ async function loadContext(db: PgDb): Promise<Context> {
   const tables = await stockTables(db)
   const [catalog, itemCosts] = await Promise.all([loadStockCatalog(db, tables), getWarehouseItemCosts({}, db)])
   const { costs, byWarehouse, costOf: costIn } = itemCosts
-  const [rawBalances, pending, cc] = await Promise.all([computeStockBalances({}, db, catalog, costs, byWarehouse), computeStockPending({}, db), loadCurrencyContext(db)])
-  // The reference's "Остаток" never flags production defects separately (Брак is always 0 there and they stay in the total).
-  const balances = rawBalances.map((row) => ({ ...row, defects: 0 }))
+  const [balances, pending, cc] = await Promise.all([computeStockBalances({}, db, catalog, costs, byWarehouse), computeStockPending({}, db), loadCurrencyContext(db)])
   const branchOf = new Map<string, string>()
   if (tables.has("warehouses")) {
     const rows = (await db.prepare("SELECT name, branch FROM warehouses ORDER BY id").all()) as Array<{ name: string; branch: string | null }>

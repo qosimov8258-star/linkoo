@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
+import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
 import {
   AddLink,
   ConfirmDeleteDialog,
@@ -17,13 +19,15 @@ import {
   useListControls,
   usePaged,
 } from "@/components/analytics/settings-list-kit"
+import { importKey, postJson, repeatedInFile, type PreparedRow } from "@/lib/excel-row-import"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
 
 // "Должности" (demo #/post, Settings → Персонал; API main/jobs/): Id | Наименование | Дата создания,
 // newest first, Id and Дата создания sortable (multi-key like the demo's ?ordering=id,created_date),
-// ✎ / 🗑 appear on row hover. Dialog = one required field "Наименование".
+// ✎ / 🗑 appear on row hover. Dialog = one required field "Наименование". "Импорт с Excel" (ours, not in the
+// demo) creates the positions of a file through POST /api/job-positions (lib/excel-row-import.ts).
 
 type Position = { id: number; name: string; date: string; createdAt: string }
 
@@ -81,6 +85,8 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
   const [dialog, setDialog] = useState<{ position: Position | null } | null>(null)
   const [deleting, setDeleting] = useState<Position | null>(null)
   const [ordering, setOrdering] = useState<string[]>([])
+  const [importOpen, setImportOpen] = useState(false)
+  const canImport = useCanManage(["settings.manage"])
   const controls = useListControls()
 
   const load = useCallback(async () => {
@@ -101,6 +107,18 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
     created_date: (position) => position.createdAt,
   })
   const paged = usePaged(filtered, controls.page, controls.pageSize)
+
+  const importSpec: ExcelImportSpec<{ name: string }> = {
+    templateName: "positions-template",
+    columns: [{ field: "name", header: "Наименование", aliases: ["Название", "Должность", "Position", "Name"] }],
+    keyField: "name",
+    prepare: async (records) => {
+      const rows: PreparedRow<{ name: string }>[] = records.map((record) => ({ line: record.line, label: record.values.name, item: { name: record.values.name } }))
+      return { rows, errors: repeatedInFile(rows, (row) => importKey(row.item.name)) }
+    },
+    send: (item) => postJson("/api/job-positions", item),
+    fallbackError: "Не удалось создать должность",
+  }
 
   async function remove(position: Position) {
     let response: Response
@@ -124,7 +142,12 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
   const body = (
     <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <SettingsToolbar
-        left={<AddLink onClick={() => setDialog({ position: null })}>{t("добавить должность")}</AddLink>}
+        left={
+          <>
+            <AddLink onClick={() => setDialog({ position: null })}>{t("добавить должность")}</AddLink>
+            {canImport && <ExcelImportLink className="h-[36px] pt-[3px] leading-[36px]" onClick={() => setImportOpen(true)} />}
+          </>
+        }
         query={controls.query}
         onQuery={controls.setQuery}
         pager={{
@@ -161,6 +184,17 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         />
       )}
       {deleting && <ConfirmDeleteDialog name={deleting.name} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={importSpec}
+          onClose={() => setImportOpen(false)}
+          onChanged={() => void load()}
+          onDone={(summary) => {
+            setImportOpen(false)
+            notify(summary)
+          }}
+        />
+      )}
     </section>
   )
   return embedded ? body : <main className="min-h-[calc(100vh-4rem)] bg-white">{body}</main>

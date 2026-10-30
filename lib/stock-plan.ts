@@ -214,7 +214,9 @@ const SORTS: Record<string, string> = {
 
 function orderBy(ordering: string): string {
   const desc = ordering.startsWith("-")
-  const expr = SORTS[desc ? ordering.slice(1) : ordering]
+  // Own keys only: "constructor" / "toString" must not reach the SQL through the prototype.
+  const name = desc ? ordering.slice(1) : ordering
+  const expr = Object.hasOwn(SORTS, name) ? SORTS[name] : undefined
   const tail = "x.date_ts DESC NULLS LAST, x.type, x.id DESC"
   return expr ? `${expr} ${desc ? "DESC" : "ASC"} NULLS LAST, ${tail}` : tail
 }

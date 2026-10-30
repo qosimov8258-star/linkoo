@@ -3,15 +3,18 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 
 import { LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
-import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { CashSnackbar, useCanManage, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { DictionaryDeleteDialog } from "@/components/analytics/dictionaries-shared"
+import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
 import { AddLink, EmptyRows, RowActions, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { importKey, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Тип отказа" (demo #/type-failure, Settings → Тип отказа; API market/rejection_type/).
 // "+ добавить", search, paginator and the grid № | Наименование | Решение (newest first) with
 // hover ✎ / 🗑; the dialog has Название тип отказа ★ and Решение ★, delete asks for confirmation.
+// "Импорт с Excel" (ours, not in the demo): Наименование + Решение per row through POST /api/refusal-types.
 
 type RefusalType = { id: number; name: string; resolution: string }
 
@@ -33,6 +36,8 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<RefusalType | null>(null)
   const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const canImport = useCanManage(["clients.manage"])
   const closeNotice = useCallback(() => setNotice(null), [])
 
   const load = useCallback(() => {
@@ -56,6 +61,29 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
   const lastPage = Math.max(1, Math.ceil(rows.length / paging.pageSize))
   const page = Math.min(paging.page, lastPage)
   const pageRows = rows.slice((page - 1) * paging.pageSize, page * paging.pageSize)
+
+  type ImportItem = { name: string; resolution: string }
+  const importSpec: ExcelImportSpec<ImportItem> = {
+    templateName: "refusal-types-template",
+    columns: [
+      { field: "name", header: "Наименование", aliases: ["Название", "Название тип отказа", "Тип отказа", "Name"] },
+      { field: "resolution", header: "Решение", aliases: ["Resolution"] },
+    ],
+    keyField: "name",
+    prepare: async (records) => {
+      const rows: PreparedRow<ImportItem>[] = []
+      const errors: ImportRowError[] = []
+      for (const { line, values } of records) {
+        // Both fields are required, like the dialog (Название тип отказа ★, Решение ★).
+        if (!values.name) errors.push({ line, label: t("Наименование"), message: "Обязательное поле" })
+        else if (!values.resolution) errors.push({ line, label: `${values.name}, ${t("Решение")}`, message: "Обязательное поле" })
+        else rows.push({ line, label: values.name, item: { name: values.name, resolution: values.resolution } })
+      }
+      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+    },
+    send: (item) => postJson(API, item),
+    fallbackError: "Не удалось сохранить тип отказа",
+  }
 
   function open(item?: RefusalType) {
     setEditing(item ?? { id: 0, name: "", resolution: "" })
@@ -103,7 +131,14 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
 
       <section className={embedded ? "bg-white text-[13px] text-[#333]" : "overflow-hidden rounded bg-white text-[13px] text-[#333] shadow"}>
         <SettingsToolbar
-          left={canEdit ? <AddLink onClick={() => open()}>{t("добавить")}</AddLink> : undefined}
+          left={
+            canEdit || canImport ? (
+              <>
+                {canEdit && <AddLink onClick={() => open()}>{t("добавить")}</AddLink>}
+                {canImport && <ExcelImportLink className="h-[36px] pt-[3px] leading-[36px]" onClick={() => setImportOpen(true)} />}
+              </>
+            ) : undefined
+          }
           query={query}
           onQuery={(value) => {
             setQuery(value)
@@ -172,6 +207,18 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
             load()
           }}
           onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={importSpec}
+          onClose={() => setImportOpen(false)}
+          onChanged={load}
+          onDone={(summary) => {
+            setImportOpen(false)
+            setNotice({ text: summary, tone: "success" })
+          }}
         />
       )}
 

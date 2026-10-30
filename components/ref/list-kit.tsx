@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, isValidElement, useMemo, useState, type ReactNode } from "react"
+import { Fragment, isValidElement, useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { usePathname } from "next/navigation"
@@ -920,6 +920,16 @@ export function RefImportDialog({
   bigTitle?: boolean
 }) {
   const { t } = useLanguage()
+  // Escape closes the dialog (not while saving: the caller would lose which rows were saved).
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented || saving) return
+      event.preventDefault()
+      onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose, saving])
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/[0.54] p-4" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" className={`w-[400px] max-w-full bg-white ${bigTitle ? "shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)]" : "shadow-[0_10px_30px_rgba(0,0,0,0.3)]"}`}>
@@ -936,7 +946,17 @@ export function RefImportDialog({
               1. {t("Скачать шаблон")}
             </button>
             <label className={`mt-[5px] flex h-[200px] w-[302px] cursor-pointer flex-col items-center justify-center gap-1 border-2 border-dashed border-[#efefef] text-[13px] text-[#333] ${bigTitle ? "ml-[20px] pt-[2px]" : "ml-[19px]"}`}>
-              <input type="file" accept=".csv,.xls,.xlsx" className="hidden" onChange={(event) => onFile(event.target.files?.[0] ?? null)} />
+              <input
+                type="file"
+                accept=".csv,.xls,.xlsx"
+                className="hidden"
+                onChange={(event) => {
+                  const picked = event.target.files?.[0] ?? null
+                  // Cleared at once, so the same (corrected) file can be picked again and still fires a change.
+                  event.target.value = ""
+                  if (picked) onFile(picked)
+                }}
+              />
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z" /></svg>
               <span>{file ? file.name : t("Добавьте файл Excel или нажмите для выбора")}</span>
             </label>

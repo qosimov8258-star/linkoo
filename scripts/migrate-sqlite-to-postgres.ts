@@ -53,7 +53,7 @@ const TABLE_DDL: Record<string, string> = {
     payment_type TEXT NOT NULL DEFAULT 'Банковский счет', contract_number TEXT NOT NULL DEFAULT '', amount REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'принят', invoice_number TEXT NOT NULL DEFAULT '', organization TEXT NOT NULL DEFAULT '',
     branch TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT 'Не указан', email TEXT NOT NULL DEFAULT 'Не указан',
-    initiator TEXT NOT NULL DEFAULT 'Admin Ritm', paid REAL NOT NULL DEFAULT 0, time TEXT NOT NULL DEFAULT '',
+    initiator TEXT NOT NULL DEFAULT '', paid REAL NOT NULL DEFAULT 0, time TEXT NOT NULL DEFAULT '',
     comment TEXT NOT NULL DEFAULT '', items TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
   clients: `CREATE TABLE IF NOT EXISTS clients (
@@ -64,7 +64,7 @@ const TABLE_DDL: Record<string, string> = {
   orders: `CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY, client TEXT NOT NULL, zone TEXT NOT NULL DEFAULT '', type TEXT NOT NULL DEFAULT '',
     product TEXT NOT NULL DEFAULT '', created TEXT NOT NULL DEFAULT '', delivery TEXT NOT NULL DEFAULT '',
-    agent TEXT NOT NULL DEFAULT 'Admin Ritm', amount TEXT NOT NULL DEFAULT '0 SUM', balance TEXT NOT NULL DEFAULT '0 SUM',
+    agent TEXT NOT NULL DEFAULT '', amount TEXT NOT NULL DEFAULT '0 SUM', balance TEXT NOT NULL DEFAULT '0 SUM',
     negative INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'Есть на складе', discount TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
   products: `CREATE TABLE IF NOT EXISTS products (

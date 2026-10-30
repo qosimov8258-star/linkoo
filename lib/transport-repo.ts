@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction } from "@/lib/db"
 
 // Reference "Транспорт" (main/transport/): model, number, driver, capacity (Объем, л),
 // load_limit (Грузоподъёмность, кг) and an optional branch.
@@ -25,47 +25,63 @@ type Row = {
   branch_name: string | null
 }
 
-const SEED = [
-  { id: 1, model: "ISUZI", number: "01|M 079 AA", driver: "Jon Jones", capacity: 12, load_limit: 520, branch_id: null },
-  { id: 2, model: "Fura", number: "01| Z 777 ZZ", driver: "Shoh oka", capacity: 20000, load_limit: 5000, branch_id: 6 },
-  { id: 3, model: "volvo", number: "01A777AA", driver: "shafyor", capacity: 30000, load_limit: 5000, branch_id: null },
-  { id: 4, model: "mercedes", number: "01n001nn", driver: "rizo", capacity: 60000, load_limit: 30000, branch_id: null },
-  { id: 5, model: "Газель", number: "01 F 567 JH", driver: "Никита", capacity: 500, load_limit: 50, branch_id: 33 },
-  { id: 6, model: "Ehrh", number: "1234", driver: "Shsh", capacity: 6, load_limit: 5, branch_id: 6 },
-  { id: 7, model: "malibu 2", number: "01|AAA777", driver: "jumanazar", capacity: 2000, load_limit: 60, branch_id: null },
+// "Транспорт" is this company's own: a fresh database starts without any vehicle. An older build seeded the
+// reference account's seven vehicles into a new table; those rows are removed only while they are exactly that
+// seed and were never edited (updated_at = created_at). Each seeded vehicle is matched by the SHA-256 fingerprint
+// of all its fields (id, model, number, driver, capacity, load limit, branch id, joined by U+001F), so the other
+// company's vehicles and drivers are not kept in the code. A vehicle the company added or edited is never touched.
+// Data only — nothing is inserted.
+const LEGACY_SEED_FINGERPRINTS = [
+  "d612960c64d04d20503568cbbe8bc35ba2c567d1d1242e7fa3efc28ab59ff0e1",
+  "f389e126b50602fa1032c58e554e6e5936e5b32bbe21ec28917700f04359270f",
+  "fae73481b57d092a847a0b7e410fcaa0354c9051f12c577106777f2cb6363a14",
+  "9468ce0f04e8ebe6db2a7570f59b4b24c8067f0860df800b8b0338843be4e082",
+  "7a8a6ef969fcc0c599f09e1d50b11f045284dbce5bf7ee31fe8ba19777cdc9c8",
+  "19d3585e1209f09bf7af20e7bd3e43df74bbf132821140c6b1cce78ab87792f0",
+  "13d8f36474751deb9c3023153c48db93d489cb4bfb408624302440f9508765b6",
 ]
 
-let ready: Promise<void> | null = null
+const SCHEMA_VERSION = 3
 
-async function ensureSchema() {
-  ready ??= (async () => {
-    const db = getDb()
-    const existing = (await db.prepare("SELECT to_regclass('transports') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS transports (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        model TEXT NOT NULL,
-        number TEXT NOT NULL DEFAULT '',
-        driver TEXT NOT NULL DEFAULT '',
-        capacity DOUBLE PRECISION NOT NULL DEFAULT 0,
-        load_limit DOUBLE PRECISION NOT NULL DEFAULT 0,
-        branch_id INTEGER,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-    `)
-    if (existing?.ok) return
-    for (const row of SEED) {
-      await db
-        .prepare("INSERT INTO transports (id, model, number, driver, capacity, load_limit, branch_id) VALUES (@id, @model, @number, @driver, @capacity, @load_limit, @branch_id)")
-        .run(row)
-    }
-    await db.exec("SELECT setval(pg_get_serial_sequence('transports', 'id'), (SELECT MAX(id) FROM transports))")
-  })().catch((error) => {
-    ready = null
-    throw error
-  })
-  return ready
+declare global {
+  var __linkoTransportSchema: { version: number; ready: Promise<void> } | undefined
+}
+
+/** The transports table, once per process and outside any request transaction. */
+function ensureSchema(): Promise<void> {
+  if (globalThis.__linkoTransportSchema?.version !== SCHEMA_VERSION) {
+    const ready = outsideTransaction(() =>
+      withTransaction(async (tx) => {
+        await tx.exec("SELECT pg_advisory_xact_lock(hashtext('linko:transports:schema'))")
+        await tx.exec(`
+          CREATE TABLE IF NOT EXISTS transports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model TEXT NOT NULL,
+            number TEXT NOT NULL DEFAULT '',
+            driver TEXT NOT NULL DEFAULT '',
+            capacity DOUBLE PRECISION NOT NULL DEFAULT 0,
+            load_limit DOUBLE PRECISION NOT NULL DEFAULT 0,
+            branch_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+        `)
+        await tx
+          .prepare(
+            `DELETE FROM transports t
+              WHERE t.updated_at = t.created_at
+                AND encode(sha256(convert_to(concat_ws(chr(31), t.id::text, t.model, t.number, t.driver, t.capacity::float8::text,
+                      t.load_limit::float8::text, COALESCE(t.branch_id::text, '')), 'UTF8')), 'hex') = ANY(@seed::text[])`,
+          )
+          .run({ seed: LEGACY_SEED_FINGERPRINTS })
+      }),
+    ).catch((error: unknown) => {
+      globalThis.__linkoTransportSchema = undefined
+      throw error
+    })
+    globalThis.__linkoTransportSchema = { version: SCHEMA_VERSION, ready }
+  }
+  return globalThis.__linkoTransportSchema!.ready
 }
 
 const SELECT = `SELECT t.id, t.model, t.number, t.driver, t.capacity, t.load_limit, t.branch_id, b.name AS branch_name

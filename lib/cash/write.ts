@@ -3,11 +3,12 @@ import "server-only"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import type { CurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
-import { customerPaymentColumns, insertCustomerPayment, russianDateTime, type CustomerPaymentValues } from "@/lib/finance/customer-payment"
+import { customerPaymentColumns, insertCustomerPayment, lockClientPayments, russianDateTime, type CustomerPaymentValues } from "@/lib/finance/customer-payment"
 import { nowLocalIso } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import {
   assertCashbackAvailable,
+  cashboxCashier,
   CashError,
   currencyContext,
   findClientByName,
@@ -41,7 +42,7 @@ import {
 } from "@/lib/cash/common"
 import { detachPaymentTx, liveAcceptanceAmount } from "@/lib/cash/accept"
 import { guardCashboxBalances } from "@/lib/cash/guard"
-import { allocatedOrderDue } from "@/lib/cash/orders"
+import { allocatedOrderDue, lockOrderPayments } from "@/lib/cash/orders"
 import { claimFundRequest, lockFundRequest, releaseFundRequest } from "@/lib/cash/request-links"
 import { ensureCashSchema, ensureSupplyExpenseLink } from "@/lib/cash/schema"
 import {
@@ -55,6 +56,8 @@ import {
   type CashWriteResult,
   type CategoryOptionKey,
 } from "@/lib/cash/types"
+import { notifySafely } from "@/lib/notify-event"
+import { ensureUserNotificationsSchema, notifyTemplate } from "@/lib/user-notifications-repo"
 
 // Writers of the "Приход" / "Расход" dialog (create, edit, duplicate, delete,
 // verify). Each input is routed to the ONE table that owns its money:
@@ -100,7 +103,7 @@ type SupplierPlan = {
 
 type Plan = CashPlan | CustomerPlan | SupplierPlan
 
-const TABLE: Record<Exclude<CashSource, "acceptance" | "reference">, string> = {
+const TABLE: Record<Exclude<CashSource, "acceptance">, string> = {
   cash: "cash_management_entries",
   customer: "customer_payments",
   supplier: "supplier_payments",
@@ -111,8 +114,6 @@ type OwnerRow = { source: CashSource; id: number; docNo: number; row: Record<str
 async function lockOwner(tx: PgDb, key: string): Promise<OwnerRow> {
   const parsed = parseOperationKey(key)
   if (!parsed) throw new CashError("Операция не найдена", 404)
-  // Archived reference operations (cash_reference_rows) are list-only; their money is already part of the cashbox balance.
-  if (parsed.source === "reference") throw new CashError("Эта операция загружена из архива и не может быть изменена или удалена", 409)
   const table = parsed.source === "acceptance" ? "cash_acceptances" : TABLE[parsed.source]
   const row = (await tx.prepare(`SELECT * FROM ${table} WHERE id = @id FOR UPDATE`).get({ id: parsed.id })) as Record<string, unknown> | undefined
   if (!row) throw new CashError("Операция не найдена", 404)
@@ -522,6 +523,8 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     let orderCurrency: string | undefined
     let due: Awaited<ReturnType<typeof allocatedOrderDue>> = null
     if (orderMode && input.orderId) {
+      // Payments of the order's client are serialised, so a parallel payment re-reads the remainder after this one commits.
+      await lockOrderPayments(db, input.orderId)
       due = await allocatedOrderDue(db, input.orderId, cc)
       if (!due) throw new CashError("Заказ не найден", 404, "order")
       if (due.status === "Отменен") throw new CashError("Заказ отменен", 400, "order")
@@ -533,6 +536,8 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
       if (due.currencies.length === 1) orderCurrency = due.currencies[0].currency
     }
     if (!client) throw new CashError("Укажите клиента", 400, "client")
+    // A client income changes what the client's orders still owe (lib/cash/orders.ts): same lock as the order payments.
+    if (!due) await lockClientPayments(db, [client.id])
     // The contract must cover the paying client (the order's client in order mode).
     const contract = await loadContract(db, input.contractId)
     await assertContractOfClient(db, contract, client, existing)
@@ -543,7 +548,9 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
       const part = due.currencies.find((item) => item.currency === debt.currency)
       const own = existing?.source === "customer" && numOrNull(existing.row.order_id) === due.id && normCurrency(String(existing.row.currency ?? ""), cc.base) === debt.currency
       const remaining = roundMoney((part?.remaining ?? 0) + (own ? num(existing!.row.amount) : 0), 5)
-      if (debt.amount > remaining + debtTolerance(debt, common)) throw new CashError("Сумма больше остатка заказа", 400, "amount")
+      // The rounding tolerance only while something is still owed: a fully paid order takes nothing more.
+      const tolerance = remaining > 0.005 ? debtTolerance(debt, common) : 0
+      if (debt.amount > remaining + tolerance) throw new CashError("Сумма больше остатка заказа", 400, "amount")
     }
     await organize({ orderId, contractId: contract?.id ?? null, clientId: client.id })
     return {
@@ -807,6 +814,8 @@ async function releaseOwner(tx: PgDb, owner: OwnerRow, user: string, keepRequest
 /** "Приход" / "Расход" (and pay-money-request mode with moneyRequestId). */
 export async function createCashOperation(input: CashOperationInput, user: string): Promise<CashWriteResult> {
   await ensureCashSchema()
+  // The finance_transaction notification of an expense is written inside the cash transaction.
+  if (input.kind === "expense") await ensureUserNotificationsSchema()
   const cc = await currencyContext(getDb())
   return withTransaction(async (tx) =>
     // An income only adds money; anything else must not overdraw the cashbox.
@@ -814,8 +823,36 @@ export async function createCashOperation(input: CashOperationInput, user: strin
       const plan = await resolvePlan(tx, input, user, cc, null)
       const result = await insertPlan(tx, plan, user, null)
       if (plan.owner === "supplier") await recomputeSupplyPaid(tx, [plan.supplyId], cc)
+      if (input.kind === "expense") await notifySafely("finance_transaction", () => notifyExpense(tx, result, cc))
       return result
     }),
+  )
+}
+
+/** Настройки → Уведомления "finance_transaction" for a new «Расход» (inside its transaction, through
+ * notifySafely): the administrators, the subscribers and the cashier of the cashbox. The amount is the
+ * money that left the cashbox, in the cashbox currency, read from the row just written (a staff /
+ * detalization total or a paid money request included); the category is the row's expense category. */
+async function notifyExpense(tx: PgDb, result: CashWriteResult, cc: CurrencyContext): Promise<void> {
+  const sql =
+    result.source === "cash"
+      ? "SELECT abs(amount)::float8 AS amount, cashbox_id, expense_category_id FROM cash_management_entries WHERE id = @id"
+      : result.source === "supplier"
+        ? "SELECT abs(COALESCE(real_amount, amount))::float8 AS amount, cashbox_id, expense_category_id FROM supplier_payments WHERE id = @id"
+        : null
+  if (!sql) return
+  const row = (await tx.prepare(sql).get({ id: result.id })) as
+    | { amount: number | null; cashbox_id: number | null; expense_category_id: number | null }
+    | undefined
+  if (!row?.cashbox_id) return
+  const cashbox = await loadCashbox(tx, Number(row.cashbox_id), cc.base)
+  const category = row.expense_category_id
+    ? ((await tx.prepare("SELECT name FROM expense_categories WHERE id = @id").get({ id: row.expense_category_id })) as { name: string } | undefined)
+    : undefined
+  await notifyTemplate(
+    "finance_transaction",
+    { total_price: roundMoney(Number(row.amount) || 0).toFixed(2), currency: cashbox.currency, category_name: category?.name ?? "", cashbox: cashbox.name },
+    { link: "/analytics/cash-management", ...(await cashboxCashier(tx, cashbox.id)) },
   )
 }
 
@@ -826,6 +863,8 @@ export async function createClientIncomes(inputs: CashOperationInput[], user: st
   await ensureCashSchema()
   const cc = await currencyContext(getDb())
   return withTransaction(async (tx) => {
+    // Every client of the group up front, in ascending id order (two group incomes never wait on each other in a cycle).
+    await lockClientPayments(tx, inputs.map((input) => input.clientId))
     const results: CashWriteResult[] = []
     for (const input of inputs) {
       if (!input.clientId) throw new CashError("Укажите клиента", 400, "client")
@@ -878,7 +917,7 @@ async function applyUpdate(tx: PgDb, owner: OwnerRow, input: CashOperationInput,
     }
     result = { key: operationKey(owner.source, owner.id), source: owner.source, id: owner.id, docNo: owner.docNo }
   } else {
-    await tx.prepare(`DELETE FROM ${TABLE[owner.source as Exclude<CashSource, "acceptance" | "reference">]} WHERE id = @id`).run({ id: owner.id })
+    await tx.prepare(`DELETE FROM ${TABLE[owner.source as Exclude<CashSource, "acceptance">]} WHERE id = @id`).run({ id: owner.id })
     result = await insertPlan(tx, plan, user, owner.docNo)
   }
   await recomputeSupplyPaid(tx, [oldSupply, plan.owner === "supplier" ? plan.supplyId : null], cc)
@@ -954,7 +993,7 @@ async function applyDelete(
     // Staff allocations and detalization stay (they follow the entry's is_deleted); the loyalty row was removed.
     await updateRow(tx, "cash_management_entries", owner.id, stamp)
   } else {
-    await updateRow(tx, TABLE[owner.source as Exclude<CashSource, "acceptance" | "reference">], owner.id, stamp)
+    await updateRow(tx, TABLE[owner.source], owner.id, stamp)
     if (owner.source === "supplier") await recomputeSupplyPaid(tx, [numOrNull(owner.row.supply_id)], cc)
   }
   return { key, deleted: [key] }
@@ -973,40 +1012,6 @@ export async function verifyCashOperation(key: string, verifyDate: string | null
     const outflow = owner.source === "cash" ? num(owner.row.amount) < 0 : owner.source === "supplier" ? num(owner.row.amount) > 0 : false
     return guardCashboxBalances(tx, outflow ? [numOrNull(owner.row.cashbox_id)] : [], cc.base, () => applyVerify(tx, owner, verifyDate, user, cc))
   })
-}
-
-/** Prefill of the edit/duplicate dialog for an archived reference row (saving it is refused by lockOwner). */
-async function referenceOperationInput(id: number, db: PgDb): Promise<CashOperationInput | null> {
-  const row = (await db.prepare("SELECT * FROM cash_reference_rows WHERE id = @id").get({ id })) as Record<string, unknown> | undefined
-  if (!row) return null
-  const amount = num(row.amount)
-  const kind = amount >= 0 ? "income" : "expense"
-  const table = kind === "income" ? "income_categories" : "expense_categories"
-  const category = row.category_name
-    ? ((await db.prepare(`SELECT id FROM ${table} WHERE lower(name) = lower(@name) ORDER BY id LIMIT 1`).get({ name: String(row.category_name) })) as { id: number } | undefined)
-    : undefined
-  const iso = row.ts instanceof Date ? row.ts.toISOString().slice(0, 19) : String(row.ts ?? "").replace(" ", "T").slice(0, 19)
-  const extra = (() => {
-    try {
-      return JSON.parse(String(row.extra ?? "{}")) as { children?: Array<{ name: string; amount: number }> }
-    } catch {
-      return {}
-    }
-  })()
-  return {
-    kind,
-    date: iso || undefined,
-    cashboxId: num(row.cashbox_id),
-    branch: String(row.branch ?? "") || undefined,
-    organization: String(row.organization ?? "") || undefined,
-    categoryId: category?.id,
-    amount: Math.abs(amount),
-    comment: String(row.comment ?? "") || undefined,
-    isVerified: num(row.verified) !== 0,
-    clientId: numOrNull(row.client_id) ?? undefined,
-    supplierId: numOrNull(row.supplier_id) ?? undefined,
-    children: extra.children?.map((item) => ({ name: item.name, amount: num(item.amount) })),
-  }
 }
 
 async function applyVerify(tx: PgDb, owner: OwnerRow, verifyDate: string | null | undefined, user: string, cc: CurrencyContext): Promise<CashWriteResult> {
@@ -1040,7 +1045,6 @@ export async function getOperationInput(key: string, db: PgDb = getDb()): Promis
   const parsed = parseOperationKey(key)
   if (!parsed || parsed.source === "acceptance") return null
   await ensureCashSchema(db)
-  if (parsed.source === "reference") return referenceOperationInput(parsed.id, db)
   const row = (await db.prepare(`SELECT * FROM ${TABLE[parsed.source]} WHERE id = @id`).get({ id: parsed.id })) as Record<string, unknown> | undefined
   if (!row) return null
   const str = (value: unknown) => (value === null || value === undefined ? undefined : String(value) || undefined)

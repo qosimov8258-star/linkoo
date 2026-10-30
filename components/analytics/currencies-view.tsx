@@ -30,7 +30,8 @@ import { notify } from "@/lib/notify"
 //    without actions, the others have $ ("Установить курс") and ✎ ("Изменить валюту") on hover; a row
 //    click opens "История обновления курса".
 //  * Индивидуальный: № | Наименование | Курс USD | Дата начала | Дата завершения | Дата создания,
-//    "+ добавить" and ✎ per row (dialog "… индивидуальный курс": name, rate and two dates).
+//    "+ добавить", ✎ per row (dialog "… индивидуальный курс": name, rate and two dates) and the bin icon (a wrong
+//    entry is removed after the confirm dialog; DELETE /api/individual-rates/[id]).
 // The general tab also adds ("+ добавить валюту"), imports (Excel) and deletes currencies: a fresh install has no
 // currency yet, and the first one created becomes the base currency with rate 1 (lib/currencies-repo.ts).
 
@@ -337,6 +338,8 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
   const [editing, setEditing] = useState<Currency | null>(null)
   const [history, setHistory] = useState<Currency | null>(null)
   const [individualDialog, setIndividualDialog] = useState<{ item: IndividualRate | null } | null>(null)
+  const [deletingIndividual, setDeletingIndividual] = useState<IndividualRate | null>(null)
+  const [individualBusy, setIndividualBusy] = useState(false)
   const controls = useListControls()
 
   const load = useCallback(async () => {
@@ -385,6 +388,26 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
       void load()
     } catch {
       notify(t("Сервер недоступен, попробуйте ещё раз"))
+    }
+  }
+
+  async function removeIndividual(item: IndividualRate) {
+    if (individualBusy) return
+    setIndividualBusy(true)
+    try {
+      const response = await fetch(`/api/individual-rates/${item.id}`, { method: "DELETE" })
+      if (!response.ok && response.status !== 404) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        notify(t(data.error || "Не удалось удалить"))
+        return
+      }
+      // 404: someone else removed it already; the list is reloaded either way.
+      setDeletingIndividual(null)
+      void load()
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setIndividualBusy(false)
     }
   }
 
@@ -550,7 +573,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
               <span>{formatDateText(item.beginDate, language, { withTime: false })}</span>
               <span>{formatDateText(item.endDate, language, { withTime: false })}</span>
               <span>{formatDateText(item.createdAt, language, { withTime: true, utc: true })}</span>
-              <RowActions right={97} onEdit={() => setIndividualDialog({ item })} />
+              <RowActions right={97} onEdit={() => setIndividualDialog({ item })} onDelete={() => setDeletingIndividual(item)} />
             </div>
           ))}
           {individual && pagedIndividual.rows.length === 0 && <EmptyRows />}
@@ -562,6 +585,14 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
       {history && <HistoryDialog currency={history} baseName={baseName} onClose={() => setHistory(null)} />}
       {creating && <CreateDialog noBase={noBase} baseCode={baseCode} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); void load() }} />}
       {deleting && <ConfirmDeleteDialog name={deleting.name} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
+      {deletingIndividual && (
+        <ConfirmDeleteDialog
+          name={deletingIndividual.name}
+          busy={individualBusy}
+          onConfirm={() => void removeIndividual(deletingIndividual)}
+          onClose={() => setDeletingIndividual(null)}
+        />
+      )}
       {importOpen && (
         <ImportDialog
           file={importFile}

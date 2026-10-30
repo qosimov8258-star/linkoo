@@ -186,7 +186,7 @@ export function SalesByProductsView() {
   function download() {
     const header = ["Товар", "Ед. измер", "Продажа кол-во", "Продажа сумма", "Возврат кол-во", "Возврат сумма", "Фактическая продажа кол-во", "Фактическая продажа сумма"]
     const body = rows.map((row) => [row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum])
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header, ...body])}`], { type: "text/csv;charset=utf-8" }))
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header.map((title) => t(title)), ...body])}`], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a")
     link.href = url
     link.download = "sales-by-products.csv"
@@ -220,7 +220,7 @@ export function SalesByProductsView() {
               onChange={setQuery}
               pageSize={pageSize}
               onPageSize={setPageSize}
-              rangeLabel={rows.length ? `1 - ${Math.min(pageSize, rows.length)} из ${rows.length}` : "1 - 0 из 0"}
+              rangeLabel={rows.length ? `1 - ${Math.min(pageSize, rows.length)} ${t("из")} ${rows.length}` : `1 - 0 ${t("из")} 0`}
               canPrev={false}
               canNext={false}
               onPrev={() => undefined}
@@ -232,7 +232,7 @@ export function SalesByProductsView() {
           <div className="-mx-[20px] flex items-end justify-between gap-4 py-[10px] pr-[20px]">
             <p className="flex w-[660px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
               <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#4f71dc] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
-              Это оперативний отчеть для просмотра факта перейдите в другой раздел
+              {t("Это оперативний отчеть для просмотра факта перейдите в другой раздел")}
             </p>
             <div className="flex items-end gap-[20px]">
               <div className="w-[200px]"><ReportSelectField label="Группировка" value={group} options={["По продукту", "По бренду", "По типу продукта"]} onChange={(value) => setGroup(value || "По продукту")} /></div>
@@ -249,7 +249,7 @@ export function SalesByProductsView() {
         ) : itemsError ? (
           <p className="px-3 py-16 text-center text-red-600">{itemsError}</p>
         ) : (
-          <ProductTable rows={rows.slice(0, pageSize)} bonus={bonus} />
+          <ProductTable rows={rows.slice(0, pageSize)} />
         )}
       </section>
 
@@ -272,7 +272,8 @@ export function SalesByProductsView() {
   )
 }
 
-function ProductTable({ rows, bonus }: { rows: ProductRow[]; bonus: boolean }) {
+function ProductTable({ rows }: { rows: ProductRow[] }) {
+  const { t } = useLanguage()
   const heads = ["Товар", "Ед. измер", "Кол-во", "Сумма", "Кол-во", "Сумма", "Кол-во", "Сумма", "Кол-во", "Сумма", "Кол-во", "Сумма"]
   return (
     <div className="relative overflow-x-auto border-b border-[#e8e8e8]">
@@ -284,14 +285,15 @@ function ProductTable({ rows, bonus }: { rows: ProductRow[]; bonus: boolean }) {
             <Group title="Продажа" /><Group title="Возврат в этом периоде" /><Group title="Фактическая продажа" /><Group title="Скидки" /><Group title="Бонус" />
           </tr>
           <tr className="h-[30px] bg-[#f0f4f9]">
-            {heads.map((item, i) => <th key={`${item}-${i}`} className="border-l border-[#ececec] px-2 text-center font-semibold">{item}</th>)}
+            {heads.map((item, i) => <th key={`${item}-${i}`} className="border-l border-[#ececec] px-2 text-center font-semibold">{t(item)}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.length === 0
             ? [0, 1, 2].map((r) => <tr key={r} className={`h-[31px] ${r === 1 ? "bg-[#f2f5f8]" : "bg-white"}`}>{heads.map((_, c) => <td key={c} className="border-l border-[#ececec]" />)}</tr>)
             : rows.map((row, r) => {
-                const cells = [row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum, 0, 0, bonus ? 1 : 0, bonus ? 5000 : 0]
+                // Discounts and bonus products are not in these order lines: 0, never a made-up figure.
+                const cells = [row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum, 0, 0, 0, 0]
                 return (
                   <tr key={row.name} className={`h-[31px] ${r % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
                     {cells.map((cell, i) => <td key={i} className="truncate border-l border-[#ececec] px-2">{typeof cell === "number" ? cell.toLocaleString("ru-RU") : cell}</td>)}
@@ -300,11 +302,14 @@ function ProductTable({ rows, bonus }: { rows: ProductRow[]; bonus: boolean }) {
               })}
         </tbody>
       </table>
-      {rows.length === 0 && <span className="absolute left-1/2 top-[84px] -translate-x-1/2 bg-white px-[20px] pb-[16px] pt-[2px] text-[13px] text-[#777]">Нет данных</span>}
+      {rows.length === 0 && <span className="absolute left-1/2 top-[84px] -translate-x-1/2 bg-white px-[20px] pb-[16px] pt-[2px] text-[13px] text-[#777]">{t("Нет данных")}</span>}
     </div>
   )
 }
-function Group({ title }: { title: string }) { return <th colSpan={2} className="border-l border-[#ececec] bg-[#f0f4f9] px-3 text-center font-semibold">{title}</th> }
+function Group({ title }: { title: string }) {
+  const { t } = useLanguage()
+  return <th colSpan={2} className="border-l border-[#ececec] bg-[#f0f4f9] px-3 text-center font-semibold">{t(title)}</th>
+}
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`h-8 px-4 text-[13px] font-normal uppercase ${active ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] bg-white text-black"}`}>{children}</button> }
 function formatDate(value: string) { const [year, month, day] = value.split("-"); return `${day}.${month}.${year}` }
 

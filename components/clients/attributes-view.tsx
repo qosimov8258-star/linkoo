@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react"
 
-import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { CashSnackbar, useCanManage, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CatalogHeader, HoverActions, LineField, LineSelect, Modal, SaveButton, ToggleRow, dottedRow } from "@/components/analytics/catalog-ui"
 import { DictionaryDeleteDialog } from "@/components/analytics/dictionaries-shared"
+import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
+import { everyLanguage, importKey, parseYesNo, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type Attribute = { id: number; name: string; fieldType: string; required: boolean; cacheNumber: number | null }
@@ -12,6 +14,9 @@ type Attribute = { id: number; name: string; fieldType: string; required: boolea
 const fieldTypeOptions = ["Цифровое поле", "Дата выборки", "Текстовое поле", "Выбор вариантов"]
 const cacheOptions = Array.from({ length: 10 }, (_, index) => String(index + 1))
 const emptyDraft = { name: "", fieldType: "", cacheNumber: "", required: false }
+
+/** One row of "Импорт с Excel" (ours, not in the demo): Название, Тип поля, Обязательный к заполнению (да / нет). */
+type AttributeImport = { name: string; fieldType: string; required: boolean }
 
 export function AttributesView({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage()
@@ -24,6 +29,8 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const canImport = useCanManage(["clients.manage"])
 
   useEffect(() => {
     let cancelled = false
@@ -54,6 +61,42 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
   }
 
   const valid = draft.name.trim() !== "" && draft.fieldType !== ""
+
+  async function loadAttributes(): Promise<Attribute[]> {
+    const response = await fetch("/api/client-attributes", { cache: "no-store" })
+    if (!response.ok) throw new Error("load")
+    return (await response.json()) as Attribute[]
+  }
+
+  const importSpec: ExcelImportSpec<AttributeImport> = {
+    templateName: "attributes-template",
+    columns: [
+      { field: "name", header: "Название", aliases: ["Наименование", "Атрибут", "Name"] },
+      { field: "fieldType", header: "Тип поля", aliases: ["Тип", "Field type"] },
+      { field: "required", header: "Обязательный к заполнению", aliases: ["Обязательно к заполнению", "Обязательный", "Required"] },
+    ],
+    keyField: "name",
+    prepare: async (records) => {
+      // The attribute API has no unique-name rule of its own: names already in the list are refused here.
+      const existing = new Set((await loadAttributes()).map((item) => importKey(item.name)))
+      const rows: PreparedRow<AttributeImport>[] = []
+      const errors: ImportRowError[] = []
+      for (const { line, values } of records) {
+        // The type and the "Обязательный" words are accepted in any UI language.
+        const fieldType = fieldTypeOptions.find((option) => everyLanguage(option).some((word) => importKey(word) === importKey(values.fieldType)))
+        const required = parseYesNo(values.required, false, { yes: everyLanguage("Обязательный"), no: everyLanguage("Не обязательный") })
+        if (!values.name) errors.push({ line, label: t("Название"), message: "Обязательное поле" })
+        else if (existing.has(importKey(values.name))) errors.push({ line, label: values.name, message: "Такая запись уже существует" })
+        else if (!values.fieldType) errors.push({ line, label: `${values.name}, ${t("Тип поля")}`, message: "Обязательное поле" })
+        else if (!fieldType) errors.push({ line, label: `${values.name}, ${values.fieldType}`, message: "Неверное значение" })
+        else if (required === null) errors.push({ line, label: `${values.name}, ${t("Обязательный к заполнению")}`, message: "Укажите да или нет" })
+        else rows.push({ line, label: values.name, item: { name: values.name, fieldType, required } })
+      }
+      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+    },
+    send: (item) => postJson("/api/client-attributes", item),
+    fallbackError: "Не удалось сохранить атрибут",
+  }
 
   async function save() {
     if (!editing || !valid) return
@@ -86,7 +129,15 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white px-[30px] text-[13px] text-[#333]">
       {/* Inside the settings layout the page names itself, like the reference's settings pages. */}
       {embedded && <h1 className="pt-[22px] text-[18px] font-bold leading-[22px] text-[#5d6474]">{t("Атрибуты")}</h1>}
-      <CatalogHeader tight addLabel={t("добавить атрибуты")} onAdd={() => open()} from={items.length ? 1 : 0} to={items.length} total={items.length} />
+      <CatalogHeader
+        tight
+        addLabel={t("добавить атрибуты")}
+        onAdd={() => open()}
+        extra={canImport ? <ExcelImportLink onClick={() => setImportOpen(true)} /> : undefined}
+        from={items.length ? 1 : 0}
+        to={items.length}
+        total={items.length}
+      />
       {loadError && <p className="pt-3 text-red-500">{loadError}</p>}
       <div className={`grid grid-cols-[485px_364px_1fr] ${dottedRow} h-[50px] items-center pt-[3px] font-semibold`}>
         <span>{t("Название")}</span><span>{t("Тип поля")}</span><span>{t("Обязательный к заполнению")}</span>
@@ -133,6 +184,20 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
             setNotice({ text: "Успешно удалено", tone: "success" })
           }}
           onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={importSpec}
+          onClose={() => setImportOpen(false)}
+          onChanged={() => {
+            loadAttributes().then(setItems).catch(() => undefined)
+          }}
+          onDone={(summary) => {
+            setImportOpen(false)
+            setNotice({ text: summary, tone: "success" })
+          }}
         />
       )}
 

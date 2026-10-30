@@ -90,7 +90,7 @@ export function StockPlanMovements({
   }
 
   const typeText = (row: PlanMovementRow) => t(planMoveType(row.kind).label)
-  const dateText = (row: PlanMovementRow) => (row.day ? `${formatCategoryDate(row.day, language)}${row.time ? `, ${row.time}` : ""}` : t("Не указана"))
+  const dateText = (row: PlanMovementRow) => (row.day ? formatCategoryDate(row.day, language) : t("Не указана"))
   const exportRows = (source: PlanMovementRow[]) => {
     const header = ["Дата", "Склад", "Тип", "№", "Товар", "Кол-во", "Ед. измерения", "Серия"].map((label) => t(label))
     const lines = source.map((row) => [

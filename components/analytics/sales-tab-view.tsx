@@ -6,6 +6,7 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { RefMultiField } from "@/components/ref/multi-field"
 import { ReportPage, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 import { formatRangeLabel, parseISODate, rangeForPeriod, toISODate, type PeriodKey } from "@/lib/dashboard-date-range"
+import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { SalesGroup, SalesOptions, SalesRow, SalesStats } from "@/lib/sales-stats-repo"
 import { formatNumber, SalesBars, SalesCombo, SalesDonut, Spinner } from "./sales-tab-charts"
@@ -73,7 +74,8 @@ function BarList({ rows, metric, expandable = true }: { rows: SalesRow[]; metric
   const ranked = useMemo(() => rankedRows(rows, metric), [rows, metric])
   const sum = ranked.reduce((total, row) => total + metricValue(row, metric), 0)
   const shown = open || !expandable ? ranked : ranked.slice(0, 5)
-  const text = (row: SalesRow) => (metric === "akbIndex" ? formatNumber(row.akbIndex, 1) : formatNumber(metricValue(row, metric)))
+  const text = (row: SalesRow) =>
+    metric === "akbIndex" ? formatNumber(row.akbIndex, 1) : metric === "amount" ? formatMoney(row.amount, 2) : formatNumber(metricValue(row, metric))
   return (
     <div>
       {shown.map((row) => {
@@ -113,7 +115,8 @@ function SortIcon({ active, desc }: { active: boolean; desc: boolean }) {
   )
 }
 
-function Breakdown({ title, group, loading }: { title: string; group: SalesGroup | undefined; loading: boolean }) {
+/** Sales amounts are in the base currency of Валюты (`currency` of /api/sales-stats), never a hard-coded one. */
+function Breakdown({ title, group, loading, currency }: { title: string; group: SalesGroup | undefined; loading: boolean; currency: string }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [sort, setSort] = useState<{ column: "name" | "okb" | "akb" | "akbIndex" | "amount"; desc: boolean } | null>(null)
@@ -146,7 +149,7 @@ function Breakdown({ title, group, loading }: { title: string; group: SalesGroup
                       onClick={() => setSort((current) => (current?.column === column.key ? { column: column.key, desc: !current.desc } : { column: column.key, desc: column.key !== "name" }))}
                       className="flex items-center"
                     >
-                      {t(column.label)}
+                      {column.key === "amount" && currency ? `${t(column.label)}, ${currency}` : t(column.label)}
                       <SortIcon active={sort?.column === column.key} desc={!!sort?.desc} />
                     </button>
                   </th>
@@ -160,7 +163,7 @@ function Breakdown({ title, group, loading }: { title: string; group: SalesGroup
                   <td className={CELL}>{formatNumber(row.okb)}</td>
                   <td className={CELL}>{formatNumber(row.akb)}</td>
                   <td className={CELL}>{indexText(row.akbIndex, 1)}</td>
-                  <td className={CELL}>{formatNumber(row.amount)}</td>
+                  <td className={CELL}>{formatMoney(row.amount, 2)}</td>
                 </tr>
               ))}
               {rows.length >= 8 && (
@@ -185,13 +188,13 @@ function Breakdown({ title, group, loading }: { title: string; group: SalesGroup
                 <td className={CELL}>{formatNumber(total?.okb ?? 0)}</td>
                 <td className={CELL}>{formatNumber(total?.akb ?? 0)}</td>
                 <td className={CELL}>{indexText(total?.akbIndex ?? 0, 3)}</td>
-                <td className={CELL}>{formatNumber(total?.amount ?? 0)}</td>
+                <td className={CELL}>{formatMoney(total?.amount ?? 0, 2)}</td>
               </tr>
             </tbody>
           </table>
         </div>
         <div className="flex flex-1 items-center justify-center">
-          <SalesDonut rows={(group?.data ?? []).map((row) => ({ name: row.name, percent: row.percent }))} total={formatNumber(total?.amount ?? 0)} label={t("итого")} />
+          <SalesDonut rows={(group?.data ?? []).map((row) => ({ name: row.name, percent: row.percent }))} total={formatMoney(total?.amount ?? 0, 2)} label={currency ? `${t("итого")}, ${currency}` : t("итого")} />
         </div>
       </div>
     </section>
@@ -384,7 +387,12 @@ export function SalesTabView() {
 
       <section className={`mx-[30px] mt-[16px] rounded-[10px] px-[20px] pb-[23px] pt-[10px] ${CARD}`}>
         <div className="flex h-8 items-center">
-          <h2 className="mt-[1px] w-[630.9px] text-[20px] font-semibold leading-7 text-[#333]">{t("Продажа")}</h2>
+          <h2 className="mt-[1px] w-[630.9px] text-[20px] font-semibold leading-7 text-[#333]">
+            {stats?.currency ? `${t("Продажа")}, ${stats.currency}` : t("Продажа")}
+            {stats?.missingRates?.length ? (
+              <span className="ml-[10px] text-[13px] font-normal text-[#f25555]">{t("Курс валюты не задан")}: {stats.missingRates.join(", ")}</span>
+            ) : null}
+          </h2>
           <div className="flex">
             {RANGES.map((item) => (
               <button key={item.key} type="button" onClick={() => setSalesRange(item.key)} className={`${BTN} ${salesRange === item.key ? `bg-[#2bcd53] text-white ${RAISED}` : FLAT}`}>
@@ -418,7 +426,7 @@ export function SalesTabView() {
 
       <div className="mx-[30px] pb-[40px]">
         {SECTIONS.map((section) => (
-          <Breakdown key={section.key} title={section.title} group={stats?.[section.key]} loading={loading} />
+          <Breakdown key={section.key} title={section.title} group={stats?.[section.key]} loading={loading} currency={stats?.currency ?? ""} />
         ))}
       </div>
     </ReportPage>

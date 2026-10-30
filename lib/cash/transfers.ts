@@ -4,11 +4,13 @@ import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import type { CurrencyContext } from "@/lib/finance/context"
 import { roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
-import { CashError, currencyContext, isoDayOrEmpty, loadCashbox, localDateTime, MAX_MONEY, pickRate, resolveOrganization } from "@/lib/cash/common"
+import { cashboxCashier, CashError, currencyContext, isoDayOrEmpty, loadCashbox, localDateTime, MAX_MONEY, pickRate, resolveOrganization } from "@/lib/cash/common"
 import { guardCashboxBalances } from "@/lib/cash/guard"
 import { resolveTransfer } from "@/lib/cash/rates"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { CASH_OP, operationKey, type CashTransferInput, type CashTransferResult } from "@/lib/cash/types"
+import { notifySafely } from "@/lib/notify-event"
+import { ensureUserNotificationsSchema, notifyTemplate } from "@/lib/user-notifications-repo"
 
 // "Перевод" (demo finance/transfer): a cash_transfers header and two
 // cash_management_entries legs sharing transfer_id — op 1 (−amountFrom, source
@@ -25,6 +27,8 @@ import { CASH_OP, operationKey, type CashTransferInput, type CashTransferResult 
 
 export async function createTransfer(input: CashTransferInput, user: string): Promise<CashTransferResult> {
   await ensureCashSchema()
+  // The transfer_create notification is written inside the transfer transaction.
+  await ensureUserNotificationsSchema()
   const cc = await currencyContext(getDb())
   if (input.fromCashboxId === input.toCashboxId) throw new CashError("Выберите другую кассу", 400, "toCashbox")
   return withTransaction(async (tx) =>
@@ -134,5 +138,14 @@ async function insertTransfer(tx: PgDb, input: CashTransferInput, user: string, 
   }
   const outLeg = await leg(CASH_OP.FROM_TRANSFER, from.id, from.currency, from.type, -amountFrom, `Перевод в ${to.name}`, fromOrg, fromBranch)
   const inLeg = await leg(CASH_OP.TO_TRANSFER, to.id, to.currency, to.type, amountTo, `Перевод из ${from.name}`, toOrg, toBranch)
+  // Настройки → Уведомления "transfer_create": the receiving cashier confirms the transfer (in this
+  // transaction: a rolled-back transfer notifies nobody; a failed notification never undoes it).
+  await notifySafely("transfer_create", async () =>
+    notifyTemplate(
+      "transfer_create",
+      { cashboxname: to.name, amount: amountTo.toFixed(2), currency_name: to.currency },
+      { objectId: transferId, link: "/analytics/cash-management", ...(await cashboxCashier(tx, to.id)) },
+    ),
+  )
   return { transferId, docNo: Number(header.doc_no), from: outLeg, to: inLeg, amountFrom, amountTo, rate }
 }

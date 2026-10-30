@@ -1,36 +1,46 @@
 import { NextResponse } from "next/server"
 
+import { refRecordsBody, refRecordsWriter } from "@/app/api/ref-records/shared"
 import { getCurrentUser } from "@/lib/current-user"
-import { deleteRecord, getRecord, isRefKind, updateRecord } from "@/lib/ref-records-repo"
+import { withDbErrors } from "@/lib/db-errors"
+import { apiKind, apiUpdate, deleteRecord, getRecord, parseRecordId } from "@/lib/ref-records-repo"
+import { NOT_FOUND_MESSAGE, invalidIdResponse, notSignedInResponse } from "@/lib/validation"
 
 type Params = { params: Promise<{ kind: string; id: string }> }
 
-async function guard(params: Params["params"]) {
+const notFound = () => NextResponse.json({ error: NOT_FOUND_MESSAGE }, { status: 404 })
+
+export const GET = withDbErrors(async (_request: Request, { params }: Params) => {
   const user = await getCurrentUser()
-  if (!user) return { error: NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 }) }
-  const { kind, id } = await params
-  if (!isRefKind(kind)) return { error: NextResponse.json({ error: "Неизвестный раздел" }, { status: 404 }) }
-  return { kind, id }
-}
+  if (!user) return notSignedInResponse()
+  const { kind: rawKind, id: rawId } = await params
+  const kind = apiKind(rawKind)
+  if (!kind) return NextResponse.json({ error: "Неизвестный раздел" }, { status: 404 })
+  const id = parseRecordId(rawId)
+  if (!id) return invalidIdResponse()
+  const record = await getRecord(kind, id)
+  return record ? NextResponse.json(record.data) : notFound()
+})
 
-export async function GET(_request: Request, { params }: Params) {
-  const g = await guard(params)
-  if ("error" in g) return g.error
-  const record = await getRecord(g.kind, g.id)
-  return record ? NextResponse.json(record.data) : NextResponse.json({ error: "Не найдено" }, { status: 404 })
-}
+export const PUT = withDbErrors(async (request: Request, { params }: Params) => {
+  const { kind: rawKind, id: rawId } = await params
+  const writer = await refRecordsWriter(rawKind, "PUT")
+  if ("error" in writer) return writer.error
+  const id = parseRecordId(rawId)
+  if (!id) return invalidIdResponse()
+  const body = await refRecordsBody(request, writer.kind)
+  if ("error" in body) return body.error
+  const result = await apiUpdate(writer.kind, id, body.data)
+  if (!result) return notFound()
+  if (!result.ok) return NextResponse.json({ error: result.issue.error, field: result.issue.field ?? null }, { status: result.issue.status })
+  return NextResponse.json(result.record.data)
+})
 
-export async function PUT(request: Request, { params }: Params) {
-  const g = await guard(params)
-  if ("error" in g) return g.error
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-  if (!body || typeof body !== "object") return NextResponse.json({ error: "Некорректные данные" }, { status: 400 })
-  const updated = await updateRecord(g.kind, g.id, body)
-  return updated ? NextResponse.json(updated.data) : NextResponse.json({ error: "Не найдено" }, { status: 404 })
-}
-
-export async function DELETE(_request: Request, { params }: Params) {
-  const g = await guard(params)
-  if ("error" in g) return g.error
-  return (await deleteRecord(g.kind, g.id)) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Не найдено" }, { status: 404 })
-}
+export const DELETE = withDbErrors(async (_request: Request, { params }: Params) => {
+  const { kind: rawKind, id: rawId } = await params
+  const writer = await refRecordsWriter(rawKind, "DELETE")
+  if ("error" in writer) return writer.error
+  const id = parseRecordId(rawId)
+  if (!id) return invalidIdResponse()
+  return (await deleteRecord(writer.kind, id)) ? NextResponse.json({ ok: true }) : notFound()
+})

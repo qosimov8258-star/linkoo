@@ -55,9 +55,10 @@ export function PhotoReportReviewView() {
   useEffect(() => {
     let cancelled = false
     // Like the reference, the strip lists the active members of the agents plan in the plan's own order; while the plan
-    // is not loaded it falls back to every employee by name.
+    // is not loaded it falls back to every employee by name. Only the employees of the reader's field scope are named
+    // (an agent sees only their own name): GET /api/field-activity/people.
     Promise.all([
-      fetch("/api/employees").then((response) => (response.ok ? (response.json() as Promise<{ id: number; name: string }[]>) : [])),
+      fetch("/api/field-activity/people").then((response) => (response.ok ? (response.json() as Promise<{ id: number; name: string }[]>) : [])),
       fetch("/api/agent-plan-members").then((response) => (response.ok ? (response.json() as Promise<{ employeeId: number; active: boolean; position: number }[]>) : [])),
     ])
       .then(([employees, members]) => {

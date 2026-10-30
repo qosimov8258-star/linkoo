@@ -7,8 +7,11 @@ import { createPortal } from "react-dom"
 import { SaveLink } from "@/components/analytics/catalog-ui"
 import { LinePick } from "@/components/analytics/settings-list-kit"
 import { FilterDate, RefFilterPanel } from "@/components/ref/list-kit"
+import { formatMoney } from "@/lib/finance/currency"
+import { todayIso } from "@/lib/finance/dates"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { refDate } from "@/lib/ref-date"
+import type { LanguageCode } from "@/lib/i18n/types"
 import { notify } from "@/lib/notify"
 
 export type PricePeriod = { period: number; percent: number; licenses: Array<{ key: string; name: string; price: number }> }
@@ -20,8 +23,14 @@ type ProlongOption = {
   licenses: Array<{ key: string; name: string; amount: number; beginDate: string; endDate: string; price: number; total: number }>
 }
 
+/** Money of the Linko billing account (SUM, as on the Подписки page): ru grouping, 2 decimals. */
 export function sum(value: number): string {
-  return `${Math.round(value).toLocaleString("ru-RU").replace(/[  ]/g, " ")} SUM`
+  return `${formatMoney(value, 2)} SUM`
+}
+
+/** A billing day ("YYYY-MM-DD") in the UI language (lib/i18n/format-date.ts). */
+function day(value: string | null | undefined, language: LanguageCode): string {
+  return value ? formatDateText(value, language, { withTime: false }) : ""
 }
 
 async function errorText(response: Response, fallback: string): Promise<string> {
@@ -138,7 +147,7 @@ export function DetachDialog({ onConfirm, onClose, busy }: { count: number; onCo
 
 /** "ПРОДЛИТЬ ПОДПИСКУ": one tab per period with the license table; "Подтвердить" charges the balance. */
 export function ProlongDialog({ ids, onClose, onDone }: { ids: number[]; onClose: () => void; onDone: () => void }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [options, setOptions] = useState<ProlongOption[] | null>(null)
   const [active, setActive] = useState(0)
   const [saving, setSaving] = useState(false)
@@ -189,8 +198,8 @@ export function ProlongDialog({ ids, onClose, onDone }: { ids: number[]; onClose
             <div key={license.key} className="grid h-[60px] grid-cols-6 items-center border-y-2 border-dotted border-[#d9e0e5]">
               <span>{license.name}</span>
               <span>{license.amount}</span>
-              <span>{refDate(license.beginDate)}</span>
-              <span>{refDate(license.endDate)}</span>
+              <span>{day(license.beginDate, language)}</span>
+              <span>{day(license.endDate, language)}</span>
               <span>{sum(license.price)}</span>
               <span>{sum(license.total)}</span>
             </div>
@@ -245,7 +254,7 @@ export function PurchaseDialog({ pricing, onClose, onDone }: { pricing: PricePer
         <div className="pt-[40px]">
           <label className="flex items-center gap-[10px] pl-[30px] text-[15px] font-bold">
             {t("Подписка действует начиная с даты:")}
-            <input type="date" value={startDate} min={new Date().toISOString().slice(0, 10)} onChange={(event) => setStartDate(event.target.value)} className={`h-[40px] w-[255px] border-b border-[#d5dae1] bg-transparent text-[14px] font-normal outline-none ${startDate ? "" : "text-transparent"}`} />
+            <input type="date" value={startDate} min={todayIso()} onChange={(event) => setStartDate(event.target.value)} className={`h-[40px] w-[255px] border-b border-[#d5dae1] bg-transparent text-[14px] font-normal outline-none ${startDate ? "" : "text-transparent"}`} />
           </label>
           <div className="mt-[40px] grid grid-cols-[1fr_1fr_1fr_1fr] items-center px-[8px] font-semibold">
             <span className="pl-[22px]">{t("Название пакета")}</span><span>{t("Цена")}</span><span>{t("Кол-во лицензий")}</span><span>{t("Сумма")}</span>
@@ -290,18 +299,21 @@ export function PurchaseDialog({ pricing, onClose, onDone }: { pricing: PricePer
 
 type ActResult = { rows: Array<{ date: string; type: string; debit: number; credit: number; beginDate: string | null; endDate: string | null }>; total: number }
 
-function isoDay(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+/** The same day one month earlier, clamped to that month's last day: 31 Mar → 28 (29) Feb,
+ * 31 Dec → 30 Nov, 15 Jan → 15 Dec of the year before (setUTCMonth would overflow into the same month). */
+function monthBefore(day: string): string {
+  const [year, month, date] = day.split("-").map(Number)
+  const lastOfPrevious = new Date(Date.UTC(year, month - 1, 0)).getUTCDate()
+  return new Date(Date.UTC(year, month - 2, Math.min(date, lastOfPrevious))).toISOString().slice(0, 10)
 }
 
 /** "АКТ СВЕРКИ": opening balance, ledger rows of the period, closing balance. */
 export function ActDialog({ onClose }: { onClose: () => void }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
+  // The last month up to today (Asia/Tashkent business day).
   const [range, setRange] = useState(() => {
-    const end = new Date()
-    const begin = new Date(end)
-    begin.setMonth(begin.getMonth() - 1)
-    return { begin: isoDay(begin), end: isoDay(end) }
+    const end = todayIso()
+    return { begin: monthBefore(end), end }
   })
   const [draft, setDraft] = useState(range)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -333,17 +345,17 @@ export function ActDialog({ onClose }: { onClose: () => void }) {
       </div>
       {data?.rows.map((row, index) => (
         <div key={index} className="grid h-[36px] grid-cols-[267px_356px_168px_184px_252px_1fr] border-b border-[#e6e9ee] font-semibold [&>span]:flex [&>span]:items-center">
-          <span className="pl-[17px]">{refDate(row.date)}</span>
+          <span className="pl-[17px]">{day(row.date, language)}</span>
           <span className="border-l border-[#e6e9ee] pl-[18px]">{t(row.type)}</span>
-          <span className="border-l border-[#e6e9ee] pl-[17px] text-[#e57373]">{Math.round(row.debit).toLocaleString("ru-RU")}</span>
-          <span className="border-l border-[#e6e9ee] pl-[17px] text-[#8acb8d]">{Math.round(row.credit).toLocaleString("ru-RU")}</span>
-          <span className="border-l border-[#e6e9ee] pl-[17px]">{row.beginDate ? refDate(row.beginDate) : ""}</span>
-          <span className="border-l border-[#e6e9ee] pl-[17px]">{row.endDate ? refDate(row.endDate) : ""}</span>
+          <span className="border-l border-[#e6e9ee] pl-[17px] text-[#e57373]">{formatMoney(row.debit, 2)}</span>
+          <span className="border-l border-[#e6e9ee] pl-[17px] text-[#8acb8d]">{formatMoney(row.credit, 2)}</span>
+          <span className="border-l border-[#e6e9ee] pl-[17px]">{day(row.beginDate, language)}</span>
+          <span className="border-l border-[#e6e9ee] pl-[17px]">{day(row.endDate, language)}</span>
         </div>
       ))}
       {data && (
         <div className="grid h-[36px] grid-cols-[267px_356px_168px_184px_252px_1fr] border-b border-[#e6e9ee] font-semibold [&>span]:flex [&>span]:items-center">
-          <span className="pl-[17px]">{t("Итого")}</span><span /><span /><span className="border-l border-[#e6e9ee] pl-[17px] text-[#8acb8d]">{Math.round(data.total).toLocaleString("ru-RU")}</span><span className="border-l border-[#e6e9ee]" /><span className="border-l border-[#e6e9ee]" />
+          <span className="pl-[17px]">{t("Итого")}</span><span /><span /><span className="border-l border-[#e6e9ee] pl-[17px] text-[#8acb8d]">{formatMoney(data.total, 2)}</span><span className="border-l border-[#e6e9ee]" /><span className="border-l border-[#e6e9ee]" />
         </div>
       )}
     </FullScreen>

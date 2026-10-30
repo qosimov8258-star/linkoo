@@ -70,6 +70,9 @@ export function EmployeesView() {
   const [dialogs, setDialogs] = useState<null | "import" | "update" | "bulk" | "block">(null)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
+  // What the signed-in user may do (buttons they cannot use are hidden; the API checks again):
+  // changes need settings.manage; blocking everyone and setting logins / passwords an administrator.
+  const [access, setAccess] = useState<{ manage: boolean; admin: boolean }>({ manage: false, admin: false })
 
   const load = useCallback(async () => {
     try {
@@ -82,6 +85,16 @@ export function EmployeesView() {
   }, [])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
+    void fetch("/api/auth/me", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<{ role?: string; permissions?: string[] | null }>) : null))
+      .then((me) => {
+        if (!me) return
+        const admin = me.role === "admin"
+        setAccess({ admin, manage: admin || (me.role === "manager" && (me.permissions == null || me.permissions.includes("settings.manage"))) })
+      })
+      .catch(() => undefined)
+  }, [])
+  useEffect(() => {
     void fetch("/api/employees/options", { cache: "no-store" })
       .then((response) => (response.ok ? (response.json() as Promise<EmployeeOptions>) : null))
       .then(setOptions)
@@ -92,7 +105,7 @@ export function EmployeesView() {
     const needle = query.trim().toLowerCase()
     const rows = (employees ?? []).filter((employee) => {
       if (employee.active !== (tab === "active")) return false
-      if (needle && !`${employee.id} ${employee.name} ${employee.login} ${employee.phone}`.toLowerCase().includes(needle)) return false
+      if (needle && !`${employee.id} ${employee.name} ${employee.login ?? ""} ${employee.phone}`.toLowerCase().includes(needle)) return false
       if (filters.accessRight && String(employee.accessRightId) !== filters.accessRight) return false
       if (filters.branch && !employee.branchIds.includes(Number(filters.branch))) return false
       if (filters.priceList && !employee.priceListIds.includes(Number(filters.priceList))) return false
@@ -167,7 +180,8 @@ export function EmployeesView() {
             const field = hasHeader ? fieldByIndex.get(index) : (["firstName", "lastName", "phone", "job", "branch", "integrationCode"] as const)[index]
             if (field) record[field] = String(cell ?? "").trim()
           })
-          return { ...(record.id ? { id: Number(record.id) } : {}), firstName: record.firstName ?? "", lastName: record.lastName ?? "", phone: record.phone ?? "", job: record.job ?? "", branch: record.branch ?? "", integrationCode: record.integrationCode ?? "" }
+          // Only a whole positive № names an employee (a stray cell would otherwise fail the whole file).
+          return { ...(/^\d{1,9}$/.test(record.id ?? "") && Number(record.id) > 0 ? { id: Number(record.id) } : {}), firstName: record.firstName ?? "", lastName: record.lastName ?? "", phone: record.phone ?? "", job: record.job ?? "", branch: record.branch ?? "", integrationCode: record.integrationCode ?? "" }
         })
         .filter((row) => row.firstName || row.id)
       if (!body.length) return notify(t("Не удалось найти сотрудников для импорта в выбранном файле"))
@@ -191,22 +205,28 @@ export function EmployeesView() {
   return (
     <div className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <div className="relative flex h-[73px] items-center justify-between border-b border-[#efefef] pl-[20px] pr-[60px]">
-        <button type="button" onClick={() => setDialog({ employee: null })} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
-          <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
-          {t("Добавить пользователя")}
-        </button>
-        <div className="flex items-center gap-[18px]">
-          <button type="button" onClick={() => setDialogs("import")} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
-            <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d={RI.chart} /></svg>
-            {t("Импортировать")}
+        {access.manage ? (
+          <button type="button" onClick={() => setDialog({ employee: null })} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+            <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+            {t("Добавить пользователя")}
           </button>
+        ) : <span />}
+        <div className="flex items-center gap-[18px]">
+          {access.manage && (
+            <button type="button" onClick={() => setDialogs("import")} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+              <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d={RI.chart} /></svg>
+              {t("Импортировать")}
+            </button>
+          )}
           <div className="flex h-[32px]">
             <button type="button" onClick={() => switchTab("active")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "active" ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Активный")}</button>
             <button type="button" onClick={() => switchTab("deleted")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "deleted" ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Удаленные")}</button>
           </div>
-          <button type="button" onClick={() => setDialogs("block")} aria-label={t("Ограничить доступ")} title={t("Ограничить доступ")} className="absolute right-[20px] top-[23.5px] flex h-[25px] w-[30px] items-start justify-center">
-            <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]"><path d={MINUS_CIRCLE} /></svg>
-          </button>
+          {access.admin && (
+            <button type="button" onClick={() => setDialogs("block")} aria-label={t("Ограничить доступ")} title={t("Ограничить доступ")} className="absolute right-[20px] top-[23.5px] flex h-[25px] w-[30px] items-start justify-center">
+              <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]"><path d={MINUS_CIRCLE} /></svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -250,15 +270,17 @@ export function EmployeesView() {
               </button>
             </>
           )}
-          <button
-            type="button"
-            onClick={() => { if (hasSelection) setSelected([]); else { setSelectMode((current) => !current); setSelected([]) } }}
-            aria-label={t("Выбрать из списка")}
-            title={hasSelection ? t("Снять выделение") : t("Выбрать из списка")}
-            className="ml-[32px] flex h-6 w-6 items-center justify-center"
-          >
-            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={hasSelection ? MINUS_BOX : selectMode ? EYE_OFF : RI.checklist} /></svg>
-          </button>
+          {access.manage && (
+            <button
+              type="button"
+              onClick={() => { if (hasSelection) setSelected([]); else { setSelectMode((current) => !current); setSelected([]) } }}
+              aria-label={t("Выбрать из списка")}
+              title={hasSelection ? t("Снять выделение") : t("Выбрать из списка")}
+              className="ml-[32px] flex h-6 w-6 items-center justify-center"
+            >
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={hasSelection ? MINUS_BOX : selectMode ? EYE_OFF : RI.checklist} /></svg>
+            </button>
+          )}
         </div>
         {filterOpen && (
           <div className="absolute left-0 top-[11px] z-30">
@@ -300,19 +322,23 @@ export function EmployeesView() {
             <span className={`leading-[16px] ${selectMode ? "" : "pl-[8px]"}`}>{employee.id}</span>
           </span>
           <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.name}</span>
-          <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.active ? employee.login : t("Не указано")}</span>
+          <span className="min-w-0 break-words pr-3 leading-[16px]">
+            {employee.active ? employee.login : t("Не указано")}
+            {/* A login that signs in nobody (older rows, or saved without a password): the form creates the account. */}
+            {employee.active && employee.login && !employee.account && <span className="block text-[11px] text-[#9e9e9e]">{t("Нет учетной записи")}</span>}
+          </span>
           <span className="min-w-0 pr-6 leading-[16px]">
             {employee.accessRight || t("Не выбрано")}
-            {employee.accesses.length > 0 && (
+            {(employee.accesses ?? []).length > 0 && (
               <span className="flex items-end text-[#f00]">
-                {employee.accesses.map((name, index) => <span key={name} className={index === 0 ? "min-w-0 pr-[4px]" : "shrink-0 whitespace-nowrap"}>{name}</span>)}
+                {(employee.accesses ?? []).map((name, index) => <span key={name} className={index === 0 ? "min-w-0 pr-[4px]" : "shrink-0 whitespace-nowrap"}>{name}</span>)}
               </span>
             )}
           </span>
           <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.phone || "-"}</span>
           <span className="min-w-0 truncate pr-2 leading-[16px]" title={employee.job}>{employee.job}</span>
           <span className="leading-[16px]">{employee.active ? t("Активный") : t("Неактивный")}</span>
-          <RowActions right={64} gap={8} onEdit={() => setDialog({ employee })} onDelete={() => setDeleting(employee)} />
+          {access.manage && <RowActions right={64} gap={8} onEdit={() => setDialog({ employee })} onDelete={() => setDeleting(employee)} />}
         </div>
       ))}
       {employees && rows.length === 0 && <EmptyRows />}
@@ -322,6 +348,7 @@ export function EmployeesView() {
           key={dialog.employee?.id ?? "new"}
           employee={dialog.employee}
           options={options}
+          canManageAccounts={access.admin}
           onClose={() => setDialog(null)}
           onSaved={() => { setDialog(null); void load(); void fetch("/api/employees/options", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((data) => data && setOptions(data)) }}
         />

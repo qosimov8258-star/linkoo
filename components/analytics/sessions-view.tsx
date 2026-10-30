@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { EmptyRows, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import { FilterChip, FilterLink, StaffTabs } from "@/components/staff/staff-kit"
@@ -24,6 +24,10 @@ type AuthLog = {
   lastResponseAt: string | null
   isActive: boolean
   user: { id: number; name: string }
+  /** The server's rule for this row (GET /api/auth-logs, lib/auth-logs-repo.ts): "Завершить" of a live sign-in /
+   * "Восстановить" of an ended one. Only the buttons the viewer may use are shown. */
+  canEnd?: boolean
+  canRestore?: boolean
 }
 type Employee = { id: number; name: string; active: boolean }
 type Filters = { userId: number | null; createdFrom: string; createdTo: string; lastFrom: string; lastTo: string }
@@ -54,21 +58,9 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
   const [data, setData] = useState<{ count: number; results: AuthLog[] } | null>(null)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [busyId, setBusyId] = useState<number | null>(null)
-  /** Ending / restoring a session is admin-only on the server (PATCH /api/auth-logs/[id]): others do not get the button. */
-  const [isAdmin, setIsAdmin] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((response) => (response.ok ? (response.json() as Promise<{ role?: string }>) : null))
-      .then((user) => {
-        if (!cancelled) setIsAdmin(user?.role === "admin")
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  /** Number of the latest list request: an older answer that arrives later (quick tab / search / filter changes) is
+   * dropped, so a list never shows under another tab's or query's header. */
+  const requestRef = useRef(0)
 
   useEffect(() => {
     void fetch("/api/employees", { cache: "no-store" })
@@ -85,12 +77,14 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
     if (filters.createdTo) params.set("createdTo", filters.createdTo)
     if (filters.lastFrom) params.set("lastFrom", filters.lastFrom)
     if (filters.lastTo) params.set("lastTo", filters.lastTo)
+    const request = ++requestRef.current
     try {
       const response = await fetch(`/api/auth-logs?${params}`, { cache: "no-store" })
       if (!response.ok) throw new Error("load")
-      setData((await response.json()) as { count: number; results: AuthLog[] })
+      const next = (await response.json()) as { count: number; results: AuthLog[] }
+      if (request === requestRef.current) setData(next)
     } catch {
-      setData({ count: 0, results: [] })
+      if (request === requestRef.current) setData({ count: 0, results: [] })
     }
   }, [tab, page, pageSize, query, filters])
   useEffect(() => { void load() }, [load])
@@ -107,6 +101,14 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string }
         notify(t(body.error || "Не удалось изменить сессию"))
+        // The row may have changed meanwhile (ended elsewhere, account changed): show its current state.
+        await load()
+        return
+      }
+      // The viewer ended the session this browser uses: the server signed it out.
+      const result = (await response.json().catch(() => ({}))) as { signedOut?: boolean }
+      if (result.signedOut) {
+        window.location.assign("/login")
         return
       }
       await load()
@@ -132,7 +134,10 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
     setFilterOpen(false)
   }
   function selectTab(label: string) {
-    setTab(label === "Активные" ? "active" : "not_active")
+    const next = label === "Активные" ? "active" : "not_active"
+    // The rows of the other tab would show under this tab's status until the new list arrives.
+    if (next !== tab) setData(null)
+    setTab(next)
     setPage(1)
   }
 
@@ -193,16 +198,17 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
             {log.ip && <><br /><span className="text-[#4f71dc]">{log.ip}</span></>}
           </span>
           {!active && <span>{log.lastResponseAt ? formatDateText(log.lastResponseAt, language, { withTime: true, utc: true }) : t("Не указано")}</span>}
-          <span>{active ? t("Активный") : t("Не активный")}</span>
+          {/* Status and button follow the row itself (toggle() sends !log.isActive), not the tab. */}
+          <span>{log.isActive ? t("Активный") : t("Не активный")}</span>
           <span className="flex items-center gap-[14px]">
-            {isAdmin && (
+            {(log.isActive ? log.canEnd === true : log.canRestore === true) && (
               <button
                 type="button"
                 disabled={busyId === log.id}
                 onClick={() => void toggle(log)}
-                className={`h-[30px] rounded-[3px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60 ${active ? "bg-[#71ce87] px-[14px]" : "bg-[#4f71dc] px-[16px]"}`}
+                className={`h-[30px] rounded-[3px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60 ${log.isActive ? "bg-[#71ce87] px-[14px]" : "bg-[#4f71dc] px-[16px]"}`}
               >
-                {active ? t("Завершить") : t("Восстановить")}
+                {log.isActive ? t("Завершить") : t("Восстановить")}
               </button>
             )}
             <InfoIcon text={log.browser} />

@@ -3,8 +3,10 @@ import "server-only"
 import { CLIENT_COLUMNS, getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { ensureClientZones, resolveClientZone } from "@/lib/client-zones-repo"
 import { clientLedgerBalances } from "@/lib/orders-repo"
+import { notifySafely } from "@/lib/notify-event"
 import { keySql, nameKey, quoteIdent } from "@/lib/platform-refs"
 import { selectedBranchName } from "@/lib/selected-branch"
+import { ensureUserNotificationsSchema, notifyTemplate } from "@/lib/user-notifications-repo"
 import type { Client } from "@/components/clients/clients-data"
 
 // Clients.
@@ -365,6 +367,8 @@ async function lockClients(db: PgDb) {
 export async function createClient(input: ClientInput, user?: { displayName: string }): Promise<Client> {
   await ensureClientsSchema()
   await ensureClientZones()
+  // The new_market notification is written inside the client transaction.
+  await ensureUserNotificationsSchema()
   const id = await withTransaction(async (tx) => {
     await lockClients(tx)
     const checked = await validateReferences(tx, input, undefined, user?.displayName ?? "")
@@ -383,8 +387,18 @@ export async function createClient(input: ClientInput, user?: { displayName: str
          )`,
       )
       .run({ ...writeParams(checked, checked.balance ?? null), createdBy: user?.displayName ?? "" })
-    await saveObjectStatus(tx, Number(result.lastInsertRowid), input.isActive)
-    return Number(result.lastInsertRowid)
+    const clientId = Number(result.lastInsertRowid)
+    await saveObjectStatus(tx, clientId, input.isActive)
+    // Настройки → Уведомления "new_market": the administrators, the subscribers and the client's agent (in this
+    // transaction: a rolled-back client notifies nobody; a failed notification never undoes it).
+    await notifySafely("new_market", () =>
+      notifyTemplate(
+        "new_market",
+        { market_name: checked.name, created_by: user?.displayName ?? "" },
+        { objectId: clientId, link: "/clients", employeeNames: [checked.agent ?? ""] },
+      ),
+    )
+    return clientId
   })
   return (await getClient(id))!
 }

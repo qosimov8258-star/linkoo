@@ -1,3 +1,4 @@
+import { NotificationsFeed } from "@/components/dashboard/notifications-feed"
 import { getServerT } from "@/lib/i18n/server"
 
 export default async function NotificationsPage() {
@@ -12,35 +13,8 @@ export default async function NotificationsPage() {
           </p>
         </div>
 
-        <div className="space-y-4">
-          {[
-            {
-              title: "Напоминание по заявке",
-              detail: "Заявка №7942 требует проверки клиентом.",
-              time: "2 минуты назад",
-            },
-            {
-              title: "Новая задача от менеджера",
-              detail: "Поставьте приоритет на объём заказов в регионе Юг.",
-              time: "15 минут назад",
-            },
-            {
-              title: "Отчёт готов",
-              detail: "Отчёт по кассовой сверке за вчерашний день доступен.",
-              time: "1 час назад",
-            },
-          ].map((item) => (
-            <article key={item.title} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">{t(item.title)}</h2>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">{t(item.detail)}</p>
-                </div>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-500">{t(item.time)}</span>
-              </div>
-            </article>
-          ))}
-        </div>
+        {/* The signed-in user's own notifications (GET /api/notifications). */}
+        <NotificationsFeed />
       </div>
     </main>
   )

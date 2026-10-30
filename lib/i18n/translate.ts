@@ -47,15 +47,7 @@ const MONTH_WORD = /(?<![А-Яа-яЁё])(январ[ьяю]|феврал[ьяю
 
 const NUMBER_TOKEN = /\d+(?:[ .,]\d+)*/g
 
-// Some reference pages print dates with Russian month names even in the uz interface (moment locale "ru");
-// the DOM translator switches this on for those routes (see REFERENCE_RU_DATE_ROUTES).
-let keepRussianMonths = false
-export function setKeepRussianMonths(value: boolean) {
-  keepRussianMonths = value
-}
-
 function translateMonths(lang: TargetLanguage, text: string): string {
-  if (keepRussianMonths && lang === "uz") return text
   return text.replace(MONTH_WORD, (word) => {
     const index = MONTH_FORMS.findIndex(([form]) => new RegExp(`^(?:${form.source})$`, "i").test(word.replace(/\.$/, "")))
     if (index < 0) return word

@@ -3,13 +3,12 @@
 import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 
+import { SALARY_MONTHS } from "@/components/analytics/salary-fields"
 import { FilterSelect, RI } from "@/components/ref/list-kit"
 import { RefPager } from "@/components/ref/pager-controls"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type Person = { id: number; name: string; job: string; accessRight: string; active: boolean }
-
-const MONTHS_UPPER = ["ЯНВАРЬ", "ФЕВРАЛЬ", "МАРТ", "АПРЕЛЬ", "МАЙ", "ИЮНЬ", "ИЮЛЬ", "АВГУСТ", "СЕНТЯБРЬ", "ОКТЯБРЬ", "НОЯБРЬ", "ДЕКАБРЬ"]
 
 /**
  * The reference's "ДОБАВИТЬ ЗАРПЛАТУ СОТРУДНИКА НА <МЕСЯЦ ГОД>": a full-screen list of the employees with a salary input per row.
@@ -83,7 +82,7 @@ export function SalaryAddDialog({
   return createPortal(
     <div className="fixed inset-0 z-[1400] flex flex-col bg-white font-sans text-[13px] text-[#333]">
       <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#eee] pl-[30px] pr-[10px]">
-        <span className="relative top-[0.6px] text-[13px] font-bold uppercase text-[#333]">{t("Добавить зарплату сотрудника на")} <span data-no-translate>{MONTHS_UPPER[month]} {year}</span></span>
+        <span className="relative top-[0.6px] text-[13px] font-bold uppercase text-[#333]">{t("Добавить зарплату сотрудника на")} <span data-no-translate>{t(SALARY_MONTHS[month] ?? "").toUpperCase()} {year}</span></span>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center">
           <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d={RI.close} /></svg>
         </button>

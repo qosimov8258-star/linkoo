@@ -68,9 +68,11 @@ export function AgentWorkingTimeView() {
   // separate field-force-automation domain); no table anywhere records
   // actual clock-in/out or time-in-store, so the result panel below keeps
   // showing "not found" rather than fabricated hours — see report notes.
+  // The agent / supervisor filters list only the employees of the reader's field scope (an agent
+  // sees their own name, never the other agents'): GET /api/field-activity/people.
   useEffect(() => {
     let cancelled = false
-    fetch("/api/employees")
+    fetch("/api/field-activity/people")
       .then((response) => (response.ok ? (response.json() as Promise<{ name: string; position: string }[]>) : Promise.reject()))
       .then((data) => {
         if (!cancelled) setEmployees(data)

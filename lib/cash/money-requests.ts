@@ -6,10 +6,11 @@ import { nowLocalIso, todayIso } from "@/lib/finance/dates"
 import { nameKey } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { CashError, num, pageOf } from "@/lib/cash/common"
-import { appendLog, lockFundRequest, parseLog, requestStatus } from "@/lib/cash/request-links"
+import { appendLog, lockFundRequest, notifyMoneyRequest, parseLog, requestStatus } from "@/lib/cash/request-links"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { createCashOperation } from "@/lib/cash/write"
 import { operationKey, type CashOperationInput, type CashWriteResult, type MoneyRequest, type MoneyRequestStatus } from "@/lib/cash/types"
+import { ensureUserNotificationsSchema } from "@/lib/user-notifications-repo"
 
 // Money requests ("Запрос средств" / "Ожидаемые расходы", demo
 // finance/money_request): supplier_balance_transactions rows with kind
@@ -55,7 +56,7 @@ async function hasTable(db: PgDb): Promise<boolean> {
 }
 
 const SELECT = `SELECT t.id, (SELECT COUNT(*)::int FROM supplier_balance_transactions z WHERE z.kind = 'fund_request' AND z.id <= t.id) AS num, t.supplier_id, s.name AS supplier_name, t.currency, t.amount::float8 AS amount, t.comment, t.status, t.created_by,
-    COALESCE(to_char(COALESCE(fin_ts(t.created_at), fin_ts(t.date)), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created_s,
+    COALESCE(to_char(COALESCE(fin_ts(t.created_at, true), fin_ts(t.date)), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created_s,
     t.responsible_user, t.approved_at, t.payment_id, sp.doc_no AS payment_doc, t.log
   FROM supplier_balance_transactions t LEFT JOIN suppliers s ON s.id = t.supplier_id
   LEFT JOIN supplier_payments sp ON sp.id = t.payment_id
@@ -145,6 +146,8 @@ export type MoneyRequestUpdate = {
 /** Approve / edit / cancel (demo PUT finance/money_request/<id> {provider, amount, currency, status}). */
 export async function updateMoneyRequest(id: number, input: MoneyRequestUpdate, user: string): Promise<MoneyRequest> {
   await ensureCashSchema()
+  // The money_request_approved notification is written inside the approval transaction.
+  if (input.status === "approved") await ensureUserNotificationsSchema()
   await withTransaction(async (tx) => {
     const request = await lockFundRequest(tx, id)
     const status = requestStatus(request.status)
@@ -176,6 +179,8 @@ export async function updateMoneyRequest(id: number, input: MoneyRequestUpdate, 
           currency,
         }),
       })
+    // A first approval (not an edit of an approved request) tells the requester.
+    if (approving && status !== "approved") await notifyMoneyRequest(tx, "money_request_approved", id)
   })
   return (await getMoneyRequest(id))!
 }

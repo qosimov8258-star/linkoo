@@ -2,33 +2,47 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getDb } from "@/lib/db"
-import { createEmployee, getEmployee, updateEmployee } from "@/lib/employees-repo"
+import { employeeFailureMessage, idField } from "@/lib/employees-api"
+import { EmployeeAccessError, createEmployee, getEmployee, updateEmployee } from "@/lib/employees-repo"
 import { ensureEmployeesSchema } from "@/lib/employees-schema"
 import type { EmployeeInput } from "@/components/analytics/employees-data"
+import { nameKey } from "@/lib/platform-refs"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 
+const TOO_LONG = "Не более 255 символов"
+const text = () => z.string().trim().max(255, TOO_LONG).default("")
+
 const importSchema = z.object({
-  mode: z.enum(["create", "update"]),
+  mode: z.enum(["create", "update"], { error: "Неверное значение" }),
   rows: z
     .array(
       z.object({
-        id: z.number().int().positive().optional(),
-        firstName: z.string().trim().default(""),
-        lastName: z.string().trim().default(""),
-        phone: z.string().trim().default(""),
-        job: z.string().trim().default(""),
-        branch: z.string().trim().default(""),
-        integrationCode: z.string().trim().default(""),
+        id: idField().optional(),
+        firstName: text(),
+        lastName: text(),
+        phone: z.string().trim().max(64, "Слишком длинное значение").default(""),
+        job: text(),
+        branch: text(),
+        integrationCode: text(),
       }),
     )
-    .min(1)
-    .max(2000),
+    .min(1, "Не удалось найти сотрудников для импорта в выбранном файле")
+    .max(2000, "Слишком много значений"),
 })
 
+/** Ids by name key (case, spaces and Unicode form ignored); empty while the table does not exist yet. */
 async function idsByName(table: "job_positions" | "branches"): Promise<Map<string, number>> {
-  const rows = (await getDb().prepare(`SELECT id, name FROM ${table}`).all()) as Array<{ id: number; name: string }>
-  return new Map(rows.map((row) => [row.name.trim().toLowerCase(), row.id]))
+  const db = getDb()
+  const exists = (await db.prepare("SELECT to_regclass(@name::text) IS NOT NULL AS ok").get({ name: table })) as { ok: boolean } | undefined
+  if (!exists?.ok) return new Map()
+  const rows = (await db.prepare(`SELECT id, name FROM ${table} ORDER BY id`).all()) as Array<{ id: number; name: string }>
+  const byName = new Map<string, number>()
+  for (const row of rows) {
+    const key = nameKey(row.name.normalize("NFC"))
+    if (!byName.has(key)) byName.set(key, Number(row.id))
+  }
+  return byName
 }
 
 /** "Импортировать" / "Обновить с excel": creates employees from rows (or updates the ones named by №). Row errors are reported, the rest is saved. */
@@ -50,8 +64,8 @@ export async function POST(request: Request) {
       errors.push({ row: line, message: "Сотрудник не найден" })
       continue
     }
-    const jobId = row.job ? jobs.get(row.job.toLowerCase()) : current?.jobId
-    const branchIds = row.branch ? [branches.get(row.branch.toLowerCase())].filter((id): id is number => Boolean(id)) : (current?.branchIds ?? [])
+    const jobId = row.job ? jobs.get(nameKey(row.job)) : current?.jobId
+    const branchIds = row.branch ? [branches.get(nameKey(row.branch))].filter((id): id is number => Boolean(id)) : (current?.branchIds ?? [])
     const firstName = row.firstName || current?.firstName || ""
     const lastName = row.lastName || current?.lastName || ""
     const phone = row.phone || current?.phone || ""
@@ -95,8 +109,18 @@ export async function POST(request: Request) {
       marketPriceListIds: current?.marketPriceListIds ?? [],
       currencyIds: current?.currencyIds ?? [],
     }
-    const result = current && parsed.data.mode === "update" ? await updateEmployee(current.id, input) : await createEmployee(input)
-    if (!result || "error" in result) errors.push({ row: line, message: "Не удалось сохранить сотрудника" })
+    const actor = { id: auth.user.id, role: auth.user.role }
+    let result: Awaited<ReturnType<typeof updateEmployee>>
+    try {
+      result = current && parsed.data.mode === "update" ? await updateEmployee(current.id, input, actor) : await createEmployee(input, actor)
+    } catch (error) {
+      // An access change refused for this row (the employee's access changed meanwhile): the row's own message.
+      if (!(error instanceof EmployeeAccessError)) throw error
+      errors.push({ row: line, message: error.message })
+      continue
+    }
+    if (!result) errors.push({ row: line, message: "Сотрудник не найден" })
+    else if ("error" in result) errors.push({ row: line, message: employeeFailureMessage(result) })
     else saved += 1
   }
   return NextResponse.json({ saved, errors })

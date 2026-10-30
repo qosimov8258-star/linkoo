@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
+import { formatMoney } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { downloadExcelTable } from "@/lib/excel-export"
@@ -95,6 +96,22 @@ const salesFilters = [
 
 const statuses = ["В процессе", "Выполнено", "Невыполнено"]
 
+/** Money columns of the sales report (lib/report-builder-repo.ts): shown with 2 decimals and labelled with
+ * their currency — the base currency (result.currency), or the row's / column's "Валюта" for the ones in
+ * result.documentColumns. "…, SUM" is the reference's name of a base-currency column. */
+const MONEY_COLUMNS = new Set([
+  "Прибыль от продаж", "Сумма заказов", "Сумма возвратов", "Сумма факт",
+  "Сумма заказов, SUM", "Сумма возвратов, SUM", "Сумма факт, SUM",
+  "Сумма до переоценки заказов", "Сумма до переоценки возвратов", "Сумма до переоценки факт",
+  "Себестоимость заказа", "Себестоимость возврата", "Cебестоимость факт",
+])
+
+/** The measure column of a result header ("<horizontal key> · <column>" or the column itself). */
+function measureOf(header: string): { prefix: string; column: string } {
+  const at = header.lastIndexOf(" · ")
+  return at >= 0 ? { prefix: header.slice(0, at + 3), column: header.slice(at + 3) } : { prefix: "", column: header }
+}
+
 type SavedReport = {
   id: number
   name: string
@@ -165,8 +182,11 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const zones = useDirectoryNames("zones")
 
   useEffect(() => {
+    // Fallback names of the visits "Пользователь" filter: the employees of the reader's field scope
+    // (an agent gets only themselves and their supervised agents), never the whole staff list.
+    if (isSales) return
     let cancelled = false
-    fetch("/api/employees")
+    fetch("/api/field-activity/people")
       .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
       .then((data) => {
         if (!cancelled) setUsers(data.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
@@ -177,7 +197,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isSales])
 
   useEffect(() => {
     window.localStorage.setItem(isSales ? "sales-builder-reports" : "visit-builder-reports", JSON.stringify(savedReports))
@@ -227,12 +247,16 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
       })
       const data = (await response.json().catch(() => null)) as (BuilderResult & { error?: string }) | null
       if (!response.ok || !data || data.error) {
-        setMessage(data?.error ?? t("Не удалось сформировать отчет"))
+        setMessage(t(data?.error || "Не удалось сформировать отчет"))
         return null
       }
       setResult(data)
       setReportReady(true)
-      setMessage(data.unsupported.length ? `${t("Отчет успешно сформирован")}. ${t("Нет данных для")}: ${data.unsupported.map((item) => t(item)).join(", ")}` : t("Отчет успешно сформирован"))
+      const notes = [
+        data.unsupported.length ? `${t("Нет данных для")}: ${data.unsupported.map((item) => t(item)).join(", ")}` : "",
+        data.missingRates?.length ? `${t("Курс валюты не задан")}: ${data.missingRates.join(", ")}` : "",
+      ].filter(Boolean)
+      setMessage([t("Отчет успешно сформирован"), ...notes].join(". "))
       return data
     } finally {
       setRunning(false)
@@ -256,7 +280,22 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     const data = reportReady && result ? result : await generate()
     if (!data) return
     const totals = data.totals ? [data.totals.map((cell, index) => (index === 0 && cell === "Итого" ? t("Итого") : cell))] : []
-    downloadExcelTable(t(isSales ? "Отчет по продажам" : "Конструктор"), [data.headers.map((item) => t(item)), ...data.rows, ...totals])
+    downloadExcelTable(t(isSales ? "Отчет по продажам" : "Конструктор"), [data.headers.map((item) => headerLabel(data, item)), ...data.rows, ...totals])
+  }
+
+  /** A header in the UI language; a money column carries its currency (never a hard-coded "SUM"). */
+  function headerLabel(data: BuilderResult, header: string): string {
+    const { prefix, column } = measureOf(header)
+    if (!MONEY_COLUMNS.has(column) || !data.currency) return prefix + t(column)
+    const name = t(column.endsWith(", SUM") ? column.slice(0, -", SUM".length) : column)
+    // Columns in the document's own currency: each cell is in its row's / column's "Валюта".
+    if (data.documentColumns?.includes(column)) return `${prefix}${name}, ${t("Валюта")}`
+    return `${prefix}${name}, ${data.currency}`
+  }
+
+  function cellText(data: BuilderResult, cell: string | number, index: number): string | number {
+    if (typeof cell !== "number") return cell
+    return MONEY_COLUMNS.has(measureOf(data.headers[index] ?? "").column) ? formatMoney(cell, 2) : new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(cell)
   }
 
   const shownColumns = availableColumns.filter((item) => item.toLowerCase().includes(columnQuery.toLowerCase()))
@@ -301,7 +340,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
           <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {(isSales ? ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"] : ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]).map((tab) => (
               <button key={tab} type="button" onClick={() => { setActiveTab(tab); setReportReady(false) }} className={`h-[30px] px-4 text-[13px] font-medium uppercase transition-colors ${activeTab === tab ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>
-                <span data-no-translate>{tab}</span>
+                <span>{t(tab)}</span>
               </button>
             ))}
           </div>
@@ -326,7 +365,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
               <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && setTo(event.target.value)} className="absolute right-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
             </span>
             <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
-              <span data-no-translate>{settingsVisible ? "СКРЫТЬ НАСТРОЙКИ ▲" : "ПОКАЗАТЬ НАСТРОЙКИ ▼"}</span>
+              <span>{settingsVisible ? `${t("СКРЫТЬ НАСТРОЙКИ")} ▲` : `${t("ПОКАЗАТЬ НАСТРОЙКИ")} ▼`}</span>
             </button>
             <button type="button" disabled={invalid || running} onClick={() => void generate()} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95 disabled:opacity-50">
               {t("СФОРМИРОВАТЬ ОТЧЕТ")}
@@ -365,7 +404,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
                 </div>
               ))}
               <button type="button" onClick={() => setExtraFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
-                <span data-no-translate>ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР</span>
+                <span>{t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР")}</span>
               </button>
             </div>
           </div>
@@ -378,12 +417,12 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
               <p className="py-10 text-center text-slate-500">{t("По вашему запросу ничего не найдено")}</p>
             ) : (
               <table className="w-full min-w-[720px] border-collapse">
-                <thead><tr className="bg-navy text-white">{result.headers.map((item, index) => <th key={`${item}-${index}`} className="border border-white/20 px-4 py-3 text-left">{t(item)}</th>)}</tr></thead>
+                <thead><tr className="bg-navy text-white">{result.headers.map((item, index) => <th key={`${item}-${index}`} className="border border-white/20 px-4 py-3 text-left">{headerLabel(result, item)}</th>)}</tr></thead>
                 <tbody>
                   {result.rows.map((row, rowIndex) => (
-                    <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className={`border px-4 py-3 ${typeof cell === "number" ? "text-right" : ""}`}>{typeof cell === "number" ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(cell) : cell}</td>)}</tr>
+                    <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className={`border px-4 py-3 ${typeof cell === "number" ? "text-right" : ""}`}>{cellText(result, cell, cellIndex)}</td>)}</tr>
                   ))}
-                  {result.totals && <tr className="bg-slate-100 font-bold">{result.totals.map((cell, cellIndex) => <td key={cellIndex} className={`border px-4 py-3 ${typeof cell === "number" ? "text-right" : ""}`}>{typeof cell === "number" ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(cell) : typeof cell === "string" && cell === "Итого" ? t("Итого") : cell}</td>)}</tr>}
+                  {result.totals && <tr className="bg-slate-100 font-bold">{result.totals.map((cell, cellIndex) => <td key={cellIndex} className={`border px-4 py-3 ${typeof cell === "number" ? "text-right" : ""}`}>{typeof cell === "string" && cell === "Итого" ? t("Итого") : cellText(result, cell, cellIndex)}</td>)}</tr>}
                 </tbody>
               </table>
             )}

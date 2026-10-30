@@ -28,6 +28,7 @@ import { AnalyticsMenu } from "./analytics-menu"
 import { BrandMenu, type CustomServer, type WorkspaceId } from "./brand-menu"
 import { ClientsMenu } from "./clients-menu"
 import { FinanceMenu, financeHrefs } from "./finance-menu"
+import { useUnviewedNotificationsCount } from "./notifications-feed"
 import { NotificationsMenu } from "./notifications-menu"
 import { PersonnelMenu, personnelHrefs } from "./personnel-menu"
 import { ProductionMenu } from "./production-menu"
@@ -273,7 +274,10 @@ export function TopNav() {
   const [createServerOpen, setCreateServerOpen] = useState(false)
   const [newServerName, setNewServerName] = useState("")
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [notificationsBadge, setNotificationsBadge] = useState(0)
+  // The bell shows the caller's unviewed count; opening the menu hides it until the count changes.
+  const unviewedNotifications = useUnviewedNotificationsCount()
+  const [seenCount, setSeenCount] = useState(-1)
+  const notificationsBadge = unviewedNotifications !== seenCount ? unviewedNotifications : 0
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [account, setAccount] = useState<AccountUser | null>(null)
   const [signingOut, setSigningOut] = useState(false)
@@ -544,7 +548,7 @@ export function TopNav() {
               type="button"
               onClick={() => {
                 setNotificationsOpen((current) => !current)
-                setNotificationsBadge(0)
+                setSeenCount(unviewedNotifications)
               }}
               aria-haspopup="menu"
               aria-expanded={notificationsOpen}

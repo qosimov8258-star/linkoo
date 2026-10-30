@@ -1,14 +1,20 @@
 import "server-only"
 
 import { countRefusalsByDay } from "@/lib/agent-visits-repo"
+import { loadRateBook } from "@/lib/currency-rates-repo"
 import { getDb } from "@/lib/db"
+import { normCurrency } from "@/lib/finance/currency"
+import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { ensureOrdersSchema, parseMoneyText } from "@/lib/orders-repo"
 import { keySql, nameKey } from "@/lib/platform-refs"
 import { selectedBranchName } from "@/lib/selected-branch"
 
 // Data behind the dashboard "ПРОДАЖА" tab (demo #/ ?toggleTab=sales). The numbers follow the demo's
-// stats/widget endpoints: cancelled orders are left out, an order counts by its creation day, its
-// fact price is converted to SUM with the rate that was valid on that day, and the "ОКБ" of a row is
-// the number of clients (not in the "closing" tab) that belong to it.
+// stats/widget endpoints: cancelled orders are left out, an order counts by its creation day (the
+// business day, Asia/Tashkent), its fact price is converted to the base currency (Валюты) with the
+// rate its currency had when the order was created (lib/currency-rates-repo.ts loadRateBook) before
+// anything is summed — a currency without a rate is left out and named in `missingRates` — and the
+// "ОКБ" of a row is the number of clients (not in the "closing" tab) that belong to it.
 
 export type SalesFilters = {
   zones?: string[]
@@ -16,6 +22,9 @@ export type SalesFilters = {
   productTypes?: string[]
   agents?: string[]
   brands?: string[]
+  /** The employees whose field refusals the reader may count (their field scope, lib/field-activity/actor.ts):
+   * undefined = every employee, [] = none. Set by the route, never by a query parameter. */
+  fieldEmployeeIds?: number[]
 }
 
 export type SalesRow = { id: number; name: string; amount: number; okb: number; akb: number; akbIndex: number; percent: number }
@@ -27,14 +36,32 @@ export type SalesStats = {
   productType: SalesGroup
   marketType: SalesGroup
   dynamic: SalesDay[]
-  /** raw (unconverted) fact price sums for the "Продажа" bar chart, keyed by the demo's labels */
+  /** fact price sums (base currency) for the "Продажа" bar chart, keyed by the demo's labels */
   day: { label: string; total: number }[]
   week: { label: string; total: number }[]
   month: { label: string; total: number }[]
+  /** Base currency code every amount is in. */
+  currency: string
+  /** Currencies of orders that have no rate to the base currency: their amounts are left out. */
+  missingRates: string[]
 }
 export type SalesOptions = { zones: string[]; marketTypes: string[]; productTypes: string[]; agents: string[]; brands: string[] }
 
-type OrderRow = { id: number; client: string; market_name: string; zone: string; agent: string; type: string; amount: string; fact_price: number | null; created_at: string }
+type OrderRow = {
+  id: number
+  client: string
+  market_name: string
+  zone: string
+  agent: string
+  type: string
+  amount: string
+  currency: string | null
+  fact_price: number | null
+  return_price: number | null
+  created_at: string
+  /** Business day (Asia/Tashkent) of created_at. */
+  day: string
+}
 type ItemRow = { order_id: number; quantity: number; unit_price: number; discount_percent: number | null; product_type: string | null; brand: string | null }
 
 const UNSET = "Не указано"
@@ -45,11 +72,6 @@ const clientOf = (order: { client: string; market_name: string }) => order.marke
 const round = (value: number, digits: number) => {
   const factor = 10 ** digits
   return Math.round(value * factor) / factor
-}
-
-function currencyOf(amount: string) {
-  const match = amount.trim().match(/([A-Za-zА-Яа-я]+)\s*$/)
-  return (match?.[1] ?? "SUM").toUpperCase()
 }
 
 function isoWeekStart(iso: string) {
@@ -63,44 +85,52 @@ const dmy = (date: Date) =>
   `${String(date.getUTCDate()).padStart(2, "0")}.${String(date.getUTCMonth() + 1).padStart(2, "0")}.${date.getUTCFullYear()}`
 const dmyOfIso = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`
 
+/** `begin` / `end`: checked business days "YYYY-MM-DD" (app/api/sales-stats/route.ts). */
 export async function getSalesStats(begin: string, end: string, filters: SalesFilters = {}): Promise<SalesStats> {
+  await ensureOrdersSchema()
   const db = getDb()
+  await ensureFinanceSchema(db) // fin_ts
   const branch = await selectedBranchName()
+  const book = await loadRateBook(db)
 
   const orders = (await db
     .prepare(
-      `SELECT id, client, market_name, zone, agent, type, amount, fact_price, created_at FROM orders
-       WHERE substr(created_at, 1, 10) BETWEEN ? AND ? AND status <> 'Отменен' AND (?::text = '' OR branch_name = ?) ORDER BY id`,
+      `SELECT id, client, market_name, zone, agent, type, amount, currency, fact_price, return_price, created_at,
+              to_char(fin_ts(created_at, true)::date, 'YYYY-MM-DD') AS day
+         FROM orders
+        WHERE fin_ts(created_at, true)::date BETWEEN @begin::date AND @end::date AND status <> 'Отменен'
+          AND (@branch::text = '' OR branch_name = @branch)
+        ORDER BY id`,
     )
-    .all(begin, end, branch, branch)) as OrderRow[]
+    .all({ begin, end, branch })) as OrderRow[]
 
-  const ids = orders.map((order) => order.id)
+  const ids = orders.map((order) => Number(order.id))
   const items = ids.length
     ? ((await db
         .prepare(
           `SELECT i.order_id, i.quantity, i.unit_price, i.discount_percent, p.type AS product_type, p.brand AS brand
            FROM order_items i LEFT JOIN products p ON p.id = i.product_id
-           WHERE i.order_id IN (${ids.map(() => "?").join(",")})`,
+           WHERE i.order_id = ANY(@ids::int[])`,
         )
-        .all(...ids)) as ItemRow[])
+        .all({ ids })) as ItemRow[])
     : []
   const itemsByOrder = new Map<number, ItemRow[]>()
-  for (const item of items) itemsByOrder.set(item.order_id, [...(itemsByOrder.get(item.order_id) ?? []), item])
+  for (const item of items) itemsByOrder.set(Number(item.order_id), [...(itemsByOrder.get(Number(item.order_id)) ?? []), item])
 
-  const currencies = (await db.prepare("SELECT id, name, rate FROM currencies").all()) as { id: number; name: string; rate: number }[]
-  const rateRows = (await db.prepare("SELECT currency_id, rate, created_at FROM currency_rates ORDER BY created_at").all()) as {
-    currency_id: number
-    rate: number
-    created_at: string
-  }[]
-  const rateAt = (code: string, createdAt: string) => {
-    const currency = currencies.find((item) => item.name.toUpperCase() === code)
-    if (!currency || currency.rate === 1) return 1
-    let rate = 0
-    for (const row of rateRows) if (row.currency_id === currency.id && row.created_at <= createdAt) rate = row.rate
-    return rate || currency.rate
+  // The order's fact price (ordered − returned) in the base currency, with its currency's rate at its creation.
+  // Orders written before fact_price existed: the amount text − the returned value.
+  const missing = new Set<string>()
+  const factInBase = (order: OrderRow): number => {
+    const text = parseMoneyText(String(order.amount ?? ""))
+    const fact = order.fact_price ?? (text?.value ?? 0) - Number(order.return_price ?? 0)
+    const currency = normCurrency(order.currency || text?.currency || "", book.base)
+    const rate = book.rateAt(currency, order.created_at)
+    if (rate === null) {
+      if (fact) missing.add(currency)
+      return 0
+    }
+    return fact * rate
   }
-
   const clientRows = (await db.prepare("SELECT zone, agent, type FROM clients WHERE tab <> 'closing'").all()) as {
     zone: string
     agent: string
@@ -123,13 +153,12 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
 
   type Line = { order: OrderRow; amount: number; productType: string }
   const lines: Line[] = []
-  const rawByOrder = new Map<number, number>()
+  const baseByOrder = new Map<number, number>()
   for (const order of orders) {
     if (has(filters.zones) && !filters.zones!.includes(zoneName(order))) continue
     if (has(filters.marketTypes) && !filters.marketTypes!.includes(order.type)) continue
     if (has(filters.agents) && !filters.agents!.includes(order.agent)) continue
-    const rate = rateAt(currencyOf(order.amount), order.created_at)
-    const total = (order.fact_price ?? 0) * rate
+    const total = factInBase(order)
     const orderItems = itemsByOrder.get(order.id) ?? []
     const gross = orderItems.reduce((sum, item) => sum + item.quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100), 0)
     const kept = orderItems.filter(
@@ -146,7 +175,7 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
         lines.push({ order, amount: total * share, productType: item.product_type || UNSET })
       }
     }
-    rawByOrder.set(order.id, order.fact_price ?? 0)
+    baseByOrder.set(order.id, total)
   }
 
   const group = (keyOf: (line: Line) => string, okbOf: (name: string) => number, totalOkb?: number): SalesGroup => {
@@ -166,7 +195,7 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
         return {
           id: index + 1,
           name,
-          amount: round(entry.amount, 4),
+          amount: round(entry.amount, 2),
           okb,
           akb,
           akbIndex: round(okb > 0 ? (akb / okb) * 100 : akb * 100, 1),
@@ -176,13 +205,13 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
       .sort((a, b) => b.amount - a.amount)
     const okb = totalOkb ?? data.reduce((sum, row) => sum + row.okb, 0)
     const akb = data.reduce((sum, row) => sum + row.akb, 0)
-    return { data, total: { amount: round(total, 4), okb, akb, akbIndex: okb > 0 ? (akb / okb) * 100 : akb * 100 } }
+    return { data, total: { amount: round(total, 2), okb, akb, akbIndex: okb > 0 ? (akb / okb) * 100 : akb * 100 } }
   }
 
   // sales_dynamic: converted sums and distinct clients per creation day
   const perDay = new Map<string, { sales: number; clients: Set<string> }>()
   for (const line of lines) {
-    const day = line.order.created_at.slice(0, 10)
+    const day = line.order.day
     const entry = perDay.get(day) ?? { sales: 0, clients: new Set<string>() }
     entry.sales += line.amount
     entry.clients.add(clientOf(line.order))
@@ -196,6 +225,11 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
       .prepare(`SELECT id FROM employees WHERE ${keySql("first_name || ' ' || last_name")} = ANY(@keys::text[])`)
       .all({ keys: filters.agents!.map(nameKey) })) as { id: number }[]
     refusalEmployeeIds = rows.map((row) => Number(row.id))
+  }
+  // An agent counts only the refusals of their own field scope (themselves and their supervised agents).
+  if (filters.fieldEmployeeIds) {
+    const scope = new Set(filters.fieldEmployeeIds)
+    refusalEmployeeIds = refusalEmployeeIds ? refusalEmployeeIds.filter((id) => scope.has(id)) : [...scope]
   }
   let refusalClientIds: number[] | undefined
   if (has(filters.zones) || has(filters.marketTypes)) {
@@ -215,9 +249,9 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
   for (const day of refusals.keys()) if (!perDay.has(day)) perDay.set(day, { sales: 0, clients: new Set<string>() })
   const dynamic = [...perDay.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, entry]) => ({ date, akb: entry.clients.size, reject: refusals.get(date) ?? 0, sales: round(entry.sales, 4) }))
+    .map(([date, entry]) => ({ date, akb: entry.clients.size, reject: refusals.get(date) ?? 0, sales: round(entry.sales, 2) }))
 
-  // report_many: raw (not converted) sums per day / week / month
+  // report_many: sums (base currency) per day / week / month
   const rawDay = new Map<string, number>()
   const rawWeek = new Map<string, number>()
   const rawMonth = new Map<string, number>()
@@ -225,8 +259,8 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
   for (const line of lines) {
     if (seenOrders.has(line.order.id)) continue
     seenOrders.add(line.order.id)
-    const iso = line.order.created_at.slice(0, 10)
-    const raw = line.order.fact_price ?? 0
+    const iso = line.order.day
+    const raw = baseByOrder.get(line.order.id) ?? 0
     rawDay.set(iso, (rawDay.get(iso) ?? 0) + raw)
     const start = isoWeekStart(iso)
     const stop = new Date(start)
@@ -251,6 +285,8 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
     day: series(rawDay, dmyOfIso),
     week: sortedWeeks.map(([label, total]) => ({ label, total: round(total, 2) })),
     month: series(rawMonth, (key) => key),
+    currency: book.base,
+    missingRates: [...missing].sort(),
   }
 
   function zoneNameOf(line: Line) {

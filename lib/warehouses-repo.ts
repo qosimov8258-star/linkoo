@@ -5,6 +5,7 @@ import { NextResponse } from "next/server"
 
 import { dbErrorResponse } from "@/lib/db-errors"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { withEmployeeLinks } from "@/lib/employees-usage"
 import { ensureStockSchema } from "@/lib/stock/schema"
 import { cascadeWarehouseRename, lockWarehouseNames, warehouseUsage, type WarehouseRenameChange } from "@/lib/warehouses-refs"
 import type { WarehouseActiveFilter, WarehouseInput, WarehouseListQuery } from "@/lib/warehouses-schema"
@@ -223,7 +224,9 @@ export async function getWarehouseDetail(id: number, withUsage = false): Promise
   const row = await readRow(db, id)
   if (!row) return null
   const detail = rowToDetail(row)
-  return withUsage ? { ...detail, usage: await warehouseUsage(db, { id: detail.id, name: detail.name }) } : detail
+  return withUsage
+    ? { ...detail, usage: await withEmployeeLinks(db, "warehouses", { id: Number(detail.id) }, await warehouseUsage(db, { id: detail.id, name: detail.name })) }
+    : detail
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +364,8 @@ export async function deleteWarehouse(id: number): Promise<boolean> {
     const current = await readRow(tx, id, true)
     if (!current) return false
     await lockWarehouseNames(tx, [current.name])
-    const usage = await warehouseUsage(tx, { id: Number(current.id), name: current.name })
+    // Employees whose form lists the warehouse (details stockIds / requestStockIds) count too.
+    const usage = await withEmployeeLinks(tx, "warehouses", { id: Number(current.id) }, await warehouseUsage(tx, { id: Number(current.id), name: current.name }))
     if (usage.length) throw new WarehouseError("Удаление невозможно из-за связи с другими данными", 409, undefined, usage)
     const result = await tx.prepare("DELETE FROM warehouses WHERE id = ?").run(id)
     return result.changes > 0

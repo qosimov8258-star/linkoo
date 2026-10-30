@@ -1,43 +1,57 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction } from "@/lib/db"
 
 export type WorkShift = { id: number; name: string; beginTime: string; endTime: string }
 
 type Row = { id: number; name: string; begin_time: string; end_time: string }
 
-// Reference rows (staff/shift/): ids 3 and 4, times with seconds.
-const SEED: Row[] = [
+// "Смены" are this company's own: a fresh database starts without any. An older build seeded the
+// reference account's two shifts; those rows are removed only while they are exactly the seed
+// (same id, name and times to the second, never edited: updated_at = created_at).
+const LEGACY_SEED: Row[] = [
   { id: 3, name: "1-smena", begin_time: "08:00:41", end_time: "18:00:17" },
   { id: 4, name: "2-smena", begin_time: "18:00:54", end_time: "00:00:04" },
 ]
 
-let ready: Promise<void> | null = null
+const SCHEMA_VERSION = 2
 
-async function ensureSchema() {
-  ready ??= (async () => {
-    const db = getDb()
-    const existing = (await db.prepare("SELECT to_regclass('work_shifts') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS work_shifts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        begin_time TEXT NOT NULL,
-        end_time TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-    `)
-    if (existing?.ok) return
-    for (const row of SEED) {
-      await db.prepare("INSERT INTO work_shifts (id, name, begin_time, end_time) VALUES (@id, @name, @begin_time, @end_time)").run(row)
-    }
-    await db.exec("SELECT setval(pg_get_serial_sequence('work_shifts', 'id'), (SELECT MAX(id) FROM work_shifts))")
-  })().catch((error) => {
-    ready = null
-    throw error
-  })
-  return ready
+declare global {
+  var __linkoWorkShiftsSchema: { version: number; ready: Promise<void> } | undefined
+}
+
+/** work_shifts, once per process and outside any request transaction. */
+function ensureSchema(): Promise<void> {
+  if (globalThis.__linkoWorkShiftsSchema?.version !== SCHEMA_VERSION) {
+    const ready = outsideTransaction(() =>
+      withTransaction(async (tx) => {
+        await tx.exec("SELECT pg_advisory_xact_lock(hashtext('linko:work_shifts:schema'))")
+        await tx.exec(`
+          CREATE TABLE IF NOT EXISTS work_shifts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            begin_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+        `)
+        await tx
+          .prepare(
+            `DELETE FROM work_shifts w
+              USING jsonb_to_recordset(@rows::jsonb) AS s(id int, name text, begin_time text, end_time text)
+              WHERE w.id = s.id AND w.name = s.name AND w.begin_time = s.begin_time AND w.end_time = s.end_time
+                AND w.updated_at = w.created_at`,
+          )
+          .run({ rows: JSON.stringify(LEGACY_SEED) })
+      }),
+    ).catch((error: unknown) => {
+      globalThis.__linkoWorkShiftsSchema = undefined
+      throw error
+    })
+    globalThis.__linkoWorkShiftsSchema = { version: SCHEMA_VERSION, ready }
+  }
+  return globalThis.__linkoWorkShiftsSchema!.ready
 }
 
 function toShift(row: Row): WorkShift {

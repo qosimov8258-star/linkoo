@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 
 import { dbErrorResponse } from "@/lib/db-errors"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { withEmployeeLinks } from "@/lib/employees-usage"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { selectedBranchName } from "@/lib/selected-branch"
@@ -82,10 +83,7 @@ let schemaReady: Promise<void> | null = null
 
 /** Adds the nullable cashier_id link next to the `cashier` name (idempotent, once per process). */
 export function ensureCashboxesSchema(): Promise<void> {
-  schemaReady ??= outsideTransaction(() =>
-    getDb().exec(`ALTER TABLE cashboxes ADD COLUMN IF NOT EXISTS cashier_id INTEGER;
-      CREATE TABLE IF NOT EXISTS cashbox_reference_order (cashbox_id INTEGER PRIMARY KEY, seq INTEGER NOT NULL)`),
-  ).catch((error: unknown) => {
+  schemaReady ??= outsideTransaction(() => getDb().exec("ALTER TABLE cashboxes ADD COLUMN IF NOT EXISTS cashier_id INTEGER")).catch((error: unknown) => {
     schemaReady = null
     throw error
   })
@@ -111,8 +109,8 @@ async function tableExists(db: PgDb, table: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 const COLUMNS = "id, name, currency, cashier, cashier_id, branch, payment_type, vansell, order_number, created_at"
-/** Demo order: the reference's own sequence first (cashbox_reference_order, when filled), then position ascending with "Не указано" last, then newest first. */
-const ORDER_BY = "ORDER BY COALESCE((SELECT r.seq FROM cashbox_reference_order r WHERE r.cashbox_id = cashboxes.id), 1000000), (COALESCE(order_number, 0) = 0), order_number, id DESC"
+/** Demo order: position ascending with "Не указано" last, then newest first. */
+const ORDER_BY = "ORDER BY (COALESCE(order_number, 0) = 0), order_number, id DESC"
 /** Creation order used by the reference's group payment columns: position ascending with "Не указано" last, then oldest first. */
 const ORDER_BY_CREATED = "ORDER BY (COALESCE(order_number, 0) = 0), order_number, id"
 const SEARCH = `(@needle = '' OR strpos(${keySql("name")}, @needle) > 0) AND (@branch = '' OR branch = @branch)`
@@ -175,7 +173,7 @@ export async function getCashboxDetail(id: number, withUsage = false): Promise<C
   const db = getDb()
   const row = await readRow(db, id)
   if (!row) return null
-  return withUsage ? { ...rowToCashbox(row), usage: await cashboxUsage(db, row) } : rowToCashbox(row)
+  return withUsage ? { ...rowToCashbox(row), usage: await withEmployeeLinks(db, "cashboxes", { id: Number(row.id) }, await cashboxUsage(db, row)) } : rowToCashbox(row)
 }
 
 // ---------------------------------------------------------------------------
@@ -454,7 +452,8 @@ export async function deleteCashbox(id: number): Promise<boolean> {
     await lockCashboxes(tx)
     const current = await readRow(tx, id, true)
     if (!current) return false
-    const usage = await cashboxUsage(tx, current)
+    // Employees whose form lists the cashbox (details cashboxIds / requestCashboxIds) count too.
+    const usage = await withEmployeeLinks(tx, "cashboxes", { id: Number(current.id) }, await cashboxUsage(tx, current))
     if (usage.length) throw new CashboxError("Удаление невозможно из-за связи с другими данными", 409, undefined, usage)
     const result = await tx.prepare("DELETE FROM cashboxes WHERE id = ?").run(id)
     return result.changes > 0

@@ -8,6 +8,7 @@ import { compareText } from "@/components/ref/list-kit"
 
 import { csvCell } from "@/lib/csv"
 import { readExcelRows } from "@/lib/excel-import"
+import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { parseAnyDate, parseAnyDay } from "@/lib/finance/dates"
@@ -16,14 +17,14 @@ import { AddOrderDialog } from "./add-order-dialog"
 import { OrderDetailCard } from "./order-detail"
 import { OrderGroupPayment } from "./order-group-payment"
 import { EdoMenu, InvoiceNumberDialog, SERIES_STORAGE_KEY, SeriesDialog, useUrlParams } from "./orders-extra-dialogs"
-import { BulkEditDialog, NoSelectionPopover, RowCheckbox, SelectedTotalsDialog, type BulkEditValues } from "./orders-selection"
+import { BulkEditDialog, NoSelectionPopover, PAY_PERMISSIONS, RowCheckbox, SelectedTotalsDialog, type BulkEditValues } from "./orders-selection"
 import { EMPTY_ORDER_FILTERS, OrderFilterPanel, countOrderFilters, matchesOrderFilters, type OrderFilters } from "./order-filter-panel"
 import { ORDER_STATUS_REF_LABEL, orderApiErrorText, orderOrganization, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
 
 export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {}) {
   const router = useRouter()
   const { t } = useLanguage()
-  const [orders, setOrders] = useState<Order[]>([])
+  const [orders, setOrders] = useState<ListedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
   const [page, setPage] = useState(1)
@@ -86,6 +87,21 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
   const pageRows = sortedRows.slice(pageStart, pageStart + pageSize)
   const selectedRows = useMemo(() => orders.filter((row) => checkedIds.includes(row.id)), [orders, checkedIds])
   const selecting = selectedRows.length > 0
+  // "Групповая оплата" posts into cashboxes (POST /api/cash/orders/[id]/pay): only for users who may.
+  const canPay = useCanManage(PAY_PERMISSIONS)
+  // The group payment offers each ticked order's payable rest (OrderGroupPayment reads it as
+  // orderBalance). A cancelled or fully paid order takes no payment, so it is left out and named
+  // in a note instead of failing half-way through the save.
+  const groupPay = useMemo(() => {
+    const rows: Order[] = []
+    const skipped: number[] = []
+    for (const row of selectedRows) {
+      const rest = payableRestOf(row)
+      if (rest > 0.005) rows.push({ ...row, orderBalance: rest })
+      else skipped.push(row.id)
+    }
+    return { rows, skipped }
+  }, [selectedRows])
   // Accepted client returns of the listed orders (Продажи → Возвраты): the one source of the returns figures.
   const [returnsByOrder, setReturnsByOrder] = useState<Map<number, { currency: string; amount: number }[]>>(new Map())
   const totals = useMemo(() => {
@@ -128,7 +144,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     fetch("/api/orders")
       .then(async (response) => {
         if (!response.ok) throw new Error("Не удалось загрузить заказы")
-        return (await response.json()) as Order[]
+        return (await response.json()) as ListedOrder[]
       })
       .then((data) => {
         if (cancelled) return
@@ -261,7 +277,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     try {
       const response = await fetch("/api/orders")
       if (!response.ok) throw new Error("reload failed")
-      setOrders((await response.json()) as Order[])
+      setOrders((await response.json()) as ListedOrder[])
       flash(t("Данные обновлены"))
     } catch {
       flash(t("Не удалось загрузить заказы с сервера"))
@@ -296,7 +312,8 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
       const patch: Partial<Order> = {}
       if (values.created) {
         patch.created = formatCreated(values.created, row.created)
-        patch.createdAt = `${values.created} ${(row.createdAt ?? "").slice(11) || "00:00:00"}`
+        // The server reads createdAt as local (Tashkent) time and stores UTC: keep the order's local time of day.
+        patch.createdAt = `${values.created} ${(parseAnyDate(row.createdAt, true) ?? "").slice(11, 19) || "00:00:00"}`
       }
       if (values.delivery) patch.delivery = values.delivery
       if (values.paid) {
@@ -314,7 +331,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
       if (values.warehouse) patch.warehouse = values.warehouse
       if (values.transport) patch.transportNumber = values.transport
       if (values.dealType) patch.dealType = values.dealType === "Консигнация" ? "consignment" : "standard"
-      // "Статус оплаты" is no order field: payments go through the cash ledger (see below).
+      // Paid / unpaid is no order field: payments go through the cash ledger (see below).
       if (values.status) {
         const label = values.status === "Не подтвержденный" ? "Не подтвержден" : values.status
         patch.status = Object.entries(ORDER_STATUS_REF_LABEL).find(([, refLabel]) => refLabel === label)?.[0] ?? row.status
@@ -334,10 +351,9 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     const failed = results.some((result) => result === false)
     // A refused order already showed the server's message (updateOrder); keep it on screen.
     if (!failed && results.some((result) => result !== null)) flash(`${changed} ${t("заказ(ов) изменено")}`)
-    // Paid / unpaid follows real payments: "Оплачен" opens the group payment of the ticked orders
-    // (cash ledger); a payment is cancelled in the cash section, not by an order field.
-    if (values.payStatus === "Оплачен") setBulkPayOpen(true)
-    else if (values.payStatus) flash(t("Оплату можно отменить только в кассе"))
+    // Paid / unpaid follows real payments: "Принять оплату по выбранным заказам" opens the group
+    // payment of the ticked orders (cash ledger); a payment is cancelled in the cash section.
+    if (values.pay) setBulkPayOpen(true)
   }
 
   function flash(text: string) {
@@ -523,7 +539,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
         </div>
         <div className="flex items-center gap-[10px]">
           <TopButton icon={ICON.filter} text={t("Показать на карте")} onClick={() => router.push("/clients/territory?openFilterDialog=true")} />
-          <TopButton icon={ICON.card} text={t("Групповая оплата")} onClick={() => setBulkPayOpen(true)} />
+          {canPay && <TopButton icon={ICON.card} text={t("Групповая оплата")} onClick={() => setBulkPayOpen(true)} />}
           <TopButton icon={ICON.chart} text={t("Импортировать")} onClick={() => setImportOpen(true)} />
           <TopButton
             icon={ICON.add}
@@ -774,24 +790,32 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
       )}
 
       {bulkPayOpen &&
-        (selecting ? (
-          <OrderGroupPayment
-            orders={selectedRows}
-            onClose={() => setBulkPayOpen(false)}
-            onSaved={(count) => {
-              flash(`${t("Оплата принята по")} ${count}`)
-              setBulkPayOpen(false)
-              setCheckedIds([])
-              void reloadOrders()
-            }}
-          />
+        canPay &&
+        (groupPay.rows.length ? (
+          <>
+            <OrderGroupPayment
+              orders={groupPay.rows}
+              onClose={() => setBulkPayOpen(false)}
+              onSaved={(count) => {
+                flash(`${t("Оплата принята по")} ${count}`)
+                setBulkPayOpen(false)
+                setCheckedIds([])
+                void reloadOrders()
+              }}
+            />
+            {groupPay.skipped.length > 0 && (
+              <div role="status" className="fixed inset-x-0 bottom-[57px] z-[1201] border-t border-[#ffe0b2] bg-[#fff8e1] px-[30px] py-[8px] text-[13px] text-[#8a5300]">
+                {t("Не показаны заказы без остатка к оплате (отменены или оплачены):")} {groupPay.skipped.map((id) => `№ ${id}`).join(", ")}
+              </div>
+            )}
+          </>
         ) : (
           <div data-order-overlay className="fixed inset-0 z-[1200] overflow-y-auto bg-white">
             <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[15px]">
               <h3 className="text-[13px] font-bold uppercase text-[#333]">{t("Групповая оплата")}</h3>
               <button type="button" onClick={() => setBulkPayOpen(false)} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center"><X className="h-6 w-6 text-[#333]" /></button>
             </div>
-            <p className="mt-[137px] text-center text-[18px] font-semibold text-[#333]">{t("Выберите хотя бы один заказ !")}</p>
+            <p className="mt-[137px] text-center text-[18px] font-semibold text-[#333]">{t(selecting ? "По выбранным заказам нет остатка к оплате" : "Выберите хотя бы один заказ !")}</p>
           </div>
         ))}
     </main>
@@ -948,7 +972,10 @@ function OrderRow({ row, returned, selectMode, checked, onToggle, onOpen }: { ro
   const acceptedDay = parseAnyDay(row.acceptedDate)
   const accepted = acceptedDay && acceptedDay !== parseAnyDay(row.delivery) ? t(displayDay(acceptedDay)) : ""
   const returnPrice = returned
-  const unpaid = (row.orderBalance ?? 0) > 0
+  // Paid / remaining come from the cash ledger (GET /api/orders): red while something is still
+  // owed, green once paid, grey for an order that is no debt (cancelled, not confirmed).
+  const unpaid = (row.orderBalance ?? 0) > 0.005
+  const payColor = row.orderBalance === undefined ? "#bdbdbd" : unpaid ? "#e57373" : "#81c784"
   const payIcon = row.payMethod === "bank" ? ICON.bank : ICON.cash
   const weight = row.weight ?? 0
   const cell = "px-2 leading-[16.25px]"
@@ -1001,7 +1028,7 @@ function OrderRow({ row, returned, selectMode, checked, onToggle, onOpen }: { ro
         </div>
         <div style={{ width: `${COL_PCT[9]}%` }} className="flex items-center justify-start">
           <IconButton path={status.path} color={status.color} />
-          <IconButton path={payIcon} color={unpaid ? "#e57373" : "#81c784"} />
+          <IconButton path={payIcon} color={payColor} />
           {row.invoiceActive && <IconButton path={ICON.checkCircle} color="#2196f3" />}
           <IconButton path={ICON.receipt} color={row.invoiceActive ? "#5868f0" : "transparent"} />
         </div>
@@ -1036,6 +1063,17 @@ function parseAmount(value: string) {
 const CURRENCY_ORDER = ["SUM", "Euro", "USD"]
 
 /** The order's deliverer, else the client's ("Ответственный доставщик"). */
+/** An order as /api/orders sends it (payableRest: what the cash desk still accepts, lib/orders-repo.ts withLedgerDues). */
+type ListedOrder = Order
+
+/** The group payment's rest of an order: the server's payable rest; without the ledger figures,
+ * its listed unpaid rest. A cancelled order takes no payment ("Заказ отменен"). */
+function payableRestOf(row: ListedOrder): number {
+  if (row.status === "Отменен") return 0
+  if (row.payableRest !== undefined) return row.payableRest
+  return Math.max(0, row.orderBalance ?? (row.totalPrice ?? 0) - (row.paidAmount ?? 0))
+}
+
 function delivererOf(row: Order): string {
   if (row.deliveryMan) return row.deliveryMan
   return row.clientDeliverer && row.clientDeliverer !== "Не указано" ? row.clientDeliverer : ""

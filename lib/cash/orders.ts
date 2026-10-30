@@ -5,6 +5,7 @@ import type { CurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { todayIso } from "@/lib/finance/dates"
 import { getBalanceList } from "@/lib/finance/ledger"
+import { lockClientPayments } from "@/lib/finance/customer-payment"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { orderClientJoin, orderCountedSql, orderRealizationTs, orderReleasedSql } from "@/lib/finance/sources"
 import { num } from "@/lib/cash/common"
@@ -93,6 +94,27 @@ async function hasColumn(db: PgDb, table: string, column: string): Promise<boole
 /** SQL of an order's client id (orders.client_id first, legacy rows by name via the ck CTE). */
 export async function orderClientIdSql(db: PgDb, alias = "o", nameJoin = "ck"): Promise<string> {
   return (await hasColumn(db, "orders", "client_id")) ? `COALESCE(${alias}.client_id, ${nameJoin}.id)` : `${nameJoin}.id`
+}
+
+/** Advisory lock namespace, pg_advisory_xact_lock(key, orderId), for an order whose client cannot be resolved. */
+const ORDER_PAYMENTS_LOCK = 72120905
+
+/** Serialises a payment of order `orderId` (or its edit) with every other payment of the order's client (call it inside
+ * the transaction, before reading the order's remainder). The client is the ledger's: orders.client_id first, legacy
+ * rows by name, lowest id (orderClientJoin / orderClientIdSql). It is locked through lockClientPayments, because the
+ * client's credits pay all of its orders. An order without such a client is locked by its own id. */
+export async function lockOrderPayments(db: PgDb, orderId: number): Promise<void> {
+  const byId = await hasColumn(db, "orders", "client_id")
+  const row = (await db
+    .prepare(
+      `SELECT ${byId ? "COALESCE(o.client_id, ck.id)" : "ck.id"} AS cid FROM orders o
+       LEFT JOIN LATERAL (SELECT MIN(c.id) AS id FROM clients c WHERE fin_key(c.name) = fin_key(o.client)) ck ON true
+       WHERE o.id = @id::int`,
+    )
+    .get({ id: orderId })) as { cid: number | string | null } | undefined
+  const clientId = row?.cid === null || row?.cid === undefined ? null : Number(row.cid)
+  if (clientId !== null && Number.isInteger(clientId) && clientId > 0) await lockClientPayments(db, [clientId])
+  else await db.prepare("SELECT pg_advisory_xact_lock(@key::int, @id::int) AS ok").get({ key: ORDER_PAYMENTS_LOCK, id: orderId })
 }
 
 /** Dues of the given orders (all orders when `ids` is null), linked payments only. */

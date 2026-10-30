@@ -6,6 +6,7 @@ import { SelectField } from "./select-field"
 import { AgentVisitsFilterPanel } from "./agent-visits-filter-panel"
 import { CARD_CLASS } from "./stat-cards"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const COLUMN_DEFS: { key: string; label: string }[] = [
@@ -100,14 +101,15 @@ function isoDay(value: string): number {
 
 type BranchTotals = { sales: number; plan: number; completion: number; akb: number; visited: number; notVisited: number; outside: number; outsidePct: number; orderCount: number; refusals: number; average: number; strike: number }
 
-/** One row of the branch table: pale-red/green percent pills for the route and strike-rate cells like the reference. */
-function BranchCells({ label, values, dark = false }: { label: string; values: BranchTotals; dark?: boolean }) {
+/** One row of the branch table: pale-red/green percent pills for the route and strike-rate cells like the reference.
+ * Sales and the average check are in the base currency (`currency`). */
+function BranchCells({ label, values, currency, dark = false }: { label: string; values: BranchTotals; currency: string; dark?: boolean }) {
   const cell = `px-[17px] py-3 font-bold ${dark ? "border-r border-[#666]" : "border-r border-[#8fa8e8]"}`
   const pill = (value: number, good: boolean) => <span className={`rounded px-2 py-1 ${good ? "bg-[#d4f5e0] text-[#2e9e5b]" : "bg-[#ffd9d9] text-[#e57373]"}`}>{value}%</span>
   return (
     <>
       <td className={cell}>{label}</td>
-      <td className={cell}>{values.sales}</td>
+      <td className={cell}>{formatSum(values.sales, currency)}</td>
       <td className={cell}>{values.plan}</td>
       <td className={cell}>{pill(values.completion, values.completion > 50)}</td>
       <td className={cell}>{values.akb}</td>
@@ -117,7 +119,7 @@ function BranchCells({ label, values, dark = false }: { label: string; values: B
       <td className={cell}>{pill(values.outsidePct, false)}</td>
       <td className={cell}>{values.orderCount}</td>
       <td className={cell}>{values.refusals}</td>
-      <td className={cell}>{values.average}</td>
+      <td className={cell}>{formatSum(values.average, currency)}</td>
       <td className={cell}>{pill(values.strike, values.strike > 50)}</td>
     </>
   )
@@ -157,11 +159,12 @@ function useBranchNames() {
   return names
 }
 
+/** The employees of the reader's field scope (an agent gets only their own row, never the other agents' names). */
 function useEmployees() {
   const [people, setPeople] = useState<Person[]>([])
   useEffect(() => {
     let cancelled = false
-    fetch("/api/employees")
+    fetch("/api/field-activity/people")
       .then((response) => (response.ok ? response.json() : []))
       .then((data: Person[]) => {
         if (!cancelled && Array.isArray(data)) setPeople(data)
@@ -227,9 +230,13 @@ function AxisChart({ values }: { values: number[] }) {
   )
 }
 
-type VisitStats = { agents: VisitStatRow[]; problems: number }
+/** /api/agent-visits?view=stats (lib/agent-visits-repo.ts getVisitStats): sales are counted orders in `currency`, the base currency. */
+type VisitStats = { agents: VisitStatRow[]; problems: number; currency: string }
 type VisitStatRow = {
+  employeeId: number
   name: string
+  /** The employee's branch (employees.branch). */
+  branch: string
   firstVisit: string
   lastVisit: string
   plan: number
@@ -241,16 +248,17 @@ type VisitStatRow = {
   akb: number
   routeCompletion: number
   sales: number
+  currency: string
 }
 
 function useVisitStats(begin: string, end: string) {
-  const [stats, setStats] = useState<VisitStats>({ agents: [], problems: 0 })
+  const [stats, setStats] = useState<VisitStats>({ agents: [], problems: 0, currency: "" })
   useEffect(() => {
     let cancelled = false
     fetch(`/api/agent-visits?view=stats&begin=${begin}&end=${end}`)
       .then((response) => (response.ok ? response.json() : null))
       .then((data: VisitStats | null) => {
-        if (!cancelled && data) setStats(data)
+        if (!cancelled && data) setStats({ agents: Array.isArray(data.agents) ? data.agents : [], problems: data.problems ?? 0, currency: data.currency ?? "" })
       })
       .catch(() => {})
     return () => {
@@ -260,9 +268,29 @@ function useVisitStats(begin: string, end: string) {
   return stats
 }
 
-const formatSum = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/[\u00a0\u202f]/g, " ")} SUM`
+/** An amount in the base currency of Валюты (two decimals); no code while the stats are loading. */
+const formatSum = (value: number, currency: string) => `${formatMoney(value)}${currency ? ` ${currency}` : ""}`
 
-export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true, begin, end }: { showTrends?: boolean; showCouriers?: boolean; begin: string; end: string }) {
+/** Name key of an agent, like the server's fin_key (case, edge and repeated spaces, NBSP). */
+const agentKey = (value: string) => value.replace(/[\u00a0\u202f]/g, " ").replace(/\s+/g, " ").trim().toLowerCase()
+
+/**
+ * `ownAgents` (DashboardSummary.ownAgents): the reader sees only these agents' orders; undefined = every
+ * order (the company figures); while the summary is loading the caller passes [] so nothing leaks.
+ */
+export function AgentBranchVisitsWidget({
+  showTrends = true,
+  showCouriers = true,
+  begin,
+  end,
+  ownAgents,
+}: {
+  showTrends?: boolean
+  showCouriers?: boolean
+  begin: string
+  end: string
+  ownAgents?: string[]
+}) {
   const { t } = useLanguage()
   const [tab, setTab] = useState<"all" | "one">("all")
   const [grouping, setGrouping] = useState(GROUPINGS[0])
@@ -274,7 +302,12 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
   const [couriersExpanded, setCouriersExpanded] = useState(false)
   const people = useEmployees()
   const branchNames = useBranchNames()
-  const orders = useOrders()
+  const allOrders = useOrders()
+  const orders = useMemo(() => {
+    if (!ownAgents) return allOrders
+    const own = new Set(ownAgents.map(agentKey))
+    return allOrders.filter((order) => own.has(agentKey(order.agent ?? "")))
+  }, [allOrders, ownAgents])
   const stats = useVisitStats(begin, end)
 
   // Like the reference, every block below follows the selected date range.
@@ -310,7 +343,7 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
       case "notVisited": return String(row.notVisited)
       case "akb": return String(row.akb)
       case "routeCompletion": return `${row.routeCompletion}%`
-      case "sales": return formatSum(row.sales)
+      case "sales": return formatSum(row.sales, row.currency || stats.currency)
       default: return ""
     }
   }
@@ -354,11 +387,12 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
 
   // Branch table: visit stats of the range grouped by the agent's branch.
   const branchRows = useMemo(() => {
-    // An agent is listed under the first branch of his access list, like the reference.
-    const branchOf = new Map(people.map((person) => [`${person.firstName} ${person.lastName}`.trim(), branchNames.get(person.branchIds?.[0] ?? -1) || "—"]))
+    // An agent is listed under the first branch of his access list, like the reference (matched by employee id);
+    // without an access list, under the branch of his employee card.
+    const branchOf = new Map(people.map((person) => [person.id, branchNames.get(person.branchIds?.[0] ?? -1) || ""]))
     const groups = new Map<string, VisitStatRow[]>()
     for (const row of stats.agents) {
-      const branch = branchOf.get(row.name) || "—"
+      const branch = branchOf.get(row.employeeId) || row.branch || "—"
       groups.set(branch, [...(groups.get(branch) ?? []), row])
     }
     const summarize = (rows: VisitStatRow[]) => {
@@ -380,7 +414,7 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
         outsidePct: pct(outside, attended),
         orderCount,
         refusals: sum((row) => row.refusals),
-        average: orderCount ? Math.round(sales / orderCount) : 0,
+        average: orderCount ? sales / orderCount : 0,
         strike: pct(orderCount, attended),
       }
     }
@@ -415,7 +449,7 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
           </thead>
           <tbody>
             {stats.agents.map((row) => (
-              <tr key={row.name} className="border-t border-dotted border-[#ddd]">
+              <tr key={row.employeeId} className="border-t border-dotted border-[#ddd]">
                 <td className="whitespace-nowrap px-[17px] py-[10px] font-semibold">{row.name}</td>
                 {visibleColumns.map((column) => (
                   <td key={column.key} className="whitespace-nowrap px-[17px] py-[10px]">{cellValue(row, column.key)}</td>
@@ -436,7 +470,12 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
           </button>
           <button
             type="button"
-            onClick={() => downloadExcelTable("visity-agenta-po-filialam.xls", [["Агент", ...visibleColumns.map((column) => column.label)]])}
+            onClick={() =>
+              downloadExcelTable("visity-agenta-po-filialam.xls", [
+                [t("Агент"), ...visibleColumns.map((column) => t(column.label))],
+                ...stats.agents.map((row) => [row.name, ...visibleColumns.map((column) => cellValue(row, column.key))]),
+              ])
+            }
             className="h-10"
           >
             {t("Скачать Excel")}
@@ -454,11 +493,11 @@ export function AgentBranchVisitsWidget({ showTrends = true, showCouriers = true
             <tbody>
               {branchRows.rows.map((row) => (
                 <tr key={row.branch} className="bg-[#a9c1fb]">
-                  <BranchCells label={row.branch} values={row} />
+                  <BranchCells label={row.branch} values={row} currency={stats.currency} />
                 </tr>
               ))}
               <tr className="bg-[#454545] text-white">
-                <BranchCells label={t("Итого")} values={branchRows.total} dark />
+                <BranchCells label={t("Итого")} values={branchRows.total} currency={stats.currency} dark />
               </tr>
             </tbody>
           </table>

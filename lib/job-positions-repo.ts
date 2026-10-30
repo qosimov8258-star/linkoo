@@ -2,6 +2,7 @@ import "server-only"
 
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { isUniqueViolation } from "@/lib/auth-request"
+import { refreshEmployeePositions, withEmployeeLinks } from "@/lib/employees-usage"
 import { cascadeNameRename, existingReferences, keySql, nameKey, usageOf, type Usage } from "@/lib/platform-refs"
 import { refDateTime } from "@/lib/ref-date"
 
@@ -118,6 +119,8 @@ export async function updateJobPosition(id: number, input: JobPositionInput): Pr
       if (nameKey(current.name) !== nameKey(input.name)) await assertNameFree(tx, input.name, id)
       await tx.prepare("UPDATE job_positions SET name = @name, updated_at = datetime('now') WHERE id = @id").run({ id, name: input.name })
       await cascadeNameRename(tx, await existingReferences(tx, REFERENCES), current.name, input.name)
+      // employees.position ("access right · job", read by tracking, attendance and cashboxes) of the employees linked by job_id.
+      await refreshEmployeePositions(tx, "job_positions", id)
       return true
     })
     return found ? await getJobPosition(id) : null
@@ -132,7 +135,8 @@ export async function deleteJobPosition(id: number): Promise<boolean> {
   return withTransaction(async (tx) => {
     const current = (await tx.prepare("SELECT * FROM job_positions WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
     if (!current) return false
-    const usage = await usageOf(tx, await existingReferences(tx, REFERENCES), { id, name: current.name })
+    // Employees by job_id (and legacy ones by the plain job name in position), each counted once.
+    const usage = await withEmployeeLinks(tx, "job_positions", { id, name: current.name }, await usageOf(tx, await existingReferences(tx, REFERENCES), { id, name: current.name }))
     if (usage.length) throw new JobPositionError("Удаление невозможно из-за связи с другими данными", 409, usage)
     return (await tx.prepare("DELETE FROM job_positions WHERE id = ?").run(id)).changes > 0
   })

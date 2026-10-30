@@ -259,9 +259,6 @@ export async function listCashbackRequests(query: CashbackRequestListQuery): Pro
   await ensureCashbackRequestsSchema()
   const db = getDb()
   const cc = await loadCurrencyContext(db)
-  // The reference lists only its own requests: rows registered as demo data (demo_seed_rows) stay out of the list.
-  const hasRegistry = ((await db.prepare("SELECT to_regclass('demo_seed_rows') AS t").get()) as { t: string | null }).t
-  const hideDemo = hasRegistry ? " AND NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'cashback_withdrawal_requests' AND d.row_id = f.id::text)" : ""
   const pageSize = query.pageSize ?? 25
   const page = query.page ?? 1
   const search = query.search ?? ""
@@ -280,7 +277,7 @@ export async function listCashbackRequests(query: CashbackRequestListQuery): Pro
       `WITH r AS (${BASE_SQL}), f AS (SELECT r.*, ${EFFECTIVE_STATUS_SQL} AS status FROM r)
        SELECT f.*, COUNT(*) OVER () AS total FROM f
        WHERE (@status::text = '' OR f.status = @status::text)
-         AND (@currency::text = '' OR f.cur = @currency::text)${hideDemo}
+         AND (@currency::text = '' OR f.cur = @currency::text)
          AND (@search::text = ''
               OR strpos(fin_key(COALESCE(f.c_name, f.client_text)), fin_key(@search::text)) > 0
               OR strpos(fin_key(f.c_phone), fin_key(@search::text)) > 0
@@ -299,7 +296,7 @@ export async function listCashbackRequests(query: CashbackRequestListQuery): Pro
         `WITH r AS (${BASE_SQL}), f AS (SELECT r.*, ${EFFECTIVE_STATUS_SQL} AS status FROM r)
          SELECT COUNT(*) AS n FROM f
          WHERE (@status::text = '' OR f.status = @status::text)
-           AND (@currency::text = '' OR f.cur = @currency::text)${hideDemo}
+           AND (@currency::text = '' OR f.cur = @currency::text)
            AND (@search::text = ''
                 OR strpos(fin_key(COALESCE(f.c_name, f.client_text)), fin_key(@search::text)) > 0
                 OR strpos(fin_key(f.c_phone), fin_key(@search::text)) > 0

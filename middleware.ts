@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { isSelfServiceRoute } from "@/lib/capabilities-catalog"
 import { checkRateLimit, clientIp } from "@/lib/rate-limit"
 import { SESSION_COOKIE, verifySession } from "@/lib/session"
 
@@ -12,6 +13,8 @@ const ADMIN_ONLY_PREFIXES = ["/api/access-rights", "/api/permissions", "/api/cap
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024 // 2MB — generous for JSON payloads, blocks abusive uploads
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
+// POST endpoints that only read (a report run with a JSON body): open to viewers.
+const VIEWER_READ_POSTS = new Set(["/api/report-builder"])
 
 // Budgets. Signed-in traffic is counted per session (an office behind one NAT
 // address is many people), anonymous traffic per client address. Login has its
@@ -178,7 +181,10 @@ async function badBodyField(request: NextRequest): Promise<string | null> {
 async function refuseBadBody(request: NextRequest, method: string): Promise<NextResponse | null> {
   if (!MUTATING_METHODS.has(method)) return null
   const field = await badBodyField(request)
-  return field === null ? null : fail(request, "badText", 400, undefined, { field: field || null })
+  if (field === null) return null
+  // `fields` lets a form show the message under the input ({fields} is the shape the routes' field errors use).
+  const fields = field ? { [field]: MESSAGES.badText[language(request)] } : undefined
+  return fail(request, "badText", 400, undefined, { field: field || null, ...(fields ? { fields } : {}) })
 }
 
 function corsHeaders(origin: string | null): HeadersInit {
@@ -284,7 +290,16 @@ export async function middleware(request: NextRequest) {
 
     // Viewers can look but not touch: block writes at the edge for every API
     // route as a blanket rule, in addition to any per-route role checks.
-    if (MUTATING_METHODS.has(method) && session.role === "viewer") return fail(request, "forbidden", 403)
+    // Exceptions: self-service resources (the caller's own rows only, e.g. marking
+    // their own notifications read) and POST endpoints that only read.
+    if (
+      MUTATING_METHODS.has(method) &&
+      session.role === "viewer" &&
+      !isSelfServiceRoute(pathname) &&
+      !(method === "POST" && VIEWER_READ_POSTS.has(pathname))
+    ) {
+      return fail(request, "forbidden", 403)
+    }
 
     // Users restricted by an access right (Права доступа) may only change the
     // resources their permissions cover (lib/capabilities-catalog.ts). That is

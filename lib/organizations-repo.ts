@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { dbErrorResponse } from "@/lib/db-errors"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { withEmployeeLinks } from "@/lib/employees-usage"
 import type {
   Organization,
   OrganizationDetail,
@@ -307,7 +308,9 @@ async function organizationUsage(db: PgDb, row: OrganizationRow, refs?: Referenc
     }
     if (count > 0) usage.push({ table, label: usageTableLabel(table, TABLE_LABELS), count })
   }
-  return usage
+  // Сотрудники: the active employees by organization_ids, or (older ones) by the name in `organizations`,
+  // each counted once (lib/employees-usage.ts); this replaces the name scan's employees entry above.
+  return withEmployeeLinks(db, "organizations", { id: Number(row.id), name: row.name }, usage)
 }
 
 /** Points every reference of `oldName` at `newName` (exact new spelling). Returns the updated row count. */

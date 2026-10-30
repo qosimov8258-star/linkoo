@@ -7,6 +7,7 @@ import { ReportCalendar, formatReportDate } from "@/components/ref/report-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { SelectBox } from "./order-filter-panel"
+import type { PromoType } from "./promo-form"
 
 export type PromoFilters = {
   select: Record<string, string[]>
@@ -41,23 +42,38 @@ const REFERENCE_ENDPOINTS: Record<string, string> = {
   giftProduct: "products",
 }
 
-/** Demo options so every list is usable even when the reference tables are empty. */
-const DEMO_OPTIONS: Record<string, string[]> = {
-  type: ["Бонус", "Скидка", "Балл", "Надбавка"],
-  priceList: ["Основной прайс-лист", "Оптовый", "Розничный", "VIP"],
-  activity: ["Продажа", "Закуп", "Продажа и закуп"],
-  organization: ["Linko Distribution", "Linko Trade"],
-  branch: ["Главный филиал", "Ташкент", "Самарканд", "Бухара"],
-  purchaseProduct: ["Coca-Cola 1.5л", "Pepsi 1л", "Fanta 0.5л", "Вода Nestle 1л", "Сок Piko 1л"],
-  giftProduct: ["Coca-Cola 0.5л", "Pepsi 0.5л", "Вода Nestle 0.5л", "Печенье Oreo", "Шоколад Alpen Gold"],
-}
+/** "Тип акции": the promotion types the promotion form offers (components/orders/promo-form.tsx),
+ * compared with the translated type of a stored promotion. Every other list comes from this
+ * company's own data only (Прайс-листы, Организации, Филиалы, Продукты); an empty directory gives an
+ * empty list ("Не найдено"), never another company's sample names. */
+const PROMO_TYPES: readonly PromoType[] = ["Скидка", "Бонус", "Надбавка", "Балл", "Кэшбэк"]
+
+/** The fields a stored promotion can be filtered by (marketing-campaigns-view.tsx applies them): it keeps
+ * name / start / end / type / active and the form's settings (lib/ref-records-repo.ts promoCreate), but no
+ * price list, organization, branch, products, activity or entry date. Those fields stay in the reference's
+ * layout, disabled and explained, so they never look applied while they change nothing. */
+const APPLIED_SELECT = new Set(["type"])
+const APPLIED_DATES = new Set<string>(["start", "end"])
 
 export function countPromoFilters(filters: PromoFilters) {
-  return Object.values(filters.select).filter((values) => values.length > 0).length + [filters.entered, filters.start, filters.end].filter(Boolean).length
+  const selects = Object.entries(filters.select).filter(([key, values]) => APPLIED_SELECT.has(key) && values.length > 0).length
+  return selects + DATE_FIELDS.filter((field) => APPLIED_DATES.has(field.key) && filters[field.key]).length
+}
+
+/** A filter the promotions cannot be matched by yet: same place and size, greyed out, not focusable. */
+function Unavailable({ children }: { children: React.ReactNode }) {
+  const { t } = useLanguage()
+  return (
+    <div title={t("Акции не хранят это поле, фильтр по нему недоступен")} aria-disabled className="cursor-not-allowed">
+      <div inert className="opacity-40">
+        {children}
+      </div>
+    </div>
+  )
 }
 
 function SingleDate({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [open, setOpen] = useState(false)
   return (
     <div className="relative h-[52px] cursor-pointer border-b border-[#e0e0e0]" onClick={() => setOpen(true)}>
@@ -65,7 +81,7 @@ function SingleDate({ label, value, onChange }: { label: string; value: string; 
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-[56px] top-0 h-3.5 w-3.5 fill-[#c4c4c4]" aria-hidden>
         <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
       </svg>
-      <span className="absolute inset-x-0 bottom-[6px] text-[14px] leading-5 text-black">{value ? formatReportDate(value) : t("Укажите дату")}</span>
+      <span className="absolute inset-x-0 bottom-[6px] text-[14px] leading-5 text-black">{value ? formatReportDate(value, language) : t("Укажите дату")}</span>
       {value && (
         <button type="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onChange("") }} className="absolute bottom-[6px] right-0 text-[18px] leading-none text-[#999]">×</button>
       )}
@@ -104,9 +120,10 @@ export function PromoFilterDrawer({ filters, onChange, onApply, onClose }: { fil
     }
   }, [])
 
-  const optionsFor = (key: string) => {
-    const real = reference[REFERENCE_ENDPOINTS[key]] ?? []
-    return real.length ? real : (DEMO_OPTIONS[key] ?? []).map((option) => t(option))
+  const optionsFor = (key: string): string[] => {
+    if (key === "type") return PROMO_TYPES.map((type) => t(type))
+    const endpoint = REFERENCE_ENDPOINTS[key]
+    return endpoint ? (reference[endpoint] ?? []) : []
   }
 
   return (
@@ -120,18 +137,22 @@ export function PromoFilterDrawer({ filters, onChange, onApply, onClose }: { fil
           </button>
         </div>
         <div className="mt-[34px] flex flex-col gap-[20px]">
-          {SELECT_FIELDS.map((field) => (
-            <SelectBox
-              key={field.key}
-              label={t(field.label)}
-              value={filters.select[field.key] ?? []}
-              options={optionsFor(field.key)}
-              onChange={(value) => onChange({ ...filters, select: { ...filters.select, [field.key]: value } })}
-            />
-          ))}
-          {DATE_FIELDS.map((field) => (
-            <SingleDate key={field.key} label={field.label} value={filters[field.key]} onChange={(value) => onChange({ ...filters, [field.key]: value })} />
-          ))}
+          {SELECT_FIELDS.map((field) => {
+            const box = (
+              <SelectBox
+                key={field.key}
+                label={t(field.label)}
+                value={APPLIED_SELECT.has(field.key) ? (filters.select[field.key] ?? []) : []}
+                options={optionsFor(field.key)}
+                onChange={(value) => onChange({ ...filters, select: { ...filters.select, [field.key]: value } })}
+              />
+            )
+            return APPLIED_SELECT.has(field.key) ? box : <Unavailable key={field.key}>{box}</Unavailable>
+          })}
+          {DATE_FIELDS.map((field) => {
+            const box = <SingleDate key={field.key} label={field.label} value={APPLIED_DATES.has(field.key) ? filters[field.key] : ""} onChange={(value) => onChange({ ...filters, [field.key]: value })} />
+            return APPLIED_DATES.has(field.key) ? box : <Unavailable key={field.key}>{box}</Unavailable>
+          })}
         </div>
         <div className="mt-[10px] flex gap-3">
           <button type="button" onClick={onApply} className="h-[53px] rounded-[3px] bg-[#5d6474] px-[24px] text-[16px] font-normal uppercase text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)] hover:brightness-110">

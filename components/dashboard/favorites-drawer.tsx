@@ -9,27 +9,33 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 type FavoriteItem = { label: string; href: string }
 
-const DEFAULT_ITEMS: FavoriteItem[] = [
-  { label: "Клиенты", href: "/clients" },
-  { label: "Заказы", href: "/analytics/sales" },
-  { label: "Виджеты", href: "/" },
-  { label: "Заказы", href: "/analytics/sales" },
-  { label: "Ограничение продуктов", href: "/analytics/product-restrictions" },
-  { label: "Продукты", href: "/analytics/products" },
-  { label: "Клиенты", href: "/clients" },
-  { label: "Клиенты", href: "/clients" },
-  { label: "Финансовые счета", href: "/clients/financial-accounts" },
-  { label: "Финансовые счета", href: "/clients/financial-accounts" },
-  { label: "Пользователи Телеграм бота", href: "/clients/telegram-users" },
-  { label: "Пользователи Телеграм бота", href: "/clients/telegram-users" },
-  { label: "Ограничения по клиентам", href: "/clients/client-restrictions" },
-  { label: "Ограничения по клиентам", href: "/clients/client-restrictions" },
-  { label: "Территория", href: "/clients/territory" },
-  { label: "Территория", href: "/clients/territory" },
-  { label: "Виджеты", href: "/" },
-  { label: "Виджеты", href: "/" },
-  { label: "Анализ маршрутов", href: "/clients/routes" },
-  { label: "Анализ маршрутов", href: "/clients/routes" },
+// Favorites are only what this user starred (kept in this browser): a new user starts with an empty list.
+const DEFAULT_ITEMS: FavoriteItem[] = []
+
+// An older build started every browser with the reference account's own list (these 20 entries, in this order)
+// and saved it together with the first page the user starred. A stored list that begins with exactly that list
+// loses it; whatever the user added after it stays.
+const LEGACY_DEFAULT: ReadonlyArray<readonly [string, string]> = [
+  ["Клиенты", "/clients"],
+  ["Заказы", "/analytics/sales"],
+  ["Виджеты", "/"],
+  ["Заказы", "/analytics/sales"],
+  ["Ограничение продуктов", "/analytics/product-restrictions"],
+  ["Продукты", "/analytics/products"],
+  ["Клиенты", "/clients"],
+  ["Клиенты", "/clients"],
+  ["Финансовые счета", "/clients/financial-accounts"],
+  ["Финансовые счета", "/clients/financial-accounts"],
+  ["Пользователи Телеграм бота", "/clients/telegram-users"],
+  ["Пользователи Телеграм бота", "/clients/telegram-users"],
+  ["Ограничения по клиентам", "/clients/client-restrictions"],
+  ["Ограничения по клиентам", "/clients/client-restrictions"],
+  ["Территория", "/clients/territory"],
+  ["Территория", "/clients/territory"],
+  ["Виджеты", "/"],
+  ["Виджеты", "/"],
+  ["Анализ маршрутов", "/clients/routes"],
+  ["Анализ маршрутов", "/clients/routes"],
 ]
 
 const STORAGE_KEY = "linko-favorites-v2"
@@ -38,8 +44,18 @@ function loadItems(): FavoriteItem[] {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw) as FavoriteItem[]
-      if (Array.isArray(parsed)) return parsed
+      const parsed: unknown = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        const items = parsed.filter(
+          (item): item is FavoriteItem =>
+            !!item && typeof item.label === "string" && typeof item.href === "string" && item.href.startsWith("/") && !item.href.startsWith("//"),
+        )
+        const legacy = items.length >= LEGACY_DEFAULT.length && LEGACY_DEFAULT.every(([label, href], index) => items[index].label === label && items[index].href === href)
+        if (!legacy) return items
+        const own = items.slice(LEGACY_DEFAULT.length)
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(own))
+        return own
+      }
     }
   } catch {}
   return DEFAULT_ITEMS

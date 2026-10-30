@@ -5,6 +5,7 @@ import { DOC_DATE_INVALID, docDateError, docYearOk } from "@/lib/document-dates"
 import { todayIso } from "@/lib/finance/dates"
 import { placeName } from "@/lib/finance/entities"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { ownAgentSql } from "@/lib/finance/sources"
 import { catalogIndex, countedByInventory, ledgerKey, lockWarehousesOf, lockWarehouseStock, round6, shortageMessage, warehouseStock } from "@/lib/internal-transfers-stock"
 import type { StockShortage } from "@/lib/internal-transfers-types"
 import { keySql, nameKey } from "@/lib/platform-refs"
@@ -23,7 +24,9 @@ import {
   resolveOrderOrganization,
   resolveWarehouse,
 } from "@/lib/orders-repo"
+import { notifySafely } from "@/lib/notify-event"
 import { ensureStockSchema } from "@/lib/stock/schema"
+import { ensureUserNotificationsSchema, notifyTemplate } from "@/lib/user-notifications-repo"
 import { RELEASED_STATUSES } from "@/components/orders/orders-data"
 
 // Client returns (Продажи → Возвраты), contract 5.
@@ -578,6 +581,8 @@ async function acceptRow(db: PgDb, row: ReturnRow, user: string) {
 
 export async function createClientReturn(input: ClientReturnInput, user: { displayName: string }): Promise<ClientReturn> {
   await ensureClientReturnsSchema()
+  // The added_return_order notification is written inside the return transaction.
+  await ensureUserNotificationsSchema()
   const id = await withTransaction(async (tx) => {
     await lockReturns(tx)
     const prepared = await prepareReturn(tx, input, 0)
@@ -604,6 +609,15 @@ export async function createClientReturn(input: ClientReturnInput, user: { displ
     const returnId = Number(inserted.lastInsertRowid)
     await writeLines(tx, returnId, prepared.lines)
     if (input.accept) await acceptRow(tx, (await loadReturn(tx, returnId, true))!, user.displayName)
+    // Настройки → Уведомления "added_return_order": the administrators, the subscribers and the client's agent (in
+    // this transaction: a rolled-back return notifies nobody; a failed notification never undoes it).
+    await notifySafely("added_return_order", () =>
+      notifyTemplate(
+        "added_return_order",
+        { total_price: prepared.amount.toFixed(2), currency: prepared.currency, client_name: prepared.client.name, created_by: user.displayName },
+        { objectId: returnId, link: "/analytics/returns", employeeNames: [prepared.client.agent ?? ""] },
+      ),
+    )
     return returnId
   })
   return (await getClientReturn(id))!
@@ -805,16 +819,22 @@ export async function cancelClientReturn(id: number, user: { displayName: string
 }
 
 /** Accepted returns per currency in a local-day range (dashboard "Возвраты"). */
-export async function acceptedReturnTotals(from: string, to: string, db: PgDb = getDb()): Promise<{ totals: Array<{ currency: string; amount: number }>; orders: number }> {
+/** `agentIds`: only the returns whose agent (client_returns.agent by name key) is one of these employees. */
+export async function acceptedReturnTotals(
+  from: string,
+  to: string,
+  db: PgDb = getDb(),
+  agentIds?: number[],
+): Promise<{ totals: Array<{ currency: string; amount: number }>; orders: number }> {
   const exists = (await db.prepare("SELECT to_regclass('client_returns') IS NOT NULL AS ok").get()) as { ok: boolean }
   if (!exists.ok) return { totals: [], orders: 0 }
   const day = "COALESCE(fin_ts(NULLIF(r.accepted_at, '')), fin_ts(NULLIF(r.return_date, '')), fin_ts(r.created_at, true))::date"
   const rows = (await db
     .prepare(
       `SELECT r.currency, SUM(r.amount)::float8 AS amount, COUNT(DISTINCT r.order_id)::int AS orders
-         FROM client_returns r WHERE r.status = 'accepted' AND ${day} BETWEEN @from::date AND @to::date GROUP BY 1`,
+         FROM client_returns r WHERE r.status = 'accepted' AND ${day} BETWEEN @from::date AND @to::date AND ${ownAgentSql("r.agent")} GROUP BY 1`,
     )
-    .all({ from, to })) as Array<{ currency: string; amount: number; orders: number }>
+    .all({ from, to, scoped: agentIds !== undefined, agentIds: agentIds ?? [] })) as Array<{ currency: string; amount: number; orders: number }>
   const base = await baseCurrency(db)
   return {
     totals: rows.map((row) => ({ currency: row.currency || base, amount: round2(Number(row.amount) || 0) })).filter((row) => row.amount !== 0),

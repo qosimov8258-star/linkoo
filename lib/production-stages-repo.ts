@@ -311,17 +311,18 @@ const toOperation = (row: OperationRow): ProductionOperation => ({
   equipmentName: row.equipment_name ?? "",
 })
 
+// The equipment name comes from this company's equipment only. (The reference account's display overlay that the
+// removed demo scripts wrote into production_operation_meta — equipment names and list order — is not read.)
 const OPERATION_SELECT = `
-  SELECT o.*, COALESCE(e.name, NULLIF(m.equipment_name, '')) AS equipment_name
+  SELECT o.*, e.name AS equipment_name
   FROM production_operations o
-  LEFT JOIN production_equipment e ON e.id = o.equipment_id
-  LEFT JOIN production_operation_meta m ON m.operation_id = o.id`
+  LEFT JOIN production_equipment e ON e.id = o.equipment_id`
 
 export async function listOperations(stageId?: number): Promise<ProductionOperation[]> {
   const db = await getProductionDb()
   const rows = stageId
-    ? await db.prepare(`${OPERATION_SELECT} WHERE o.stage_id = ? ORDER BY COALESCE(m.sort_order, o.id), o.id`).all(stageId)
-    : await db.prepare(`${OPERATION_SELECT} ORDER BY COALESCE(m.sort_order, o.id), o.id`).all()
+    ? await db.prepare(`${OPERATION_SELECT} WHERE o.stage_id = ? ORDER BY o.id`).all(stageId)
+    : await db.prepare(`${OPERATION_SELECT} ORDER BY o.id`).all()
   return (rows as OperationRow[]).map(toOperation)
 }
 

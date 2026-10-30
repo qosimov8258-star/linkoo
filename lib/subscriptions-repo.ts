@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { ensureEmployeesSchema } from "@/lib/employees-schema"
 
 // "Подписки" (demo #/billing, API main/billing/*, main/crud/subscriptions/): every active employee has at most one
@@ -30,15 +30,25 @@ const DDL = `
   );
 `
 
-let ready: Promise<void> | null = null
-async function ensureSchema() {
-  ready ??= (async () => {
+const SCHEMA_VERSION = 1
+
+declare global {
+  var __linkoSubscriptionsSchema: { version: number; ready: Promise<void> } | undefined
+}
+
+/** The billing tables (+ the employees columns), prepared once per process on the maintenance pool
+ * (outsideTransaction), never inside a request transaction; a failed attempt is retried by the next call. */
+function ensureSchema(): Promise<void> {
+  const current = globalThis.__linkoSubscriptionsSchema
+  if (current?.version === SCHEMA_VERSION) return current.ready
+  const ready = outsideTransaction(async () => {
     await getDb().exec(DDL)
     await ensureEmployeesSchema()
-  })().catch((error) => {
-    ready = null
+  }).catch((error) => {
+    if (globalThis.__linkoSubscriptionsSchema?.ready === ready) globalThis.__linkoSubscriptionsSchema = undefined
     throw error
   })
+  globalThis.__linkoSubscriptionsSchema = { version: SCHEMA_VERSION, ready }
   return ready
 }
 

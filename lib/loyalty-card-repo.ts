@@ -252,27 +252,6 @@ export async function listLoyaltyCards(query: LoyaltyListQuery): Promise<Loyalty
     entries.push({ row: { id, name: "", exists: false, lastCreated: item.last, balances: item.balances }, type: "", search: String(id) })
   }
 
-  // The reference's own list (loyalty_reference_rows, additive): clients it lists that are not in the local client table are added
-  // (name kept, balance as in the reference); rows flagged hidden are ones the reference does not list (QA leftovers).
-  if (((await db.prepare("SELECT to_regclass('loyalty_reference_rows') AS t").get()) as { t: string | null }).t) {
-    const reference = (await db.prepare("SELECT id AS client_id, name, last_created, balances, hidden FROM loyalty_reference_rows").all()) as Array<{
-      client_id: number
-      name: string
-      last_created: string | null
-      balances: Record<string, number> | string
-      hidden: number
-    }>
-    const hidden = new Set(reference.filter((row) => row.hidden).map((row) => Number(row.client_id)))
-    for (let index = entries.length - 1; index >= 0; index--) if (hidden.has(entries[index].row.id)) entries.splice(index, 1)
-    const present = new Set(entries.map((entry) => entry.row.id))
-    for (const row of reference) {
-      const id = Number(row.client_id)
-      if (row.hidden || present.has(id)) continue
-      const balances = typeof row.balances === "string" ? JSON.parse(row.balances) : row.balances
-      entries.push({ row: { id, name: row.name, exists: false, lastCreated: row.last_created, balances }, type: "", search: `${nameKey(row.name)}\n${id}` })
-    }
-  }
-
   let filtered = entries
   const wantedType = nameKey(query.clientType)
   if (wantedType) filtered = filtered.filter((entry) => entry.type === wantedType)
@@ -465,17 +444,32 @@ export async function createLoyaltyCardTransaction(input: LoyaltyTransactionInpu
 /** DELETE /api/loyalty-card/transactions/[id] — soft delete of a manual ("additional") movement; payouts made through the
  * cash page (transaction_id set) are removed together with their cash operation instead. */
 export async function deleteLoyaltyCardTransaction(id: number): Promise<{ id: number; clientId: number; balances: Record<string, number> }> {
+  // Row ids are int4: anything else cannot exist.
+  if (!Number.isInteger(id) || id <= 0 || id > 2147483647) throw new LoyaltyInputError("Запись не найдена", 404)
   const db = getDb()
   await ensureLoyaltySchema(db)
-  const row = (await db.prepare("SELECT id, client_id, type, transaction_id FROM loyalty_card_transactions WHERE id = ? AND COALESCE(is_deleted, 0) = 0").get(id)) as
-    | { id: number | string; client_id: number | string; type: string | null; transaction_id: number | string | null }
-    | undefined
-  if (!row) throw new LoyaltyInputError("Запись не найдена", 404)
-  if (row.transaction_id !== null || row.type !== "additional") throw new LoyaltyInputError("Удалять можно только добавленные вручную движения", 409)
   const cc = await loadCurrencyContext(db)
   return withTransaction(async (tx) => {
-    await tx.prepare("UPDATE loyalty_card_transactions SET is_deleted = 1 WHERE id = ?").run(id)
+    const owner = (await tx.prepare("SELECT client_id FROM loyalty_card_transactions WHERE id = ?").get(id)) as { client_id: number | string } | undefined
+    if (!owner) throw new LoyaltyInputError("Запись не найдена", 404)
+    // The client's cashback lock first (like every payout / write-off), then the row, re-checked after locking:
+    // two parallel deletes cannot both pass and a payout cannot spend the money being removed.
+    await lockClientCashback(tx, Number(owner.client_id))
+    const row = (await tx
+      .prepare("SELECT id, client_id, currency, amount, type, transaction_id FROM loyalty_card_transactions WHERE id = ? AND COALESCE(is_deleted, 0) = 0 FOR UPDATE")
+      .get(id)) as
+      | { id: number | string; client_id: number | string; currency: string | null; amount: number | string; type: string | null; transaction_id: number | string | null }
+      | undefined
+    if (!row) throw new LoyaltyInputError("Запись не найдена", 404)
+    if (row.transaction_id !== null || row.type !== "additional") throw new LoyaltyInputError("Удалять можно только добавленные вручную движения", 409)
     const clientId = Number(row.client_id)
+    const amount = Number(row.amount)
+    if (amount > 0) {
+      // Removing a "Добавить" must not leave the client's cashback below zero (it may already be paid out).
+      const balance = await clientCashbackBalance(tx, clientId, normCurrency(row.currency, cc.base), cc.base)
+      if (balance - amount < -0.005) throw new LoyaltyInputError("Удаление невозможно: кэшбэк уже использован", 409)
+    }
+    await tx.prepare("UPDATE loyalty_card_transactions SET is_deleted = 1 WHERE id = ?").run(id)
     return { id, clientId, balances: balancesOf(await balanceRows(tx, cc.base, clientId)) }
   })
 }

@@ -24,7 +24,9 @@ import { loadCurrencyContext } from "@/lib/finance/context"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { notifySafely } from "@/lib/notify-event"
 import { strictId } from "@/lib/strict-number"
+import { ensureUserNotificationsSchema, notifyTemplate } from "@/lib/user-notifications-repo"
 
 // "Договоры" (demo #/contracts — spec: scratchpad extra/spec-contracts.md).
 //
@@ -97,12 +99,6 @@ async function installSchema(): Promise<void> {
         UNIQUE (contract_id, client_id)
       );
       CREATE INDEX IF NOT EXISTS contract_clients_client_idx ON contract_clients (client_id);
-      CREATE TABLE IF NOT EXISTS contract_reference_rows (
-        id INTEGER PRIMARY KEY, full_number TEXT NOT NULL DEFAULT '', contract_number INTEGER, contract_prefix TEXT NOT NULL DEFAULT '',
-        contract_suffix TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', created_date TEXT NOT NULL DEFAULT '', year INTEGER,
-        inn TEXT NOT NULL DEFAULT '', official_name TEXT NOT NULL DEFAULT '', agent TEXT NOT NULL DEFAULT '', comment TEXT NOT NULL DEFAULT '',
-        markets JSONB NOT NULL DEFAULT '[]'::jsonb
-      );
     `)
   })
 }
@@ -122,17 +118,15 @@ export async function ensureContractsSchema(db: PgDb = getDb()): Promise<void> {
 
 // --- shared SQL ------------------------------------------------------------------------------
 
-// The reference list's own status (contract_reference_rows, listed read-only) wins over the local one.
-const STATUS_SQL = `CASE WHEN lower(COALESCE(NULLIF(rr.status, ''), c.status)) IN ('completed', 'finished') THEN 'completed'
-  WHEN lower(COALESCE(NULLIF(rr.status, ''), c.status)) IN ('cancelled', 'canceled') THEN 'cancelled' ELSE 'active' END`
+const STATUS_SQL = `CASE WHEN lower(c.status) IN ('completed', 'finished') THEN 'completed'
+  WHEN lower(c.status) IN ('cancelled', 'canceled') THEN 'cancelled' ELSE 'active' END`
 
 /** One row per contract with the derived display values (alias b). */
 const BASE_CTE = `WITH b AS (
-  SELECT c.id, COALESCE(rr.contract_number, c.contract_number) AS contract_number, COALESCE(NULLIF(rr.contract_prefix, ''), c.contract_prefix) AS contract_prefix,
-    COALESCE(NULLIF(rr.contract_suffix, ''), c.contract_suffix) AS contract_suffix, c.year, c.official_name, c.inn, c.comment,
+  SELECT c.id, c.contract_number, c.contract_prefix, c.contract_suffix, c.year, c.official_name, c.inn, c.comment,
     c.created_by, c.client AS legacy_client, c.zone AS legacy_zone, c.agent_id, c.organization_id,
-    COALESCE(NULLIF(rr.created_date, ''), NULLIF(c.contract_date, ''), to_char(fin_ts(c.created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS eff_date,
-    COALESCE(NULLIF(rr.full_number, ''), c.contract_prefix || COALESCE(c.contract_number::text, c.id::text) || c.contract_suffix) AS full_no,
+    COALESCE(NULLIF(c.contract_date, ''), to_char(fin_ts(c.created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS eff_date,
+    c.contract_prefix || COALESCE(c.contract_number::text, c.id::text) || c.contract_suffix AS full_no,
     COALESCE(NULLIF(btrim(concat_ws(' ', e.first_name, e.last_name)), ''), NULLIF(fin_place(c.agent), ''), '') AS agent_name,
     COALESCE(NULLIF(btrim(o.name), ''), NULLIF(fin_place(c.organization), ''), '') AS org_name,
     ${STATUS_SQL} AS st,
@@ -143,19 +137,8 @@ const BASE_CTE = `WITH b AS (
       ORDER BY cc.position, cc.id)
       FROM contract_clients cc LEFT JOIN clients cl ON cl.id = cc.client_id WHERE cc.contract_id = c.id), '[]'::json) AS clients_json
   FROM contracts c
-  LEFT JOIN contract_reference_rows rr ON rr.id = c.id
   LEFT JOIN employees e ON e.id = c.agent_id
   LEFT JOIN organizations o ON o.id = c.organization_id
-  UNION ALL
-  -- contracts of the reference list that the local table does not hold yet (additive source, listed read-only)
-  SELECT r.id, r.contract_number, r.contract_prefix, r.contract_suffix, COALESCE(r.year, 0), r.official_name, r.inn, r.comment,
-    ''::text, COALESCE(r.markets->0->>'name', ''), COALESCE(r.markets->0->>'zone', ''), NULL::integer, NULL::integer,
-    r.created_date, r.full_number, r.agent, ''::text,
-    CASE WHEN lower(r.status) IN ('completed', 'finished') THEN 'completed' WHEN lower(r.status) IN ('cancelled', 'canceled') THEN 'cancelled' ELSE 'active' END,
-    false, COALESCE((SELECT string_agg(m->>'name', ' | ') FROM jsonb_array_elements(r.markets) m), ''),
-    COALESCE((SELECT json_agg(json_build_object('id', NULL, 'name', m->>'name', 'zone', COALESCE(m->>'zone', ''))) FROM jsonb_array_elements(r.markets) m), '[]'::json)
-  FROM contract_reference_rows r
-  WHERE NOT EXISTS (SELECT 1 FROM contracts x WHERE x.id = r.id)
 )`
 
 const BASE_COLUMNS = `b.id, b.contract_number, b.contract_prefix, b.contract_suffix, b.year, b.official_name, b.inn, b.comment, b.created_by,
@@ -542,6 +525,8 @@ const NUMBER_LOCK = "SELECT pg_advisory_xact_lock(72120951)"
 
 export async function createContract(input: ContractInput, createdBy: string): Promise<ContractDetail> {
   await ensureContractsSchema()
+  // The new_contract notification is written inside the contract transaction.
+  await ensureUserNotificationsSchema()
   const id = await withTransaction(async (tx) => {
     await tx.exec(NUMBER_LOCK)
     const v = await resolveInput(tx, input, null)
@@ -555,6 +540,24 @@ export async function createContract(input: ContractInput, createdBy: string): P
       .run(first.name, v.agentName, first.zone, v.inn, v.organizationName, v.comment, v.officialName, v.status, v.year, v.number, v.prefix, v.suffix, v.date, v.agentId, v.organizationId, createdBy)
     const contractId = Number(result.lastInsertRowid)
     await writeClients(tx, contractId, v.clients)
+    // Настройки → Уведомления "new_contract": the administrators, the subscribers, the contract's agent and the
+    // agents of its clients (in this transaction: a rolled-back contract notifies nobody; a failed notification
+    // never undoes it).
+    await notifySafely("new_contract", async () => {
+      const clientAgents = (await tx
+        .prepare("SELECT agent FROM clients WHERE id = ANY(?::int[])")
+        .all(v.clients.map((client) => client.id))) as Array<{ agent: string | null }>
+      await notifyTemplate(
+        "new_contract",
+        { pk: `${v.prefix}${v.number}${v.suffix}`, market_name: v.clients.map((client) => client.name).join(", ") },
+        {
+          objectId: contractId,
+          link: "/analytics/contracts",
+          employeeIds: [v.agentId],
+          employeeNames: clientAgents.map((row) => row.agent ?? ""),
+        },
+      )
+    })
     return contractId
   })
   return (await getContract(id))!

@@ -3,16 +3,19 @@
 import { ArrowDown, ArrowUp } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { CashSnackbar, useCanManage, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { importKey, postJson, repeatedInFile, type PreparedRow } from "@/lib/excel-row-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { ConfirmDelete, EmptyState, ErrorAlert, HoverActions, LineField, ListToolbar, Modal, SaveLink, grayHead, listRow } from "./catalog-ui"
+import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "./excel-row-import"
 import type { SupplierCategory as Category } from "./supplier-categories-data"
 
 // "Категории поставщиков" (demo #/provider-category, Settings → Поставщики): "+ Добавить категорию
 // поставщика", the single column Категории (sortable) with the pencil / trash on row hover, the
 // dialog "Добавить / Изменить тип поставщика" (Наименование категории) and the delete confirm.
-// A category still used by a supplier cannot be deleted.
+// A category still used by a supplier cannot be deleted. "Импорт с Excel" (ours, not in the demo)
+// creates the categories of a file through POST /api/supplier-categories.
 
 type Dialog = { kind: "create" } | { kind: "update"; category: Category } | { kind: "delete"; category: Category } | null
 
@@ -24,6 +27,8 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
   const [dialog, setDialog] = useState<Dialog>(null)
   const [ordering, setOrdering] = useState<"" | "asc" | "desc">("")
   const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const canImport = useCanManage(["procurement.manage"])
   const closeNotice = useCallback(() => setNotice(null), [])
 
   const load = useCallback(async () => {
@@ -43,6 +48,18 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
     void load()
   }, [load])
 
+  const importSpec: ExcelImportSpec<{ name: string }> = {
+    templateName: "supplier-categories-template",
+    columns: [{ field: "name", header: "Наименование", aliases: ["Название", "Наименование категории", "Категория", "Категории", "Name"] }],
+    keyField: "name",
+    prepare: async (records) => {
+      const rows: PreparedRow<{ name: string }>[] = records.map((record) => ({ line: record.line, label: record.values.name, item: { name: record.values.name } }))
+      return { rows, errors: repeatedInFile(rows, (row) => importKey(row.item.name)) }
+    },
+    send: (item) => postJson("/api/supplier-categories", item),
+    fallbackError: "Не удалось сохранить категорию",
+  }
+
   const rows = useMemo(() => {
     if (!ordering) return categories
     const sorted = [...categories].sort((a, b) => a.name.localeCompare(b.name, "ru", { sensitivity: "base" }) || a.id - b.id)
@@ -52,7 +69,11 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
   const body = (
     <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <div className="-mb-[3px] mt-[3px]">
-        <ListToolbar addLabel={t("Добавить категорию поставщика")} onAdd={() => setDialog({ kind: "create" })} />
+        <ListToolbar
+          addLabel={t("Добавить категорию поставщика")}
+          onAdd={() => setDialog({ kind: "create" })}
+          extra={canImport ? <ExcelImportLink className="pt-[8px]" onClick={() => setImportOpen(true)} /> : undefined}
+        />
       </div>
       <div className={`${grayHead} grid-cols-1`}>
         <button type="button" onClick={() => setOrdering(ordering === "" ? "asc" : ordering === "asc" ? "desc" : "")} className="flex items-center gap-[10px] text-left font-bold">
@@ -88,6 +109,17 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
             setDialog(null)
             setNotice(message)
             void load()
+          }}
+        />
+      )}
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={importSpec}
+          onClose={() => setImportOpen(false)}
+          onChanged={() => void load()}
+          onDone={(summary) => {
+            setImportOpen(false)
+            setNotice({ text: summary, tone: "success" })
           }}
         />
       )}

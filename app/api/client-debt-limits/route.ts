@@ -4,12 +4,18 @@ import { z } from "zod"
 import { createClientDebtLimit, getDebtLimitTypes, listClientDebtLimits } from "@/lib/client-debt-limits-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
+import { dbId, strictId, strictNum } from "@/lib/strict-number"
 import { parseJsonBody } from "@/lib/validation"
 
+const MAX_MONEY = 1e13
+
 const createSchema = z.object({
-  client: z.number().int().positive(),
-  organization: z.number().int().positive(),
-  amount: z.number().finite().min(0),
+  client: dbId("Укажите клиента"),
+  organization: dbId("Выберите организацию"),
+  amount: strictNum(
+    z.number({ error: "Неверная сумма" }).finite("Неверная сумма").min(0, "Сумма не может быть отрицательной").max(MAX_MONEY, "Слишком большая сумма"),
+    "Неверная сумма",
+  ),
 })
 
 /** Mirrors the reference `market/debt_limit/`: `?client=<id>` lists one client's limits, `?types=1` the filter types. */
@@ -19,8 +25,8 @@ export async function GET(request: NextRequest) {
 
   if (request.nextUrl.searchParams.get("types")) return NextResponse.json(await getDebtLimitTypes())
 
-  const client = Number(request.nextUrl.searchParams.get("client"))
-  if (!Number.isInteger(client) || client <= 0) return NextResponse.json({ error: "Укажите клиента" }, { status: 400 })
+  const client = strictId(request.nextUrl.searchParams.get("client"))
+  if (client === null) return NextResponse.json({ error: "Укажите клиента" }, { status: 400 })
   const results = await listClientDebtLimits(client)
   return NextResponse.json({ count: results.length, results })
 }

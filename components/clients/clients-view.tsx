@@ -18,10 +18,13 @@ import {
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import type { FieldEvent } from "@/lib/field-activity/types"
+import type { ClientVisitPage, ClientVisitRow, FieldRecordPage, FieldRecordRow } from "@/lib/field-activity/record-list-types"
+import type { LanguageCode } from "@/lib/i18n/types"
+import { formatMoney } from "@/lib/finance/currency"
 import { todayIso } from "@/lib/finance/dates"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
 import { AddOrderDialog } from "@/components/orders/add-order-dialog"
 
@@ -148,8 +151,9 @@ const emptyClientForm: ClientForm = {
   attributes: {},
 }
 
-function formatBalance(value: number) {
-  return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} SUM`
+/** An opening balance (no ledger lines yet): in the base currency of Валюты, 2 decimals. */
+function formatBalance(value: number, currency: string) {
+  return `${formatMoney(value)}${currency ? ` ${currency}` : ""}`
 }
 
 function formFromClient(client: Client): ClientForm {
@@ -226,6 +230,21 @@ export function ClientsView() {
     } catch {}
   }, [])
 
+  // The base currency (Валюты) of the opening balances the list prints without ledger lines.
+  const [baseCurrency, setBaseCurrency] = useState("")
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/currencies", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<Array<{ code?: string; isBase?: boolean }>>) : []))
+      .then((rows) => {
+        if (!cancelled && Array.isArray(rows)) setBaseCurrency(rows.find((row) => row.isBase)?.code ?? "")
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -248,6 +267,8 @@ export function ClientsView() {
     return () => {
       cancelled = true
     }
+    // `t` only translates the error text; a language switch must not reload the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -1192,6 +1213,7 @@ export function ClientsView() {
                     selectMode={selectMode}
                     columns={columns}
                     routed={routeAssigned.has(client.id)}
+                    baseCurrency={baseCurrency}
                     onToggle={() => toggleRow(client.id)}
                     onOpen={() => setDetailClient(client)}
                   />
@@ -2015,7 +2037,8 @@ const CLIENT_SUBTABS = ["ДЕТАЛИ", "ФИНАНСОВЫЕ НАСТРОЙКИ
 const SHORT_MONTHS = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
 const LOG_FILTERS = ["Все", "Заказ", "Возврат", "Финансы", "Клиент"]
 
-type DetailTask = { text: string; at?: string; link?: boolean; done: boolean; by?: string; time?: number }
+/** `translated`: the text is already in the UI language (built from i18n keys), so it is shown as is. */
+type DetailTask = { text: string; at?: string; link?: boolean; done: boolean; by?: string; time?: number; translated?: boolean }
 
 const MONTHS_NOMINATIVE = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
 function createdDateText(raw: string | undefined): string {
@@ -2047,21 +2070,22 @@ function tasksFromOrders(orders: DetailOrder[]): DetailTask[] {
     })
 }
 
-type FieldVisit = { agent: string; startedAt: string; durationSec: number; result: string; refusal: string; planned: boolean }
 type FieldTask = { responsible: string; store: string; description: string; date: string; status: string }
 
-/** Visits without an order and the client's planned tasks join the order feed, newest first. */
-function mergeFieldTasks(base: DetailTask[], visits: FieldVisit[], planned: FieldTask[]): DetailTask[] {
+/** Visits without an order and the client's planned tasks join the order feed, newest first.
+ * A visit's text is built from i18n keys; its local time (Asia/Tashkent) goes through formatDateText. */
+function mergeFieldTasks(base: DetailTask[], visits: ClientVisitRow[], planned: FieldTask[], t: (key: string) => string, language: LanguageCode): DetailTask[] {
   const fromVisits = visits.map((visit): DetailTask => {
-    const date = new Date(visit.startedAt.replace(" ", "T"))
-    const when = `${date.getDate()} ${MONTHS_NOMINATIVE[date.getMonth()]} в ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
-    const label = visit.planned ? "Плановый визит" : "Внеплановый визит"
+    const when = formatDateText(visit.startedAt, language, { withTime: true })
+    const label = t(visit.planned ? "Плановый визит" : "Внеплановый визит")
+    const refusal = visit.refusal ? `${t("Отказ")}: ${visit.refusal}` : t("Отказ")
     return {
-      text: visit.result === "refusal" ? `${label} ${when}. Отказ: ${visit.refusal}` : `${label} ${when}`,
-      at: `${String(date.getDate()).padStart(2, "0")} ${SHORT_MONTHS[date.getMonth()].toLowerCase()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`,
-      done: true,
+      text: visit.result === "refusal" ? `${label} ${when}. ${refusal}` : `${label} ${when}`,
+      at: when,
+      done: visit.result !== "open",
       by: visit.agent,
-      time: date.getTime(),
+      time: new Date(visit.startedAt).getTime(),
+      translated: true,
     }
   })
   const fromTasks = planned.map((task): DetailTask => {
@@ -2089,9 +2113,12 @@ type ClientSummary = {
   daysSinceLastOrder: number | null
 }
 
+/** Amount + currency code, 2 decimals (formatMoney); no code while it is unknown. */
+const moneyText = (value: number, currency: string) => `${formatMoney(value)}${currency ? ` ${currency}` : ""}`
+
 function moneyLines(values: Array<{ currency: string; value: number }>, base: string) {
-  const lines = values.filter((entry) => entry.value).map((entry) => `${entry.value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${entry.currency}`)
-  return lines.length ? lines.join(", ") : `0 ${base}`
+  const lines = values.filter((entry) => entry.value).map((entry) => moneyText(entry.value, entry.currency))
+  return lines.length ? lines.join(", ") : moneyText(0, base)
 }
 
 type CardLog = { type: "Заказ" | "Возврат" | "Оплата" | "Клиент"; status: string; by: string; at: string; sortKey: string; sum: string }
@@ -2114,6 +2141,19 @@ function displayMoment(value: string | null | undefined) {
 
 function formatDetailDate(date: Date) {
   return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
+}
+
+/** Records per request of the card's ОТКАЗЫ / ОТЧЕТЫ. */
+const FIELD_RECORDS_PAGE = 50
+
+/** One page of the client's photo reports (ОТЧЕТЫ) or refusals (ОТКАЗЫ), newest first; `before` = the previous page's nextCursor. */
+async function fetchFieldRecords(tab: "ОТЧЕТЫ" | "ОТКАЗЫ", clientId: number, before: string | null, signal: AbortSignal): Promise<FieldRecordPage> {
+  const params = new URLSearchParams({ clientId: String(clientId), pageSize: String(FIELD_RECORDS_PAGE) })
+  if (before) params.set("before", before)
+  const response = await fetch(`/api/field-activity/${tab === "ОТЧЕТЫ" ? "photo-reports" : "refusals"}?${params.toString()}`, { cache: "no-store", signal })
+  const body = (await response.json().catch(() => null)) as (FieldRecordPage & { error?: string }) | null
+  if (!response.ok || !body || !Array.isArray(body.rows)) throw new Error(body?.error || "Не удалось загрузить данные")
+  return body
 }
 
 /** The client card opened from another page (Активность, Отслеживание): loads the client
@@ -2168,8 +2208,16 @@ export function ClientDetail({
   const [subTab, setSubTab] = useState<(typeof CLIENT_SUBTABS)[number]>("ДЕТАЛИ")
   const [logFilter, setLogFilter] = useState("Все")
   const [clientOrders, setClientOrders] = useState<DetailOrder[]>([])
-  const [fieldVisits, setFieldVisits] = useState<FieldVisit[]>([])
+  const [fieldVisits, setFieldVisits] = useState<ClientVisitRow[]>([])
+  // ЗАДАЧИ: where the client's older visits continue ("Загрузить еще..."); null once all are loaded.
+  const [visitsCursor, setVisitsCursor] = useState<string | null>(null)
   const [fieldTasks, setFieldTasks] = useState<FieldTask[]>([])
+  // ОТЧЕТЫ / ОТКАЗЫ: the client's photo reports and visit refusals from the mobile app (field data, by client id),
+  // newest first, FIELD_RECORDS_PAGE at a time ("Загрузить еще..." follows nextCursor).
+  const [fieldRecords, setFieldRecords] = useState<{ tab: string; rows: FieldRecordRow[]; count: number; nextCursor: string | null; error: string } | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  // The "Загрузить еще..." request in flight; a tab or client change cancels it.
+  const moreRequest = useRef<AbortController | null>(null)
   const [cardLogs, setCardLogs] = useState<CardLog[] | null>(null)
   useEffect(() => {
     if (tab !== "ЗАДАЧИ") return
@@ -2184,35 +2232,19 @@ export function ClientDetail({
       cancelled = true
     }
   }, [tab, client.id, client.name])
-  // Visits are the mobile app's field records (Активность / Отслеживание), the planned tasks come from Задачи.
+  // Visits are the mobile app's field records (Активность / Отслеживание) of this client id that are not
+  // linked to an order (an order already shows as its own visit), the planned tasks come from Задачи.
   useEffect(() => {
     if (tab !== "ЗАДАЧИ") return
     let cancelled = false
-    const to = todayIso()
-    const yearAgo = new Date(`${to}T00:00:00Z`)
-    yearAgo.setUTCDate(yearAgo.getUTCDate() - 365)
-    const from = yearAgo.toISOString().slice(0, 10)
-    fetch(`/api/field-activity/events?from=${from}&to=${to}&kind=visit,refusal&clientId=${client.id}&pageSize=500`)
-      .then((response) => (response.ok ? (response.json() as Promise<{ rows?: FieldEvent[] }>) : { rows: [] }))
+    setFieldVisits([])
+    setVisitsCursor(null)
+    fetch(`/api/field-activity/client-visits?clientId=${client.id}`, { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<ClientVisitPage>) : null))
       .then((data) => {
-        if (cancelled || !Array.isArray(data.rows)) return
-        const reasons = new Map(data.rows.filter((row) => row.kind === "refusal").map((row) => [row.sourceId, row.reason]))
-        setFieldVisits(
-          data.rows.flatMap((row) =>
-            row.kind === "visit" && row.visit
-              ? [
-                  {
-                    agent: row.employeeName,
-                    startedAt: row.visit.startedAt,
-                    durationSec: row.visit.durationSec ?? 0,
-                    result: row.visit.result ?? "",
-                    refusal: row.visit.refusalId ? (reasons.get(row.visit.refusalId) ?? "") : "",
-                    planned: row.visit.planned,
-                  },
-                ]
-              : [],
-          ),
-        )
+        if (cancelled || !data || !Array.isArray(data.rows)) return
+        setFieldVisits(data.rows)
+        setVisitsCursor(data.hasMore ? data.nextCursor : null)
       })
       .catch(() => {})
     fetch(`/api/tasks?client=${client.id}&pageSize=2000`)
@@ -2226,7 +2258,72 @@ export function ClientDetail({
       cancelled = true
     }
   }, [tab, client.id])
-  const tasks = useMemo(() => mergeFieldTasks(tasksFromOrders(clientOrders), fieldVisits, fieldTasks), [clientOrders, fieldVisits, fieldTasks])
+  const tasks = useMemo(() => mergeFieldTasks(tasksFromOrders(clientOrders), fieldVisits, fieldTasks, t, language), [clientOrders, fieldVisits, fieldTasks, t, language])
+  useEffect(() => {
+    if (tab !== "ОТЧЕТЫ" && tab !== "ОТКАЗЫ") return
+    const controller = new AbortController()
+    setFieldRecords(null)
+    fetchFieldRecords(tab, client.id, null, controller.signal)
+      .then((body) => setFieldRecords({ tab, rows: body.rows, count: body.count, nextCursor: body.hasMore ? body.nextCursor : null, error: "" }))
+      .catch((cause: Error) => {
+        if (cause.name !== "AbortError") setFieldRecords({ tab, rows: [], count: 0, nextCursor: null, error: cause.message || "Не удалось загрузить данные" })
+      })
+    return () => controller.abort()
+  }, [tab, client.id])
+  // A tab or client change drops a "Загрузить еще..." still in flight.
+  useEffect(
+    () => () => {
+      moreRequest.current?.abort()
+      moreRequest.current = null
+      setLoadingMore(false)
+    },
+    [tab, client.id],
+  )
+
+  /** "Загрузить еще...": the next older visits (ЗАДАЧИ) or records (ОТКАЗЫ / ОТЧЕТЫ) of this client. */
+  function loadMore() {
+    if (moreRequest.current) return
+    const controller = new AbortController()
+    moreRequest.current = controller
+    setLoadingMore(true)
+    const done = () => {
+      if (moreRequest.current !== controller) return
+      moreRequest.current = null
+      setLoadingMore(false)
+    }
+    const failed = (cause: Error) => {
+      if (cause.name === "AbortError") return
+      notify(t(cause.message || "Не удалось загрузить данные"))
+    }
+    if (tab === "ЗАДАЧИ") {
+      if (!visitsCursor) return done()
+      fetch(`/api/field-activity/client-visits?clientId=${client.id}&before=${encodeURIComponent(visitsCursor)}`, { cache: "no-store", signal: controller.signal })
+        .then(async (response) => {
+          const body = (await response.json().catch(() => null)) as (ClientVisitPage & { error?: string }) | null
+          if (!response.ok || !body || !Array.isArray(body.rows)) throw new Error(body?.error || "Не удалось загрузить данные")
+          setFieldVisits((previous) => {
+            const known = new Set(previous.map((visit) => visit.visitId))
+            return [...previous, ...body.rows.filter((visit) => !known.has(visit.visitId))]
+          })
+          setVisitsCursor(body.hasMore ? body.nextCursor : null)
+        })
+        .catch(failed)
+        .finally(done)
+      return
+    }
+    const shown = fieldRecords
+    if ((tab !== "ОТЧЕТЫ" && tab !== "ОТКАЗЫ") || !shown || shown.tab !== tab || !shown.nextCursor) return done()
+    fetchFieldRecords(tab, client.id, shown.nextCursor, controller.signal)
+      .then((body) =>
+        setFieldRecords((previous) => {
+          if (!previous || previous.tab !== tab) return previous
+          const known = new Set(previous.rows.map((record) => record.id))
+          return { ...previous, rows: [...previous.rows, ...body.rows.filter((record) => !known.has(record.id))], count: body.count, nextCursor: body.hasMore ? body.nextCursor : null }
+        }),
+      )
+      .catch(failed)
+      .finally(done)
+  }
   // Logs: the client's own documents (creation, orders, payments, returns), linked by client id.
   useEffect(() => {
     if (!(tab === "КЛИЕНТ" && subTab === "ЛОГИ")) return
@@ -2248,10 +2345,10 @@ export function ClientDetail({
       }
       for (const payment of Array.isArray(payments) ? payments : []) {
         // Payments carry no status pill in the reference («Не установлен» as plain text).
-        logs.push({ type: "Оплата", status: "Не установлен", by: "—", at: displayDay(payment.paymentDate) || displayMoment(payment.createdAt), sortKey: payment.createdAt ?? "", sum: `${payment.amount.toLocaleString("ru-RU")} ${payment.currency}` })
+        logs.push({ type: "Оплата", status: "Не установлен", by: "—", at: displayDay(payment.paymentDate) || displayMoment(payment.createdAt), sortKey: payment.createdAt ?? "", sum: moneyText(payment.amount, payment.currency) })
       }
       for (const entry of returns?.rows ?? []) {
-        logs.push({ type: "Возврат", status: entry.status === "accepted" ? "Принят" : entry.status === "cancelled" ? "Отменен" : "Ожидает", by: entry.createdBy || "—", at: displayMoment(entry.createdAt), sortKey: entry.createdAt, sum: `${entry.amount.toLocaleString("ru-RU")} ${entry.currency}` })
+        logs.push({ type: "Возврат", status: entry.status === "accepted" ? "Принят" : entry.status === "cancelled" ? "Отменен" : "Ожидает", by: entry.createdBy || "—", at: displayMoment(entry.createdAt), sortKey: entry.createdAt, sum: moneyText(entry.amount, entry.currency) })
       }
       setCardLogs(logs.sort((a, b) => b.sortKey.localeCompare(a.sortKey)))
     })
@@ -2275,7 +2372,7 @@ export function ClientDetail({
   const periodStart = new Date(periodEnd)
   periodStart.setDate(periodStart.getDate() - 30)
   const hasLocation = client.locationLat !== undefined && client.locationLng !== undefined
-  const base = summary?.baseCurrency ?? "SUM"
+  const base = summary?.baseCurrency ?? ""
   const sumOf = (pick: "orders" | "actualSales" | "returns" | "begin" | "end") => moneyLines((summary?.currencies ?? []).map((entry) => ({ currency: entry.currency, value: entry[pick] })), base)
   const beginNegative = (summary?.currencies ?? []).some((entry) => entry.begin < 0)
   const endNegative = (summary?.currencies ?? []).some((entry) => entry.end < 0)
@@ -2593,7 +2690,7 @@ export function ClientDetail({
                           )}
                         </svg>
                         <span>
-                          {t(task.text)}
+                          {task.translated ? task.text : t(task.text)}
                           {task.link && (
                             <>
                               {" ("}
@@ -2609,6 +2706,11 @@ export function ClientDetail({
                 </>
               )}
             </div>
+            {visitsCursor && (
+              <button type="button" disabled={loadingMore} onClick={loadMore} className="mx-auto mt-[10px] block h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {t("Загрузить еще...")}
+              </button>
+            )}
           </div>
         )}
 
@@ -2765,15 +2867,64 @@ export function ClientDetail({
           </div>
         )}
 
-        {(tab === "ОТЧЕТЫ" || tab === "ОТКАЗЫ") && (
-          <div className="flex flex-col items-center pt-[18px] text-[#666]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/robot-empty.png" alt="" className="w-[120px]" />
-            <span>{tab === "ОТЧЕТЫ" ? t("Отчеты не найдены") : t("Отказы не найдены")}</span>
-          </div>
-        )}
+        {(tab === "ОТЧЕТЫ" || tab === "ОТКАЗЫ") &&
+          (fieldRecords === null || fieldRecords.tab !== tab ? (
+            <p className="py-6 text-center text-[#888]">{t("Загрузка...")}</p>
+          ) : fieldRecords.rows.length === 0 ? (
+            <div className="flex flex-col items-center pt-[18px] text-[#666]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/robot-empty.png" alt="" className="w-[120px]" />
+              <span>{fieldRecords.error ? t(fieldRecords.error) : tab === "ОТЧЕТЫ" ? t("Отчеты не найдены") : t("Отказы не найдены")}</span>
+            </div>
+          ) : (
+            <div className="p-5">
+              {fieldRecords.rows.map((record) => (
+                <FieldRecordCard key={record.id} record={record} kind={tab === "ОТЧЕТЫ" ? "photo_report" : "refusal"} />
+              ))}
+              {fieldRecords.nextCursor && (
+                <div className="flex flex-col items-center gap-[6px] pt-2">
+                  <span className="text-[12px] text-[#888]">
+                    {fieldRecords.rows.length} / {fieldRecords.count}
+                  </span>
+                  <button type="button" disabled={loadingMore} onClick={loadMore} className="h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                    {t("Загрузить еще...")}
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
       </aside>
     </>
+  )
+}
+
+/** One refusal or photo report of the client card (field data): who, when, reason / comment and the photos. */
+function FieldRecordCard({ record, kind }: { record: FieldRecordRow; kind: "refusal" | "photo_report" }) {
+  const { t, language } = useLanguage()
+  const badge = (slot: string) => (slot === "before" ? t("до") : slot === "after" ? t("после") : "")
+  return (
+    <div className="mb-[10px] rounded-[2px] bg-white px-5 py-[15px] text-[#666] shadow-[0_1px_6px_rgba(0,0,0,0.25)]">
+      <div className="flex justify-between gap-3">
+        <h2 className="mb-[10px] text-base font-bold leading-[16px]">{record.employeeName || `#${record.employeeId}`}</h2>
+        <p className="mb-[10px] whitespace-nowrap">{formatDateText(record.at, language, { withTime: true })}</p>
+      </div>
+      <div className="font-semibold">
+        {kind === "refusal" ? `${t("Отказ")} № ${record.id}` : t("Фото отчет № {id}").replace("{id}", String(record.id))}
+        {kind === "refusal" && record.reason ? `: ${record.reason}` : ""}
+      </div>
+      {record.comment ? <p className="mt-[6px] whitespace-pre-line text-[#333]">{record.comment}</p> : null}
+      {record.photos.length > 0 && (
+        <div className="mt-[10px] flex flex-wrap gap-[8px]">
+          {record.photos.map((photo) => (
+            <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="relative block h-[90px] w-[90px] overflow-hidden rounded-[4px] border border-[#d9dde3]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={photo.url} alt={badge(photo.slot) || t("Фото")} loading="lazy" className="h-full w-full object-cover" />
+              {badge(photo.slot) && <span className="absolute left-[2px] top-[2px] rounded-full bg-[#555] px-[6px] text-[10px] font-semibold text-white">{badge(photo.slot)}</span>}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -2844,6 +2995,7 @@ function ClientRow({
   selectMode,
   columns,
   routed,
+  baseCurrency,
   onToggle,
   onOpen,
 }: {
@@ -2852,6 +3004,7 @@ function ClientRow({
   selectMode: boolean
   columns: Record<ColumnKey, boolean>
   routed: boolean
+  baseCurrency: string
   onToggle: () => void
   onOpen: () => void
 }) {
@@ -2904,7 +3057,7 @@ function ClientRow({
       {columns.balance && <div className="pl-2 text-center leading-[16.25px]">
         {client.balanceLines?.length
           ? client.balanceLines.map((line) => <div key={line} className={line.startsWith("-") ? "text-[#e57373]" : ""}>{line}</div>)
-          : client.balance ? <span className={client.balance < 0 ? "text-[#e57373]" : ""}>{formatBalance(client.balance)}</span> : ""}
+          : client.balance ? <span className={client.balance < 0 ? "text-[#e57373]" : ""}>{formatBalance(client.balance, baseCurrency)}</span> : ""}
       </div>}
     </div>
   )

@@ -164,7 +164,7 @@ export function DashboardDialog({
       className="fixed left-1/2 top-1/2 z-[100] flex max-h-[calc(100vh-32px)] min-h-[min(517px,calc(100vh-32px))] w-[min(600px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col bg-white shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)]"
     >
       <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e0e0e0] px-[30px]">
-        <h2 className="text-[13px] font-bold uppercase text-[#333]"><span data-no-translate>Добавить в дашборд</span></h2>
+        <h2 className="text-[13px] font-bold uppercase text-[#333]"><span>{t("Добавить в дашборд")}</span></h2>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#555]">
           <X className="h-5 w-5" />
         </button>
@@ -235,14 +235,14 @@ export function DashboardDialog({
                   {item.name}
                 </label>
               ))}
-              {filtered.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Ничего не найдено</p>}
+              {filtered.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">{t("Ничего не найдено")}</p>}
             </div>
-            {selectedIds.length > 0 && <p className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500">Выбрано: {selectedIds.length}</p>}
+            {selectedIds.length > 0 && <p className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500">{t("Выбрано")}: {selectedIds.length}</p>}
         </div>
         )}
 
         <label className="relative mt-[24px] block h-[40px] border-b border-[#d5dae1]">
-          <span className={`pointer-events-none absolute left-0 ${picked ? "top-0 text-[10px] font-semibold leading-3" : "top-[15px] text-[13px] font-bold leading-4"}`} data-no-translate>Дашборд</span>
+          <span className={`pointer-events-none absolute left-0 ${picked ? "top-0 text-[10px] font-semibold leading-3" : "top-[15px] text-[13px] font-bold leading-4"}`} >{t("Дашборд")}</span>
           <select
             value={dashboard}
             onChange={(event) => {

@@ -7,8 +7,10 @@ import * as echarts from "echarts"
 import { ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { csvText } from "@/lib/csv"
-import { formatStatementDate } from "@/lib/finance/dates"
+import type { ClientFieldCount } from "@/lib/field-activity/record-list-types"
+import { formatStatementDate, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
 type ZoneRow = {
   zone: string
@@ -21,26 +23,30 @@ type ZoneRow = {
   noOrder: number
 }
 
-type ClientRecord = { name: string; zone: string; type: string; inn?: string; zoneAgent: string; tab: string; balance?: number; inRoute?: boolean }
-type OrderRecord = { client: string; created: string; createdAt?: string; status: string }
+type ClientRecord = { id: number; name: string; zone: string; type: string; inn?: string; zoneAgent: string; tab: string; balance?: number; inRoute?: boolean }
+type OrderRecord = { client: string; clientId?: number | null; created: string; createdAt?: string; status: string }
 
 const ALL_CLIENT_TYPES = ""
 
-function iso(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+/** `day` ("YYYY-MM-DD") moved by `days`, calendar arithmetic in UTC (no browser time zone). */
+function shiftDay(day: string, days: number) {
+  const [year, month, date] = day.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, date + days)).toISOString().slice(0, 10)
 }
 
 export function CoverageAnalysisView() {
   const { t, language } = useLanguage()
   const router = useRouter()
   const now = useMemo(() => new Date(), [])
-  // Like the reference, the tab opens on the current calendar month.
+  // Like the reference, the tab opens on the current calendar month — of the business day (Asia/Tashkent),
+  // the day the server's field counts use.
   const [period, setPeriod] = useState("МЕСЯЦ")
-  const [from, setFrom] = useState(() => iso(new Date(now.getFullYear(), now.getMonth(), 1)))
-  const [to, setTo] = useState(() => iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)))
+  const [from, setFrom] = useState(() => monthStartIso(todayIso()))
+  const [to, setTo] = useState(() => monthEndIso(todayIso()))
   const [clients, setClients] = useState<ClientRecord[]>([])
   const [orders, setOrders] = useState<OrderRecord[]>([])
+  // Visits and refusals of the period per client: the agents' field records (lib/field-activity), by client id.
+  const [fieldCounts, setFieldCounts] = useState<Map<number, ClientFieldCount>>(new Map())
   const [clientType, setClientType] = useState(ALL_CLIENT_TYPES)
   const [activeClientType, setActiveClientType] = useState(ALL_CLIENT_TYPES)
   const [territoryOpen, setTerritoryOpen] = useState(false)
@@ -95,6 +101,23 @@ export function CoverageAnalysisView() {
     }
   }, [])
 
+  useEffect(() => {
+    const controller = new AbortController()
+    const params = new URLSearchParams({ from, to })
+    fetch(`/api/field-activity/client-counts?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as { rows?: ClientFieldCount[]; error?: string } | null
+        if (response.status === 400) notify(t(body?.error || "Неверная дата"))
+        setFieldCounts(new Map((response.ok && Array.isArray(body?.rows) ? body.rows : []).map((row) => [row.clientId, row])))
+      })
+      .catch((cause: { name?: string }) => {
+        if (cause?.name !== "AbortError") setFieldCounts(new Map())
+      })
+    return () => controller.abort()
+    // `t` only translates the error text; a language switch must not reload the counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to])
+
   const clientTypes = useMemo(
     () => [ALL_CLIENT_TYPES, ...Array.from(new Set(clients.map((client) => client.type).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ru"))],
     [clients],
@@ -104,26 +127,34 @@ export function CoverageAnalysisView() {
   // display format like "25 июля 17:17" have no reliable year and are
   // skipped rather than guessed) used to derive АКБ, refusals, new points and
   // churn per zone below.
+  // Orders are matched to their client by id; a legacy order without one by the client's name when
+  // exactly one client has it.
   const clientOrderStats = useMemo(() => {
-    const stats = new Map<string, { orders: { date: string | null; status: string }[]; firstDate: string | null; lastDate: string | null }>()
+    const idsByName = new Map<string, number[]>()
+    for (const client of clients) idsByName.set(client.name, [...(idsByName.get(client.name) ?? []), client.id])
+    const stats = new Map<number, { orders: { date: string | null; status: string }[]; firstDate: string | null; lastDate: string | null }>()
     for (const order of orders) {
+      const byName = idsByName.get(order.client)
+      const clientId = order.clientId ?? (byName?.length === 1 ? byName[0] : null)
+      if (!clientId) continue
       const match = (order.createdAt || order.created).match(/^(\d{4}-\d{2}-\d{2})/)
       const date = match ? match[1] : null
-      const entry = stats.get(order.client) ?? { orders: [], firstDate: null, lastDate: null }
+      const entry = stats.get(clientId) ?? { orders: [], firstDate: null, lastDate: null }
       entry.orders.push({ date, status: order.status })
       if (date) {
         if (!entry.firstDate || date < entry.firstDate) entry.firstDate = date
         if (!entry.lastDate || date > entry.lastDate) entry.lastDate = date
       }
-      stats.set(order.client, entry)
+      stats.set(clientId, entry)
     }
     return stats
-  }, [orders])
+  }, [orders, clients])
 
   // Real client base grouped by zone. ОКБ = clients registered in the zone;
   // В маршруте/Нет маршрута come from whether an agent route (zoneAgent) is
-  // assigned; АКБ/Отказ/Новые точки come from that client's orders inside the
-  // selected period; Перестали покупать/Нет заказа come from how long ago
+  // assigned; АКБ/Новые точки come from that client's orders inside the
+  // selected period; Визит/Отказ are the agents' visits and visit refusals of the
+  // period (field records); Перестали покупать/Нет заказа come from how long ago
   // (relative to today) their last known order was.
   const zones = useMemo<ZoneRow[]>(() => {
     const byZone = new Map<string, ZoneRow>()
@@ -132,14 +163,16 @@ export function CoverageAnalysisView() {
       const zoneName = client.zone || "Не указано"
       const row = byZone.get(zoneName) ?? { zone: zoneName, okb: 0, akb: 0, visits: 0, refusal: 0, newPoints: 0, stopped: 0, noOrder: 0 }
       row.okb += 1
+      const field = fieldCounts.get(client.id)
+      row.visits += field?.visits ?? 0
+      row.refusal += field?.refusals ?? 0
 
-      const stats = clientOrderStats.get(client.name)
+      const stats = clientOrderStats.get(client.id)
       if (!stats) {
         row.noOrder += 1
       } else {
         const inPeriod = stats.orders.filter((order) => order.date && order.date >= from && order.date <= to)
         if (inPeriod.length > 0) row.akb += 1
-        row.refusal += inPeriod.filter((order) => order.status === "Отменен").length
         if (stats.firstDate && stats.firstDate >= from && stats.firstDate <= to) row.newPoints += 1
         if (stats.lastDate) {
           const daysSince = (now.getTime() - new Date(stats.lastDate).getTime()) / 86400000
@@ -149,7 +182,7 @@ export function CoverageAnalysisView() {
       byZone.set(zoneName, row)
     }
     return Array.from(byZone.values()).sort((a, b) => a.zone.localeCompare(b.zone, "ru"))
-  }, [clients, activeClientType, clientOrderStats, from, to, now, inactiveDays])
+  }, [clients, activeClientType, clientOrderStats, fieldCounts, from, to, now, inactiveDays])
 
   useEffect(() => {
     if (!zonesInitialized && zones.length > 0) {
@@ -197,16 +230,15 @@ export function CoverageAnalysisView() {
 
   function changePeriod(value: string) {
     setPeriod(value)
-    const end = new Date()
-    const start = new Date(end)
-    if (value === "СЕГОДНЯ") start.setTime(end.getTime())
-    if (value === "ВЧЕРА") { start.setDate(end.getDate() - 1); end.setDate(end.getDate() - 1) }
-    if (value === "ПОСЛ. 7") start.setDate(end.getDate() - 6)
-    if (value === "МЕСЯЦ") {
-      start.setDate(1)
-      end.setMonth(end.getMonth() + 1, 0)
+    const today = todayIso()
+    const ranges: Record<string, [string, string]> = {
+      "СЕГОДНЯ": [today, today],
+      "ВЧЕРА": [shiftDay(today, -1), shiftDay(today, -1)],
+      "ПОСЛ. 7": [shiftDay(today, -6), today],
+      "МЕСЯЦ": [monthStartIso(today), monthEndIso(today)],
     }
-    if (value !== "СВОЯ") { setFrom(iso(start)); setTo(iso(end)) }
+    const range = ranges[value]
+    if (range) { setFrom(range[0]); setTo(range[1]) }
   }
   function apply(event: FormEvent) {
     event.preventDefault()

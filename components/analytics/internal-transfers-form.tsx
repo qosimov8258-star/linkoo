@@ -198,6 +198,9 @@ export function TransferFormDialog({
             <li>
               {t("Общее кол-во:")} <b className="text-[16px] font-semibold text-[#129fdd]">{totalQty}</b>
             </li>
+            <li>
+              {t("Вес")}: <b className="text-[16px] font-semibold text-[#129fdd]">{formatWeight(totals.weight, t("кг"))}</b>
+            </li>
           </ul>
           {error && <span className="ml-auto mr-4 text-[13px] text-[#f44336]">{error}</span>}
           <button type="button" disabled={busy} onClick={() => void submit()} className={`${error ? "" : "ml-auto "}mr-[31px] h-9 text-[13px] font-semibold uppercase text-[#129fdd] hover:underline disabled:opacity-60`}>
@@ -211,8 +214,8 @@ export function TransferFormDialog({
           {/* Absolute geometry of the reference's form: underline tops measured from the top of this column. */}
           <div className="relative h-[780px]">
             <span className="absolute left-[30px] top-[19px] text-[13px] font-semibold leading-[18px] text-[#333]">{t("Условия передачи товара")}</span>
-            <SelectField menu top={94.2} left={30} width={328} label={t("Со склада")} required value={from} options={warehouseOptions} onChange={setFrom} onClear={() => setFrom("")} error={!from ? "Склад не выбран" : undefined} />
-            <SelectField menu top={155.2 + e1} left={30} width={328} label={t("На склад")} required value={to} options={warehouseOptions.filter((option) => option.value !== from)} onChange={setTo} onClear={() => setTo("")} error={!to ? "Склад не выбран" : undefined} />
+            <SelectField menu top={94.2} left={30} width={328} label={t("Со склада")} required value={from} options={warehouseOptions} onChange={setFrom} onClear={() => setFrom("")} error={!from ? t("Склад не выбран") : undefined} />
+            <SelectField menu top={155.2 + e1} left={30} width={328} label={t("На склад")} required value={to} options={warehouseOptions.filter((option) => option.value !== from)} onChange={setTo} onClear={() => setTo("")} error={!to ? t("Склад не выбран") : undefined} />
             <DateField primary top={201.2 + e} left={30} width={328} label={t("Дата доставки")} required value={deliveredAt ? isoToRuDate(deliveredAt) : ""} onChange={(value) => setDeliveredAt(ruDateToIso(value))} />
             <DateField primary top={253.2 + e} left={30} width={328} label={t("Дата создания")} required value={createdAt ? isoToRuDate(createdAt.slice(0, 10)) : ""} onChange={(value) => setCreatedAt(`${ruDateToIso(value) || createdAt.slice(0, 10)}T${createdAt.slice(11) || "00:00"}`)} />
             <SelectField

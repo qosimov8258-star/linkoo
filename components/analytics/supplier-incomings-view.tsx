@@ -7,6 +7,7 @@ import { FilterCheck, FilterDate, FilterSelect, FilterTextMui, RI, RefButton, Re
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { formatMoney as formatMoneyValue } from "@/lib/finance/currency"
 import { formatStatementDate, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { unitWeightKg } from "@/lib/internal-transfers-types"
@@ -38,8 +39,9 @@ const ITEM_IMPORT_HEADER_ALIASES: Record<string, string> = {
   "цена": "cost", "стоимость": "cost", "сумма": "cost", "сумма за единицу": "cost", "цена за единицу": "cost", "cost": "cost", "price": "cost", "unit price": "cost",
 }
 
-function formatMoney(value: number, currency = "SUM") {
-  return `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
+/** Money with 2 decimals (lib/finance/currency.ts) and the document's currency code. */
+function formatMoney(value: number, currency = "") {
+  return `${formatMoneyValue(value, 2)} ${currency}`.trim()
 }
 
 /** A stored timestamp (UTC ISO, local text, …) in the page language, Asia/Tashkent time. */
@@ -585,8 +587,6 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     downloadExcelTable("namuna", [[t("Наименование"), t("Количество"), t("Цена")], [productOptions[0] ?? "", 1, 1000]])
   }
 
-  const draftTotalCost = draftItems.reduce((sum, item) => sum + item.qty * item.cost, 0)
-
   async function save(event: FormEvent) {
     event.preventDefault()
     if (saving || !draftItems.length) return
@@ -774,7 +774,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             )}
                             {row.status !== "отменен" && canReprice && (
                               <SupplyAction onClick={() => setMarkupTarget(row)} icon="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z">
-                                <span data-no-translate>Наценка</span>
+                                <span>{t("Наценка")}</span>
                               </SupplyAction>
                             )}
                             {row.status === "ожидает" && (
@@ -792,7 +792,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             )}
                             {row.status === "принят" && (
                               <SupplyAction width={173} disabled={busy} color="#fa8072" onClick={() => changeStatus(row, "unaccept")} icon="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z">
-                                <span data-no-translate className="whitespace-nowrap">Отменит приёмку</span>
+                                <span className="whitespace-nowrap">{t("Отменит приёмку")}</span>
                               </SupplyAction>
                             )}
                             <RefTip text={t("Распечатать")} side="left" gap={24} className="ml-[10px]">
@@ -886,11 +886,11 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             <div className="grid min-h-[36px] grid-cols-[minmax(0,147fr)_minmax(0,231fr)_minmax(0,150fr)_minmax(0,86fr)_minmax(0,123fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,139fr)_minmax(0,138fr)] items-center bg-[#f0f4f7]">
                               <div className="pl-[19px]">{t("№")}</div>
                               <SortHead>{t("Товар")}</SortHead>
-                              <SortHead><span data-no-translate>Срок годности</span></SortHead>
+                              <SortHead>{t("Срок годности")}</SortHead>
                               <SortHead>{t("Количество")}</SortHead>
                               <SortHead>{t("Блок")}</SortHead>
-                              <SortHead><span data-no-translate>Кг.</span></SortHead>
-                              <SortHead><span data-no-translate>Вес нетто.</span></SortHead>
+                              <SortHead>{t("Кг.")}</SortHead>
+                              <SortHead>{t("Вес нетто.")}</SortHead>
                               <SortHead>{t("Стоимость")}</SortHead>
                               <SortHead>{t("Итог")}</SortHead>
                             </div>
@@ -1045,7 +1045,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       {statusAsk?.action === "accept" && (
         <MaterialDialog title={`${t("Приемка товара")} (${t("поставка")} №${statusAsk.row.id})`} onClose={() => setStatusAsk(null)} zIndex={300}>
           <MaterialBody minHeight={110} className="pt-[39px]">
-            <MaterialDate label={t("Дата")} value={acceptDate} max={todayIso()} onChange={(value) => { setAcceptDate(value); setActionError("") }} display={formatDay(acceptDate, language)} />
+            <MaterialDate label={t("Дата")} value={acceptDate} min={parseAnyDay(statusAsk.row.date) ?? undefined} max={todayIso()} onChange={(value) => { setAcceptDate(value); setActionError("") }} display={formatDay(acceptDate, language)} />
             {actionError && <p className="mt-[12px] text-[13px] text-[#e57373]">{actionError}</p>}
           </MaterialBody>
           <MaterialFooter type="button" label={t("Принять товар")} busy={busy} disabled={!acceptDate} onClick={() => void confirmStatus()} />
@@ -1092,7 +1092,6 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           paymentTypeOptions={paymentTypes.map((item) => ({ value: item, label: t(item) }))}
           items={draftItems}
           productOptions={productOptions}
-          totalCost={formatMoney(draftTotalCost, draft.currency || currencies.base)}
           currency={draft.currency || currencies.base}
           productUnits={productUnits}
           productBoxes={productBoxes}

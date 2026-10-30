@@ -19,7 +19,6 @@ export type Usage = { table: string; label: string; count: number }
 
 /** Section labels (Russian i18n keys) of the referencing tables. */
 const TABLE_LABELS: Record<string, string> = {
-  agent_routes: "Маршруты",
   branch_balance_transactions: "Баланс филиалов",
   branch_kpi_balances: "KPI план филиалов",
   branch_kpi_plans: "KPI план филиалов",

@@ -123,6 +123,18 @@ export async function loadCashbox(db: PgDb, id: number | null | undefined, base:
   }
 }
 
+/** The cashier of a cashbox as notification participants (lib/user-notifications-repo.ts):
+ * cashboxes.cashier_id (the employee card), else the cashier's name for a row saved before the
+ * link existed. cashier_id is added lazily by lib/cashboxes-repo.ts: read it through to_jsonb. */
+export async function cashboxCashier(db: PgDb, id: number): Promise<{ employeeIds: number[]; employeeNames: string[] }> {
+  const row = (await db
+    .prepare("SELECT NULLIF(to_jsonb(cb) ->> 'cashier_id', '') AS cashier_id, cb.cashier FROM cashboxes cb WHERE cb.id = @id")
+    .get({ id })) as { cashier_id: string | null; cashier: string | null } | undefined
+  const cashierId = row?.cashier_id && /^[1-9]\d{0,9}$/.test(row.cashier_id) ? Number(row.cashier_id) : null
+  if (cashierId !== null && cashierId <= 2_147_483_647) return { employeeIds: [cashierId], employeeNames: [] }
+  return { employeeIds: [], employeeNames: row?.cashier?.trim() ? [row.cashier.trim()] : [] }
+}
+
 export type CategoryInfo = {
   id: number
   name: string
@@ -382,13 +394,20 @@ export async function lockClientCashback(tx: PgDb, clientId: number): Promise<vo
 /** Client's cashback balance in `currency` (Σ loyalty_card_transactions), optionally
  * without the rows linked to cash entry `excludeEntryId` (the payout being edited). */
 export async function clientCashbackBalance(db: PgDb, clientId: number, currency: string, base: string, excludeEntryId: number | null = null): Promise<number> {
-  const exists = (await db.prepare("SELECT to_regclass('loyalty_card_transactions') IS NOT NULL AS ok").get()) as { ok: boolean }
+  const exists = (await db
+    .prepare(
+      `SELECT to_regclass('loyalty_card_transactions') IS NOT NULL AS ok,
+              EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+                      AND table_name = 'loyalty_card_transactions' AND column_name = 'is_deleted') AS soft`,
+    )
+    .get()) as { ok: boolean; soft: boolean }
   if (!exists.ok) return 0
+  // A soft-deleted manual movement (loyalty card "Удалить") no longer counts, like on the loyalty card page.
   const row = (await db
     .prepare(
       `SELECT COALESCE(SUM(amount::double precision), 0) AS amount FROM loyalty_card_transactions
        WHERE client_id = @clientId::int AND COALESCE(fin_cur(currency), @base::text) = @cur::text
-         AND (@exclude::int IS NULL OR transaction_id IS DISTINCT FROM @exclude::int)`,
+         AND (@exclude::int IS NULL OR transaction_id IS DISTINCT FROM @exclude::int)${exists.soft ? " AND COALESCE(is_deleted, 0) = 0" : ""}`,
     )
     .get({ clientId, cur: normCurrency(currency, base), base, exclude: excludeEntryId })) as { amount: number | string }
   return roundMoney(Number(row.amount ?? 0), 5)

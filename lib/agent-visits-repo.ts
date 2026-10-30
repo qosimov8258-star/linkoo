@@ -582,70 +582,6 @@ export async function getWorkTime(begin: string, end: string, employeeIds?: numb
 }
 
 // ---------------------------------------------------------------------------
-// The visit history of a client (Клиенты → ЗАДАЧИ)
-// ---------------------------------------------------------------------------
-
-export type ClientVisit = {
-  visitId: number
-  employeeId: number
-  agent: string
-  /** Local "YYYY-MM-DD HH:mm:ss". */
-  startedAt: string
-  durationSec: number
-  /** order | refusal | photo_report | no_sale, or "open" while the visit goes on. */
-  result: string
-  /** The refusal type of a refusal visit. */
-  refusal: string
-  planned: boolean
-}
-
-/** Visits of one client that are not linked to an order (orders show in the order feed), newest first. */
-export async function listClientVisits(clientId: number, limit = 40, employeeIds?: number[]): Promise<ClientVisit[]> {
-  await ensureFieldSchema()
-  if (employeeIds && !employeeIds.length) return []
-  const db = getDb()
-  const types = (await db.prepare("SELECT to_regclass('refusal_types') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
-  const rows = (await db
-    .prepare(
-      `SELECT v.id, v.employee_id, e.first_name, e.last_name,
-              to_char(${local("v.started_at")}, 'YYYY-MM-DD HH24:MI:SS') AS started_text,
-              CASE WHEN v.finished_at IS NULL THEN 0 ELSE EXTRACT(EPOCH FROM (v.finished_at - v.started_at))::int END AS duration_sec,
-              COALESCE(v.result, 'open') AS result,
-              ${types?.ok ? "COALESCE(rt.name, fr.reason, '')" : "COALESCE(fr.reason, '')"} AS refusal,
-              v.planned
-         FROM field_visits v
-         LEFT JOIN employees e ON e.id = v.employee_id
-         LEFT JOIN field_refusals fr ON fr.visit_id = v.id
-         ${types?.ok ? "LEFT JOIN refusal_types rt ON rt.id = fr.refusal_type_id" : ""}
-        WHERE v.client_id = @clientId AND v.order_id IS NULL
-          ${employeeIds ? "AND v.employee_id = ANY(@employeeIds::int[])" : ""}
-        ORDER BY v.started_at DESC, v.id DESC
-        LIMIT @limit`,
-    )
-    .all({ clientId, limit: Math.max(1, Math.min(200, Math.floor(limit))), employeeIds: employeeIds ?? [] })) as Array<{
-    id: number
-    employee_id: number
-    first_name: string | null
-    last_name: string | null
-    started_text: string
-    duration_sec: number
-    result: string
-    refusal: string
-    planned: boolean
-  }>
-  return rows.map((row) => ({
-    visitId: Number(row.id),
-    employeeId: Number(row.employee_id),
-    agent: nameOf(row) || `#${row.employee_id}`,
-    startedAt: row.started_text,
-    durationSec: Math.max(0, Number(row.duration_sec) || 0),
-    result: row.result,
-    refusal: row.refusal ?? "",
-    planned: Boolean(row.planned),
-  }))
-}
-
-// ---------------------------------------------------------------------------
 // Sales tab: the "Отказ" line
 // ---------------------------------------------------------------------------
 
@@ -692,8 +628,9 @@ async function attendanceStart(): Promise<string | null> {
   return days.length ? days.reduce((min, day) => (day < min ? day : min)) : null
 }
 
-/** Effective attendance days (manual > derived > today live, as Посещаемость shows them) counted per employee. */
-async function attendanceTotals(begin: string, end: string): Promise<AttendanceUser[]> {
+/** Effective attendance days (manual > derived > today live, as Посещаемость shows them) counted per
+ * employee; `employeeIds` = the reader's field scope (undefined = every employee). */
+async function attendanceTotals(begin: string, end: string, employeeIds?: number[]): Promise<AttendanceUser[]> {
   const today = todayIso()
   const last = end < today ? end : today
   const start = await attendanceStart()
@@ -703,7 +640,7 @@ async function attendanceTotals(begin: string, end: string): Promise<AttendanceU
   let [year, month] = first.split("-").map(Number)
   const [lastYear, lastMonth] = last.split("-").map(Number)
   while (year < lastYear || (year === lastYear && month <= lastMonth)) {
-    const data = await listAttendance({ year, month, search: "", branchIds: [] })
+    const data = await listAttendance({ year, month, search: "", branchIds: [], employeeIds })
     for (const user of data.users) {
       for (const day of user.dates) {
         const tile = TILE_OF[day.type]
@@ -722,27 +659,33 @@ async function attendanceTotals(begin: string, end: string): Promise<AttendanceU
   return [...users.values()].sort((a, b) => a.name.localeCompare(b.name, "ru") || a.id - b.id)
 }
 
-async function visitTotals(begin: string, end: string): Promise<FieldSummary["visits"]> {
+async function visitTotals(begin: string, end: string, employeeIds?: number[]): Promise<FieldSummary["visits"]> {
   await ensureFieldSchema()
   const row = (await getDb()
     .prepare(
       `SELECT COUNT(*)::int AS visited, COUNT(*) FILTER (WHERE v.result = 'order')::int AS effective
          FROM field_visits v
-        WHERE v.finished_at IS NOT NULL AND v.started_at >= @fromUtc::timestamptz AND v.started_at < @toUtc::timestamptz`,
+        WHERE v.finished_at IS NOT NULL AND v.started_at >= @fromUtc::timestamptz AND v.started_at < @toUtc::timestamptz
+          ${employeeIds ? "AND v.employee_id = ANY(@employeeIds::int[])" : ""}`,
     )
-    .get(utcBounds(begin, end))) as { visited: number; effective: number } | undefined
+    .get({ ...utcBounds(begin, end), employeeIds: employeeIds ?? [] })) as { visited: number; effective: number } | undefined
   const visited = Number(row?.visited) || 0
   const effective = Number(row?.effective) || 0
   return { visited, effective, successPercent: visited > 0 ? Math.round((effective / visited) * 100) : 0 }
 }
 
-/** Attendance tiles (employee-days on time / late / absent / day off) and the share of successful visits. */
-export async function getFieldSummary(begin: string, end: string): Promise<FieldSummary> {
-  const users = await attendanceTotals(begin, end)
+/** Attendance tiles (employee-days on time / late / absent / day off) and the share of successful
+ * visits, of the employees `employeeIds` (the reader's field scope, lib/field-activity/actor.ts;
+ * undefined = every employee, [] = none: all zero). */
+export async function getFieldSummary(begin: string, end: string, employeeIds?: number[]): Promise<FieldSummary> {
+  if (employeeIds && !employeeIds.length) {
+    return { attendance: { onTime: 0, late: 0, absent: 0, weekend: 0 }, users: [], visits: { visited: 0, effective: 0, successPercent: 0 } }
+  }
+  const users = await attendanceTotals(begin, end, employeeIds)
   const total = (key: keyof AttendanceTotals) => users.reduce((sum, user) => sum + user[key], 0)
   return {
     attendance: { onTime: total("onTime"), late: total("late"), absent: total("absent"), weekend: total("weekend") },
     users,
-    visits: await visitTotals(begin, end),
+    visits: await visitTotals(begin, end, employeeIds),
   }
 }

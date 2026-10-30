@@ -133,19 +133,8 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     }
   }, [])
 
-  // Products whose stored cost is 0 show the running average of their accepted supplies (the reference's formula).
-  const [supplyCosts, setSupplyCosts] = useState<Record<string, number>>({})
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/products/supply-costs")
-      .then((response) => (response.ok ? response.json() : {}))
-      .then((data: Record<string, number>) => !cancelled && setSupplyCosts(data))
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  const costOf = (row: Product) => row.cost || supplyCosts[row.name.trim().toLocaleLowerCase("ru")] || 0
+  // The one cost of goods (lib/stock/costs.ts), as the product list loaded above carries it.
+  const costOf = (row: Product) => row.cost || 0
 
   useEffect(() => {
     let cancelled = false

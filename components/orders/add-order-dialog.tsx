@@ -11,6 +11,7 @@ import { parseAnyDay } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { useAllowedProductIds, useAllowedRows } from "./allowed-products"
+import { orderListPrice, type OrderPriceList } from "./order-list-price"
 import { orderApiErrorText, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
 
 type Option = { value: string; label: string }
@@ -90,6 +91,8 @@ export function AddOrderDialog({
   const [agents, setAgents] = useState<string[] | null>(null)
   const [warehouses, setWarehouses] = useState<string[] | null>(null)
   const [priceLists, setPriceLists] = useState<string[] | null>(null)
+  // Every list (archived ones too) with its currency: an entry without its own currency is in its list's currency.
+  const [priceListCurrencies, setPriceListCurrencies] = useState<OrderPriceList[]>([])
   const [currencies, setCurrencies] = useState<string[] | null>(null)
   const [products, setProducts] = useState<ProductRow[] | null>(null)
   const [organizations, setOrganizations] = useState<string[] | null>(null)
@@ -204,6 +207,7 @@ export function AddOrderDialog({
     load("/api/employees").then((rows: { firstName: string; lastName: string }[]) => setAgents(rows.map((row) => `${row.firstName} ${row.lastName}`.trim())))
     load("/api/warehouses").then((rows: { name: string }[]) => setWarehouses(rows.map((row) => row.name)))
     load("/api/price-lists").then((rows: { name: string }[]) => setPriceLists(rows.map((row) => row.name)))
+    load("/api/price-lists?active=all").then((rows: OrderPriceList[]) => setPriceListCurrencies(Array.isArray(rows) ? rows : []))
     load("/api/currencies").then((rows: { code: string }[]) => setCurrencies(rows.map((row) => row.code)))
     load("/api/organizations").then((rows: { name: string }[]) => setOrganizations(rows.map((row) => row.name).filter(Boolean)))
     // Only products that can be sold (the API refuses the others).
@@ -313,14 +317,10 @@ export function AddOrderDialog({
   // Quantities are totalled per unit (never one sum over kg and pieces).
   const totalQty = formatUnitTotals(items.map((item) => ({ qty: item.quantity, unit: item.unit })), t)
 
-  // A price list price is used only in the order currency (a SUM price is not a USD price).
+  // A price list price is used only in the order currency (a SUM price is not a USD price): the same rule as the
+  // order card's "+ добавить товар" row (order-list-price.ts), so both paths agree; otherwise the user types it.
   function priceOf(product: ProductRow, list = priceList, type = paymentType, inCurrency = currency) {
-    const entry = product.priceLists?.find((row) => row.name === list)
-    if (!entry) return 0
-    const nonCash = type === "Перечисление"
-    const entryCurrency = (nonCash ? entry.nonCashCurrency || entry.currency : entry.currency) || "SUM"
-    if (inCurrency && entryCurrency.toUpperCase() !== inCurrency.toUpperCase()) return 0
-    return (nonCash ? entry.nonCash : entry.cash) ?? 0
+    return orderListPrice(product.priceLists, { priceList: list, lists: priceListCurrencies, orderCurrency: inCurrency, nonCash: type === "Перечисление" }) ?? 0
   }
 
   function changePricing(next: { paymentType?: string; currency?: string; priceList?: string }) {

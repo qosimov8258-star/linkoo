@@ -5,7 +5,7 @@ import { customerPaymentTotals } from "@/lib/cash/customer-payments"
 import { acceptedReturnTotals } from "@/lib/client-returns-repo"
 import { getDb } from "@/lib/db"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
-import { orderCountedSql } from "@/lib/finance/sources"
+import { orderCountedSql, ownAgentSql } from "@/lib/finance/sources"
 import { ensureOrdersSchema } from "@/lib/orders-repo"
 import { selectedBranchName } from "@/lib/selected-branch"
 
@@ -23,7 +23,13 @@ import { selectedBranchName } from "@/lib/selected-branch"
 // - Продажи в Штуках / Блоках / Весе: Σ quantity of the counted orders' lines,
 //   Σ quantity / products.box_amount, Σ quantity × products.weight (kg).
 // - field: the attendance tiles (employee-days of Посещаемость) and the share of
-//   successful visits (field activity), see lib/agent-visits-repo.ts getFieldSummary.
+//   successful visits (field activity), see lib/agent-visits-repo.ts getFieldSummary, of the
+//   employees of the reader's field scope (lib/field-activity/actor.ts: an agent sees only their
+//   own figures; `fieldEmployeeIds` undefined = every employee, [] = none).
+// - `salesEmployeeIds` limits the money block (Продажи, Оплаты, Возвраты, АКБ, units and the order
+//   status counts) to the orders, client payments and returns of these agents (orders.agent /
+//   clients.agent / client_returns.agent by name key): a reader without the company figures sees only
+//   their own (app/api/dashboard-summary/route.ts). Undefined = the whole company, [] = nothing.
 
 export type CurrencyAmount = { value: number; currency: string }
 
@@ -43,6 +49,8 @@ export type DashboardSummary = {
     /** Shipped orders with an accepted client return in the period. */
     cancelledShipped: number
   }
+  /** Set when the money block is limited to these agents (the reader's own scope); absent = the whole company. */
+  ownAgents?: string[]
 }
 
 const round = (value: number, digits = 2) => {
@@ -52,7 +60,7 @@ const round = (value: number, digits = 2) => {
 
 const ORDER_DAY = "fin_ts(o.created_at, true)::date"
 
-export async function getDashboardSummary(begin: string, end: string): Promise<DashboardSummary> {
+export async function getDashboardSummary(begin: string, end: string, fieldEmployeeIds?: number[], salesEmployeeIds?: number[]): Promise<DashboardSummary> {
   const db = getDb()
   await ensureOrdersSchema()
   await ensureFinanceSchema(db)
@@ -60,8 +68,23 @@ export async function getDashboardSummary(begin: string, end: string): Promise<D
   const base = baseRow?.code ?? "SUM"
   // The branch picked in the top bar limits the orders ("" = all branches).
   const branch = await selectedBranchName()
-  const params = { from: begin, to: end, base, branch }
-  const counted = `o.id IN (SELECT o.id FROM orders o WHERE ${orderCountedSql("o")} AND ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text))`
+  const scoped = salesEmployeeIds !== undefined
+  const agentIds = salesEmployeeIds ?? []
+  const ownAgents = scoped
+    ? [
+        ...new Set(
+          ((agentIds.length ? await db.prepare("SELECT first_name, last_name FROM employees WHERE id = ANY(@ids::int[]) ORDER BY id").all({ ids: agentIds }) : []) as Array<{
+            first_name: string | null
+            last_name: string | null
+          }>)
+            .map((row) => `${(row.first_name ?? "").trim()} ${(row.last_name ?? "").trim()}`.trim())
+            .filter(Boolean),
+        ),
+      ]
+    : undefined
+  const params = { from: begin, to: end, base, branch, scoped, agentIds }
+  const own = ownAgentSql("o.agent")
+  const counted = `o.id IN (SELECT o.id FROM orders o WHERE ${orderCountedSql("o")} AND ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text) AND ${own})`
 
   const [salesRows, unitRow, akbRow, statusRows, payments, returns] = await Promise.all([
     db
@@ -93,10 +116,11 @@ export async function getDashboardSummary(begin: string, end: string): Promise<D
       )
       .get(params) as Promise<{ n: number } | undefined>,
     db
-      .prepare(`SELECT o.status, COUNT(*)::int AS n FROM orders o WHERE ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text) GROUP BY 1`)
+      .prepare(`SELECT o.status, COUNT(*)::int AS n FROM orders o WHERE ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text) AND ${own} GROUP BY 1`)
       .all(params) as Promise<Array<{ status: string; n: number }>>,
-    customerPaymentTotals({ from: begin, to: end, tab: "all" }),
-    acceptedReturnTotals(begin, end, db),
+    // A scoped reader: the payments of the clients whose responsible agent is in the scope (none without one).
+    ownAgents && !ownAgents.length ? Promise.resolve({ totals: [] as Array<{ currency: string; total: number }> }) : customerPaymentTotals({ from: begin, to: end, tab: "all", responsibleAgents: ownAgents }),
+    acceptedReturnTotals(begin, end, db, salesEmployeeIds),
   ])
 
   const count = (status: string) => statusRows.find((row) => row.status === status)?.n ?? 0
@@ -109,12 +133,13 @@ export async function getDashboardSummary(begin: string, end: string): Promise<D
     payments: payments.totals.map((row) => ({ currency: row.currency, value: round(row.total) })).filter((row) => row.value !== 0),
     returns: returns.totals.map((row) => ({ currency: row.currency, value: row.amount })),
     akb: akbRow?.n ?? 0,
-    field: await getFieldSummary(begin, end),
+    field: await getFieldSummary(begin, end, fieldEmployeeIds),
     units: {
       pieces: round(unitRow?.pieces ?? 0, 3),
       blocks: round(unitRow?.blocks ?? 0, 2),
       weight: round(unitRow?.weight ?? 0, 3),
     },
     orderStatusCounts: { shipped: inTransit + delivered, inTransit, delivered, cancelledShipped: returns.orders },
+    ...(ownAgents ? { ownAgents } : {}),
   }
 }

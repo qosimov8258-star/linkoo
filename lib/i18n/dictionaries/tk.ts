@@ -904,8 +904,6 @@ export const tk: Record<string, string> = {
   "Последние 7 дней": "Soňky 7 gün",
   "Последние 30 дней": "Soňky 30 gün",
   "Ответственные доставщики": "Jogapkär kurýerler",
-  "Хайрулло Доставщик": "Haýrullo Kurýer",
-  "Аббос Доставщик": "Abbos Kurýer",
   "Нет клиента": "Müşderi ýok",
   "Закрыто": "Ýapyk",
   "Отказ от заказа": "Sargytdan ýüz döndermek",
@@ -1305,7 +1303,7 @@ export const tk: Record<string, string> = {
   "Ожидаемое прибытие в таможню": "Gümrüge garaşylýan geliş",
   "Ожидаемый выход с завода": "Zawoddan garaşylýan çykyş",
   "Оплачено": "Tölendi",
-  "Отменит приёмку": "Отменит приёмку",
+  "Отменит приёмку": "Kabul edişi ýatyr",
   "Отменить приёмку": "Kabul edişi ýatyr",
   "Отменить приёмку поставки №": "Üpjünçilik №-niň kabul edilişini ýatyr",
   "Печать": "Çap et",
@@ -1675,7 +1673,6 @@ export const tk: Record<string, string> = {
   "Дебитор": "Debitor",
   "Кредитор": "Kreditor",
   "Ответственный инкасатор": "Jogapkär inkassator",
-  "Тп 2 Алиса": "Tp 2 Alisa",
   "Учитывать только реализованных заказов": "Diňe amala aşyrylan sargytlary hasaba almak",
   "Только доставленные заказы": "Diňe eltilen sargytlar",
   "Только оплаты с счет фактурой": "Diňe hasap-faktura bilen tölegler",
@@ -1732,7 +1729,6 @@ export const tk: Record<string, string> = {
   "Выберите кассира": "Kassiri saýlaň",
   "наличный": "nagt",
   "банковский счет": "bank hasaby",
-  "Шохрух Туляганов": "Şohruh Tulyaganow",
   // Client detail panel (components/clients/clients-view.tsx)
   "Адрес:": "Salgy:",
   "Без автоматических бонусов:": "Awtomatiki bonuslarsyz:",
@@ -2081,7 +2077,7 @@ export const tk: Record<string, string> = {
   "Заказ оформил": "Sargydy resmileşdiren",
   "Заказы и возвраты": "Sargytlar we gaýtarmalar",
   "Закрытие": "Ýapmak",
-  "Замеры": "Ölçegler",
+  "Замеры": "Görkezijiler",
   "Запас": "Ätiýaçlyk",
   "Запас дней": "Ätiýaçlyk günleri",
   "Зарплата": "Aýlyk",
@@ -2773,7 +2769,6 @@ export const tk: Record<string, string> = {
   "вертикальных группировки": "wertikal toparlar",
   "вес": "agram",
   "Весь инвентарь": "Ähli inwentar",
-  "видеокарта": "wideokarta",
   "Визиты": "Baryşlar",
   "Включен": "Açyk",
   "Водитель:": "Sürüji:",
@@ -3032,7 +3027,6 @@ export const tk: Record<string, string> = {
   "Марка и модель": "Marka we model",
   "масса": "massa",
   "Материальный отчёт по остаткам, поступлениям и расходу товаров за период.": "Döwür üçin galyndylar, gelip gowuşmalar we harytlaryň sarpy boýunça material hasabaty.",
-  "материнка": "ene plata",
   "мера": "ölçeg",
   "мера обязательно": "ölçeg hökmany",
   "Мерчендайзер": "Merçendaýzer",
@@ -3045,7 +3039,6 @@ export const tk: Record<string, string> = {
   "млн": "mln",
   "Модель...": "Model...",
   "Мой отчёт": "Meniň hasabatym",
-  "Мойка": "Ýuwulýan ýer",
   "Мониторинг активности сотрудников и полевых операций.": "Işgärleriň işjeňligine we meýdan amallaryna monitoring.",
   "Мониторинг интеграций и синхронизации данных с внешними системами.": "Daşarky ulgamlar bilen integrasiýa we maglumatlaryň sinhronizasiýasyna monitoring.",
   "Мониторинг текущих остатков по кассовым операциям.": "Kassa amallary boýunça häzirki galyndylara monitoring.",
@@ -3455,7 +3448,6 @@ export const tk: Record<string, string> = {
   "Телеграм": "Telegram",
   "телефон": "telefon",
   "Тело запроса не является JSON": "Haýyşyň göwresi JSON däl",
-  "тесто": "hamyr",
   "Техническое оборудование": "Tehniki enjamlar",
   "тип": "görnüş",
   "Тип / роль": "Görnüş / rol",
@@ -3783,20 +3775,9 @@ export const tk: Record<string, string> = {
   "VIP": "VIP",
   "Закуп": "Satyn alyş",
   "Продажа и закуп": "Satuw we satyn alyş",
-  "Linko Distribution": "Linko Distribution",
   "Главный филиал": "Esasy şahamça",
   "Самарканд": "Samarkand",
   "Бухара": "Buhara",
-  "Coca-Cola 1.5л": "Coca-Cola 1.5l",
-  "Pepsi 1л": "Pepsi 1l",
-  "Fanta 0.5л": "Fanta 0.5l",
-  "Вода Nestle 1л": "Nestle suwy 1l",
-  "Сок Piko 1л": "Piko şiresi 1l",
-  "Coca-Cola 0.5л": "Coca-Cola 0.5l",
-  "Pepsi 0.5л": "Pepsi 0.5l",
-  "Вода Nestle 0.5л": "Nestle suwy 0.5l",
-  "Печенье Oreo": "Oreo peçenýesi",
-  "Шоколад Alpen Gold": "Alpen Gold şokolady",
   ": недопустимое значение": ": rugsat berilmeýän baha",
   ": обязательное поле": ": hökmany meýdan",
   "58 мм": "58 mm",
@@ -5627,13 +5608,13 @@ export const tk: Record<string, string> = {
   "Сентябрь": "Sentýabr",
   "Ноябрь": "Noýabr",
   "Декабрь": "Dekabr",
-  "Ду": "Ду",
-  "Се": "Се",
-  "Чо": "Чо",
-  "Па": "Па",
-  "Жу": "Жу",
-  "Ша": "Ша",
-  "Як": "Як",
+  "Ду": "Duş",
+  "Се": "Siş",
+  "Чо": "Çar",
+  "Па": "Penş",
+  "Жу": "Anna",
+  "Ша": "Şen",
+  "Як": "Ýek",
   "Добавить зону": "Zolak goşmak",
   "Добавить поставку": "Eltip bermäni goşmak",
   "Хотя бы выберете одного агента !": "Iň bolmanda bir agent saýlaň!",
@@ -5645,7 +5626,7 @@ export const tk: Record<string, string> = {
   "Организация инвентаря": "Inwentaryň guramasy",
   "Ответственный агент клиента": "Müşderiniň jogapkär agenti",
   "Тип инвентаря (продукт)": "Inwentar görnüşi (haryt)",
-  "Оформить возврат": "Оформить возврат",
+  "Оформить возврат": "Yzyna gaýtarmany resmileşdirmek",
   "Нажмите, чтобы добавить или выбрать excel файл": "Excel faýly goşmak ýa-da saýlamak üçin basyň",
   "Данные за": "Maglumatlaryň senesi",
   "Зарплата:": "Aýlyk:",
@@ -6319,4 +6300,88 @@ export const tk: Record<string, string> = {
   "Оплату можно отменить только в кассе": "Tölegi diňe kassada ýatyryp bolýar",
   "Узбекча": "Özbekçe",
   "English": "Iňlisçe",
+
+  // Post-merge follow-ups: access
+  "Действие недоступно": "Bu hereket elýeterli däl",
+  "Запись с таким номером уже существует": "Şeýle belgili ýazgy eýýäm bar",
+  "Только администратор может изменить сессию администратора": "Administratoryň sessiýasyny diňe administrator üýtgedip biler",
+  "Эту сессию нельзя восстановить: она завершена самим пользователем, сменой пароля или изменением доступа": "Bu sessiýany dikeldip bolmaýar: ony ulanyjynyň özi, parolyň çalşylmagy ýa-da rugsadyň üýtgemegi tamamlady",
+
+  // Post-merge follow-ups: employees
+  "Точка локации не найдена": "Ýerleşiş nokady tapylmady",
+  "Нельзя выбрать самого сотрудника": "Işgäriň özüni saýlap bolmaýar",
+
+  // Post-merge follow-ups: finance
+  "Удаление невозможно: кэшбэк уже использован": "Pozup bolmaýar: keşbek eýýäm ulanyldy",
+
+  // Post-merge follow-ups: notifications
+  "Заказ №{id} был доставлен клиенту {client} доставщиком {delivery_man}": "№{id} sargyt {client} müşderä {delivery_man} eltip beriji tarapyndan eltip berildi",
+  "В {cashboxname} перечислена {amount} {currency_name}, пожалуйста, подтвердите": "{cashboxname} kassasyna {amount} {currency_name} geçirildi, haýyş, tassyklaň",
+  "Поставка №{id} была принята на склад {stock_name} пользователем {accepted_by}. Поставщик: {provider_name}": "№{id} üpjünçilik {stock_name} ammaryna {accepted_by} ulanyjy tarapyndan kabul edildi. Üpjün ediji: {provider_name}",
+  "Магазин «{market_name}» добавил {created_by}": "«{market_name}» dükany {created_by} goşdy",
+  "Возврат {total_price} {currency} от «{client_name}» добавил {created_by}": "«{client_name}» tarapyndan {total_price} {currency} yzyna gaýtarmany {created_by} goşdy",
+  "Расход {total_price} {currency} по статье «{category_name}» в кассе {cashbox}": "{cashbox} kassasynda «{category_name}» maddasy boýunça {total_price} {currency} çykdajy",
+  "Создан договор №{pk} для клиента {market_name}": "{market_name} müşderi üçin №{pk} şertnama döredildi",
+  "Поставщику {provider}: {amount} {currency}. {comment}": "Üpjün ediji {provider} üçin: {amount} {currency}. {comment}",
+
+  // Post-merge follow-ups: orders
+  "Оплаты заказа вносятся через кассу": "Sargyt tölegleri kassa arkaly girizilýär",
+  "Принять оплату по выбранным заказам": "Saýlanan sargytlar boýunça tölegi kabul etmek",
+  "На баланс клиента": "Müşderiniň balansyna",
+  "Сумма возврата зачисляется на баланс клиента после приемки на склад": "Yzyna gaýtarmanyň möçberi ammara kabul edilenden soň müşderiniň balansyna geçirilýär",
+  "Не показаны заказы без остатка к оплате (отменены или оплачены):": "Tölenmeli galyndysy bolmadyk sargytlar görkezilmedi (ýatyrylan ýa-da tölenen):",
+  "По выбранным заказам нет остатка к оплате": "Saýlanan sargytlar boýunça tölenmeli galyndy ýok",
+  "Акции не хранят это поле, фильтр по нему недоступен": "Aksiýalar bu meýdany saklamaýar, onuň boýunça süzgüç elýeterli däl",
+
+  // Post-merge follow-ups: reports
+  "Неизвестный тип отчета": "Näbelli hasabat görnüşi",
+
+  // Post-merge follow-ups: supply
+  "Дата приемки не может быть раньше даты поставки": "Kabul etmek senesi üpjünçilik senesinden öň bolup bilmez",
+
+  // Post-merge follow-ups: sweep
+  "Данные вашей учетной записи.": "Hasabyňyzyň maglumatlary.",
+
+  // Post-merge follow-ups: visits
+  "Статус фотоотчета уже изменен": "Surat hasabatynyň ýagdaýy eýýäm üýtgedildi",
+
+  // Decisions 2026-10-30: employee sign-in account
+  "Логин, пароль и права доступа для входа может задавать только администратор": "Girmek üçin logini, paroly we elýeterlilik hukuklaryny diňe administrator belläp biler",
+  "Вход разрешен": "Girmäge rugsat berildi",
+  "Вход заблокирован": "Girmek petiklendi",
+  "После сохранения пользователь снова сможет войти.": "Ýatda saklanandan soň ulanyjy ýene girip biler.",
+  "Нет учетной записи для входа. Укажите логин и пароль — она будет создана при сохранении.": "Girmek üçin hasap ýok. Login we parol giriziň — hasap ýatda saklananda dörediler.",
+  "Нет учетной записи для входа. Создать её может только администратор.": "Girmek üçin hasap ýok. Ony diňe administrator döredip biler.",
+  "Нет учетной записи": "Hasap ýok",
+  "Только администратор может включить доступ администратора": "Administratoryň girmek hukugyny diňe administrator açyp biler",
+
+  // Decisions 2026-10-30: field data scope
+  "Нельзя проверить свой фотоотчет": "Öz surat hasabatyňyzy barlap bilmeýärsiňiz",
+
+  // Decisions 2026-10-30: restored Excel import/export
+  "Импортировано {n} из {total}": "{total}-den {n} import edildi",
+  "Ничего не сохранено: исправьте ошибки в файле": "Hiç zat ýatda saklanmady: faýldaky ýalňyşlary düzediň",
+  "Повторяется в файле": "Faýlda gaýtalanýar",
+  "Поддерживаются только файлы .xlsx, .xls и .csv": "Diňe .xlsx, .xls we .csv faýllary goldanýar",
+  "Слишком много строк (не более {n})": "Setirler gaty köp ({n}-den köp bolmaly däl)",
+  "Укажите да или нет": "Hawa ýa-da ýok görkeziň",
+  "Значения задаются только для атрибута с выбором вариантов": "Bahalar diňe wariant saýlanýan atribut üçin bellenýär",
+  "Учет долга (да/нет)": "Bergini hasaba almak (hawa/ýok)",
+  "Учёт долга": "Bergini hasaba almak",
+  "Значения": "Bahalar",
+  "Параметр": "Parametr",
+  "Родитель": "Ene kategoriýa",
+  "Прямой расход": "Göni çykdajy",
+  "Не учитывать в P&L": "P&L-de hasaba almazlyk",
+  "Не учитывать в отчете P&L": "P&L hasabatynda hasaba almazlyk",
+  "Строка выше заголовка: удалите её или перенесите данные под заголовок": "Sözbaşydan ýokardaky setir: ony pozuň ýa-da maglumatlary sözbaşynyň aşagyna geçiriň",
+  "Не удалось определить строку заголовка: используйте заголовки из шаблона": "Sözbaşy setirini kesgitläp bolmady: şablondaky sözbaşylary ulanyň",
+  "Неверная кодировка файла: сохраните его как CSV UTF-8": "Faýlyň kodlamasy nädogry: ony CSV UTF-8 hökmünde ýatda saklaň",
+
+  // Decisions 2026-10-30: restored form features
+  "Товар добавлен в заказ": "Haryt sargyda goşuldy",
+
+  // Decisions 2026-10-30: client attribute rules
+  "Такой атрибут уже существует": "Şeýle atribut eýýäm bar",
+  "Значения этого атрибута уже заданы": "Bu atributyň bahalary eýýäm bellendi",
 }

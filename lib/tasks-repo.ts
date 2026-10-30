@@ -8,6 +8,7 @@ import { ensureClientsSchema } from "@/lib/clients-repo"
 import { dbErrorResponse } from "@/lib/db-errors"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { parseDocDay } from "@/lib/document-dates"
+import { scopeAllows, type FieldScope } from "@/lib/field-activity/actor"
 import { keySql, nameKey } from "@/lib/platform-refs"
 import type { Role } from "@/lib/session"
 import { dbId, strictId, strictNum } from "@/lib/strict-number"
@@ -46,6 +47,13 @@ import {
 //   done → finished         "Принять" (manager);
 //   done → in_progress      a new plan is added;
 //   finished                closed: no new plans, no plan marks.
+//
+// Visibility follows the field scope of lib/field-activity/actor.ts (tasks are the agents' field
+// work): a reader with the full scope sees every task; an agent sees only the tasks whose
+// responsible employee is in their scope (their own employee, and the agents they supervise).
+// Reads and writes of a task outside it answer 404 like a missing one, and an employee outside it is
+// refused like an unknown one ("Сотрудник не найден"); the pickers (taskOptions) list only the
+// employees of the scope.
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -424,11 +432,19 @@ async function branchName(db: PgDb, id: number): Promise<string | null> {
   return row?.name ?? null
 }
 
-export async function listTasks(query: TaskListQuery): Promise<TaskListResponse> {
+/** Restricts `where` to the tasks of the scope's employees (nothing for the full scope). */
+function scopeWhere(scope: FieldScope, where: string[], params: Record<string, unknown>) {
+  if (scope.all) return
+  where.push("t.employee_id = ANY(@scopeIds::int[])")
+  params.scopeIds = scope.employeeIds
+}
+
+export async function listTasks(query: TaskListQuery, scope: FieldScope): Promise<TaskListResponse> {
   await ensureTasksSchema()
   const db = getDb()
   const where: string[] = []
   const params: Record<string, unknown> = {}
+  scopeWhere(scope, where, params)
   if (query.status) {
     where.push("t.status = @status")
     params.status = query.status
@@ -502,25 +518,43 @@ async function readDetail(db: PgDb, taskId: number): Promise<TaskDetail | null> 
   return { ...toListItem(row), plans: plans.map((plan) => toPlan(taskId, plan)) }
 }
 
-export async function getTaskDetail(taskId: number): Promise<TaskDetail | null> {
-  await ensureTasksSchema()
-  return readDetail(getDb(), taskId)
+/** True when the task exists and its responsible employee is in `scope`. */
+async function taskInScope(db: PgDb, taskId: number, scope: FieldScope): Promise<boolean> {
+  const row = (await db.prepare("SELECT employee_id FROM tasks WHERE id = ?").get(taskId)) as { employee_id: number | null } | undefined
+  return Boolean(row) && scopeAllows(scope, optionalId(row!.employee_id))
 }
 
-/** The stored photo (data URL) of a plan of the task, or null. */
-export async function getTaskPlanPhoto(taskId: number, planId: number): Promise<string | null> {
-  await ensureTasksSchema()
-  const row = (await getDb().prepare("SELECT photo FROM task_plans WHERE id = ? AND task_id = ?").get(planId, taskId)) as { photo: string } | undefined
-  return row?.photo || null
-}
-
-/** GET /api/tasks/options: the pickers of the dialog and the filter. */
-export async function taskOptions(): Promise<TaskOptions> {
+/** The task with its plans; null when missing or outside the reader's scope. */
+export async function getTaskDetail(taskId: number, scope: FieldScope): Promise<TaskDetail | null> {
   await ensureTasksSchema()
   const db = getDb()
-  const employees = (await db
-    .prepare("SELECT id, first_name, last_name, position, active FROM employees ORDER BY id")
-    .all()) as { id: number; first_name: string | null; last_name: string | null; position: string | null; active: number | null }[]
+  if (!scope.all && !(await taskInScope(db, taskId, scope))) return null
+  return readDetail(db, taskId)
+}
+
+/** The stored photo (data URL) of a plan of the task, or null (also outside the reader's scope). */
+export async function getTaskPlanPhoto(taskId: number, planId: number, scope: FieldScope): Promise<string | null> {
+  await ensureTasksSchema()
+  const row = (await getDb()
+    .prepare("SELECT p.photo, t.employee_id FROM task_plans p JOIN tasks t ON t.id = p.task_id WHERE p.id = ? AND p.task_id = ?")
+    .get(planId, taskId)) as { photo: string; employee_id: number | null } | undefined
+  if (!row || !scopeAllows(scope, optionalId(row.employee_id))) return null
+  return row.photo || null
+}
+
+/** GET /api/tasks/options: the pickers of the dialog and the filter, within the reader's scope. */
+export async function taskOptions(scope: FieldScope): Promise<TaskOptions> {
+  await ensureTasksSchema()
+  const db = getDb()
+  const employees = (
+    (await db.prepare("SELECT id, first_name, last_name, position, active FROM employees ORDER BY id").all()) as {
+      id: number
+      first_name: string | null
+      last_name: string | null
+      position: string | null
+      active: number | null
+    }[]
+  ).filter((row) => scopeAllows(scope, Number(row.id)))
   const employeeOptions = employees
     .map((row) => ({
       id: Number(row.id),
@@ -540,15 +574,17 @@ export async function taskOptions(): Promise<TaskOptions> {
   const clients = (await db
     .prepare("SELECT id, name, address, phone, agent FROM clients ORDER BY id DESC")
     .all()) as { id: number; name: string | null; address: string | null; phone: string | null; agent: string | null }[]
+  // "Создал": the authors of the tasks the reader may see.
   const creators = (await db
     .prepare(
       `SELECT DISTINCT t.created_by_user_id AS id,
               COALESCE(${personName("ue")}, NULLIF(u.display_name, ''), NULLIF(t.created_by, ''), u.username) AS name
          FROM tasks t
          JOIN users u ON u.id = t.created_by_user_id
-         LEFT JOIN employees ue ON ue.id = u.employee_id`,
+         LEFT JOIN employees ue ON ue.id = u.employee_id
+        ${scope.all ? "" : "WHERE t.employee_id = ANY(@scopeIds::int[])"}`,
     )
-    .all()) as { id: number; name: string | null }[]
+    .all(...(scope.all ? [] : [{ scopeIds: scope.employeeIds }]))) as { id: number; name: string | null }[]
   return {
     clients: clients
       .filter((row) => (row.name ?? "").trim())
@@ -582,8 +618,10 @@ async function lockClient(tx: PgDb, id: number, field = "clientId", row?: number
   return { id: Number(found.id), name: found.name ?? "" }
 }
 
-/** An inactive employee is refused unless the task already has them (`keep`). */
-async function lockEmployee(tx: PgDb, id: number, keep: number | null, field = "employeeId", row?: number): Promise<EmployeeRef> {
+/** An inactive employee is refused unless the task already has them (`keep`); one outside the
+ * writer's scope like an unknown one. */
+async function lockEmployee(tx: PgDb, id: number, keep: number | null, scope: FieldScope, field = "employeeId", row?: number): Promise<EmployeeRef> {
+  if (!scopeAllows(scope, id)) throw new TaskError("Сотрудник не найден", 400, field, row)
   const found = (await tx.prepare(`SELECT id, ${EMPLOYEE_NAME_SQL} AS name, active FROM employees WHERE id = ? FOR KEY SHARE`).get(id)) as
     | { id: number; name: string; active: number | null }
     | undefined
@@ -636,28 +674,29 @@ async function insertTask(
 }
 
 /** POST /api/tasks: the task, its plan #1 on the task day and the "Повторять план" repetitions. */
-export async function createTask(input: TaskCreateInput, actor: TaskActor): Promise<TaskDetail> {
+export async function createTask(input: TaskCreateInput, actor: TaskActor, scope: FieldScope): Promise<TaskDetail> {
   await ensureTasksSchema()
   const planDates = input.repeat ? repeatPlanDates(input.taskDate, input.repeat.frequency, input.repeat.count) : [input.taskDate]
   if (!planDates.length || planDates.some((day) => !isTaskDate(day))) throw new TaskError("Неверная дата", 400, input.repeat ? "repeat.count" : "taskDate")
   return withTransaction(async (tx) => {
     const client = await lockClient(tx, input.clientId)
-    const employee = await lockEmployee(tx, input.employeeId, null)
+    const employee = await lockEmployee(tx, input.employeeId, null, scope)
     const taskId = await insertTask(tx, { title: input.title, client, employee, taskDate: input.taskDate, status: "in_progress", planDates }, actor)
     return (await readDetail(tx, taskId))!
   })
 }
 
-/** PUT /api/tasks/:id: description, client, responsible and task day (the plans stay). */
-export async function updateTask(taskId: number, input: TaskUpdateInput): Promise<TaskDetail | null> {
+/** PUT /api/tasks/:id: description, client, responsible and task day (the plans stay). Null when
+ * the task is missing or outside the writer's scope. */
+export async function updateTask(taskId: number, input: TaskUpdateInput, scope: FieldScope): Promise<TaskDetail | null> {
   await ensureTasksSchema()
   return withTransaction(async (tx) => {
     const current = (await tx.prepare("SELECT id, employee_id FROM tasks WHERE id = ? FOR UPDATE").get(taskId)) as
       | { id: number; employee_id: number | null }
       | undefined
-    if (!current) return null
+    if (!current || !scopeAllows(scope, optionalId(current.employee_id))) return null
     const client = await lockClient(tx, input.clientId)
-    const employee = await lockEmployee(tx, input.employeeId, optionalId(current.employee_id))
+    const employee = await lockEmployee(tx, input.employeeId, optionalId(current.employee_id), scope)
     await tx
       .prepare(
         `UPDATE tasks SET description = @title, client_id = @clientId, store = @store, employee_id = @employeeId,
@@ -671,17 +710,18 @@ export async function updateTask(taskId: number, input: TaskUpdateInput): Promis
 
 type LockedTask = { id: number; status: TaskStatus; employee_id: number | null }
 
-async function lockTask(tx: PgDb, taskId: number): Promise<LockedTask> {
+/** The task row locked FOR UPDATE; 404 when missing or outside the writer's scope. */
+async function lockTask(tx: PgDb, taskId: number, scope: FieldScope): Promise<LockedTask> {
   const row = (await tx.prepare("SELECT id, status, employee_id FROM tasks WHERE id = ? FOR UPDATE").get(taskId)) as LockedTask | undefined
-  if (!row) throw new TaskError(TASK_NOT_FOUND, 404)
+  if (!row || !scopeAllows(scope, optionalId(row.employee_id))) throw new TaskError(TASK_NOT_FOUND, 404)
   return row
 }
 
 /** "Принять": a done task becomes finished, and so do its done plans. */
-export async function acceptTask(taskId: number): Promise<TaskDetail> {
+export async function acceptTask(taskId: number, scope: FieldScope): Promise<TaskDetail> {
   await ensureTasksSchema()
   return withTransaction(async (tx) => {
-    const task = await lockTask(tx, taskId)
+    const task = await lockTask(tx, taskId, scope)
     if (task.status === "finished") throw new TaskError("Задача уже завершена", 409)
     if (task.status !== "done") throw new TaskError("Принять можно только выполненную задачу", 409)
     await tx.prepare("UPDATE tasks SET status = 'finished', updated_at = datetime('now') WHERE id = ?").run(taskId)
@@ -691,10 +731,10 @@ export async function acceptTask(taskId: number): Promise<TaskDetail> {
 }
 
 /** "Добавить план": a pending plan; a done task goes back to work. */
-export async function addTaskPlan(taskId: number, input: z.infer<typeof taskPlanSchema>, actor: TaskActor): Promise<TaskDetail> {
+export async function addTaskPlan(taskId: number, input: z.infer<typeof taskPlanSchema>, actor: TaskActor, scope: FieldScope): Promise<TaskDetail> {
   await ensureTasksSchema()
   return withTransaction(async (tx) => {
-    const task = await lockTask(tx, taskId)
+    const task = await lockTask(tx, taskId, scope)
     if (task.status === "finished") throw new TaskError("Нельзя добавить план к завершённой задаче", 409)
     await tx
       .prepare("INSERT INTO task_plans (task_id, plan_date, comment, status, created_by_user_id) VALUES (@taskId, @date, @comment, 'pending', @userId)")
@@ -713,10 +753,11 @@ export async function completeTaskPlan(
   planId: number,
   input: z.infer<typeof taskPlanCompleteSchema>,
   actor: TaskActor,
+  scope: FieldScope,
 ): Promise<TaskDetail> {
   await ensureTasksSchema()
   return withTransaction(async (tx) => {
-    const task = await lockTask(tx, taskId)
+    const task = await lockTask(tx, taskId, scope)
     const responsible = optionalId(task.employee_id)
     if (actor.role !== "admin" && (actor.employeeId === null || actor.employeeId !== responsible)) {
       throw new TaskError("Отметить план может только ответственный сотрудник", 403)
@@ -746,11 +787,12 @@ export async function completeTaskPlan(
   })
 }
 
-export async function deleteTask(taskId: number): Promise<boolean> {
+/** False when the task is missing or outside the writer's scope. */
+export async function deleteTask(taskId: number, scope: FieldScope): Promise<boolean> {
   await ensureTasksSchema()
   return withTransaction(async (tx) => {
-    const row = await tx.prepare("SELECT id FROM tasks WHERE id = ? FOR UPDATE").get(taskId)
-    if (!row) return false
+    const row = (await tx.prepare("SELECT id, employee_id FROM tasks WHERE id = ? FOR UPDATE").get(taskId)) as { id: number; employee_id: number | null } | undefined
+    if (!row || !scopeAllows(scope, optionalId(row.employee_id))) return false
     await tx.prepare("DELETE FROM task_plans WHERE task_id = ?").run(taskId)
     return (await tx.prepare("DELETE FROM tasks WHERE id = ?").run(taskId)).changes > 0
   })
@@ -782,21 +824,22 @@ async function clientByText(tx: PgDb, text: string, row: number, cache: Map<stri
   return ref
 }
 
-async function employeeByText(tx: PgDb, text: string, row: number, cache: Map<string, EmployeeRef>): Promise<EmployeeRef> {
+/** The employee of a sheet row, by id or exact name — only among the writer's scope. */
+async function employeeByText(tx: PgDb, text: string, row: number, cache: Map<string, EmployeeRef>, scope: FieldScope): Promise<EmployeeRef> {
   const key = nameKey(text)
   const cached = cache.get(key)
   if (cached) return cached
   if (!key) throw new TaskError("Выберите ответственного", 400, "responsible", row)
   let ref: EmployeeRef
   if (/^\d{1,10}$/.test(key) && strictId(key) !== null) {
-    ref = await lockEmployee(tx, Number(key), null, "responsible", row)
+    ref = await lockEmployee(tx, Number(key), null, scope, "responsible", row)
   } else {
     const found = (await tx
       .prepare(
         `SELECT id, ${EMPLOYEE_NAME_SQL} AS name, active FROM employees
-          WHERE ${keySql(EMPLOYEE_NAME_SQL)} = ${keySql("@name::text")} ORDER BY id LIMIT 2 FOR KEY SHARE`,
+          WHERE ${keySql(EMPLOYEE_NAME_SQL)} = ${keySql("@name::text")} ${scope.all ? "" : "AND id = ANY(@scopeIds::int[])"} ORDER BY id LIMIT 2 FOR KEY SHARE`,
       )
-      .all({ name: text })) as { id: number; name: string; active: number | null }[]
+      .all({ name: text, ...(scope.all ? {} : { scopeIds: scope.employeeIds }) })) as { id: number; name: string; active: number | null }[]
     if (!found.length) throw new TaskError("Сотрудник не найден", 400, "responsible", row)
     if (found.length > 1) throw new TaskError("Найдено несколько сотрудников с таким именем — выберите сотрудника из списка", 400, "responsible", row)
     ref = { id: Number(found[0].id), name: found[0].name ?? "", active: Number(found[0].active ?? 1) === 1 }
@@ -808,7 +851,7 @@ async function employeeByText(tx: PgDb, text: string, row: number, cache: Map<st
 
 /** POST /api/tasks/import: every row becomes a task with its plan #1, or nothing is saved and the
  * answer names the first bad row. Clients / employees are found by id, else by exact name. */
-export async function importTasks(input: TaskImportInput, actor: TaskActor): Promise<{ created: number }> {
+export async function importTasks(input: TaskImportInput, actor: TaskActor, scope: FieldScope): Promise<{ created: number }> {
   await ensureTasksSchema()
   return withTransaction(async (tx) => {
     const clients = new Map<string, ClientRef>()
@@ -820,7 +863,7 @@ export async function importTasks(input: TaskImportInput, actor: TaskActor): Pro
       if (!title) throw new TaskError("Обязательное поле", 400, "title", row)
       if (title.length > TASK_TITLE_MAX) throw new TaskError(TITLE_TOO_LONG, 400, "title", row)
       const client = await clientByText(tx, cellText(raw.client), row, clients)
-      const employee = await employeeByText(tx, cellText(raw.responsible), row, employees)
+      const employee = await employeeByText(tx, cellText(raw.responsible), row, employees, scope)
       const dateText = cellText(raw.taskDate)
       if (!dateText) throw new TaskError(DATE_REQUIRED, 400, "taskDate", row)
       const day = parseDocDay(dateText, { allowFuture: true })

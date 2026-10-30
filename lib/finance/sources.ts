@@ -115,14 +115,6 @@ function verified(ctx: SourceContext, alias: string, table: string): string {
   return ctx.s.col(table, "is_verified") ? `COALESCE(${alias}.is_verified, 1) = 1` : "true"
 }
 
-/** Rows seeded as demo data (registry demo_seed_rows) feed the stock and the cash pages but never the supplier
- * debt: the reference's supplier balances are built from its real documents only. */
-function notDemoRow(ctx: SourceContext, alias: string, table: string): string {
-  return ctx.s.has("demo_seed_rows")
-    ? `NOT EXISTS (SELECT 1 FROM demo_seed_rows dsr WHERE dsr.table_name = '${table}' AND dsr.row_id = ${alias}.id::text)`
-    : "true"
-}
-
 const CME = "cash_management_entries"
 
 /** Cash operation type of a cash entry (NULL = legacy row, typed by category/sign). */
@@ -273,6 +265,12 @@ export function orderCountedSql(alias = "o"): string {
   return `${alias}.status NOT IN (${sqlList(ORDER_EXCLUDED_STATUSES)})`
 }
 
+/** SQL: `column` (an agent name: orders.agent, client_returns.agent …) names one of the @agentIds
+ * employees by name key; always true while @scoped is false. */
+export function ownAgentSql(column: string): string {
+  return `(NOT @scoped::boolean OR (fin_key(${column}) <> '' AND fin_key(${column}) IN (SELECT fin_key(concat_ws(' ', btrim(e.first_name), btrim(e.last_name))) FROM employees e WHERE e.id = ANY(@agentIds::int[]))))`
+}
+
 /** Released (shipped) orders: В пути / Доставлено. */
 export function orderReleasedSql(alias = "o"): string {
   return `${alias}.status IN (${sqlList(ORDER_RELEASED_STATUSES)})`
@@ -308,11 +306,6 @@ export function orderClientJoin(s: FinanceSchema, o = "o", c = "oc", keys = "cli
 function cashboxSources(ctx: SourceContext): string[] {
   const out: string[] = []
   const cbCur = "COALESCE(fin_cur(cb.currency), @base)"
-  // With the reference copy of the cash transactions present, the cashbox ledger is: those rows + the operations made afterwards
-  // (ids above the cut-off of each real table) — the same rule the cash list uses. Older real rows (demo, legacy, corrections)
-  // never move a cashbox report any more.
-  const refRows = ctx.s.has("cash_reference_rows") && ctx.s.has("cash_list_cutoff")
-  const above = (src: string, alias: string) => (refRows ? ` AND ${alias}.id > COALESCE((SELECT max_id FROM cash_list_cutoff WHERE src = '${src}'), 0)` : "")
   if (ctx.s.has(CME)) {
     const op = entryOp(ctx)
     out.push(
@@ -344,37 +337,7 @@ function cashboxSources(ctx: SourceContext): string[] {
           cby: col(ctx, "e", CME, "created_by", "''"),
           href: "'/analytics/cash-management'",
         },
-        `FROM cash_management_entries e JOIN cashboxes cb ON cb.id = e.cashbox_id WHERE ${entryCounts(ctx)}${above("cash", "e")}`,
-      ),
-    )
-  }
-  if (refRows) {
-    out.push(
-      select(
-        ctx,
-        {
-          ek: "cb.id",
-          cur: cbCur,
-          ts: "r.ts",
-          col: "CASE WHEN r.op = 2 THEN 'transfer_income' WHEN r.op = 1 THEN 'transfer_expense' WHEN r.amount >= 0 THEN 'income' ELSE 'expenses' END",
-          amt: "r.amount",
-          org: "fin_place(r.organization)",
-          pt: "fin_pt(cb.payment_type)",
-          src: "'cash_reference'",
-          src_id: "r.id",
-          title: `CASE r.op WHEN 1 THEN 'Перевод с кассы' WHEN 2 THEN 'Перевод на кассу' WHEN 5 THEN 'Расход' WHEN 7 THEN 'Снято со счета клиента'
-                  WHEN 9 THEN 'Доп. расход на поставку' WHEN 10 THEN 'Расход на поставку' WHEN 22 THEN 'Выдача денег для кэшбека'
-                  WHEN 8 THEN 'Принято денег' WHEN 3 THEN 'Оплата заказа' ELSE 'Приход' END`,
-          descr: "r.category_name",
-          cmt: "r.comment",
-          cat: "CASE WHEN r.op IN (1, 2) THEN '' ELSE r.category_name END",
-          cp: "CASE WHEN r.client_name <> '' THEN r.client_name ELSE r.supplier_name END",
-          br: "fin_place(r.branch)",
-          cb: "cb.name",
-          cby: "r.cby",
-          href: "'/analytics/cash-management'",
-        },
-        "FROM cash_reference_rows r JOIN cashboxes cb ON cb.id = r.cashbox_id WHERE r.verified = 1",
+        `FROM cash_management_entries e JOIN cashboxes cb ON cb.id = e.cashbox_id WHERE ${entryCounts(ctx)}`,
       ),
     )
   }
@@ -419,7 +382,7 @@ function cashboxSources(ctx: SourceContext): string[] {
         href: "'/analytics/customer-payments'",
       },
       `FROM customer_payments p LEFT JOIN cashbox_keys ckb ON ckb.k = fin_key(p.kassa) JOIN cashboxes cb ON cb.id = ${cpCashbox}
-       WHERE p.accepted = 1 AND ${alive(ctx, "p", CP)}${above("customer", "p")}`,
+       WHERE p.accepted = 1 AND ${alive(ctx, "p", CP)}`,
     ),
   )
   // Supplier payments leave their cashbox_id (legacy: the cashbox named by
@@ -451,7 +414,7 @@ function cashboxSources(ctx: SourceContext): string[] {
         href: "'/analytics/supplier-payments'",
       },
       `FROM supplier_payments sp LEFT JOIN cashbox_keys ckb ON ckb.k = fin_key(sp.kassa) JOIN cashboxes cb ON cb.id = ${spCashbox}
-       WHERE ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}${above("supplier", "sp")}`,
+       WHERE ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}`,
     ),
   )
   return out
@@ -760,8 +723,7 @@ function supplierSources(ctx: SourceContext): string[] {
         cby: col(ctx, "i", "supplier_incomings", "accepted_by", "i.initiator"),
         href: "'/analytics/supplier-incomings'",
       },
-      `FROM supplier_incomings i ${join("i.supplier")} WHERE i.status = 'принят' AND fin_key(i.supplier) <> ''
-         AND fin_key(i.supplier) <> fin_key('Инвенторизация') AND ${notDemoRow(ctx, "i", "supplier_incomings")}`,
+      `FROM supplier_incomings i ${join("i.supplier")} WHERE i.status = 'принят' AND fin_key(i.supplier) <> ''`,
     ),
   )
   out.push(
@@ -820,8 +782,7 @@ function supplierSources(ctx: SourceContext): string[] {
         href: "'/analytics/supplier-payments'",
       },
       `FROM supplier_payments sp ${join("sp.supplier")}
-       WHERE (fin_key(sp.supplier) <> '' OR ${spSupplier} IS NOT NULL) AND ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}
-         AND ${notDemoRow(ctx, "sp", SP)}`,
+       WHERE (fin_key(sp.supplier) <> '' OR ${spSupplier} IS NOT NULL) AND ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}`,
     ),
   )
   if (ctx.s.has("supplier_balance_transactions")) {
@@ -1146,6 +1107,12 @@ function employeeSources(ctx: SourceContext): string[] {
     const employee = ctx.s.col(SPT, "employee_id")
       ? "LEFT JOIN emp_keys ek ON sp.employee_id IS NULL AND ek.k = fin_key(sp.employee) JOIN employees se ON se.id = COALESCE(sp.employee_id, ek.id)"
       : "JOIN emp_keys ek ON ek.k = fin_key(sp.employee) JOIN employees se ON se.id = ek.id"
+    // One accrual per employee and month: a month that "Зарплата и установка планов" credited (salary_credits, above)
+    // replaces the legacy plan's salary and KPI bonus of that month instead of adding to them.
+    const replaced =
+      hasPeriod && ctx.s.has("salary_credits")
+        ? " AND NOT EXISTS (SELECT 1 FROM salary_credits c WHERE c.user_id = se.id AND c.year = sp.year AND c.month = sp.month)"
+        : ""
     for (const [field, column, title] of [
       ["salary", "monthly", "Зарплата"],
       ["bonus", "performance_bonus", "Зачислено KPI"],
@@ -1164,7 +1131,7 @@ function employeeSources(ctx: SourceContext): string[] {
             descr: hasPeriod ? "CASE WHEN sp.month BETWEEN 1 AND 12 THEN lpad(sp.month::text, 2, '0') || '.' || sp.year::text ELSE '' END" : "''",
             href: "'/analytics/salary-planning'",
           },
-          `FROM salary_plans sp ${employee} WHERE sp.credited = 1 AND sp.${field} <> 0`,
+          `FROM salary_plans sp ${employee} WHERE sp.credited = 1 AND sp.${field} <> 0${replaced}`,
         ),
       )
     }

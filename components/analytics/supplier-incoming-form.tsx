@@ -1,9 +1,13 @@
 "use client"
 
-import { useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 
 import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-shared"
+import { formatMoney } from "@/lib/finance/currency"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
+import type { LanguageCode } from "@/lib/i18n/types"
 
 /**
  * The reference's full-screen "Добавление поставки" form (material-ui fields on a three-column grid). Every field is
@@ -43,6 +47,32 @@ export function ruDateToIso(value: string) {
 export function isoToRuDate(iso: string) {
   const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})/)
   return match ? `${match[3]} ${MONTHS[Number(match[2]) - 1]} ${match[1]}` : ""
+}
+
+/** A form date ("23 октября 2026" / ISO) as shown: ru keeps the reference's "23 октября 2026" (`suffix`
+ * appends its " г."), the other languages get the app's date format (lib/i18n/format-date.ts). */
+function shownDate(value: string, language: LanguageCode, suffix = "") {
+  const iso = ruDateToIso(value) || (/^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : "")
+  if (!iso) return value
+  return language === "ru" ? `${isoToRuDate(iso)}${suffix}` : formatDateText(iso, language)
+}
+
+/** While `active`, Escape closes only this layer (`close`): a capture listener runs before the page's
+ * document-level Escape handler, which would otherwise close the whole form. `owns` narrows it further:
+ * when it says the user is not in this layer (e.g. a dialog opened on top took the focus), the Escape
+ * is left untouched for whoever is on top. */
+function useEscapeLayer(active: boolean, close: () => void, owns?: () => boolean) {
+  useEffect(() => {
+    if (!active) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      if (owns && !owns()) return
+      event.stopPropagation()
+      close()
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [active, close, owns])
 }
 
 const CALENDAR =
@@ -113,7 +143,9 @@ export function SelectField({
   onAdd?: () => void
   addWidth?: number
 }) {
+  const { t } = useLanguage()
   const [open, setOpen] = useState(false)
+  useEscapeLayer(open, () => setOpen(false))
   const shown = value ? (options.find((option) => option.value === value)?.label ?? value) : ""
   const gutter = left === 20 ? 30 : left === 21 ? 21 : 20
   return (
@@ -126,7 +158,7 @@ export function SelectField({
           </span>
         )}
         {shown && onClear && (
-          <span role="button" aria-label="clear" onClick={onClear} style={{ top: top - 21 }} className="pointer-events-auto absolute right-[28px] z-[1] cursor-pointer text-[18px] leading-[18px] text-[#999]">
+          <span role="button" aria-label={t("Очистить")} onClick={onClear} style={{ top: top - 21 }} className="pointer-events-auto absolute right-[28px] z-[1] cursor-pointer text-[18px] leading-[18px] text-[#999]">
             ×
           </span>
         )}
@@ -138,7 +170,7 @@ export function SelectField({
             <button type="button" aria-label={label} onClick={() => setOpen((current) => !current)} style={{ top: top - 40, height: 40 }} className="pointer-events-auto absolute left-0 w-full cursor-pointer opacity-0" />
             {open && (
               <>
-                <button type="button" aria-label="close" className="pointer-events-auto fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
+                <button type="button" aria-label={t("Закрыть")} className="pointer-events-auto fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
                 <div style={{ top: top + 1.5 }} className="pointer-events-auto absolute inset-x-0 z-50 max-h-[240px] overflow-y-auto bg-white py-0 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
                   {options.map((option) => (
                     <button
@@ -170,7 +202,8 @@ export function SelectField({
         {error ? (
           <>
             <span style={{ top: top - 1 }} className="absolute inset-x-0 h-[2px] bg-[#f44336]" />
-            <span style={{ top: top + 1 }} className="absolute left-0 text-[12px] leading-[15px] text-[#f44336]">{error}</span>
+            {/* t(): a caller may pass the Russian key; an already translated text comes back unchanged. */}
+            <span style={{ top: top + 1 }} className="absolute left-0 text-[12px] leading-[15px] text-[#f44336]">{t(error)}</span>
           </>
         ) : (
           <span style={{ top }} className={LINE} />
@@ -191,9 +224,12 @@ export function SelectField({
 }
 
 export function DateField({ top, left, width, label, required, value, onChange, primary }: { top: number; left: number; width: number; label: string; required?: boolean; value: string; onChange: (value: string) => void; primary?: boolean }) {
+  const { language } = useLanguage()
   const iso = ruDateToIso(value)
-  const shown = iso ? `${isoToRuDate(iso)} г.` : value
+  const shown = iso ? shownDate(iso, language, " г.") : value
   const [open, setOpen] = useState(false)
+  // Escape closes the calendar, not the form under it.
+  useEscapeLayer(open, () => setOpen(false))
   return (
     <Slot top={top} left={left} width={width}>
       {primary ? (
@@ -258,7 +294,6 @@ export function SupplierIncomingForm({
   paymentTypeOptions,
   items,
   productOptions,
-  totalCost,
   currency,
   productUnits,
   productBoxes,
@@ -290,7 +325,6 @@ export function SupplierIncomingForm({
   paymentTypeOptions: { value: string; label: string }[]
   items: SupplyFormItem[]
   productOptions: string[]
-  totalCost: string
   currency: string
   productUnits: Record<string, string>
   productBoxes: Record<string, { unit: string; amount: number }>
@@ -298,7 +332,8 @@ export function SupplierIncomingForm({
   /** Products that track an expiry date: only they get the strip's "Срок годности" field. */
   productExpiry: Record<string, boolean>
   onClose: () => void
-  onSubmit: (event: FormEvent) => void
+  /** The page's save (may be async: the form waits for it before checking whether a notice covers it). */
+  onSubmit: (event: FormEvent) => void | Promise<void>
   onQuickAddSupplier: () => void
   onQuickAddOrganization: () => void
   onAddItem: (item: { product: string; qty: number; cost: number; expiry: string }) => void
@@ -314,6 +349,22 @@ export function SupplierIncomingForm({
 }) {
   const { t, language } = useLanguage()
   const uz = language === "uz"
+  // The form covers the page at the reference's dialog level (z 1400). The layers the page opens over
+  // it sit lower — the quick-add forms (Поставщик / Организация, z 70–100) and the save notices (z 300)
+  // — so the form steps back under them (z 60, still above the top bar) and comes forward again as soon
+  // as nothing covers it any more (the layer was closed, or the save opened none).
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [onTop, setOnTop] = useState(true)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    if (onTop || saving) return
+    const timer = window.setInterval(() => {
+      const root = rootRef.current
+      const hit = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)
+      if (root && hit && root.contains(hit)) setOnTop(true)
+    }, 200)
+    return () => window.clearInterval(timer)
+  }, [onTop, saving])
   const [stripOpen, setStripOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [stripProduct, setStripProduct] = useState("")
@@ -358,17 +409,35 @@ export function SupplierIncomingForm({
   const optionLabel = (name: string) => {
     const info = productInfo[name]
     const unitName = productUnits[name] ?? ""
-    const barcode = info?.barcode && info.barcode !== "не установлен" ? ` (Штрих: ${info.barcode})` : ""
+    const barcode = info?.barcode && info.barcode !== "не установлен" ? ` (${t("Штрих")}: ${info.barcode})` : ""
     return info ? `${name} (${info.stock.toLocaleString("ru-RU")} ${unitName})${barcode}` : name
   }
-  const money = (value: number) => `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
-  const groupsTotal = items.reduce((sum, item) => sum + (productBoxes[item.product] ? item.qty / productBoxes[item.product].amount : 0), 0)
-  const qtyTotal = items.reduce((sum, item) => sum + item.qty, 0)
-  const qtyLabel = `${(Math.round(qtyTotal * 1000) / 1000).toLocaleString("ru-RU")} ${t("ед")}${groupsTotal > 0 ? ` (${String(Math.round(groupsTotal * 1000) / 1000)} ${t("групп")})` : ""}`
+  // Money as everywhere in the app: ru grouping, 2 decimals.
+  const money = (value: number) => `${formatMoney(value, 2)} ${currency}`
+  const totalCost = money(items.reduce((sum, item) => sum + item.qty * item.cost, 0))
+  // "Общее кол-во": one total per unit (kg and pieces are never added up), and the groups per group
+  // unit ("2 коробка, 1 блок") in brackets.
+  const unitLines = items.map((item) => ({ qty: item.qty, unit: productUnits[item.product] ?? "" }))
+  const groupLines = items.flatMap((item) => {
+    const itemBox = productBoxes[item.product]
+    return itemBox && itemBox.amount > 0 ? [{ qty: item.qty / itemBox.amount, unit: itemBox.unit }] : []
+  })
+  const qtyLabel = `${formatUnitTotals(unitLines, t)}${groupLines.length ? ` (${formatUnitTotals(groupLines, t)})` : ""}`
+  const stepBack = () => setOnTop(false)
 
   return (
-    <div className="fixed inset-0 z-[1400] bg-white">
-      <form onSubmit={onSubmit} className="flex h-full w-full flex-col bg-white text-[13px] text-[#333]">
+    <div ref={rootRef} className={`fixed inset-0 ${onTop ? "z-[1400]" : "z-[60]"} bg-white`}>
+      <form
+        onSubmit={(event) => {
+          // A refused save is reported in the page's notice: the form steps back under it until the save has answered.
+          stepBack()
+          setSaving(true)
+          void Promise.resolve(onSubmit(event))
+            .catch(() => undefined)
+            .finally(() => setSaving(false))
+        }}
+        className="flex h-full w-full flex-col bg-white text-[13px] text-[#333]"
+      >
         <header className="flex h-[60px] shrink-0 items-start justify-between border-b border-[#e0e0e0]">
           <span className="pl-[30px] pt-[21px] text-[13px] font-bold uppercase leading-[16px] text-[#333]">{title}</span>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="mr-[27px] mt-[18px] flex h-6 w-6 items-center justify-center">
@@ -382,13 +451,13 @@ export function SupplierIncomingForm({
           {banner}
           <div className="grid grid-cols-[442fr_412fr_442fr] border-b border-[#e0e0e0]">
             <div className="relative h-[330px] border-r border-[#e0e0e0]">
-              <SelectField top={58} left={30} width={460} label={t("Поставщик")} required value={draft.supplier} options={plain(supplierOptions)} onChange={(value) => set({ supplier: value })} addLabel={t("+добавить")} onAdd={onQuickAddSupplier} addWidth={78} />
+              <SelectField top={58} left={30} width={460} label={t("Поставщик")} required value={draft.supplier} options={plain(supplierOptions)} onChange={(value) => set({ supplier: value })} addLabel={t("+добавить")} onAdd={() => { stepBack(); onQuickAddSupplier() }} addWidth={78} />
               <SelectField top={125} left={30} width={460} label={t("Филиал")} required value={draft.branch} options={plain(branchOptions)} onChange={(value) => set({ branch: value })} />
               <SelectField top={187} left={30} width={460} label={t("Склад назначения")} required value={draft.warehouse} options={plain(warehouseOptions)} onChange={(value) => set({ warehouse: value })} onClear={() => set({ warehouse: "" })} />
               <TextField top={259} left={30} width={460} label={t("Оставить комментарий...")} value={draft.comment} onChange={(value) => set({ comment: value })} />
             </div>
             <div className="relative h-[330px] border-r border-[#e0e0e0]">
-              <SelectField top={58} left={21} width={438} label={t("Организация")} required value={draft.organization} options={plain(organizationOptions)} onChange={(value) => set({ organization: value })} />
+              <SelectField top={58} left={21} width={438} label={t("Организация")} required value={draft.organization} options={plain(organizationOptions)} onChange={(value) => set({ organization: value })} addLabel={t("+добавить")} onAdd={() => { stepBack(); onQuickAddOrganization() }} addWidth={78} />
               <SelectField top={120} left={21} width={438} label={t("Валюта оплаты")} required value={draft.currency} options={plain(currencyOptions)} onChange={(value) => set({ currency: value })} onClear={() => set({ currency: "" })} />
               <SelectField top={182} left={21} width={438} label={t("Тип оплаты")} required value={draft.paymentType} options={paymentTypeOptions} onChange={(value) => set({ paymentType: value })} onClear={() => set({ paymentType: "" })} />
             </div>
@@ -407,7 +476,7 @@ export function SupplierIncomingForm({
               <span className="pl-[30px] pt-[22px] text-[13px] font-semibold leading-[16px] text-[#333]">{t("Список товаров")}</span>
               <div className="flex items-start pr-[30px] pt-[12px]">
                 <button type="button" onClick={() => { setStripOpen((open) => !open); setImportOpen(false) }} className={`h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee] ${stripOpen ? "bg-[#eee]" : ""}`}>
-                  {uz ? "mahsulot qo'shish" : t("добавить товар")}
+                  {t("добавить товар")}
                 </button>
                 <button type="button" onClick={onOpenPicker} className="h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee]">
                   {t("добавить из списка")}
@@ -421,11 +490,11 @@ export function SupplierIncomingForm({
 
             {stripOpen && (
               <div className="relative flex h-[87px] bg-[#f0f4f7] pl-[18px]">
-                <StripProductSelect label={t("Наименование")} notFound={t("Не найдено")} value={stripProduct} options={productOptions} labelOf={optionLabel} onChange={(value) => { setStripProduct(value); setStripBox("") }} onClear={resetStrip} />
+                <StripProductSelect label={t("Наименование")} notFound={t("Не найдено")} clearLabel={t("Очистить")} value={stripProduct} options={productOptions} labelOf={optionLabel} onChange={(value) => { setStripProduct(value); setStripBox("") }} onClear={resetStrip} />
                 {stripProduct && productExpiry[stripProduct] && (
                   <StripCell pitch="calc(8.333% + 11.5px)" gap={16}>
                     <span className="pointer-events-none absolute left-0 top-[46px] whitespace-nowrap text-[13px] leading-[18px] text-[#333]">
-                      {stripExpiry ? isoToRuDate(ruDateToIso(stripExpiry)) : t("Выбрать дату")}
+                      {stripExpiry ? shownDate(stripExpiry, language) : t("Выбрать дату")}
                     </span>
                     <input type="date" value={ruDateToIso(stripExpiry)} onChange={(event) => setStripExpiry(event.target.value ? isoToRuDate(event.target.value) : "")} className="absolute inset-x-0 top-[36px] h-[34px] cursor-pointer opacity-0" />
                     <span style={{ top: 69 }} className={LINE} />
@@ -511,7 +580,7 @@ export function SupplierIncomingForm({
                           </span>
                         )}
                       </div>
-                      <div className="pl-[8px]">{item.expiry ?? ""}</div>
+                      <div className="pl-[8px]">{item.expiry ? shownDate(item.expiry, language) : ""}</div>
                       <div className="pl-[8px] pr-[4px]">
                         {itemBox ? `${(Math.round((item.qty / itemBox.amount) * 1000) / 1000).toLocaleString("ru-RU")} ${itemBox.unit} (${itemBox.amount})` : ""}
                       </div>
@@ -592,7 +661,7 @@ function groupDigits(value: string) {
 }
 
 /** The strip's "Наименование": a search-as-you-type select (the reference lists nothing until something is typed). */
-function StripProductSelect({ label, notFound, value, options, labelOf, onChange, onClear }: { label: string; notFound: string; value: string; options: string[]; labelOf: (name: string) => string; onChange: (value: string) => void; onClear: () => void }) {
+function StripProductSelect({ label, notFound, clearLabel, value, options, labelOf, onChange, onClear }: { label: string; notFound: string; clearLabel: string; value: string; options: string[]; labelOf: (name: string) => string; onChange: (value: string) => void; onClear: () => void }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const term = query.trim().toLowerCase()
@@ -616,19 +685,35 @@ function StripProductSelect({ label, notFound, value, options, labelOf, onChange
     } else if (event.key === "Enter" && open && matches[active]) {
       event.preventDefault()
       choose(matches[active])
-    } else if (event.key === "Escape") {
-      setOpen(false)
     }
   }
+  const inputRef = useRef<HTMLInputElement>(null)
+  // Escape closes the search list only (the page's Escape handler would close the whole supply form),
+  // and only while the user is in it (list open, input focused): an Escape meant for a dialog opened on
+  // top of the form (quick-add, «добавить из списка») goes to that dialog. With the list closed, the
+  // next Escape reaches the page as usual.
+  useEscapeLayer(open, () => {
+    setOpen(false)
+    setQuery("")
+  }, () => document.activeElement === inputRef.current)
   return (
     <StripCell pitch="calc(25% - 0.5px)" gap={17}>
       <span className={`pointer-events-none absolute left-0 whitespace-nowrap font-semibold text-black ${value || query ? "top-[26px] text-[9.75px] leading-[12px]" : "top-[45px] text-[13px] leading-[18px]"}`}>{label}</span>
       {value && !open && <span data-no-translate className="pointer-events-none absolute left-0 right-[24px] top-[47px] truncate text-[13px] font-semibold leading-[18px] text-[#333]">{labelOf(value)}</span>}
       <input
+        ref={inputRef}
         value={query}
         onKeyDown={onKeyDown}
         onFocus={() => setOpen(true)}
-        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        // Leaving the field drops the list and the unchosen search text (it is not a selection, and it
+        // would sit on top of the chosen product's name) — unless the focus came straight back.
+        onBlur={() =>
+          window.setTimeout(() => {
+            if (document.activeElement === inputRef.current) return
+            setOpen(false)
+            setQuery("")
+          }, 150)
+        }
         onChange={(event) => {
           setQuery(event.target.value)
           setActive(0)
@@ -638,7 +723,7 @@ function StripProductSelect({ label, notFound, value, options, labelOf, onChange
         className="absolute inset-x-0 bg-transparent pr-[24px] text-[13px] font-semibold leading-[18px] text-[#333] outline-none"
       />
       {value && (
-        <span role="button" aria-label="clear" onClick={onClear} className="absolute right-[28px] top-[47px] z-[1] cursor-pointer text-[18px] leading-[18px] text-[#999]">
+        <span role="button" aria-label={clearLabel} onClick={onClear} className="absolute right-[28px] top-[47px] z-[1] cursor-pointer text-[18px] leading-[18px] text-[#999]">
           ×
         </span>
       )}

@@ -3,6 +3,7 @@ import "server-only"
 import { isUniqueViolation } from "@/lib/auth-request"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { ensureRatesSchema } from "@/lib/currency-rates-repo"
+import { withEmployeeLinks } from "@/lib/employees-usage"
 import { discoverReferences, usageOf, type Usage } from "@/lib/platform-refs"
 import type { Currency } from "@/components/analytics/currencies-data"
 
@@ -24,7 +25,8 @@ function rowToCurrency(row: CurrencyRow): Currency {
     code: row.code,
     rate: Number(row.rate),
     isBase: row.is_base === 1,
-    createdDate: new Date(row.created_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }),
+    // The stored UTC text: the UI shows it in its language (lib/i18n/format-date.ts formatDateText, utc).
+    createdDate: row.created_at,
     rateDate: row.rate_date ?? row.updated_at,
   }
 }
@@ -163,13 +165,18 @@ export type DeleteResult = "deleted" | "not_found" | "is_base"
 /** Refused for the base currency and (409 with the usage list) while any
  * cashbox, branch, price list, payment or document uses the currency. */
 export async function deleteCurrency(id: number): Promise<DeleteResult> {
+  // currency_rates (the rate history deleted with the currency) exists before the transaction.
+  await ensureRatesSchema()
   return withTransaction(async (db) => {
     await db.prepare("LOCK TABLE currencies IN SHARE ROW EXCLUSIVE MODE").run()
-    const current = (await db.prepare("SELECT * FROM currencies WHERE id = ?").get(id)) as CurrencyRow | undefined
+    // The row lock waits for an employee save that holds FOR KEY SHARE on the currency (lib/employees-usage.ts).
+    const current = (await db.prepare("SELECT * FROM currencies WHERE id = ? FOR UPDATE").get(id)) as CurrencyRow | undefined
     if (!current) return "not_found"
     if (current.is_base === 1) return "is_base"
-    const usage = await currencyUsage(db, current)
+    const usage = await withEmployeeLinks(db, "currencies", { id: current.id }, await currencyUsage(db, current))
     if (usage.length) throw new CurrencyError("Удаление невозможно из-за связи с другими данными", 409, usage)
+    // Its rate history goes with it (nothing else reads a rate of a currency that is gone).
+    await db.prepare("DELETE FROM currency_rates WHERE currency_id = ?").run(id)
     await db.prepare("DELETE FROM currencies WHERE id = ?").run(id)
     return "deleted"
   })

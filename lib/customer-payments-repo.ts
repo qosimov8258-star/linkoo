@@ -1,10 +1,9 @@
-import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { getDb } from "@/lib/db"
-import type { PaymentRow } from "@/components/analytics/customer-payments-data"
 import { deleteCustomerPayment as softDeleteCustomerPayment } from "@/lib/cash/customer-payments"
 import { ensureCashSchema } from "@/lib/cash/schema"
+import { selectedBranchName } from "@/lib/selected-branch"
 
 // Legacy flat API of customer_payments (/api/customer-payments). The page
 // "Оплаты от клиентов" now uses /api/cash/customer-payments (server paging,
@@ -13,6 +12,26 @@ import { ensureCashSchema } from "@/lib/cash/schema"
 // the cash core) and accepting into a cashbox is no longer possible here
 // (it must go through POST /api/cash/accept-cash so cashbox_id / accept_id /
 // the acceptance header are written).
+
+/** One payment of the legacy list (currency = the code stored on the row, from Валюты). */
+export type PaymentRow = {
+  id: number
+  client: string
+  clientCode?: string
+  createdBy: string
+  paidAt: string
+  acceptedAt: string
+  agent: string
+  organization: string
+  amount: number
+  currency: string
+  amountSumEquivalent?: number
+  cashAmount: number
+  kassa: string
+  accepted: boolean
+  comment: string
+  icon: "cash" | "card"
+}
 
 type Row = {
   id: number
@@ -44,7 +63,7 @@ function rowToPayment(row: Row): PaymentRow {
     agent: row.agent,
     organization: row.organization,
     amount: Number(row.amount),
-    currency: row.currency as PaymentRow["currency"],
+    currency: row.currency,
     amountSumEquivalent: row.amount_sum_equivalent ?? undefined,
     cashAmount: Number(row.cash_amount),
     kassa: row.kassa,

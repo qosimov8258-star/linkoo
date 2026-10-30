@@ -122,7 +122,9 @@ function toArticle(row: ArticleRow, positions: KnowledgeBasePosition[]): Knowled
 // Reads
 // ---------------------------------------------------------------------------
 
-/** Job position of an employee (employees.position is the position NAME), or null. */
+/** Job position of an employee, or null: the Должность picked in the form (employees.job_id); a legacy
+ * row without one is matched by its position text. job_id is read through to_jsonb so a database whose
+ * employees table predates the column still answers. */
 export async function positionOfEmployee(employeeId: number | null): Promise<KnowledgeBasePosition | null> {
   if (!employeeId) return null
   await ensureKnowledgeBaseSchema()
@@ -130,8 +132,10 @@ export async function positionOfEmployee(employeeId: number | null): Promise<Kno
     .prepare(
       `SELECT p.id, p.name
          FROM employees e
-         JOIN job_positions p ON ${keySql("p.name")} = ${keySql("e.position")}
-        WHERE e.id = ? AND ${keySql("e.position")} <> ''
+         JOIN job_positions p
+           ON p.id = NULLIF(to_jsonb(e) ->> 'job_id', '')::bigint
+           OR (NULLIF(to_jsonb(e) ->> 'job_id', '') IS NULL AND ${keySql("e.position")} <> '' AND ${keySql("p.name")} = ${keySql("e.position")})
+        WHERE e.id = ?
         ORDER BY p.id
         LIMIT 1`,
     )

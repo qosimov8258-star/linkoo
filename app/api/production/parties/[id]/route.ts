@@ -34,8 +34,12 @@ export async function DELETE(_request: Request, context: RouteParams) {
   if ("error" in auth) return auth.error
   const id = await routeId(context)
   if (!id) return notFound("Партия не найдена")
-  const result = await deleteParty(id)
-  if (result === "not_found") return notFound("Партия не найдена")
-  if (result === "finished") return errorResponse("Завершенную партию удалить нельзя", 409)
-  return NextResponse.json({ ok: true })
+  // deleteParty refuses with a ProductionError (e.g. 409 when undoing the batch's output would
+  // make a stock negative) and may meet a lock timeout: guarded answers both as JSON, never 500.
+  return guarded(async () => {
+    const result = await deleteParty(id)
+    if (result === "not_found") return notFound("Партия не найдена")
+    if (result === "finished") return errorResponse("Завершенную партию удалить нельзя", 409)
+    return NextResponse.json({ ok: true })
+  })
 }

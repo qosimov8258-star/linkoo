@@ -3,8 +3,10 @@
 import { X } from "lucide-react"
 import { useEffect, useState } from "react"
 
+import { everyLanguage, importKey, parseYesNo, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { Modal, SaveLink } from "./catalog-ui"
+import { ExcelRowImportDialog, type ExcelImportSpec } from "./excel-row-import"
 import {
   ORGANIZATIONS_API,
   type OrganizationDetail,
@@ -13,7 +15,8 @@ import {
 } from "./organization-data"
 
 // Dialogs of the "Организация" page: the delete confirm (demo ConfirmDialog type
-// "delete": "Подтверждение удаления" + the organization name), and the snackbar.
+// "delete": "Подтверждение удаления" + the organization name), the snackbar and the
+// Excel import (ours, not in the demo).
 
 export type OrganizationNotice = { text: string; tone: "success" | "error" }
 
@@ -130,4 +133,36 @@ export function OrganizationDeleteDialog({
       )}
     </Modal>
   )
+}
+
+// --- Excel import (ours, not in the demo) ----------------------------------------------
+
+type OrganizationImport = { name: string; limitByDebt: boolean }
+
+/** "Импорт с Excel": Наименование + Ограничение по долгу клиента (да / нет) per row, created through POST /api/organizations. */
+export function OrganizationImportDialog({ onClose, onChanged, onDone }: { onClose: () => void; onChanged: () => void; onDone: (notice: OrganizationNotice) => void }) {
+  const { t } = useLanguage()
+  const spec: ExcelImportSpec<OrganizationImport> = {
+    templateName: "organizations-template",
+    columns: [
+      { field: "name", header: "Наименование", aliases: ["Название", "Организация", "Name"] },
+      { field: "limitByDebt", header: "Ограничение по долгу клиента", aliases: ["Ограничение по долгу", "Ограничить по долгу клиента", "Limit"] },
+    ],
+    keyField: "name",
+    prepare: async (records) => {
+      const rows: PreparedRow<OrganizationImport>[] = []
+      const errors: ImportRowError[] = []
+      for (const { line, values } of records) {
+        // "да / нет", or the grid's own words "С ограничением" / "Без ограничения" (in any UI language).
+        const limitByDebt = parseYesNo(values.limitByDebt, false, { yes: everyLanguage("С ограничением"), no: everyLanguage("Без ограничения") })
+        if (!values.name) errors.push({ line, label: t("Наименование"), message: "Обязательное поле" })
+        else if (limitByDebt === null) errors.push({ line, label: `${values.name}, ${t("Ограничение по долгу клиента")}`, message: "Укажите да или нет" })
+        else rows.push({ line, label: values.name, item: { name: values.name, limitByDebt } })
+      }
+      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+    },
+    send: (item) => postJson(ORGANIZATIONS_API, item),
+    fallbackError: "Не удалось сохранить организацию",
+  }
+  return <ExcelRowImportDialog spec={spec} onClose={onClose} onChanged={onChanged} onDone={(summary) => onDone({ text: summary, tone: "success" })} />
 }

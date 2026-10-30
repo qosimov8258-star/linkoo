@@ -3,10 +3,13 @@
 import dynamic from "next/dynamic"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
 import { RefButton } from "@/components/ref/list-kit"
 import { Check as StaffCheck } from "@/components/staff/staff-kit"
 import { PageSizeSelect, PagerArrow } from "@/components/analytics/settings-list-kit"
-import { normCurrency } from "@/lib/finance/currency"
+import { importKey, parseYesNo, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
+import { formatMoney, normCurrency } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -26,9 +29,23 @@ type Branch = {
   locationLng: number | null
 }
 
-type BranchPlan = { id: number; weight: string; amount: string; price: string }
+/** A branch plan as /api/branches/[id]/plans returns it: numbers, null = not set. */
+type BranchPlan = { id: number; weight: number | null; amount: number | null; price: number | null }
+
+/** A plan figure: weight / quantity with up to 3 decimals, the price as money (2 decimals); "" when not set. */
+const planValue = (value: number | null, digits: number) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? "" : formatMoney(Number(value), digits))
 
 type Draft = { name: string; priceList: string; currency: string; debtTracking: boolean; isMain: boolean; lat: number | null; lng: number | null }
+
+/** One row of "Импорт с Excel" (ours, not in the demo): created like the dialog does, never as the main branch. */
+type BranchImport = { name: string; priceList: string; currency: string; debtTracking: boolean; isMain: false }
+
+async function listJson<T>(url: string): Promise<T[]> {
+  const response = await fetch(url, { cache: "no-store" })
+  if (!response.ok) throw new Error("load")
+  const body = (await response.json()) as unknown
+  return Array.isArray(body) ? (body as T[]) : []
+}
 
 const emptyDraft: Draft = { name: "", priceList: "", currency: "", debtTracking: false, isMain: false, lat: null, lng: null }
 
@@ -115,6 +132,10 @@ export function BranchesView() {
   const [saving, setSaving] = useState(false)
   const [priceLists, setPriceLists] = useState<string[]>([])
   const [currencies, setCurrencies] = useState<string[]>([])
+  /** The base currency (Валюты): a branch without its own currency works in it (plan prices). */
+  const [baseCurrency, setBaseCurrency] = useState("")
+  const [importOpen, setImportOpen] = useState(false)
+  const canImport = useCanManage(["settings.manage"])
 
   const load = useCallback(() => {
     fetch("/api/branches")
@@ -132,17 +153,26 @@ export function BranchesView() {
       .catch(() => undefined)
     // Currencies come from "Валюты" (base first); the server accepts any of them (code or alias), "" = the base currency.
     fetch("/api/currencies")
-      .then((response) => (response.ok ? (response.json() as Promise<{ code: string }[]>) : []))
-      .then((data) => setCurrencies([...new Set(data.filter((item) => item.code?.trim()).map((item) => normCurrency(item.code)))]))
+      .then((response) => (response.ok ? (response.json() as Promise<{ code: string; isBase?: boolean }[]>) : []))
+      .then((data) => {
+        setCurrencies([...new Set(data.filter((item) => item.code?.trim()).map((item) => normCurrency(item.code)))])
+        const base = data.find((item) => item.isBase && item.code?.trim())
+        setBaseCurrency(base ? normCurrency(base.code) : "")
+      })
       .catch(() => undefined)
   }, [])
 
   useEffect(() => {
     if (openId === null) return
+    // A late answer for a branch closed in the meantime is dropped.
+    let cancelled = false
     fetch(`/api/branches/${openId}/plans`)
       .then((response) => (response.ok ? (response.json() as Promise<BranchPlan[]>) : []))
-      .then(setPlans)
-      .catch(() => setPlans([]))
+      .then((data) => { if (!cancelled) setPlans(data) })
+      .catch(() => { if (!cancelled) setPlans([]) })
+    return () => {
+      cancelled = true
+    }
   }, [openId])
 
   const filtered = useMemo(() => {
@@ -240,15 +270,56 @@ export function BranchesView() {
     }
   }
 
+  const importSpec: ExcelImportSpec<BranchImport> = {
+    templateName: "branches-template",
+    columns: [
+      { field: "name", header: "Наименование", aliases: ["Название", "Название филиала", "Филиал", "Name"] },
+      { field: "priceList", header: "Прайс лист", aliases: ["Прайс-лист", "Price list"] },
+      { field: "currency", header: "Валюта", aliases: ["Currency"] },
+      { field: "debtTracking", header: "Учет долга (да/нет)", aliases: ["Учет долга", "Учёт долга", "Debt tracking"] },
+    ],
+    keyField: "name",
+    prepare: async (records) => {
+      // Price lists (active, like the dialog's picker) and currencies of Валюты, read fresh: a reference is sent by its stored name / code.
+      const [lists, codes] = await Promise.all([
+        listJson<{ name: string; isActive?: boolean }>("/api/price-lists"),
+        listJson<{ code: string }>("/api/currencies"),
+      ])
+      const listByKey = new Map(lists.filter((item) => item.isActive !== false && item.name).map((item) => [importKey(item.name), item.name]))
+      const currencyCodes = new Set(codes.filter((item) => item.code?.trim()).map((item) => normCurrency(item.code)))
+      const rows: PreparedRow<BranchImport>[] = []
+      const errors: ImportRowError[] = []
+      for (const { line, values } of records) {
+        if (!values.name) {
+          errors.push({ line, label: t("Наименование"), message: "Обязательное поле" })
+          continue
+        }
+        const priceList = values.priceList ? listByKey.get(importKey(values.priceList)) : ""
+        const currency = values.currency ? normCurrency(values.currency) : ""
+        const debtTracking = parseYesNo(values.debtTracking, false)
+        if (priceList === undefined) errors.push({ line, label: `${values.name}, ${values.priceList}`, message: "Прайс-лист не найден" })
+        else if (currency && !currencyCodes.has(currency)) errors.push({ line, label: `${values.name}, ${values.currency}`, message: "Валюта не найдена" })
+        else if (debtTracking === null) errors.push({ line, label: `${values.name}, ${t("Учет долга")}`, message: "Укажите да или нет" })
+        else rows.push({ line, label: values.name, item: { name: values.name, priceList, currency, debtTracking, isMain: false } })
+      }
+      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+    },
+    send: (item) => postJson("/api/branches", item),
+    fallbackError: "Не удалось сохранить филиал",
+  }
+
   const flag = (on: boolean, yes: string, no: string) => <b className={on ? "text-[#8acb8d]" : "text-[#e57373]"}>{on ? yes : no}</b>
 
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <div className="relative flex h-[50px] items-center pr-[5px] text-[13px]">
-        <button type="button" onClick={() => openForm()} className="absolute left-[5px] top-[7px] flex h-[36px] items-center rounded-[5px] bg-white pl-[12px] pr-[16px] leading-[36px] text-[#4f71dc]">
-          <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[2px] h-[14px] w-[14px] shrink-0 fill-[#4f71dc]"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
-          <span className="relative top-[1.5px]">{t("Добавить филиал")}</span>
-        </button>
+        <div className="absolute left-[5px] top-[7px] flex items-center">
+          <button type="button" onClick={() => openForm()} className="flex h-[36px] items-center rounded-[5px] bg-white pl-[12px] pr-[16px] leading-[36px] text-[#4f71dc]">
+            <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[2px] h-[14px] w-[14px] shrink-0 fill-[#4f71dc]"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+            <span className="relative top-[1.5px]">{t("Добавить филиал")}</span>
+          </button>
+          {canImport && <ExcelImportLink className="h-[36px] pl-0 pt-[3px] leading-[36px]" onClick={() => setImportOpen(true)} />}
+        </div>
         <label className="group/search absolute left-[335px] top-0 block h-[48px] w-[294.3px]">
           <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="relative h-full w-full bg-transparent pr-[34px] text-[13px] leading-[24px] outline-none placeholder:text-black/30" />
           <span className="pointer-events-none absolute inset-x-0 bottom-[8px] h-px bg-[#e0e0e0]" />
@@ -293,7 +364,7 @@ export function BranchesView() {
               <div className="min-w-0 flex-1 px-[15px] py-[15px]">
                 {plans.map((plan) => (
                   <div key={plan.id} className="flex gap-[40px] leading-[25px]">
-                    <span>{t("Вес")}: <b>{plan.weight}</b></span><span>{t("Количество")}: <b>{plan.amount}</b></span><span>{t("Цена")}: <b>{plan.price}</b></span>
+                    <span>{t("Вес")}: <b>{planValue(plan.weight, 3)}</b></span><span>{t("Количество")}: <b>{planValue(plan.amount, 3)}</b></span><span>{t("Цена")}: <b>{plan.price === null ? "" : `${planValue(plan.price, 2)} ${branch.currency || baseCurrency}`.trim()}</b></span>
                   </div>
                 ))}
               </div>
@@ -362,6 +433,17 @@ export function BranchesView() {
       )}
 
       {deleting && <ConfirmDelete name={deleting.name} onConfirm={() => void remove()} onClose={() => setDeleting(null)} />}
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={importSpec}
+          onClose={() => setImportOpen(false)}
+          onChanged={load}
+          onDone={(summary) => {
+            setImportOpen(false)
+            setAlertMessage(summary)
+          }}
+        />
+      )}
       {alertMessage && <ErrorAlert message={alertMessage} onClose={() => setAlertMessage("")} />}
     </div>
   )

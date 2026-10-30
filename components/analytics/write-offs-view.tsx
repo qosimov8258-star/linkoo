@@ -10,9 +10,11 @@ import { FilterPopup, FilterToggle, PeriodField, orderedPeriod } from "@/compone
 import { docDate } from "@/components/analytics/internal-transfers-shared"
 import { WriteOffDetailPanel, WriteOffStatusLabel } from "@/components/analytics/write-offs-detail"
 import { WriteOffFormDialog } from "@/components/analytics/write-offs-form"
-import { RefCard, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefToolbar } from "@/components/ref/list-kit"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { roundMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { WRITE_OFF_STATUSES, type WriteOffListResult, type WriteOffOptions, type WriteOffStatus } from "@/lib/write-offs-types"
+import { WRITE_OFF_STATUSES, type WriteOff, type WriteOffListResult, type WriteOffOptions, type WriteOffStatus } from "@/lib/write-offs-types"
 
 // "Списание" (demo #/write-off, chunk c142: list 5197, filter 4461). Header
 // button "Списание товара"; toolbar "Показать фильтр" (Период создания, Склад,
@@ -127,6 +129,21 @@ export function WriteOffsView() {
   const f = state.filters
   const filterCount = [f.warehouses.length > 0, f.creators.length > 0, Boolean(f.status), Boolean(f.fromDate || f.toDate)].filter(Boolean).length
 
+  // "Скачать Excel": every write-off of the current filter and search (pageSize 0 = all pages).
+  const downloadExcel = async () => {
+    try {
+      const response = await fetch(`/api/write-offs?${buildCashQuery(listQuery(state, 0))}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (WriteOffListResult & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error || "Не удалось загрузить данные")
+      downloadExcelTable(t("Списание"), [
+        ["№", t("Создал"), t("Склад"), t("Дата создания"), t("Статус"), t("Сумма"), t("Комментарий")],
+        ...body.results.map((row: WriteOff) => [row.id, row.creator, row.warehouse, docDate(row.date, language, true), t(row.status), roundMoney(row.total), row.comment]),
+      ])
+    } catch (reason) {
+      notify(reason instanceof Error ? t(reason.message) : t("Сервер недоступен, попробуйте ещё раз"), true)
+    }
+  }
+
   const th = "whitespace-nowrap px-2 py-0 text-left font-semibold"
   const td = "px-2 py-0 align-middle leading-[16.25px]"
   const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
@@ -180,6 +197,7 @@ export function WriteOffsView() {
           page={state.page}
           pageCount={pageCount}
           onPage={(page) => update({ page, detailId: null })}
+          icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={() => void downloadExcel()} />}
         />
 
         {list.error && (

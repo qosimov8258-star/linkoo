@@ -2,21 +2,30 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
 import { currencyErrorResponse } from "@/app/api/currencies/schema"
-import { parseBody, parseId } from "@/lib/auth-request"
+import { nameField, parseBody, parseId } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
 import { deleteCurrency, getCurrency, updateCurrency } from "@/lib/currencies-repo"
+import { editCurrency } from "@/lib/currency-rates-repo"
+import { optionalRateValue } from "@/lib/currency-rates-schema"
+import { dbErrorResponse } from "@/lib/db-errors"
 import { requireRole } from "@/lib/rbac"
-import { setCurrencyRate } from "@/lib/currency-rates-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 const NOT_FOUND = { error: "Валюта не найдена" }
 
 // "Изменить валюту" sends the name and, optionally, a new rate (recorded in the rate history).
+// The rate is strict (lib/currency-rates-schema.ts): absent / null = unchanged; "" , 0, signs,
+// hex, exponents and texts are refused (400), never stored as 0.
 const currencyUpdateSchema = z.object({
-  name: z.string({ error: "Обязательное поле" }).trim().min(1, "Обязательное поле").max(255),
-  rate: z.preprocess((value) => (value === "" || value === undefined ? undefined : typeof value === "string" ? Number(value.replace(/\s/g, "").replace(",", ".")) : value), z.number().positive("Введите число больше 0").max(1_000_000_000).optional()),
+  name: nameField("Укажите название валюты", 100),
+  rate: optionalRateValue,
 })
+
+/** The refusal of a currency write, or a lock timeout / busy database, as JSON; null otherwise. */
+function writeErrorResponse(error: unknown): NextResponse | null {
+  return currencyErrorResponse(error) ?? dbErrorResponse(error)
+}
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   const user = await getCurrentUser()
@@ -39,15 +48,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   const parsed = await parseBody(request, currencyUpdateSchema)
   if (parsed.error) return parsed.error
 
-  const existing = await getCurrency(id)
-  if (!existing) return NextResponse.json(NOT_FOUND, { status: 404 })
-
-  // "Изменить валюту": the name, and a new history row when the rate changed.
+  // "Изменить валюту": the name, and a new history row when the rate changed — one transaction
+  // under the currencies lock, reading the code / rate / base of the locked row, so a parallel
+  // edit or "Установить курс" is never undone by stale values.
   try {
-    await updateCurrency(id, { name: parsed.data.name, code: existing.code, rate: existing.rate, isBase: existing.isBase })
-    if (!existing.isBase && parsed.data.rate !== undefined && parsed.data.rate !== existing.rate) await setCurrencyRate(id, parsed.data.rate)
+    const result = await editCurrency(id, parsed.data.rate, async (current) => {
+      const updated = await updateCurrency(id, { name: parsed.data.name, code: current.code.trim().toUpperCase(), rate: current.rate, isBase: current.isBase })
+      return updated.ok
+    })
+    if (!result.ok) return NextResponse.json(NOT_FOUND, { status: 404 })
   } catch (error) {
-    const response = currencyErrorResponse(error)
+    const response = writeErrorResponse(error)
     if (response) return response
     throw error
   }
@@ -68,7 +79,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     if (result === "is_base") return NextResponse.json({ error: "Нельзя удалить базовую валюту" }, { status: 409 })
     return NextResponse.json({ ok: true })
   } catch (error) {
-    const response = currencyErrorResponse(error)
+    const response = writeErrorResponse(error)
     if (response) return response
     throw error
   }

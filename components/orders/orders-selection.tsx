@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
 
+import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { ORDER_STATUS_REF_OPTIONS, type Order } from "./orders-data"
+
+/** Paying orders posts customer payments into cashboxes (POST /api/cash/orders/[id]/pay, the /api/cash prefix). */
+export const PAY_PERMISSIONS = ["cash.manage"] as const
 
 const CHECKBOX_OFF = "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
 const CHECKBOX_ON = "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
@@ -223,10 +227,12 @@ export function SelectedTotalsDialog({ orders, onClose }: { orders: Order[]; onC
 // "Изменение выбранных заказов"
 // ---------------------------------------------------------------------------
 
+/** The ticked actions: the picked value of a field with an input, "1" for an action without one
+ * ("Сделать дату реализации…", "Принять оплату…"). */
 export type BulkEditValues = Partial<Record<BulkField, string>>
 type BulkField =
   | "created" | "delivery" | "paid" | "transfer" | "realization"
-  | "deliverer" | "expeditor" | "warehouse" | "picker" | "transport" | "status" | "dealType" | "agent" | "payStatus"
+  | "deliverer" | "expeditor" | "warehouse" | "picker" | "transport" | "status" | "dealType" | "agent" | "pay"
 
 type FieldDef = { key: BulkField; label: string; input?: { kind: "date" | "select"; label: string; options?: string[] } }
 
@@ -242,6 +248,9 @@ const BULK_STATUS_OPTIONS = ORDER_STATUS_REF_OPTIONS.map((option) => (option ===
 
 export function BulkEditDialog({ count, onClose, onApply }: { count: number; onClose: () => void; onApply: (values: BulkEditValues, showAfter: boolean) => void }) {
   const { t } = useLanguage()
+  // "Принять оплату" posts customer payments into cashboxes (POST /api/cash/orders/[id]/pay): only for
+  // users who may run cash operations.
+  const canPay = useCanManage(PAY_PERMISSIONS)
   const [checked, setChecked] = useState<Partial<Record<BulkField, boolean>>>({})
   const [values, setValues] = useState<BulkEditValues>({})
   const [people, setPeople] = useState<string[]>([])
@@ -266,9 +275,11 @@ export function BulkEditDialog({ count, onClose, onApply }: { count: number; onC
       { key: "status", label: "Изменить статус", input: { kind: "select", label: "Статус", options: BULK_STATUS_OPTIONS } },
       { key: "dealType", label: "Изменить тип сделки", input: { kind: "select", label: "Тип сделки", options: ["Стандарт", "Консигнация"] } },
       { key: "agent", label: "Изменить агента", input: { kind: "select", label: "Агент", options: people } },
-      { key: "payStatus", label: "Изменить статус оплаты", input: { kind: "select", label: "Статус оплаты", options: ["Не оплачен", "Оплачен"] } },
+      // Paid / unpaid is no order field: it follows the payments in the cash ledger. This action opens
+      // the group payment of the ticked orders (real payments), it never marks an order "paid".
+      ...(canPay ? [{ key: "pay", label: "Принять оплату по выбранным заказам" } satisfies FieldDef] : []),
     ],
-    [people, warehouses, transports],
+    [people, warehouses, transports, canPay],
   )
 
   const toggle = (key: BulkField) => setChecked((current) => ({ ...current, [key]: !current[key] }))
@@ -277,7 +288,8 @@ export function BulkEditDialog({ count, onClose, onApply }: { count: number; onC
   const apply = (showAfter: boolean) => {
     const picked: BulkEditValues = {}
     for (const field of [...LEFT_FIELDS, ...rightFields]) {
-      if (checked[field.key]) picked[field.key] = values[field.key] ?? (field.input?.kind === "select" && field.key === "status" ? BULK_STATUS_OPTIONS[0] : "")
+      if (!checked[field.key]) continue
+      picked[field.key] = !field.input ? "1" : values[field.key] ?? (field.input.kind === "select" && field.key === "status" ? BULK_STATUS_OPTIONS[0] : "")
     }
     onApply(picked, showAfter)
   }

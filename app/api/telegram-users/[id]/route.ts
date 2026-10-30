@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireRole } from "@/lib/rbac"
 import { deleteTelegramUser } from "@/lib/telegram-users-repo"
 
-// DELETE /api/telegram-users/[id] — removes a bot user (the red minus on the list row).
+// DELETE /api/telegram-users/[id] — removes a bot user (the red minus on the list row). A change of the clients
+// section: manager role and, for a user with an access right, clients.manage (lib/capabilities-catalog.ts).
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
   const { id } = await params
-  if (!/^\d+$/.test(id)) return NextResponse.json({ error: "Неверный идентификатор" }, { status: 400 })
+  // A telegram id: a positive integer that fits BIGINT (18 digits at most).
+  if (!/^[1-9]\d{0,17}$/.test(id)) return NextResponse.json({ error: "Неверный идентификатор" }, { status: 400 })
   if (!(await deleteTelegramUser(id))) return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 })
   return NextResponse.json({ ok: true })
 }

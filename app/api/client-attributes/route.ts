@@ -1,22 +1,14 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { CLIENT_ATTRIBUTE_FIELD_TYPES, createClientAttribute, listClientAttributes } from "@/lib/client-attributes-repo"
-
-const clientAttributeSchema = z.object({
-  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
-  fieldType: z.enum(CLIENT_ATTRIBUTE_FIELD_TYPES as [string, ...string[]]).optional(),
-  required: z.boolean().optional(),
-  cacheNumber: z.number().int().nullable().optional(),
-})
+import { ClientAttributeError, clientAttributeInput, clientAttributeSchema, createClientAttribute, listClientAttributes } from "@/lib/client-attributes-repo"
 
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listClientAttributes()))
+  return NextResponse.json(await listClientAttributes())
 }
 
 export async function POST(request: Request) {
@@ -26,11 +18,10 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, clientAttributeSchema)
   if (parsed.error) return parsed.error
 
-  const attribute = await createClientAttribute({
-    name: parsed.data.name,
-    fieldType: parsed.data.fieldType ?? "Выбор вариантов",
-    required: parsed.data.required ?? false,
-    cacheNumber: parsed.data.cacheNumber ?? null,
-  })
-  return NextResponse.json(attribute, { status: 201 })
+  try {
+    return NextResponse.json(await createClientAttribute(clientAttributeInput(parsed.data)), { status: 201 })
+  } catch (error) {
+    if (error instanceof ClientAttributeError) return NextResponse.json({ error: error.message, fields: { name: error.message } }, { status: error.status })
+    throw error
+  }
 }

@@ -1,13 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 
 import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
 import { parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { strictNumber } from "@/lib/strict-number"
 
-import { AddOrderDialog, OrganizationMoveHint } from "./add-order-dialog"
+import { AddOrderDialog, FlatInput, OrganizationMoveHint } from "./add-order-dialog"
+import { useAllowedProductIds, useAllowedRows } from "./allowed-products"
+import { orderListPrice, type OrderPriceList } from "./order-list-price"
 import { RefCheck, RefDate, RefSelect, RefText } from "./order-ref-fields"
 import { OrderPaymentsDialog } from "./order-returns-tab"
 import { EDITABLE_STATUSES, FINAL_STATUSES, ORDER_STATUSES, canChangeStatus, orderApiErrorText, orderOrganization, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
@@ -553,6 +556,7 @@ export function OrderDetailCard({
   const status = order.status
   const editable = !(ORDER_STATUSES as readonly string[]).includes(status) || EDITABLE_STATUSES.includes(status)
   const final = FINAL_STATUSES.includes(status)
+  const canEditOrders = useCanEditOrders()
 
   /** The reference only offers returns once the goods left the warehouse (delivered / handed to the courier). */
   const canReturn = order.status === "Доставлено" || order.status === "В пути"
@@ -812,7 +816,23 @@ export function OrderDetailCard({
           />
         </div>
 
-        {tab === "Список товаров" && <ItemsTable items={items} loading={itemsLoading} />}
+        {tab === "Список товаров" && (
+          <>
+            <ItemsTable items={items} loading={itemsLoading} />
+            {/* Lines can be added while the order is still editable, by a user who may change orders. */}
+            {editable && !final && canEditOrders && !itemsLoading && (
+              <InlineAddLine
+                key={order.id}
+                order={order}
+                onAdded={() => {
+                  // The server logged the change ("Добавлен товар: …"); the card reloads the lines, totals and log.
+                  reloadAll()
+                  onNotify(t("Товар добавлен в заказ"))
+                }}
+              />
+            )}
+          </>
+        )}
         {tab === "Серии" && <Robot text={t("По вашему запросу ничего не найдено")} />}
         {tab === "Возврат" &&
           (returns.length ? (
@@ -1331,6 +1351,305 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
   )
 }
 
+/** Can the signed-in user change orders (POST /api/orders/[id]/items needs a manager and orders.manage)? */
+function useCanEditOrders(): boolean {
+  const [can, setCan] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((user: { role?: string; permissions?: string[] | null } | null) => {
+        if (cancelled || !user) return
+        const role = user.role ?? ""
+        setCan(role === "admin" || (role === "manager" && (user.permissions == null || user.permissions.includes("orders.manage"))))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return can
+}
+
+type SellableProduct = {
+  id: number
+  name: string
+  unit?: string
+  canSell?: boolean
+  deleted?: boolean
+  priceLists?: { name: string; cash?: number; nonCash?: number; currency?: string; nonCashCurrency?: string }[]
+}
+
+const MAX_LINE_QTY = 1_000_000_000
+const MAX_LINE_PRICE = 10_000_000_000_000
+
+/**
+ * "+ добавить товар" under the order's lines: the edit form's inline row (Наименование / Кол-во /
+ * Сумма за ед). The line is saved through the same validated path as the edit form
+ * (POST /api/orders/[id]/items): the server applies the order status, Ограничение продуктов,
+ * the agent limits, the time restrictions and — for a reserved order — the warehouse stock.
+ */
+function InlineAddLine({ order, onAdded }: { order: Order; onAdded: () => void }) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  if (!open) {
+    return (
+      <div className="flex justify-end pt-[10px]">
+        <button type="button" onClick={() => setOpen(true)} className="h-9 px-4 text-[13px] text-[#4f6fe0] hover:underline">
+          + {t("добавить товар")}
+        </button>
+      </div>
+    )
+  }
+  return (
+    <InlineAddForm
+      order={order}
+      onClose={() => setOpen(false)}
+      onAdded={() => {
+        setOpen(false)
+        onAdded()
+      }}
+    />
+  )
+}
+
+function InlineAddForm({ order, onClose, onAdded }: { order: Order; onClose: () => void; onAdded: () => void }) {
+  const { t } = useLanguage()
+  const [products, setProducts] = useState<SellableProduct[] | null>(null)
+  // The price lists (with their currency): a product entry without its own currency is in its list's currency.
+  const [priceLists, setPriceLists] = useState<OrderPriceList[] | null>(null)
+  // Ограничение продуктов: an agent with a product / type list is offered only those products (the API refuses the others).
+  const sellable = useAllowedRows(products, useAllowedProductIds(order.agent))
+  const [productId, setProductId] = useState("")
+  const [quantity, setQuantity] = useState("")
+  const [unitPrice, setUnitPrice] = useState("")
+  const [busy, setBusy] = useState(false)
+  // A double click / double Enter sends one request (the state update lands after the second event).
+  const sending = useRef(false)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    void api<SellableProduct[]>("/api/products").then((result) => {
+      if (!cancelled) setProducts(result.ok && Array.isArray(result.body) ? result.body.filter((row) => row.canSell !== false && !row.deleted) : [])
+    })
+    // Every list (active=all): the order may use a list that was switched off later. A failed load leaves
+    // only the entries with their own currency priced (the others are typed by hand).
+    void api<OrderPriceList[]>("/api/price-lists?active=all").then((result) => {
+      if (!cancelled) setPriceLists(result.ok && Array.isArray(result.body) ? result.body : [])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // The order's currency and payment type pick the price list price (cash / non-cash), like the edit form.
+  const currency = (order.currency || "").trim()
+  const nonCash = order.payTypeName === "Перечисление" || (order.payTypeName !== "Наличные" && (order.paymentType === "bank" || order.payMethod === "bank"))
+  /**
+   * The price list price in the order currency, else "" (typed by hand). An entry without its own currency is in
+   * its list's currency; a price of another or an unknown currency is never taken (order-list-price.ts).
+   */
+  const listPrice = (product: SellableProduct): string => {
+    const value = orderListPrice(product.priceLists, { priceList: order.priceList, lists: priceLists, orderCurrency: currency, nonCash })
+    return value === null || value > MAX_LINE_PRICE ? "" : String(value)
+  }
+
+  async function submit() {
+    if (sending.current) return
+    setError("")
+    const product = (sellable ?? []).find((row) => String(row.id) === productId)
+    if (!product) return setError(t("Выберите товар"))
+    const qty = strictNumber(quantity, { locale: true })
+    const price = strictNumber(unitPrice, { locale: true })
+    if (!(qty > 0 && qty <= MAX_LINE_QTY) || !(price >= 0 && price <= MAX_LINE_PRICE) || unitPrice.trim() === "") return setError(t("Проверьте количество и цену"))
+    sending.current = true
+    setBusy(true)
+    const result = await api(`/api/orders/${order.id}/items`, {
+      method: "POST",
+      body: { productId: product.id, productName: product.name, ...(product.unit ? { unit: product.unit } : {}), quantity: qty, unitPrice: price, discountPercent: 0, ...(currency ? { currency } : {}) },
+    })
+    sending.current = false
+    setBusy(false)
+    if (!result.ok) return setError(orderApiErrorText(result, t, "Не удалось сохранить изменения на сервере"))
+    onAdded()
+  }
+
+  // Enter in a field adds the line; Escape closes only this row (stopped here, so the card stays open).
+  const keys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
+      event.preventDefault()
+      void submit()
+    } else if (event.key === "Escape") {
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+  }
+
+  return (
+    <div className="mt-[10px] bg-[#f1f4f7] px-[18px] pb-4 pt-8" onKeyDown={keys}>
+      <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
+        <div className="w-[510px] max-w-full">
+          <ProductSelect
+            label={t("Наименование")}
+            value={productId}
+            onChange={(value) => {
+              setError("")
+              setProductId(value)
+              const product = (sellable ?? []).find((row) => String(row.id) === value)
+              setQuantity((current) => current || "1")
+              setUnitPrice(product ? listPrice(product) : "")
+            }}
+            loading={!sellable || !priceLists}
+            options={sellable && priceLists ? sellable.map((row) => ({ value: String(row.id), label: row.name })) : []}
+          />
+        </div>
+        <FlatInput label={t("Кол-во")} value={quantity} onChange={(value) => (setError(""), setQuantity(value))} className="w-[200px]" />
+        <FlatInput label={`${t("Сумма за ед")}${currency ? ` (${currency})` : ""}`} value={unitPrice} onChange={(value) => (setError(""), setUnitPrice(value))} className="w-[310px]" />
+        <div className="mb-2 flex items-center gap-4">
+          <button type="button" onClick={() => void submit()} disabled={busy} aria-label={t("Добавить")} title={t("Добавить")} className="text-[#4f6fe0] disabled:opacity-50">
+            <Mi d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" className="h-6 w-6 fill-current" />
+          </button>
+          <button type="button" onClick={onClose} aria-label={t("Отмена")} title={t("Отмена")} className="text-[#999] hover:text-[#666]">
+            <Mi d={ICONS.close} className="h-6 w-6 fill-current" />
+          </button>
+        </div>
+      </div>
+      {error && <p className="mt-3 text-[13px] text-[#f44336]">{error}</p>}
+    </div>
+  )
+}
+
+/**
+ * The edit form's flat "Наименование" select (the bold label is the placeholder and floats above once a
+ * product is chosen) with a typed search. The list is portaled to <body> as a fixed panel under (or above)
+ * the field, so the order rows that follow the card never cover it.
+ */
+function ProductSelect({
+  label,
+  value,
+  options,
+  loading,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  loading: boolean
+  onChange: (value: string) => void
+}) {
+  const { t } = useLanguage()
+  const [place, setPlace] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null)
+  const [query, setQuery] = useState("")
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const selected = options.find((row) => row.value === value)
+  const needle = query.trim().toLowerCase()
+  const shown = needle ? options.filter((row) => row.label.toLowerCase().includes(needle)) : options
+
+  const openList = () => {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setQuery("")
+    const below = window.innerHeight - rect.bottom
+    setPlace(below >= 300 || below >= rect.top ? { left: rect.left, width: rect.width, top: rect.bottom + 2 } : { left: rect.left, width: rect.width, bottom: window.innerHeight - rect.top + 2 })
+  }
+  const pick = (next: string) => {
+    onChange(next)
+    setPlace(null)
+    buttonRef.current?.focus()
+  }
+
+  useEffect(() => {
+    if (!place) return
+    const inside = (target: EventTarget | null) => target instanceof Node && (listRef.current?.contains(target) || buttonRef.current?.contains(target))
+    const onDown = (event: MouseEvent) => !inside(event.target) && setPlace(null)
+    // The panel is fixed: it closes when the page under it scrolls or resizes (scrolling the list itself is fine).
+    const onScroll = (event: Event) => !inside(event.target) && setPlace(null)
+    const onResize = () => setPlace(null)
+    document.addEventListener("mousedown", onDown)
+    window.addEventListener("scroll", onScroll, true)
+    window.addEventListener("resize", onResize)
+    return () => {
+      document.removeEventListener("mousedown", onDown)
+      window.removeEventListener("scroll", onScroll, true)
+      window.removeEventListener("resize", onResize)
+    }
+  }, [place])
+
+  return (
+    <div className="relative">
+      <span className={`block h-[13px] text-[9.75px] font-semibold leading-[12.2px] text-black ${selected ? "" : "invisible"}`}>{label}</span>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={Boolean(place)}
+        onClick={() => (place ? setPlace(null) : openList())}
+        className="relative flex h-[41px] w-full items-center border-b border-[#e0e0e0] pr-14 pt-[3px] text-left text-[13px] font-semibold text-[#333]"
+      >
+        {selected ? <span className="truncate">{selected.label}</span> : <span className="font-semibold text-black">{label}</span>}
+        <span className="absolute right-0 top-[11px] flex items-center text-[#999]">
+          {loading && <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-[#ccc] border-t-transparent" />}
+          <svg viewBox="0 0 10 7" className="mr-[10px] h-[7px] w-[10px]" aria-hidden>
+            <path d={place ? "M0 7h10L5 0z" : "M0 0h10L5 7z"} fill="#999" />
+          </svg>
+        </span>
+      </button>
+      {place &&
+        createPortal(
+          <div
+            ref={listRef}
+            data-order-overlay
+            style={{ position: "fixed", left: place.left, width: place.width, top: place.top, bottom: place.bottom }}
+            className="z-[1400] bg-white py-1 font-sans shadow-[0_2px_10px_rgba(0,0,0,0.2)]"
+          >
+            <input
+              autoFocus
+              value={query}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                // Handled here: the add-line row must not take Enter (save) or Escape (close) from the search box.
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setPlace(null)
+                  buttonRef.current?.focus()
+                } else if (event.key === "Enter") {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  if (shown[0]) pick(shown[0].value)
+                }
+              }}
+              className="mx-3 mb-1 block h-8 w-[calc(100%-24px)] border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none"
+            />
+            <ul role="listbox" className="max-h-60 overflow-y-auto">
+              {shown.length === 0 ? (
+                <li className="px-3 py-2 text-[13px] font-semibold text-slate-400">{loading ? t("Загрузка...") : t("Ничего не найдено")}</li>
+              ) : (
+                shown.map((row) => (
+                  <li key={row.value} role="option" aria-selected={row.value === value}>
+                    <button
+                      type="button"
+                      onClick={() => pick(row.value)}
+                      className={`block w-full px-3 py-2 text-left text-[13px] font-semibold ${row.value === value ? "bg-[#e3effd] text-slate-800" : "text-slate-500 hover:bg-slate-50"}`}
+                    >
+                      {row.label}
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>,
+          document.body,
+        )}
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* Dialogs                                                             */
 /* ------------------------------------------------------------------ */
@@ -1671,7 +1990,6 @@ type Returnable = { orderItemId: number; productName: string; unit: string; orde
  * balance change when it is accepted into the warehouse. Quantities above what is left are refused. */
 function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: (id: number) => void }) {
   const { t } = useLanguage()
-  const [paymentType, setPaymentType] = useState("Банковский счет")
   const [warehouse, setWarehouse] = useState(order.warehouse || order.stockName || "")
   const warehouses = useNames("/api/warehouses", (row) => (row.active === false ? "" : plainName(row)))
   const [lines, setLines] = useState<Returnable[] | null>(null)
@@ -1737,14 +2055,14 @@ function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: 
     >
       <div className="px-[22px] pt-[31px]">
         <div className="ml-2 flex items-start gap-[25px]">
-          <RefSelect
-            className="w-[316px]"
-            label={t("Тип оплаты")}
-            value={paymentType}
-            options={["Банковский счет", "Наличные", "Перечисление"].map((value) => ({ value, label: t(value) }))}
-            onChange={setPaymentType}
-            onClear={() => setPaymentType("")}
-          />
+          {/* A client return takes no payment type: once accepted into the warehouse its amount is
+              credited to the client's balance (lib/client-returns-repo.ts), never paid out of a
+              cashbox. Shown read-only, so nothing here pretends to choose how the money goes back. */}
+          <div className="relative h-[54px] w-[316px]" title={t("Сумма возврата зачисляется на баланс клиента после приемки на склад")}>
+            <span className="absolute left-0 top-0 whitespace-nowrap text-[9.75px] font-semibold leading-[12.2px] text-black">{t("Тип оплаты")}</span>
+            <span className="absolute left-0 right-0 top-[26px] truncate text-[13px] font-semibold leading-[18px] text-[#999]">{t("На баланс клиента")}</span>
+            <span className="absolute inset-x-0 bottom-0 h-px bg-[#e0e0e0]" />
+          </div>
           <RefSelect
             className="w-[316px]"
             label={t("Склад")}

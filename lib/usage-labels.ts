@@ -12,7 +12,6 @@ const LABELS: Record<string, string> = {
   account_bulk_payments: "Оплаты от клиентов",
   account_payment_deadlines: "Срок оплаты",
   account_reconciliation_messages: "Сверка через бот",
-  agent_routes: "Маршруты",
   attendance_auto_days: "Посещаемость",
   attendance_check_ins: "Посещаемость",
   attendance_days: "Посещаемость",

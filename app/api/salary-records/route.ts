@@ -2,9 +2,11 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { dbErrorResponse } from "@/lib/db-errors"
 import { requireRole } from "@/lib/rbac"
+import { SalaryInputError, allSalaryRecords, listSalaryRecords, salaryKpiStats, setSalaries } from "@/lib/salary-records-repo"
+import { dbId, strictNum } from "@/lib/strict-number"
 import { parseJsonBody } from "@/lib/validation"
-import { allSalaryRecords, listSalaryRecords, salaryKpiStats, setSalaries } from "@/lib/salary-records-repo"
 
 function clampMonth(value: string | null) {
   const month = Number(value)
@@ -32,11 +34,21 @@ export async function GET(request: Request) {
   return NextResponse.json(await listSalaryRecords({ month, year, tab, search: url.searchParams.get("search") ?? "", page, pageSize }))
 }
 
+const MAX_MONEY = 1e13
 const createSchema = z.object({
-  month: z.coerce.number().int().min(1).max(12),
-  year: z.coerce.number().int().min(1970).max(2200),
-  currency: z.string().trim().optional(),
-  salaries: z.array(z.object({ user: z.coerce.number().int(), salary: z.coerce.number().finite().nonnegative() })).min(1),
+  month: strictNum(z.number({ error: "Неверные данные" }).int("Неверные данные").min(1, "Неверные данные").max(12, "Неверные данные"), "Неверные данные"),
+  year: strictNum(z.number({ error: "Неверные данные" }).int("Неверные данные").min(2000, "Неверные данные").max(2100, "Неверные данные"), "Неверные данные"),
+  currency: z.string({ error: "Неизвестная валюта" }).trim().max(100, "Неизвестная валюта").optional(),
+  salaries: z
+    .array(
+      z.object({
+        user: dbId("Выберите сотрудника"),
+        salary: strictNum(z.number({ error: "Неверная сумма" }).min(0, "Сумма не может быть отрицательной").max(MAX_MONEY, "Слишком большая сумма"), "Неверная сумма"),
+      }),
+      { error: "Выберите сотрудника" },
+    )
+    .min(1, "Выберите сотрудника")
+    .max(5000, "Слишком много значений"),
 })
 
 /** "Добавить зарплату": the salaries of the chosen employees for the month. */
@@ -46,6 +58,13 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, createSchema)
   if (parsed.error) return parsed.error
   const { month, year, currency, salaries } = parsed.data
-  const done = await setSalaries(month, year, currency ?? "", salaries.map((item) => ({ userId: item.user, salary: item.salary })))
-  return NextResponse.json({ count: done }, { status: 201 })
+  try {
+    const done = await setSalaries(month, year, currency ?? "", salaries.map((item) => ({ userId: item.user, salary: item.salary })))
+    return NextResponse.json({ count: done }, { status: 201 })
+  } catch (error) {
+    if (error instanceof SalaryInputError) return NextResponse.json({ error: error.message }, { status: 400 })
+    const response = dbErrorResponse(error)
+    if (response) return response
+    throw error
+  }
 }

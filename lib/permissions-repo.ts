@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getDb, outsideTransaction } from "@/lib/db"
 import type { Permission } from "@/components/analytics/access-rights-data"
 
 type Row = { id: number; category: string; type: string; label: string; code: string; categories: string }
@@ -16,13 +16,14 @@ function rowToPermission(row: Row): Permission {
 }
 
 let categoriesReady: Promise<void> | null = null
+/** permission_categories, once per process on the maintenance pool (never inside a request transaction). */
 function ensureCategories() {
-  categoriesReady ??= getDb()
-    .exec("CREATE TABLE IF NOT EXISTS permission_categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)")
-    .catch((error) => {
-      categoriesReady = null
-      throw error
-    })
+  categoriesReady ??= outsideTransaction(() =>
+    getDb().exec("CREATE TABLE IF NOT EXISTS permission_categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)"),
+  ).catch((error: unknown) => {
+    categoriesReady = null
+    throw error
+  })
   return categoriesReady
 }
 

@@ -171,8 +171,6 @@ export type PlanMovementRow = {
   /** Signed quantity (+ in, − out). */
   qty: number
   isDefect: boolean
-  /** "HH:MM" of the line (reference lines only; the stock ledger has days). */
-  time?: string
 }
 
 export type PlanMovementResult = { count: number; page: number; pageSize: number; results: PlanMovementRow[] }

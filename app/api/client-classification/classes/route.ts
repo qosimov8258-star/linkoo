@@ -8,7 +8,12 @@ import { parseJsonBody } from "@/lib/validation"
 
 const schema = z.object({
   classes: z
-    .array(z.object({ name: z.string().trim().min(1, "Обязательное поле").max(100), amount: z.number().positive("Сумма должна быть больше нуля") }))
+    .array(
+      z.object({
+        name: z.string().trim().min(1, "Обязательное поле").max(100, "Слишком длинное значение"),
+        amount: z.number({ error: "Введите число" }).positive("Сумма должна быть больше нуля").max(1e13, "Слишком большое значение"),
+      }),
+    )
     .min(1, "Добавьте хотя бы один класс")
     .max(30),
 })

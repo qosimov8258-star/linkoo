@@ -182,7 +182,7 @@ export function SalesByAgentsView() {
   function downloadCsv() {
     const header = ["Агент", "Продажа кол-во", "Продажа сумма", "Возврат кол-во", "Возврат сумма", "Фактическая продажа кол-во", "Фактическая продажа сумма", "Скидки", "Бонус"]
     const body = rows.map((row) => [row.agent, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum, row.discountSum, row.bonusSum])
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header, ...body])}`], { type: "text/csv;charset=utf-8" }))
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header.map((title) => t(title)), ...body])}`], { type: "text/csv;charset=utf-8" }))
     const anchor = document.createElement("a")
     anchor.href = url
     anchor.download = "sales-by-agents.csv"
@@ -202,9 +202,9 @@ export function SalesByAgentsView() {
         />
         {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">{t("Закрыть")}</button>}
         <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
-          <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty} шт)</small></ReportSummaryCard>
-          <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.returnQty} шт)</small></ReportSummaryCard>
-          <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty - totals.returnQty} шт)</small></ReportSummaryCard>
+          <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.returnQty} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty - totals.returnQty} {t("шт")})</small></ReportSummaryCard>
         </div>
         <div className="mt-[5px]">
           <ReportSearchBar
@@ -212,7 +212,7 @@ export function SalesByAgentsView() {
             onChange={(value) => { setQuery(value); setPage(1) }}
             pageSize={pageSize}
             onPageSize={setPageSize}
-            rangeLabel={rows.length ? `${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, rows.length)} из ${rows.length}` : "1 - 0 из 0"}
+            rangeLabel={rows.length ? `${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, rows.length)} ${t("из")} ${rows.length}` : `1 - 0 ${t("из")} 0`}
             canPrev={page > 1}
             canNext={page < pages}
             onPrev={() => setPage((value) => value - 1)}
@@ -223,11 +223,11 @@ export function SalesByAgentsView() {
         <div className="-mx-[20px] flex items-start justify-between gap-4 py-[10px] pr-[20px]">
           <p className="flex w-[660px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
             <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#4f71dc] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
-            Это оперативний отчеть для просмотра факта перейдите в другой раздел
+            {t("Это оперативний отчеть для просмотра факта перейдите в другой раздел")}
           </p>
           <div className="mt-[2px] flex">
-            <button type="button" onClick={() => setMode("created")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "created" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ</button>
-            <button type="button" onClick={() => setMode("realized")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "realized" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ</button>
+            <button type="button" onClick={() => setMode("created")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "created" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ")}</button>
+            <button type="button" onClick={() => setMode("realized")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "realized" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ")}</button>
           </div>
         </div>
         {itemsLoading ? (
@@ -237,7 +237,7 @@ export function SalesByAgentsView() {
         ) : shown.length === 0 ? (
           <ReportEmpty className="pb-[24px] pt-[24px]" text="По вашему запросу ничего не найдено" />
         ) : (
-          <div className="overflow-x-auto"><table className="min-w-[1250px] border-collapse"><thead className="bg-[#5470e8] text-white"><tr><th rowSpan={2} className="min-w-[300px] border-r border-white/30 px-5 py-4 text-left">Агент</th>{["Продажа", "Возврат в этом периоде", "Фактическая продажа", "Скидки", "Бонус"].map((item) => <th key={item} colSpan={2} className="border-r border-white/30 px-4 py-3 text-left">{item}</th>)}</tr><tr>{Array.from({ length: 5 }).flatMap((_, index) => [<th key={`${index}-q`} className="border-r border-white/30 px-4 py-3">Кол-во</th>, <th key={`${index}-s`} className="border-r border-white/30 px-4 py-3">Сумма</th>])}</tr></thead><tbody>{shown.map((row, index) => { const actualQty = row.saleQty - row.returnQty; const actualSum = row.saleSum - row.returnSum; return <tr key={row.agent} className={index % 2 ? "bg-white" : "bg-slate-50"}><td className="border-r px-5 py-3">{row.agent}</td>{[row.saleQty, row.saleSum, row.returnQty, row.returnSum, actualQty, actualSum, row.discountQty, row.discountSum, row.bonusQty, row.bonusSum].map((value, cell) => <td key={cell} className={`border-r px-4 py-3 text-right ${value > 0 ? "text-green-600" : value < 0 ? "text-red-500" : ""}`}>{typeof value === "number" ? value.toLocaleString("ru-RU") : value}</td>)}</tr>})}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="min-w-[1250px] border-collapse"><thead className="bg-[#5470e8] text-white"><tr><th rowSpan={2} className="min-w-[300px] border-r border-white/30 px-5 py-4 text-left">{t("Агент")}</th>{["Продажа", "Возврат в этом периоде", "Фактическая продажа", "Скидки", "Бонус"].map((item) => <th key={item} colSpan={2} className="border-r border-white/30 px-4 py-3 text-left">{t(item)}</th>)}</tr><tr>{Array.from({ length: 5 }).flatMap((_, index) => [<th key={`${index}-q`} className="border-r border-white/30 px-4 py-3">{t("Кол-во")}</th>, <th key={`${index}-s`} className="border-r border-white/30 px-4 py-3">{t("Сумма")}</th>])}</tr></thead><tbody>{shown.map((row, index) => { const actualQty = row.saleQty - row.returnQty; const actualSum = row.saleSum - row.returnSum; return <tr key={row.agent} className={index % 2 ? "bg-white" : "bg-slate-50"}><td className="border-r px-5 py-3">{row.agent}</td>{[row.saleQty, row.saleSum, row.returnQty, row.returnSum, actualQty, actualSum, row.discountQty, row.discountSum, row.bonusQty, row.bonusSum].map((value, cell) => <td key={cell} className={`border-r px-4 py-3 text-right ${value > 0 ? "text-green-600" : value < 0 ? "text-red-500" : ""}`}>{typeof value === "number" ? value.toLocaleString("ru-RU") : value}</td>)}</tr>})}</tbody></table></div>
         )}
       </section>
       {filterOpen && <FilterDialog from={from} setFrom={setFrom} to={to} setTo={setTo} warehouseFrom={warehouseFrom} setWarehouseFrom={setWarehouseFrom} warehouseTo={warehouseTo} setWarehouseTo={setWarehouseTo} branch={branch} setBranch={setBranch} organization={organization} setOrganization={setOrganization} productType={productType} setProductType={setProductType} status={status} setStatus={setStatus} client={client} setClient={setClient} agent={agent} setAgent={setAgent} clientType={clientType} setClientType={setClientType} showBonus={showBonus} setShowBonus={setShowBonus} onClose={() => setFilterOpen(false)} onSubmit={applyFilters} />}

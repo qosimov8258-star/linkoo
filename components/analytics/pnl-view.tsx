@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { ReportEmpty, ReportPage, WidgetHeader, formatShortReportDate } from "@/components/ref/report-kit"
+import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { PnlExpense, PnlFigures, PnlOptions, PnlRow, PnlStats } from "@/lib/pnl-stats-repo"
 
@@ -413,6 +414,12 @@ export function PnLView() {
           {t("Применить")}
         </button>
       </form>
+
+      {stats?.missingRates?.length ? (
+        <p className="mx-[30px] mt-[10px] text-[13px] text-[#e57373]">
+          {t("Нет курса валюты, суммы не учтены")}: {stats.missingRates.map(currencyLabel).join(", ")}
+        </p>
+      ) : null}
 
       <section className="mx-[30px] mt-[22px] flex items-center">
         <div className="flex">

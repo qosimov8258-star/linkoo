@@ -1,27 +1,31 @@
 import { NextResponse } from "next/server"
 
+import { refRecordsBody, refRecordsWriter } from "@/app/api/ref-records/shared"
 import { getCurrentUser } from "@/lib/current-user"
-import { createRecord, isRefKind, listRecords } from "@/lib/ref-records-repo"
+import { withDbErrors } from "@/lib/db-errors"
+import { apiCreate, apiKind, listRecords } from "@/lib/ref-records-repo"
+import { notSignedInResponse } from "@/lib/validation"
 
 type Params = { params: Promise<{ kind: string }> }
 
-// GET /api/ref-records/<kind> → rows of a "Продажи" list page; POST creates a row (body = the page's row shape).
-export async function GET(_request: Request, { params }: Params) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  const { kind } = await params
-  if (!isRefKind(kind)) return NextResponse.json({ error: "Неизвестный раздел" }, { status: 404 })
-  return NextResponse.json((await listRecords(kind)).map((record) => record.data))
-}
+const UNKNOWN_KIND = "Неизвестный раздел"
 
-export async function POST(request: Request, { params }: Params) {
+// GET /api/ref-records/<kind> → rows of a "Продажи" list page; POST creates a row (body = the page's row shape).
+// Kinds, methods, validation and permissions: lib/ref-records-repo.ts (generic API) and lib/capabilities-catalog.ts.
+export const GET = withDbErrors(async (_request: Request, { params }: Params) => {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  const { kind } = await params
-  if (!isRefKind(kind)) return NextResponse.json({ error: "Неизвестный раздел" }, { status: 404 })
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-  if (!body || typeof body !== "object") return NextResponse.json({ error: "Некорректные данные" }, { status: 400 })
-  const { id: bodyId, ...data } = body
-  const created = await createRecord(kind, data, bodyId === undefined || bodyId === null ? undefined : String(bodyId))
-  return NextResponse.json(created.data, { status: 201 })
-}
+  if (!user) return notSignedInResponse()
+  const kind = apiKind((await params).kind)
+  if (!kind) return NextResponse.json({ error: UNKNOWN_KIND }, { status: 404 })
+  return NextResponse.json((await listRecords(kind)).map((record) => record.data))
+})
+
+export const POST = withDbErrors(async (request: Request, { params }: Params) => {
+  const writer = await refRecordsWriter((await params).kind, "POST")
+  if ("error" in writer) return writer.error
+  const body = await refRecordsBody(request, writer.kind)
+  if ("error" in body) return body.error
+  const result = await apiCreate(writer.kind, body.data)
+  if (!result.ok) return NextResponse.json({ error: result.issue.error, field: result.issue.field ?? null }, { status: result.issue.status })
+  return NextResponse.json(result.record.data, { status: 201 })
+})

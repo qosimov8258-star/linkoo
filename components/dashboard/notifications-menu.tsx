@@ -1,20 +1,12 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 
 import { formatDate, formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-type NotificationItem = {
-  id: number
-  title: string
-  text: string
-  template: string
-  objectId: number
-  viewed: boolean
-  createdDate: string
-}
+import { fillNotificationText, notificationHref, useNotifications, type NotificationItem } from "./notifications-feed"
 
 type TaskItem = {
   id: number
@@ -31,10 +23,6 @@ const PAGE_SIZE = 15
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
-}
-
-function notificationHref(item: NotificationItem) {
-  return item.template === "order_delivered" ? `/analytics/sales?order=${item.objectId}` : "/analytics/cash-management"
 }
 
 /** Pointy hexagon avatar of a notification (green check for orders, grey bell for the rest). */
@@ -70,48 +58,19 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
   const router = useRouter()
   const today = useMemo(() => new Date(), [])
   const [tab, setTab] = useState<Tab>("notifications")
-  const [notifications, setNotifications] = useState<NotificationItem[]>([])
-  const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const [loading, setLoading] = useState(false)
-  const loadingRef = useRef(false)
+  // The signed-in user's own notifications (GET /api/notifications), newest first. Their filled
+  // texts carry data-no-translate: t() translates the template, the names inside are data.
+  const { items: notifications, hasMore, loading, failed, loadMore, remove, markViewed } = useNotifications(PAGE_SIZE)
   // The agent plans ("Следует посетить") of the signed-in user: empty for the admin, like the reference.
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [viewDate, setViewDate] = useState(today)
 
-  const load = useCallback(async (next: number) => {
-    if (loadingRef.current) return
-    loadingRef.current = true
-    setLoading(true)
-    try {
-      const response = await fetch(`/api/notifications?page=${next}&pageSize=${PAGE_SIZE}`, { cache: "no-store" })
-      if (!response.ok) return
-      const data = (await response.json()) as { count: number; results: NotificationItem[] }
-      setTotal(data.count)
-      setPage(next)
-      setNotifications((current) => (next === 1 ? data.results : [...current, ...data.results.filter((item) => !current.some((known) => known.id === item.id))]))
-    } catch {
-      // keep what is shown
-    } finally {
-      loadingRef.current = false
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void load(1)
-  }, [load])
-
-  async function removeNotification(id: number) {
-    setNotifications((current) => current.filter((item) => item.id !== id))
-    setTotal((current) => Math.max(0, current - 1))
-    await fetch(`/api/notifications/${id}`, { method: "DELETE" }).catch(() => {})
-  }
-
   function openNotification(item: NotificationItem) {
-    if (!item.viewed) void fetch(`/api/notifications/${item.id}`, { method: "PATCH" }).catch(() => {})
+    void markViewed(item)
+    const href = notificationHref(item)
+    if (!href) return
     onClose()
-    router.push(notificationHref(item))
+    router.push(href)
   }
 
   const toggleTask = (id: number) => {
@@ -166,12 +125,12 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
           className="min-h-0 flex-1 overflow-y-auto"
           onScroll={(event) => {
             const box = event.currentTarget
-            if (tab === "notifications" && notifications.length < total && box.scrollTop + box.clientHeight >= box.scrollHeight - 80) void load(page + 1)
+            if (tab === "notifications" && hasMore && !loading && box.scrollTop + box.clientHeight >= box.scrollHeight - 80) void loadMore()
           }}
         >
           {tab === "notifications" &&
             (notifications.length === 0 ? (
-              loading ? null : <EmptyBell text={t("Нет уведомлений")} />
+              loading ? null : <EmptyBell text={t(failed ? "Не удалось загрузить данные" : "Нет уведомлений")} />
             ) : (
               <ul>
                 {notifications.map((item) => (
@@ -179,17 +138,17 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
                     <HexIcon order={item.template === "order_delivered"} />
                     <div className="ml-[20.5px] w-[250px]">
                       <div className="mb-[5px] flex items-start justify-between">
-                        <div className="text-[13px] font-semibold leading-[16.25px]">{t(item.title)}</div>
+                        <div data-no-translate className="text-[13px] font-semibold leading-[16.25px]">{fillNotificationText(t(item.title), item.params)}</div>
                         <span className="mt-[1.3px] text-[11px] leading-[13.75px] text-[#999]">{formatDateText(item.createdDate, language, { withTime: true, utc: true })}</span>
                       </div>
-                      <div className="line-clamp-2 text-[13px] leading-[16.25px]">{item.text}</div>
+                      <div data-no-translate className="line-clamp-2 text-[13px] leading-[16.25px]">{fillNotificationText(t(item.text), item.params)}</div>
                     </div>
                     <button
                       type="button"
                       aria-label={t("Удалить")}
                       onClick={(event) => {
                         event.stopPropagation()
-                        void removeNotification(item.id)
+                        void remove(item.id)
                       }}
                       className="absolute right-[10px] top-[19.4px] flex h-12 w-12 items-center justify-center"
                     >

@@ -40,6 +40,17 @@ function utcToLocal(utcMs: number): string {
   return localParts(local.getUTCFullYear(), local.getUTCMonth() + 1, local.getUTCDate(), local.getUTCHours(), local.getUTCMinutes(), local.getUTCSeconds()) ?? ""
 }
 
+/** A local (Asia/Tashkent) "YYYY-MM-DDTHH:mm[:ss]" as the UTC text created_at columns store
+ * ("YYYY-MM-DD HH:MM:SS", like datetime('now')), or null for anything else. */
+export function localToUtcText(local: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(local.trim())
+  if (!match) return null
+  const [, y, mo, d, h, mi, se] = match
+  if (!localParts(Number(y), Number(mo), Number(d), Number(h), Number(mi), Number(se ?? 0))) return null
+  const utc = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se ?? 0)) - TZ_OFFSET_MINUTES * 60_000)
+  return `${utc.getUTCFullYear()}-${pad(utc.getUTCMonth() + 1)}-${pad(utc.getUTCDate())} ${pad(utc.getUTCHours())}:${pad(utc.getUTCMinutes())}:${pad(utc.getUTCSeconds())}`
+}
+
 /** Parses any stored date text into a local "YYYY-MM-DDTHH:mm:ss" string, or
  * null. `utc` = treat a zone-less "YYYY-MM-DD HH:MM:SS" as UTC (created_at /
  * updated_at columns); otherwise zone-less values are local business times.

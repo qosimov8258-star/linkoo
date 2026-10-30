@@ -1,13 +1,15 @@
 "use client"
 
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { MoveField, MoveNumbers } from "@/lib/stock-movement-columns"
 import type { MoveSumResult } from "@/lib/stock-movement-report"
 
 // The 9 summary cards of "Остаток на определенную дату" (demo m3877) in five
 // columns, plus — with "Показать прочие" — the "Прочие приходы / расходы"
-// breakdown boxes. Quantity mode: "N шт"; cost / price mode: "sum SUM (N шт)".
+// breakdown boxes. Quantity mode: per-unit totals ("10 шт, 2,5 кг"); cost / price mode:
+// "sum <currency> (10 шт, 2,5 кг)". Quantities of different units are never added up.
 // Outflows are shown as positive numbers, as in the demo.
 
 type Card = { label: string; field: MoveField; out?: boolean }
@@ -63,7 +65,11 @@ export function StockMoveCards({ sum, loading, showOthers }: { sum: MoveSumResul
   const money = Boolean(sum?.value)
   const unit = t("шт")
   const currency = sum ? currencyLabel(sum.currency) : ""
-  const quantity = (card: Card) => `${formatMoney(shown(sum?.qty, card), 3)} ${unit}`
+  const quantity = (card: Card) => {
+    const byUnit = sum?.qtyByUnit ?? []
+    if (!byUnit.length) return `${formatMoney(shown(sum?.qty, card), 3)} ${unit}`
+    return formatUnitTotals(byUnit.map((total) => ({ qty: shown(total.qty, card), unit: total.unit })), t)
+  }
   const amount = (card: Card) => `${formatMoney(shown(sum?.value, card), 2)} ${currency}`
   return (
     <section className={`pb-[34.5px] pt-[25px] ${loading ? "opacity-60" : ""}`}>

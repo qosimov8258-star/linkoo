@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { parseId } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
-import { employeeErrorResponse, parseEmployeeBody } from "@/lib/employees-api"
+import { employeeCardsFor, employeeErrorResponse, parseEmployeeBody } from "@/lib/employees-api"
 import {
   EmployeeAccessError,
   EmployeeInUseError,
@@ -31,15 +31,18 @@ export async function GET(_request: Request, { params }: RouteParams) {
   const id = parseId((await params).id)
   const employee = id ? await getEmployee(id) : null
   if (!employee) return NextResponse.json(NOT_FOUND, { status: 404 })
-  return NextResponse.json(employee)
+  return NextResponse.json(employeeCardsFor(user, [employee])[0])
 }
 
 // PUT /api/employees/[id] — a changed name is carried into cashboxes,
 // warehouses, clients (agent / deliverer / collector), documents and production
-// staff that store it. Turning "Доступ к системе" off blocks the linked
-// account's sign-in and ends its sessions; refused for one's own account (400),
-// an administrator's account unless an administrator does it (403) and the last
-// administrator (409).
+// staff that store it. The login and password create the employee's sign-in
+// account or update the linked one (rename, password reset that ends its
+// sessions, the employee's access right); only an administrator sets them (403),
+// a login taken by another account → 409 (lib/employees-account.ts). Turning
+// "Доступ к системе" off blocks the linked account's sign-in and ends its
+// sessions; refused for one's own account (400), an administrator's account
+// unless an administrator does it (403) and the last administrator (409).
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
@@ -52,7 +55,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
   try {
     const result = await updateEmployee(id, parsed.data, { id: auth.user.id, role: auth.user.role })
     if (!result) return NextResponse.json(NOT_FOUND, { status: 404 })
-    if ("error" in result) return employeeErrorResponse(result.error)
+    if ("error" in result) return employeeErrorResponse(result)
     return NextResponse.json(result.employee)
   } catch (error) {
     const response = accessErrorResponse(error)

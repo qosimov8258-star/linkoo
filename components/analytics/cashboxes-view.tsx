@@ -5,19 +5,20 @@ import { useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { ExcelImportLink, ExcelRowImportDialog } from "@/components/analytics/excel-row-import"
 import { EmptyRows, RowActions, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
 import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CASHBOXES_API, CASHBOX_TYPE_LABELS, CASH_MANAGEMENT_URL, type CashboxErrorBody, type CashboxListResult } from "./cashboxes-data"
-import { CashboxDeleteDialog } from "./cashboxes-dialogs"
+import { CashboxDeleteDialog, cashboxImportSpec } from "./cashboxes-dialogs"
 import { CashboxFormModal } from "./cashboxes-form-modal"
 
 // "Кассы" (demo #/cashbox, Settings → Финансы; API finance/cashbox/). Grid:
 // "Добавить кассу", search, paginator, "Управлять кассами" (→ Управления кассой),
 // Id | Наименование | Валюта | Кассир | Тип | Вэнсел | Порядковый номер | hover ✎ / 🗑,
 // ordered by position ("Не указано" last) then newest first. Create / update dialog =
-// cashboxes-form-modal.tsx, delete confirm + Excel import = cashboxes-dialogs.tsx.
+// cashboxes-form-modal.tsx, delete confirm + the Excel import spec = cashboxes-dialogs.tsx (shared dialog).
 // Like the demo the state lives in the URL (?search, ?page, ?pageSize,
 // ?openCreateDialog=true, ?cashbox=<id>&openUpdateDialog=true | openDeleteDialog=true).
 
@@ -111,6 +112,7 @@ function CashboxesGrid() {
   const [dialog, setDialog] = useState<DialogState>(() => dialogFromParams(searchParams))
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
   const canEdit = useCanWrite()
   const { data, loading, error, reload } = useCashboxList(listUrl(state))
 
@@ -149,10 +151,13 @@ function CashboxesGrid() {
       <SettingsToolbar
         left={
           canEdit ? (
-            <button type="button" onClick={() => setDialog({ kind: "create" })} className="ml-[5px] flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#4f71dc] px-[12px] text-[13px] font-bold text-white hover:brightness-95">
-              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
-              {t("Добавить кассу")}
-            </button>
+            <>
+              <button type="button" onClick={() => setDialog({ kind: "create" })} className="ml-[5px] flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#4f71dc] px-[12px] text-[13px] font-bold text-white hover:brightness-95">
+                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
+                {t("Добавить кассу")}
+              </button>
+              <ExcelImportLink iconOnly className="h-[30px] leading-[30px]" onClick={() => setImportOpen(true)} />
+            </>
           ) : undefined
         }
         query={searchDraft}
@@ -239,6 +244,18 @@ function CashboxesGrid() {
             reload()
           }}
           onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={cashboxImportSpec(t)}
+          onClose={() => setImportOpen(false)}
+          onChanged={reload}
+          onDone={(summary) => {
+            setImportOpen(false)
+            setNotice({ text: summary, tone: "success" })
+          }}
         />
       )}
 

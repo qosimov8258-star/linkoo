@@ -2,14 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react"
 
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-shared"
+import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 /**
  * The reference's "ДОБАВЛЕНИЕ ПРОДУКТОВ" (the supply form's "добавить из списка"): the whole product catalogue with
  * a quantity (in boxes or units) and a price input per row; saving adds every row with a quantity to the supply.
+ * The catalogue is listed in this company's own order: the products' "Порядковый номер" (numbered ones first),
+ * then by name.
  */
 
-type PickerProduct = { name: string; unit: string; type: string; brand: string; barcode: string; cost: number; boxUnit: string; boxAmount: number }
+type PickerProduct = { name: string; unit: string; type: string; brand: string; barcode: string; cost: number; boxUnit: string; boxAmount: number; orderNumber: number | null }
 type RowState = { box: string; qty: string; price: string }
 
 const CLOSE = "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
@@ -22,6 +26,21 @@ const GRID = "grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)
 
 const number = (value: string) => Number(value.replace(/\s/g, "").replace(",", ".")) || 0
 const fmt = (value: number, digits = 3) => (Math.round(value * 10 ** digits) / 10 ** digits).toLocaleString("ru-RU", { maximumFractionDigits: digits })
+
+/** "Порядковый номер" as a sort key: a whole number, else null (unnumbered products come after the numbered ones). */
+function sortNumber(value: unknown): number | null {
+  const text = String(value ?? "").trim()
+  return /^\d{1,15}$/.test(text) ? Number(text) : null
+}
+
+function byOwnOrder(a: PickerProduct, b: PickerProduct): number {
+  if (a.orderNumber !== b.orderNumber) {
+    if (a.orderNumber === null) return 1
+    if (b.orderNumber === null) return -1
+    return a.orderNumber - b.orderNumber
+  }
+  return a.name.localeCompare(b.name, "ru")
+}
 
 function group(value: string) {
   const clean = value.replace(/[^\d.,]/g, "")
@@ -72,33 +91,18 @@ export function SupplierProductPicker({
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [rows, setRows] = useState<Record<string, RowState>>({})
-  // The reference lists the catalogue in its own "all balances" sequence (product_reference_order).
-  const [order, setOrder] = useState<Map<string, { seq: number; price: number | null }>>(new Map())
-
-  useEffect(() => {
-    let cancelled = false
-    void fetch("/api/products/reference-order")
-      .then((response) => (response.ok ? response.json() : []))
-      .then((entries: { name: string; price: number | null }[]) => {
-        if (!cancelled) setOrder(new Map(entries.map((entry, index) => [entry.name, { seq: index, price: entry.price }])))
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
     void fetch("/api/products")
       .then((response) => (response.ok ? response.json() : []))
-      .then((data: { name: string; unit: string; type: string; brand: string; barcode: string; cost: number; boxUnit?: string; boxAmount?: number; deleted?: boolean; isInventory?: boolean }[]) => {
+      .then((data: { name: string; unit: string; type: string; brand: string; barcode: string; cost: number; boxUnit?: string; boxAmount?: number; deleted?: boolean; isInventory?: boolean; orderNumber?: string }[]) => {
         if (cancelled) return
         setProducts(
           data
             .filter((item) => !item.deleted && !item.isInventory)
-            .map((item) => ({ name: item.name, unit: item.unit, type: item.type, brand: item.brand, barcode: item.barcode, cost: item.cost ?? 0, boxUnit: item.boxUnit ?? "", boxAmount: item.boxAmount ?? 0 }))
-,
+            .map((item) => ({ name: item.name, unit: item.unit, type: item.type, brand: item.brand, barcode: item.barcode, cost: item.cost ?? 0, boxUnit: item.boxUnit ?? "", boxAmount: item.boxAmount ?? 0, orderNumber: sortNumber(item.orderNumber) }))
+            .sort(byOwnOrder),
         )
         const start: Record<string, RowState> = {}
         for (const item of initial) start[item.product] = { box: "", qty: group(String(item.qty).replace(".", ",")), price: group(String(item.cost).replace(".", ",")) }
@@ -116,15 +120,13 @@ export function SupplierProductPicker({
   const brandOptions = useMemo(() => Array.from(new Set(products.map((item) => item.brand).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ru")), [products])
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
-    const list = products.filter((item) => (!type || item.type === type) && (!brand || item.brand === brand) && (!term || item.name.toLowerCase().includes(term) || item.barcode.toLowerCase().includes(term)))
-    if (order.size === 0) return list
-    return [...list].sort((a, b) => (order.get(a.name)?.seq ?? Infinity) - (order.get(b.name)?.seq ?? Infinity))
-  }, [products, type, brand, query, order])
+    return products.filter((item) => (!type || item.type === type) && (!brand || item.brand === brand) && (!term || item.name.toLowerCase().includes(term) || item.barcode.toLowerCase().includes(term)))
+  }, [products, type, brand, query])
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const current = Math.min(page, pages)
   const visible = filtered.slice((current - 1) * pageSize, current * pageSize)
 
-  const stateOf = (item: PickerProduct): RowState => rows[item.name] ?? { box: "", qty: "", price: group(String(order.get(item.name)?.price ?? 0).replace(".", ",")) }
+  const stateOf = (item: PickerProduct): RowState => rows[item.name] ?? { box: "", qty: "", price: "0" }
   const patch = (item: PickerProduct, next: Partial<RowState>) => setRows((all) => ({ ...all, [item.name]: { ...stateOf(item), ...next } }))
 
   const chosen = products.flatMap((item) => {
@@ -133,7 +135,8 @@ export function SupplierProductPicker({
     return qty > 0 ? [{ item, qty, price: number(state.price) }] : []
   })
   const total = chosen.reduce((sum, row) => sum + row.qty * row.price, 0)
-  const totalQty = chosen.reduce((sum, row) => sum + row.qty, 0)
+  // One total per unit: kilograms and pieces are never added up.
+  const totalQty = formatUnitTotals(chosen.map((row) => ({ qty: row.qty, unit: row.item.unit })), t)
 
   return (
     <div className="fixed inset-0 z-[1500] flex flex-col bg-white text-[13px] text-[#333]">
@@ -164,12 +167,12 @@ export function SupplierProductPicker({
             </select>
           </label>
           <span className="text-[13px] leading-[20px]">{filtered.length === 0 ? "0 - 0" : `${(current - 1) * pageSize + 1} - ${Math.min(current * pageSize, filtered.length)}`} {t("из")} {filtered.length}</span>
-          <button type="button" disabled={current <= 1} onClick={() => setPage(current - 1)} aria-label="prev" className="ml-[10px] h-6 w-6 disabled:opacity-40">
+          <button type="button" disabled={current <= 1} onClick={() => setPage(current - 1)} aria-label={t("Назад")} className="ml-[10px] h-6 w-6 disabled:opacity-40">
             <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#999]">
               <path d={PREV} />
             </svg>
           </button>
-          <button type="button" disabled={current >= pages} onClick={() => setPage(current + 1)} aria-label="next" className="ml-[5px] h-6 w-6 disabled:opacity-40">
+          <button type="button" disabled={current >= pages} onClick={() => setPage(current + 1)} aria-label={t("Вперед")} className="ml-[5px] h-6 w-6 disabled:opacity-40">
             <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]">
               <path d={NEXT} />
             </svg>
@@ -240,7 +243,7 @@ export function SupplierProductPicker({
                 <span className="ml-[11px] shrink-0 leading-[16px]">{currency}</span>
               </div>
               <span className="pr-[8px] text-right font-semibold leading-[16px]">
-                {fmt(qty * price)} {currency}
+                {formatMoney(qty * price, 2)} {currency}
               </span>
               <span className="pr-[8px] text-right leading-[16px]">-</span>
               <span className="text-right leading-[16px]">{info ? `${info.stock.toLocaleString("ru-RU")} ${item.unit}` : `0 ${item.unit}`}</span>
@@ -252,9 +255,9 @@ export function SupplierProductPicker({
 
       <footer className="flex h-[57px] shrink-0 items-center justify-between border-t border-[#e0e0e0]">
         <div className="pb-[5px] pl-[30px] text-[16px] text-black">
-          {t("Общая сумма")}: <b>{fmt(total)}</b>
+          {t("Общая сумма")}: <b>{formatMoney(total, 2)} {currency}</b>
           <span className="ml-[26px]">
-            {t("Общее кол-во")} <b>{fmt(totalQty)} {t("ед")}</b>
+            {t("Общее кол-во")} <b>{totalQty}</b>
           </span>
         </div>
         <button

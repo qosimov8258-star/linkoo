@@ -4,13 +4,17 @@ import { ArrowDown, ArrowUp } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 
+import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { AddLink, EmptyRows, RowActions, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import type { CategoryErrorBody } from "@/lib/categories-schema"
-import type { CategoryKind } from "@/lib/category-options"
+import { categoryOptionItems, type CategoryKind } from "@/lib/category-options"
+import { everyLanguage, importKey, parseYesNo, postJson, repeatedInFile, type ImportColumn, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
 import { formatStatementDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CategoryDeleteDialog, CategorySnackbar, type CategoryNotice } from "./categories-dialogs"
 import { categoriesApi, CategoryFormModal } from "./category-form-modal"
+import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "./excel-row-import"
+import { EXPENSE_CATEGORIES_API, type ExpenseCategory } from "./expense-categories-data"
 
 // Grid shared by "Категории приходов" and "Категории расходов" (demo GridList of
 // modules 4711 / 4709): "+ добавить категорию …", search on the name (500 ms debounce /
@@ -19,6 +23,8 @@ import { categoriesApi, CategoryFormModal } from "./category-form-modal"
 // only the headers that have an `ordering` sort (none → ascending → descending → none).
 // Like the demo the state lives in the URL (?search, ?page, ?pageSize, ?ordering,
 // ?openCreateDialog=true, ?category=<id>&openUpdateDialog=true | openDeleteDialog=true).
+// "Импорт с Excel" (ours, not in the demo) creates the rows of a file through the same POST
+// as the dialog (useCategoryImport below).
 
 export type CategoryRow = { id: number; name: string }
 
@@ -132,6 +138,107 @@ function useCategoryList<T>(url: string) {
   return { data, loading, error, reload }
 }
 
+// --- Excel import ------------------------------------------------------------------
+
+type CategoryImportItem = {
+  name: string
+  option: string
+  otherIncome?: boolean
+  /** Expense: the parent's name (an existing category or an earlier row of the file); resolved to its id when sent. */
+  parentName?: string
+  direct?: boolean
+  excludeFromPnl?: boolean
+}
+
+const IMPORT_COLUMNS: Record<CategoryKind, ImportColumn[]> = {
+  income: [
+    { field: "name", header: "Наименование", aliases: ["Название", "Name"] },
+    { field: "parameter", header: "Параметры", aliases: ["Параметр", "Дополнительные параметры", "Parameter"] },
+    { field: "otherIncome", header: "Прочий приход (да/нет)", aliases: ["Прочий приход", "Other income"] },
+  ],
+  expense: [
+    { field: "name", header: "Наименование", aliases: ["Название", "Name"] },
+    { field: "parentName", header: "Родительская категория", aliases: ["Родитель", "Parent category"] },
+    { field: "parameter", header: "Параметры", aliases: ["Параметр", "Дополнительные параметры", "Parameter"] },
+    { field: "direct", header: "Прямой расход на товар (да/нет)", aliases: ["Прямой расход на товар", "Прямой расход", "Direct expense"] },
+    { field: "excludeFromPnl", header: "Не учитывать в отчёте P&L (да/нет)", aliases: ["Не учитывать в отчёте P&L", "Не учитывать в отчете P&L", "Не учитывать в P&L"] },
+  ],
+}
+
+async function expenseParents(): Promise<Map<string, number>> {
+  const response = await fetch(EXPENSE_CATEGORIES_API, { cache: "no-store" })
+  if (!response.ok) throw new Error("load")
+  const list = (await response.json()) as ExpenseCategory[]
+  return new Map(list.map((item) => [importKey(item.name), item.id]))
+}
+
+function useCategoryImport(kind: CategoryKind): ExcelImportSpec<CategoryImportItem> {
+  const { t } = useLanguage()
+  // Expense parents by name: the existing categories, then every row saved by this import.
+  const parents = new Map<string, number>()
+  const options = categoryOptionItems(kind)
+  const optionOf = (value: string): string | null => {
+    if (!value) return ""
+    const key = importKey(value)
+    const found = options.find((item) => [item.key, ...everyLanguage(item.title)].some((word) => importKey(word) === key))
+    return found ? found.key : null
+  }
+  return {
+    templateName: `${kind}-categories-template`,
+    columns: IMPORT_COLUMNS[kind],
+    keyField: "name",
+    prepare: async (records) => {
+      parents.clear()
+      if (kind === "expense") (await expenseParents()).forEach((id, name) => parents.set(name, id))
+      const rows: PreparedRow<CategoryImportItem>[] = []
+      const errors: ImportRowError[] = []
+      const fileNames = new Set<string>()
+      for (const { line, values } of records) {
+        if (!values.name) {
+          errors.push({ line, label: t("Наименование"), message: "Обязательное поле" })
+          continue
+        }
+        const option = optionOf(values.parameter)
+        if (option === null) {
+          errors.push({ line, label: `${values.name}, ${values.parameter}`, message: "Недопустимый параметр" })
+          continue
+        }
+        if (kind === "income") {
+          const otherIncome = parseYesNo(values.otherIncome)
+          if (otherIncome === null) errors.push({ line, label: `${values.name}, ${t("Прочий приход")}`, message: "Укажите да или нет" })
+          else rows.push({ line, label: values.name, item: { name: values.name, option, otherIncome } })
+          continue
+        }
+        const direct = parseYesNo(values.direct)
+        const excludeFromPnl = parseYesNo(values.excludeFromPnl)
+        // A parent must exist already or come earlier in the file (it is created first).
+        if (values.parentName && !parents.has(importKey(values.parentName)) && !fileNames.has(importKey(values.parentName))) {
+          errors.push({ line, label: `${values.name}, ${values.parentName}`, message: "Родительская категория не найдена" })
+        } else if (direct === null) errors.push({ line, label: `${values.name}, ${t("Прямой расход на товар")}`, message: "Укажите да или нет" })
+        else if (excludeFromPnl === null) errors.push({ line, label: `${values.name}, ${t("Не учитывать в отчёте P&L")}`, message: "Укажите да или нет" })
+        else {
+          rows.push({ line, label: values.name, item: { name: values.name, option, parentName: values.parentName, direct, excludeFromPnl: !direct && excludeFromPnl } })
+        }
+        fileNames.add(importKey(values.name))
+      }
+      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+    },
+    send: async (item) => {
+      const api = categoriesApi(kind)
+      if (kind === "income") return postJson(api, { name: item.name, option: item.option, otherIncome: item.otherIncome })
+      const parentId = item.parentName ? parents.get(importKey(item.parentName)) : null
+      // Its parent row was refused: this one cannot be placed either.
+      if (parentId === undefined) return Response.json({ error: "Родительская категория не найдена" }, { status: 400 })
+      return postJson(api, { name: item.name, option: item.option, parentId, direct: item.direct, excludeFromPnl: item.excludeFromPnl })
+    },
+    fallbackError: "Не удалось сохранить категорию",
+    onRowSaved: (row, body) => {
+      const saved = body as { id?: number; name?: string } | null
+      if (saved && typeof saved.id === "number") parents.set(importKey(saved.name ?? row.item.name), saved.id)
+    },
+  }
+}
+
 /** Writes need the manager role (POST/PUT/DELETE of the category endpoints). */
 function useCanEdit(): boolean {
   const [canEdit, setCanEdit] = useState(false)
@@ -169,6 +276,9 @@ export function CategoriesGrid<T extends CategoryRow>({
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [notice, setNotice] = useState<CategoryNotice | null>(null)
   const canEdit = useCanEdit()
+  const canImport = useCanManage(["finance.manage"])
+  const [importOpen, setImportOpen] = useState(false)
+  const importSpec = useCategoryImport(kind)
   const { data, loading, error, reload } = useCategoryList<T>(listUrl(categoriesApi(kind), state))
 
   const update = useCallback((patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch })), [])
@@ -206,7 +316,15 @@ export function CategoriesGrid<T extends CategoryRow>({
   return (
     <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <SettingsToolbar
-        left={canEdit ? <AddLink onClick={() => setDialog({ kind: "create" })}>{t(addLabel)}</AddLink> : undefined}
+        left={
+          canEdit ? (
+            <>
+              <AddLink onClick={() => setDialog({ kind: "create" })}>{t(addLabel)}</AddLink>
+              {/* Icon only: "добавить категорию приходов / расходов" leaves no room for the label before the search field. */}
+              {canImport && <ExcelImportLink iconOnly className="h-[36px] pt-[3px]" onClick={() => setImportOpen(true)} />}
+            </>
+          ) : undefined
+        }
         query={searchDraft}
         onQuery={setSearchDraft}
         pager={{
@@ -294,6 +412,21 @@ export function CategoriesGrid<T extends CategoryRow>({
             reload()
           }}
           onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={importSpec}
+          onClose={() => setImportOpen(false)}
+          onChanged={() => {
+            update({ page: 1 })
+            reload()
+          }}
+          onDone={(summary) => {
+            setImportOpen(false)
+            setNotice({ text: summary, tone: "success" })
+          }}
         />
       )}
 

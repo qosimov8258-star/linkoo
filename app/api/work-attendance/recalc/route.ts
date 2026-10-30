@@ -3,13 +3,14 @@ import { NextResponse } from "next/server"
 import { yearMonthSchema } from "@/lib/attendance-api"
 import { attendanceErrorResponse } from "@/lib/attendance-errors"
 import { recalcMonth } from "@/lib/attendance-repo"
-import { requireRole } from "@/lib/rbac"
+import { requirePermission } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 
 // Перерасчет: POST {year, month} rebuilds the month's derived days from the activity, the
-// current work time and the holidays (manager + settings.manage); manual days stay.
+// current work time and the holidays; manual days stay. Used by Посещаемость and the dashboard's
+// "Перерасчет" button: manager + settings.manage, checked explicitly (403 JSON otherwise).
 export async function POST(request: Request) {
-  const auth = await requireRole("manager")
+  const auth = await requirePermission("settings.manage")
   if ("error" in auth) return auth.error
   const parsed = await parseJsonBody(request, yearMonthSchema)
   if (parsed.error) return parsed.error

@@ -1,9 +1,9 @@
 // Aligns our uz/en dictionaries with the reference app's own translations (extracted from its bundle into
-// scripts/demo/data/reference-i18n-dicts.json: [uz, en, tr]). Only values of keys we already have are replaced,
+// scripts/i18n-data/reference-i18n-dicts.json: [uz, en, tr]). Only values of keys we already have are replaced,
 // and only when both values use the same interpolation placeholders. Usage: node scripts/i18n-sync-reference.mjs [--dry]
 import fs from 'node:fs'
 const dry = process.argv.includes('--dry')
-const ref = JSON.parse(fs.readFileSync(new URL('./demo/data/reference-i18n-dicts.json', import.meta.url), 'utf8'))
+const ref = JSON.parse(fs.readFileSync(new URL('./i18n-data/reference-i18n-dicts.json', import.meta.url), 'utf8'))
 const targets = [['uz', 0], ['en', 1]]
 const ph = (v) => (v.match(/\{[^{}]*\}|%[sd]|\$\{[^}]*\}|\{\{[^}]*\}\}/g) ?? []).sort().join('|')
 // Our keys often carry a suffix the reference keeps outside its dictionary ("Зона:" / "Оставить комментарий..." / "Фильтр *"):

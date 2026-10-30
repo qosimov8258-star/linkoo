@@ -170,7 +170,13 @@ export function DashboardContent() {
 
       {visibleWidgets.has("agentBranchVisits") && (
         <div className="mt-5">
-          <AgentBranchVisitsWidget showTrends={visibleWidgets.has("agentSales") || visibleWidgets.has("akbTrend")} showCouriers={visibleWidgets.has("couriers")} begin={beginISO} end={endISO} />
+          <AgentBranchVisitsWidget
+            showTrends={visibleWidgets.has("agentSales") || visibleWidgets.has("akbTrend")}
+            showCouriers={visibleWidgets.has("couriers")}
+            begin={beginISO}
+            end={endISO}
+            ownAgents={summary ? summary.ownAgents : []}
+          />
         </div>
       )}
 

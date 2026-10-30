@@ -25,10 +25,6 @@ export type SupplierReturn = {
   items: ReturnItem[]
 }
 
-export const returnSuppliers = ["ali aliyev", "Otash", "Sarvar", "name of supply", "qarzdorman", "SaidQosimov", "PAM", "Salohiddin Pastavshik 1"]
-export const returnWarehouses = ["sklad 11", "Яндекс Лавка", "toshkent", "Andijon skladi", "Said Qosimov", "11111", "Salohiddin Farg'ona Sklad"]
-export const returnBranches = ["777", "878", "agent", "Andijon", "Buxoro"]
-export const returnOrganizations = ["ТестоваяОрганизация", "Linko Distribution"]
-export const returnPriceLists = ["donalik", "11111", "savdo", "Bozor narx"]
+/** The return's payment types (i18n keys). Suppliers, warehouses, branches, organizations, price lists and
+ * products always come from their own lists (/api/suppliers, /api/organizations, …), never from fixed names. */
 export const returnPaymentTypes = ["банковский счет", "наличный"]
-export const returnProducts = ["energetik 1 l", "coca-cola", "lipton", "sprayt", "baby still", "g'ilof"]

@@ -19,11 +19,17 @@ export function AlertHost() {
   const current = queue[0]
   useEffect(() => {
     if (current === undefined) return
+    // Capture phase, stopped there: Escape / Enter close this notice only, never the dialog or form under it
+    // (their own key handlers listen on document / window in the bubble phase), and Enter does not also
+    // click the focused OK button (that would drop the next queued notice too).
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" || event.key === "Enter") setQueue((items) => items.slice(1))
+      if (event.key !== "Escape" && event.key !== "Enter") return
+      event.preventDefault()
+      event.stopPropagation()
+      setQueue((items) => items.slice(1))
     }
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [current])
 
   if (current === undefined) return null

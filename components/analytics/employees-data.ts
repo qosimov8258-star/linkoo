@@ -4,6 +4,11 @@ export type Employee = {
   lastName: string
   name: string
   login: string
+  /** Login of the sign-in account linked to the employee, or null: only that account signs in. The form
+   * creates it from the login and a password (an older login without a password has none). */
+  account: string | null
+  /** True while the linked account may sign in (the employee is active and has "Доступ к системе"). */
+  canSignIn: boolean
   phone: string
   integrationCode: string
   accessRightId: number | null
@@ -34,7 +39,7 @@ export type Employee = {
   requestCashboxIds: number[]
   /** Time restrictions assigned to the employee (shown in red under the access right). */
   accesses: string[]
-  /** "access|job" text kept for the other pages that read employees.position. */
+  /** "access · job" text kept for the other pages that read employees.position. */
   position: string
 }
 

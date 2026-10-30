@@ -1,11 +1,17 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { loadRateBook } from "@/lib/currency-rates-repo"
+import { getDb, outsideTransaction, withTransaction } from "@/lib/db"
+import { normCurrency } from "@/lib/finance/currency"
+import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { ensureOrdersSchema } from "@/lib/orders-repo"
 import { getSalesOptions } from "@/lib/sales-stats-repo"
 
 // Data behind "Классификация и динамика клиентов" (demo: market/market_classification/stat). Every store
-// falls into one bucket per period by the SUM of its orders in that period; "Нет заказа" holds the stores
-// without any. A bucket is `previous limit < sum <= limit`, the last one ("Больше") has no upper limit.
+// falls into one bucket per period by the sum of its orders in that period, in the base currency (Валюты):
+// each order is converted at the rate valid when it was created, and an order whose currency has no rate
+// is left out. "Нет заказа" holds the stores without any. A bucket is `previous limit < sum <= limit`, the
+// last one ("Больше") has no upper limit. "Дата создания" is the order's local (Tashkent) day.
 
 export type ClassificationClass = { name: string; amount: number }
 export type ClassificationPeriod = { from: string; to: string }
@@ -57,9 +63,11 @@ function russianDate(value: string | null): string | null {
   return `${ru[3]}-${String(month + 1).padStart(2, "0")}-${ru[1].padStart(2, "0")}`
 }
 
-function currencyOf(amount: string) {
-  const match = amount.trim().match(/([A-Za-zА-Яа-я]+)\s*$/)
-  return (match?.[1] ?? "SUM").toUpperCase()
+/** The order's currency: its own column, else the code its amount text ends with ("" → the base). */
+function currencyOf(order: OrderRow): string {
+  if (order.currency?.trim()) return order.currency.trim()
+  const match = String(order.amount ?? "").trim().match(/([A-Za-zА-Яа-я]+)\s*$/)
+  return match?.[1] ?? ""
 }
 
 type OrderRow = {
@@ -68,8 +76,11 @@ type OrderRow = {
   market_name: string
   status: string
   amount: string
+  currency: string | null
   fact_price: number | null
   created_at: string
+  /** Local (Tashkent) day of created_at, "YYYY-MM-DD". */
+  created_day: string | null
   delivery: string | null
   accepted_date: string | null
 }
@@ -91,6 +102,9 @@ export async function getClassificationOptions(): Promise<ClassificationOptions>
 }
 
 export async function getClassification(params: ClassificationParams): Promise<ClassificationRow[]> {
+  // The orders' currency column and the fin_* SQL helpers are installed by their modules (outside this request).
+  await ensureOrdersSchema()
+  await ensureFinanceSchema()
   const db = getDb()
   const has = (list: string[] | undefined): list is string[] => !!list && list.length > 0
 
@@ -112,7 +126,8 @@ export async function getClassification(params: ClassificationParams): Promise<C
   const orders = localStatuses.length
     ? ((await db
         .prepare(
-          `SELECT id, client, market_name, status, amount, fact_price, created_at, delivery, accepted_date FROM orders
+          `SELECT id, client, market_name, status, amount, currency, fact_price, created_at,
+                  to_char(fin_ts(created_at, true)::date, 'YYYY-MM-DD') AS created_day, delivery, accepted_date FROM orders
            WHERE status IN (${localStatuses.map(() => "?").join(",")}) ORDER BY id`,
         )
         .all(...localStatuses)) as OrderRow[])
@@ -135,24 +150,14 @@ export async function getClassification(params: ClassificationParams): Promise<C
     }
   }
 
-  const currencies = (await db.prepare("SELECT id, name, rate FROM currencies").all()) as { id: number; name: string; rate: number }[]
-  const rateRows = (await db.prepare("SELECT currency_id, rate, created_at FROM currency_rates ORDER BY created_at").all()) as {
-    currency_id: number
-    rate: number
-    created_at: string
-  }[]
-  const rateAt = (code: string, createdAt: string) => {
-    const currency = currencies.find((item) => item.name.toUpperCase() === code)
-    if (!currency || currency.rate === 1) return 1
-    let rate = 0
-    for (const row of rateRows) if (row.currency_id === currency.id && row.created_at <= createdAt) rate = row.rate
-    return rate || currency.rate
-  }
+  // Rates of Валюты (by id, with their history); the base currency is 1. A currency without a rate counts 0.
+  const book = await loadRateBook(db)
+  const rateAt = (code: string, createdAt: string) => book.rateAt(normCurrency(code, book.base), createdAt) ?? 0
 
   const dateOf = (order: OrderRow) =>
-    params.dateType === "created_date" ? order.created_at.slice(0, 10) : params.dateType === "accepted_time" ? russianDate(order.accepted_date) : russianDate(order.delivery)
+    params.dateType === "created_date" ? order.created_day : params.dateType === "accepted_time" ? russianDate(order.accepted_date) : russianDate(order.delivery)
   const saleOf = (order: OrderRow) => {
-    const rate = rateAt(currencyOf(order.amount), order.created_at)
+    const rate = rateAt(currencyOf(order), order.created_at)
     if (itemFilter) {
       const sum = (itemsByOrder.get(order.id) ?? []).reduce((total, item) => total + item.quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100), 0)
       return sum * rate
@@ -217,28 +222,46 @@ const DEFAULT_CLASSES: ClassificationClass[] = [
   { name: "10-20 млн", amount: 20_000_000 },
 ]
 
-async function ensureClassesSchema(db: ReturnType<typeof getDb>) {
-  await db.exec("CREATE TABLE IF NOT EXISTS client_classification_classes (id SERIAL PRIMARY KEY, name TEXT NOT NULL, amount DOUBLE PRECISION NOT NULL)")
-  const count = (await db.prepare("SELECT COUNT(*) AS n FROM client_classification_classes").get()) as { n: number | string }
-  if (Number(count.n) === 0) {
-    for (const item of DEFAULT_CLASSES) await db.prepare("INSERT INTO client_classification_classes (name, amount) VALUES (?, ?)").run(item.name, item.amount)
-  }
+declare global {
+  var __linkoClassificationClassesSchema: Promise<void> | undefined
+}
+
+/** The classes table (and the default classes of an empty one): once per process, on the maintenance
+ * pool (outsideTransaction), never inside a request transaction. */
+function ensureClassesSchema(): Promise<void> {
+  globalThis.__linkoClassificationClassesSchema ??= outsideTransaction(() =>
+    withTransaction(async (tx) => {
+      await tx.exec("SELECT pg_advisory_xact_lock(hashtext('linko:client_classification_classes'))")
+      await tx.exec("CREATE TABLE IF NOT EXISTS client_classification_classes (id SERIAL PRIMARY KEY, name TEXT NOT NULL, amount DOUBLE PRECISION NOT NULL)")
+      const count = (await tx.prepare("SELECT COUNT(*) AS n FROM client_classification_classes").get()) as { n: number | string }
+      if (Number(count.n) === 0) {
+        for (const item of DEFAULT_CLASSES) await tx.prepare("INSERT INTO client_classification_classes (name, amount) VALUES (?, ?)").run(item.name, item.amount)
+      }
+    }),
+  ).catch((error: unknown) => {
+    globalThis.__linkoClassificationClassesSchema = undefined
+    throw error
+  })
+  return globalThis.__linkoClassificationClassesSchema
 }
 
 export async function getClassificationClasses(): Promise<ClassificationClass[]> {
+  await ensureClassesSchema()
   const db = getDb()
-  await ensureClassesSchema(db)
   const rows = (await db.prepare("SELECT name, amount FROM client_classification_classes ORDER BY amount, id").all()) as { name: string; amount: number }[]
   return rows.map((row) => ({ name: row.name, amount: Number(row.amount) }))
 }
 
 /** Replaces the set of classes (the settings dialog saves the whole list). */
 export async function saveClassificationClasses(classes: ClassificationClass[]): Promise<ClassificationClass[]> {
-  const db = getDb()
-  await ensureClassesSchema(db)
-  await db.exec("DELETE FROM client_classification_classes")
-  for (const item of [...classes].sort((a, b) => a.amount - b.amount)) {
-    await db.prepare("INSERT INTO client_classification_classes (name, amount) VALUES (?, ?)").run(item.name, item.amount)
-  }
+  await ensureClassesSchema()
+  // One transaction, serialised: two parallel saves never leave both lists mixed.
+  await withTransaction(async (tx) => {
+    await tx.exec("SELECT pg_advisory_xact_lock(hashtext('linko:client_classification_classes'))")
+    await tx.exec("DELETE FROM client_classification_classes")
+    for (const item of [...classes].sort((a, b) => a.amount - b.amount)) {
+      await tx.prepare("INSERT INTO client_classification_classes (name, amount) VALUES (?, ?)").run(item.name, item.amount)
+    }
+  })
   return getClassificationClasses()
 }

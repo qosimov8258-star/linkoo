@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 
+import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
@@ -13,8 +14,10 @@ import {
   type OrganizationOrdering,
 } from "./organization-data"
 import { EmptyState, HoverActions, ListToolbar, grayHead, listRow } from "./catalog-ui"
+import { ExcelImportLink } from "./excel-row-import"
 import {
   OrganizationDeleteDialog,
+  OrganizationImportDialog,
   OrganizationSnackbar,
   type OrganizationNotice,
 } from "./organization-dialogs"
@@ -24,7 +27,8 @@ import { OrganizationFormModal } from "./organization-form-modal"
 // main/division/). Settings side menu + grid: "+ добавить организацию", search
 // (500 ms debounce / Enter), paginator, "Наименование" (sortable) | "Ограничение по
 // долгу клиента" ("С ограничением" / "Без ограничения") | hover ✎ / 🗑. Create /
-// update dialog = organization-form-modal.tsx, delete confirm = organization-dialogs.tsx.
+// update dialog = organization-form-modal.tsx, delete confirm and the "Импорт с Excel"
+// (ours, not in the demo) = organization-dialogs.tsx.
 // Like the demo the state lives in the URL (?search, ?page, ?pageSize, ?ordering,
 // ?openCreateDialog=true, ?division=<id>&openUpdateDialog=true | openDeleteDialog=true).
 
@@ -131,6 +135,8 @@ function OrganizationGrid() {
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [notice, setNotice] = useState<OrganizationNotice | null>(null)
   const [canEdit, setCanEdit] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const canImport = useCanManage(["finance.manage"])
   const { data, loading, error, reload } = useOrganizationList(listUrl(state))
 
   const update = useCallback((patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch })), [])
@@ -182,6 +188,7 @@ function OrganizationGrid() {
         query={searchDraft}
         onQuery={setSearchDraft}
         addPad={16}
+        extra={canImport ? <ExcelImportLink className="pt-[16px] leading-[16px]" onClick={() => setImportOpen(true)} /> : undefined}
         searchPos={{ left: 335, top: 19 }}
         pageSize={state.pageSize}
         onPageSize={(pageSize) => update({ page: 1, pageSize })}
@@ -243,6 +250,17 @@ function OrganizationGrid() {
             reload()
           }}
           onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      {importOpen && (
+        <OrganizationImportDialog
+          onClose={() => setImportOpen(false)}
+          onChanged={reload}
+          onDone={(result) => {
+            setImportOpen(false)
+            setNotice(result)
+          }}
         />
       )}
 

@@ -13,6 +13,7 @@ import type { BalanceOverview, OverviewAmount } from "@/lib/finance/overview-typ
 import { getPnl } from "@/lib/finance/pnl"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { stockValuesAsOf } from "@/lib/finance/stock"
+import { syncTransferValues } from "@/lib/internal-transfers-repo"
 
 // The dashboard tab "БАЛАНС" (/analytics/balance-tab) in one request: the
 // management balance summed over every branch (the same numbers as
@@ -50,6 +51,9 @@ function dayBefore(iso: string): string {
 }
 
 export async function getBalanceOverview(params: { from: string; to: string; organizations?: string[] }, db: PgDb = getDb()): Promise<BalanceOverview> {
+  // internal_transfers.amount (read by the movement SQL) follows the cost ledger: refresh it first (a no-op
+  // inside a transaction; cheap when nothing changed). A back-dated stock document can change it.
+  await syncTransferValues()
   const organizations = params.organizations ?? []
   const s = await ensureFinanceSchema(db)
   const cc = await loadCurrencyContext(db)

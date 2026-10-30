@@ -1,14 +1,22 @@
 "use client"
 
-import { FileText, Loader2, X } from "lucide-react"
-import { ChangeEvent, useEffect, useRef, useState } from "react"
+import { Loader2, X } from "lucide-react"
+import { useEffect, useState } from "react"
 
-import type { SnackbarMessage } from "@/components/analytics/cash-management-shared"
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import type { ExcelImportSpec } from "@/components/analytics/excel-row-import"
+import { everyLanguage, importKey, parseYesNo, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
+import { normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { CASHBOXES_API, type CashboxErrorBody, type CashboxPayload, type CashboxUsage } from "./cashboxes-data"
-import { cashboxRequestErrors } from "./cashboxes-form-modal"
+import {
+  CASHBOXES_API,
+  CASHBOX_TYPE_LABELS,
+  cashboxTypeOf,
+  type CashboxErrorBody,
+  type CashboxOptions,
+  type CashboxPayload,
+  type CashboxType,
+  type CashboxUsage,
+} from "./cashboxes-data"
 
 // Dialogs of the "Кассы" page: the delete confirm (demo ConfirmDialog type "delete":
 // "Подтверждение удаления" + the cashbox name; a refused delete shows "Удаление
@@ -136,136 +144,85 @@ export function CashboxDeleteDialog({
 }
 
 // --- Excel import (extra of our settings pages, not in the demo) ---------------------
+// The shared "Импорт с Excel" dialog (components/analytics/excel-row-import.tsx): every row is checked first
+// (references by the options of the form: Валюты, employees, branches), then saved through POST /api/cashboxes.
 
-// Keys are normalizeHeader() forms of the template titles in ru / uz / en / tk.
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "наименование": "name", "название": "name", "name": "name", "nomi": "name", "ady": "name",
-  "валюта": "currency", "currency": "currency", "valyuta": "currency", "waluta": "currency",
-  "кассир": "cashier", "cashier": "cashier", "kassir": "cashier",
-  "филиал": "branch", "branch": "branch", "filial": "branch", "ahama": "branch",
-  "тип оплаты": "paymentType", "тип": "paymentType", "payment type": "paymentType", "tolov turi": "paymentType", "tleg grnui": "paymentType",
-  "вэнсел": "vansell", "вансел": "vansell", "van sell": "vansell", "vansell": "vansell", "vansale": "vansell", "vensel": "vansell", "wensel": "vansell",
-  "порядковый номер": "orderNumber", "position": "orderNumber", "sequence number": "orderNumber", "tartib raqami": "orderNumber", "tertip belgisi": "orderNumber",
+type CashboxImport = Required<Pick<CashboxPayload, "name" | "currency" | "paymentType" | "vansell" | "orderNumber">> & {
+  cashierId: number
+  branchId: number | null
 }
 
-const COLUMN_ORDER = ["name", "currency", "cashier", "branch", "paymentType", "vansell", "orderNumber"] as const
-const TRUE_VALUES = /^(да|yes|true|1|\+|ha|hawa|есть)$/i
+const MAX_ORDER_NUMBER = 2_147_483_647
 
-export function CashboxImportDialog({ onClose, onImported }: { onClose: () => void; onImported: (notice: SnackbarMessage) => void }) {
-  const { t } = useLanguage()
-  const [file, setFile] = useState<File | null>(null)
-  const [saving, setSaving] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  function downloadTemplate() {
-    downloadExcelTable("cashboxes-template", [
-      [t("Наименование"), t("Валюта"), t("Кассир"), t("Филиал"), t("Тип оплаты"), t("Вэнсел"), t("Порядковый номер")],
-      ["Naqd", "SUM", "", "", t("наличный"), t("Нет"), "1"],
-    ])
+/** "наличный" / "банковский счет" in any UI language (or the cash core's spellings: cash, bank, перечисление …). */
+function importPaymentType(value: string): CashboxType | null {
+  const key = importKey(value)
+  for (const type of ["cash", "bank"] as const) {
+    if (everyLanguage(CASHBOX_TYPE_LABELS[type]).some((label) => importKey(label) === key)) return type
   }
+  return cashboxTypeOf(value)
+}
 
-  function pickFile(event: ChangeEvent<HTMLInputElement>) {
-    setFile(event.target.files?.[0] ?? null)
-  }
-
-  async function save() {
-    if (!file || saving) return
-    setSaving(true)
-    try {
-      const rows = await readExcelRows(file)
-      const fieldByIndex = rows.length ? mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES) : new Map<number, string>()
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const parsed: CashboxPayload[] = []
-      for (const row of hasHeader ? rows.slice(1) : rows) {
-        const record: Record<string, string> = {}
-        row.forEach((cell, index) => {
-          const field = hasHeader ? fieldByIndex.get(index) : COLUMN_ORDER[index]
-          if (field) record[field] = String(cell ?? "").trim()
-        })
-        if (!record.name) continue
-        parsed.push({
-          name: record.name,
-          currency: record.currency ?? "",
-          cashier: record.cashier ?? "",
-          branch: record.branch ?? "",
-          paymentType: record.paymentType ?? "",
-          vansell: TRUE_VALUES.test(record.vansell ?? ""),
-          // Empty = "Не указано" (stored as 0, listed last).
-          orderNumber: record.orderNumber || "0",
-        })
+export function cashboxImportSpec(t: (text: string) => string): ExcelImportSpec<CashboxImport> {
+  return {
+    templateName: "cashboxes-template",
+    columns: [
+      { field: "name", header: "Наименование", aliases: ["Название", "Касса", "Name"] },
+      { field: "currency", header: "Валюта", aliases: ["Currency"] },
+      { field: "cashier", header: "Кассир", aliases: ["Cashier"] },
+      { field: "branch", header: "Филиал", aliases: ["Branch"] },
+      { field: "paymentType", header: "Тип оплаты", aliases: ["Тип", "Payment type"] },
+      { field: "vansell", header: "Вэнсел", aliases: ["Вансел", "Van sell", "Vansell"] },
+      { field: "orderNumber", header: "Порядковый номер", aliases: ["Position"] },
+    ],
+    keyField: "name",
+    prepare: async (records) => {
+      // The selects of the form, read fresh: references are sent by id, currencies by their code in Валюты.
+      const response = await fetch(`${CASHBOXES_API}/options`, { cache: "no-store" })
+      if (!response.ok) throw new Error("load")
+      const options = (await response.json()) as CashboxOptions
+      const currencies = new Map<string, string>()
+      for (const currency of options.currencies) {
+        for (const text of [currency.code, currency.label, currency.name]) if (text) currencies.set(importKey(text), currency.code)
+        currencies.set(importKey(normCurrency(currency.code)), currency.code)
       }
-      if (!parsed.length) {
-        onImported({ text: t("Не удалось найти данные для импорта в выбранном файле"), tone: "error" })
-        return
+      const people = new Map<string, number[]>()
+      for (const employee of options.employees) {
+        if (employee.active === false) continue
+        const key = importKey(employee.name)
+        people.set(key, [...(people.get(key) ?? []), employee.id])
       }
-      let created = 0
-      const failures: string[] = []
-      for (const item of parsed) {
-        try {
-          const response = await fetch(CASHBOXES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item) })
-          if (response.ok) {
-            created += 1
-            continue
-          }
-          const errors = cashboxRequestErrors((await response.json().catch(() => ({}))) as CashboxErrorBody, "Не удалось сохранить кассу")
-          const [field, message] = Object.entries(errors.fields)[0] ?? []
-          failures.push(`${item.name} — ${message ? `${t(FIELD_LABELS[field ?? ""] ?? "")}: ${t(message)}` : t(errors.general)}`)
-        } catch {
-          failures.push(`${item.name} — ${t("Сервер недоступен, попробуйте ещё раз")}`)
+      const branches = new Map(options.branches.map((branch) => [importKey(branch.name), branch.id]))
+      const rows: PreparedRow<CashboxImport>[] = []
+      const errors: ImportRowError[] = []
+      for (const { line, values } of records) {
+        const label = (field: string) => `${values.name}, ${t(field)}`
+        if (!values.name) {
+          errors.push({ line, label: t("Наименование"), message: "Обязательное поле" })
+          continue
         }
+        const currency = values.currency ? (currencies.get(importKey(values.currency)) ?? currencies.get(importKey(normCurrency(values.currency)))) : undefined
+        const cashiers = values.cashier ? (people.get(importKey(values.cashier)) ?? []) : []
+        const branchId = values.branch ? branches.get(importKey(values.branch)) : null
+        const paymentType = values.paymentType ? importPaymentType(values.paymentType) : null
+        const vansell = parseYesNo(values.vansell, false)
+        const order = values.orderNumber.replace(/\s/g, "")
+        const orderNumber = !order ? 0 : /^\d{1,10}$/.test(order) && Number(order) <= MAX_ORDER_NUMBER ? Number(order) : null
+        if (!values.currency) errors.push({ line, label: label("Валюта"), message: "Обязательное поле" })
+        else if (!currency) errors.push({ line, label: `${values.name}, ${values.currency}`, message: "Валюта не найдена" })
+        else if (!values.cashier) errors.push({ line, label: label("Кассир"), message: "Обязательное поле" })
+        else if (!cashiers.length) errors.push({ line, label: `${values.name}, ${values.cashier}`, message: "Сотрудник не найден" })
+        else if (cashiers.length > 1) errors.push({ line, label: `${values.name}, ${values.cashier}`, message: "Найдено несколько сотрудников с таким именем" })
+        else if (branchId === undefined) errors.push({ line, label: `${values.name}, ${values.branch}`, message: "Филиал не найден" })
+        else if (!values.paymentType) errors.push({ line, label: label("Тип оплаты"), message: "Обязательное поле" })
+        else if (!paymentType) errors.push({ line, label: `${values.name}, ${values.paymentType}`, message: "Неизвестный тип оплаты" })
+        else if (vansell === null) errors.push({ line, label: label("Вэнсел"), message: "Укажите да или нет" })
+        else if (orderNumber === null) errors.push({ line, label: label("Порядковый номер"), message: "Введите целое число не меньше 0" })
+        else rows.push({ line, label: values.name, item: { name: values.name, currency, cashierId: cashiers[0], branchId, paymentType, vansell, orderNumber } })
       }
-      const summary = `${t("Импортировано")} ${created} ${t("из")} ${parsed.length}`
-      onImported(
-        failures.length
-          ? { text: `${summary}. ${t("Не удалось сохранить")}: ${failures.slice(0, 5).join("; ")}${failures.length > 5 ? "…" : ""}`, tone: "error" }
-          : { text: summary, tone: "success" },
-      )
-    } catch {
-      onImported({ text: t("Не удалось прочитать файл"), tone: "error" })
-    } finally {
-      setSaving(false)
-    }
+      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+    },
+    send: (item) => postJson(CASHBOXES_API, item),
+    fallbackError: "Не удалось сохранить кассу",
   }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-      <div className="w-full max-w-md rounded bg-white">
-        <header className="flex items-center justify-between border-b p-6">
-          <b className="uppercase">{t("Импорт с Excel")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-        <div className="p-8">
-          <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-            1. {t("Скачать шаблон")}
-          </button>
-          <input ref={inputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickFile} className="hidden" />
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-          >
-            <FileText className="h-8 w-8" />
-            {file ? file.name : t("Добавьте файл Excel или нажмите для выбора")}
-          </button>
-        </div>
-        <footer className="flex justify-end border-t p-5">
-          <button type="button" disabled={!file || saving} onClick={save} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-            {saving ? t("Импорт...") : t("Сохранить")}
-          </button>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-/** Column titles of the import failures ("Кассир: Сотрудник не найден"). */
-const FIELD_LABELS: Record<string, string> = {
-  name: "Наименование",
-  currency: "Валюта",
-  cashier: "Кассир",
-  branch: "Филиал",
-  paymentType: "Тип оплаты",
-  orderNumber: "Порядковый номер",
 }

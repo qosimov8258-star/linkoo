@@ -29,7 +29,8 @@ const longDate = (iso: string) => {
 }
 const formatNumber = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
 const currencyOf = (order: Order) => order.amount.trim().split(/\s+/).pop() || "SUM"
-const dueOf = (order: Order) => Math.max(0, order.orderBalance ?? order.totalPrice ?? 0)
+/** What the cash desk still accepts for the order (the server's payable rest), else its unpaid rest. */
+const dueOf = (order: Order) => Math.max(0, order.payableRest ?? order.orderBalance ?? 0)
 
 /**
  * "ГРУППОВАЯ ОПЛАТА" of the ticked orders: payment date / branch / responsible staff on top, then one row per order with an

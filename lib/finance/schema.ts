@@ -279,7 +279,6 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
 
 /** Every table the ledger reads (most are created lazily by their own repo). */
 const LEDGER_TABLES = [
-  "demo_seed_rows",
   "currencies",
   "cashboxes",
   "cash_management_entries",
@@ -302,7 +301,10 @@ const LEDGER_TABLES = [
   "employees",
   "vansell_transactions",
   "employee_balance_transactions",
+  // "Зачислить" of "Зарплата и установка планов" (lib/salary-records-repo.ts)
   "salary_credits",
+  // Plans credited before the salary records existed (lib/salary-plans-repo.ts): their accruals stay in the employee balances.
+  "salary_plans",
   "branches",
   "branch_balance_transactions",
   "warehouses",
@@ -319,10 +321,6 @@ const LEDGER_TABLES = [
   // client balance corrections ("Сверка магазина через бот": Списать / Добавить,
   // "Установить долг с Excel"; lib/finance-store-reconciliation.ts)
   "client_balance_corrections",
-  // The reference's own cash transactions (scripts/demo/apply-final-cash-list.mjs): the cashbox ledger reads them instead of the
-  // demo/legacy rows at or below the cut-off ids of the real tables (lib/finance/sources.ts cashboxSources).
-  "cash_reference_rows",
-  "cash_list_cutoff",
   // client returns (Продажи → Возвраты, sales module): accepted ones credit the client
   "client_returns",
   "client_return_items",

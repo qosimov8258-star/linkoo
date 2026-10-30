@@ -99,6 +99,23 @@ export function customerPaymentColumns(v: CustomerPaymentValues): Record<string,
   }
 }
 
+/** Advisory lock namespace, pg_advisory_xact_lock(key, clientId). It serialises the writers of one client's money that
+ * the order remainders depend on (lib/cash/orders.ts spreads a client's credits over all of its orders):
+ * - an order payment and its edit take it before they read the order's remainder (lib/cash/orders.ts lockOrderPayments);
+ * - client incomes take it too: cash "Приход" with a client, "Груповой приход" of the cash page and of the balance
+ *   pages, and the client card's payment.
+ * So a parallel payment re-reads the remainder after the first one has committed and never overpays the order.
+ * Lock order: cashbox row locks (lib/cash/guard.ts) first, then this lock, never the other way round; several clients
+ * are locked in ascending id order. */
+const CLIENT_PAYMENTS_LOCK = 72120904
+
+/** Takes the client-payments lock of each client (inside the transaction; ids that are not int4 ids are skipped). */
+export async function lockClientPayments(tx: PgDb, clientIds: ReadonlyArray<number | null | undefined>): Promise<void> {
+  const ids = [...new Set(clientIds.filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0 && id <= 2147483647))]
+  ids.sort((a, b) => a - b)
+  for (const id of ids) await tx.prepare("SELECT pg_advisory_xact_lock(@key::int, @id::int) AS ok").get({ key: CLIENT_PAYMENTS_LOCK, id })
+}
+
 /** INSERT of one customer payment (call inside withTransaction after
  * ensureFinanceSchema, which guarantees the extension columns). */
 export async function insertCustomerPayment(tx: PgDb, v: CustomerPaymentValues): Promise<{ id: number; docNo: number }> {

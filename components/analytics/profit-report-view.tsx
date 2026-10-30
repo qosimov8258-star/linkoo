@@ -8,7 +8,7 @@ import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
-import { formatMoney } from "@/lib/finance/currency"
+import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { PnlRow, PnlStats } from "@/lib/pnl-stats-repo"
@@ -103,11 +103,18 @@ export function ProfitReportView({ title, entity: entityProp = "", source: sourc
           <div key={card.label} className={`border-[#efefef] px-[15px] py-[10px] sm:border-r sm:last:border-r-0 ${card.right ? "sm:text-right" : ""}`}>
             <p className="text-[13px] font-medium leading-[18px] text-[#333]">{t(card.label)}</p>
             <p className="text-[16px] font-semibold leading-[20px] text-[#333]">
-              {formatMoney(card.value)} SUM<span className="text-[13px] font-normal">(0 {t("шт")})</span>
+              {formatMoney(card.value)}
+              {stats?.currency ? ` ${currencyLabel(stats.currency)}` : ""}
+              <span className="text-[13px] font-normal">(0 {t("шт")})</span>
             </p>
           </div>
         ))}
       </section>
+      {stats?.missingRates?.length ? (
+        <p className="mx-[30px] text-[13px] text-[#e57373]">
+          {t("Нет курса валюты, суммы не учтены")}: {stats.missingRates.map(currencyLabel).join(", ")}
+        </p>
+      ) : null}
 
       <section className="flex flex-wrap items-center gap-4 px-[30px] pt-3">
         <label className="relative w-[320px] border-b border-[#dbe0e8] pb-1">

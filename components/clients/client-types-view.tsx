@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react"
 
-import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { CashSnackbar, useCanManage, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CheckBox, EmptyState, HoverActions, LineField, LineSelect, ListToolbar, Modal, SaveLink, ToggleRow, grayHead, listRow } from "@/components/analytics/catalog-ui"
 import { DictionaryDeleteDialog } from "@/components/analytics/dictionaries-shared"
+import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
+import { importKey, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { refDate } from "@/lib/ref-date"
@@ -12,6 +14,22 @@ import { refDate } from "@/lib/ref-date"
 type ClientType = { id: number; name: string; supplier: string; date: string; parentId: number | null; innRequired: boolean }
 
 const emptyDraft = { name: "", supplier: "", parent: "", hasParent: false, innRequired: false }
+
+/** One row of "Импорт с Excel" (ours, not in the demo): Наименование + Доставщик (an employee, or empty). */
+type ClientTypeImport = { name: string; supplier?: string }
+
+/** Employee display names ("Имя Фамилия", the Доставщик picker's options) by comparison key. */
+async function delivererNames(): Promise<Map<string, string>> {
+  const response = await fetch("/api/employees", { cache: "no-store" })
+  if (!response.ok) throw new Error("load")
+  const rows = (await response.json()) as Array<{ firstName?: string; lastName?: string }>
+  const names = new Map<string, string>()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const name = `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim()
+    if (name && !names.has(importKey(name))) names.set(importKey(name), name)
+  }
+  return names
+}
 
 /** The server's message (409: duplicate name, or the usage list of a type in use). */
 async function errorOf(response: Response, t: (key: string) => string): Promise<string> {
@@ -30,6 +48,8 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   const [error, setError] = useState("")
   const [notice, setNotice] = useState<SnackbarMessage | null>(null)
   const [deliverers, setDeliverers] = useState<string[]>([])
+  const [importOpen, setImportOpen] = useState(false)
+  const canImport = useCanManage(["clients.manage"])
 
   useEffect(() => {
     fetch("/api/employees")
@@ -105,11 +125,44 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  async function reloadTypes() {
+    const list = await fetch("/api/client-types", { cache: "no-store" }).then((res) => (res.ok ? res.json() : null)).catch(() => null)
+    if (Array.isArray(list)) setItems(list as ClientType[])
+  }
+
+  const importSpec: ExcelImportSpec<ClientTypeImport> = {
+    templateName: "client-types-template",
+    columns: [
+      { field: "name", header: "Наименование", aliases: ["Название", "Тип клиента", "Name"] },
+      { field: "supplier", header: "Доставщик", aliases: ["Deliverer"] },
+    ],
+    keyField: "name",
+    prepare: async (records) => {
+      const names = records.some((record) => record.values.supplier) ? await delivererNames() : new Map<string, string>()
+      const rows: PreparedRow<ClientTypeImport>[] = []
+      const errors: ImportRowError[] = []
+      for (const { line, values } of records) {
+        const supplier = values.supplier ? names.get(importKey(values.supplier)) : undefined
+        if (!values.name) errors.push({ line, label: t("Наименование"), message: "Обязательное поле" })
+        else if (values.supplier && !supplier) errors.push({ line, label: `${values.name}, ${values.supplier}`, message: "Доставщик не найден" })
+        else rows.push({ line, label: values.name, item: supplier ? { name: values.name, supplier } : { name: values.name } })
+      }
+      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+    },
+    send: (item) => postJson("/api/client-types", item),
+    fallbackError: "Не удалось сохранить",
+  }
+
   void embedded
   const gridCols = "grid-cols-[422px_312px_1fr]"
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
-      <ListToolbar slim addLabel={t("добавить тип клиента")} onAdd={openAdd} />
+      <ListToolbar
+        slim
+        addLabel={t("добавить тип клиента")}
+        onAdd={openAdd}
+        extra={canImport ? <ExcelImportLink className="pt-[4px]" onClick={() => setImportOpen(true)} /> : undefined}
+      />
       <div className={`${grayHead} ${gridCols} pt-[2px]`}>
         <span>{t("Наименование")}</span><span>{t("Доставщик")}</span><span>{t("Дата создания")}</span>
       </div>
@@ -153,6 +206,18 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
             setNotice({ text: "Успешно удалено", tone: "success" })
           }}
           onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={importSpec}
+          onClose={() => setImportOpen(false)}
+          onChanged={() => void reloadTypes()}
+          onDone={(summary) => {
+            setImportOpen(false)
+            setNotice({ text: summary, tone: "success" })
+          }}
         />
       )}
 

@@ -31,7 +31,8 @@ type ReportRow = {
   change: number
 }
 
-const branches = ["Все филиалы", "Ташкент", "Самарканд", "Фергана"]
+// No branch list of its own (this generic page has no data source): only "all branches".
+const branches = ["Все филиалы"]
 const periods = [7, 14, 30]
 const emptyFilters: Filters = { from: "", to: "", branch: branches[0] }
 

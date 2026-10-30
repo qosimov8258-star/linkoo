@@ -1,19 +1,24 @@
 import "server-only"
 
-import { CashError, resolveOrganization } from "@/lib/cash/common"
+import { CashError, currencyContext, resolveOrganization } from "@/lib/cash/common"
+import { allocatedOrderDues, type AllocatedOrderDue } from "@/lib/cash/orders"
+import { ensureCashSchema } from "@/lib/cash/schema"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { parseDocDate, parseDocDay } from "@/lib/document-dates"
-import { todayIso } from "@/lib/finance/dates"
+import { normCurrency, roundMoney } from "@/lib/finance/currency"
+import { localToUtcText, parseAnyDate, todayIso } from "@/lib/finance/dates"
 import { placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { lockWarehouseStock } from "@/lib/internal-transfers-stock"
+import { notifySafely } from "@/lib/notify-event"
 import { keySql, nameKey } from "@/lib/platform-refs"
 import { findRestrictedProducts, PRODUCT_RESTRICTION_DENIED } from "@/lib/product-restrictions-check"
 import { ensureProductRestrictionsSchema } from "@/lib/product-restrictions-repo"
 import { selectedBranchName } from "@/lib/selected-branch"
 import { getStockBalances, getStockPending } from "@/lib/stock/ledger"
 import { ensureStockSchema } from "@/lib/stock/schema"
+import { ensureUserNotificationsSchema, notifyTemplate } from "@/lib/user-notifications-repo"
 import {
   EDITABLE_STATUSES,
   FINAL_STATUSES,
@@ -56,6 +61,15 @@ import {
 // - Every change is logged in order_logs (the order card "Логи" tab).
 // - `balance` / `negative` of a listed order are the client's CURRENT ledger
 //   balance (lib/finance), never stored.
+// - `paidAmount` / `orderBalance` ("Оплачено" / "Остаток", the list's pay icon and
+//   "Статус оплаты") come from the cash ledger (lib/cash/orders.ts
+//   allocatedOrderDues), never from a stored column: payments are made in the
+//   cash section (customer_payments), so the order cannot drift from them. The
+//   stored orders.paid_amount / order_balance are the snapshot of orders taken
+//   over from the reference only; app orders keep them NULL (ORDER_BALANCE_RESET).
+// - branch_name (the account menu's branch filter): the branch picked in the
+//   account menu when the order is created, else the client's branch; orders
+//   saved without one take their client's branch (BRANCH_BACKFILL, fill-only).
 // - organization (the finance filter "Организация"): the chosen one (a known
 //   organization), else the same fallbacks as payments (lib/cash/common.ts
 //   resolveOrganization): the client's contracts (one organization) → the
@@ -254,15 +268,60 @@ EXCEPTION WHEN others THEN
 END $$;
 `
 
+// The branch of orders saved without one (created before orders carried a branch, or while
+// «Все филиалы» was picked): the client's branch (orders.client_id, by name for legacy rows),
+// in the canonical spelling of the Филиалы directory. Fills ONLY empty values, never changes a
+// set one, and leaves an order alone when its client has no (known) branch, so it is
+// idempotent and the account menu's branch filter (branch_name) finds old and new orders
+// alike. Needs fin_key / fin_place (ensureFinanceSchema). A failure only logs a warning.
+const BRANCH_BACKFILL = `
+DO $$
+BEGIN
+  IF to_regclass('clients') IS NULL OR to_regclass('branches') IS NULL THEN RETURN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM orders WHERE fin_place(branch_name) = '') THEN RETURN; END IF;
+  UPDATE orders o SET branch_name = y.name
+  FROM (
+    SELECT o2.id,
+           (SELECT b.name FROM branches b WHERE fin_key(b.name) = fin_key(to_jsonb(c) ->> 'branch') ORDER BY b.id LIMIT 1) AS name
+    FROM orders o2
+    JOIN clients c ON c.id = COALESCE(o2.client_id, (SELECT MIN(c2.id) FROM clients c2 WHERE fin_key(c2.name) = fin_key(o2.client)))
+    WHERE fin_place(o2.branch_name) = '' AND fin_place(to_jsonb(c) ->> 'branch') <> ''
+  ) y
+  WHERE o.id = y.id AND fin_place(o.branch_name) = '' AND y.name IS NOT NULL;
+EXCEPTION WHEN others THEN
+  RAISE WARNING 'orders branch backfill skipped: %', SQLERRM;
+END $$;
+`
+
+// orders.order_balance of an APP order is no snapshot: earlier versions derived it on every
+// save as total − returns − paid_amount (paid_amount NULL = nothing, so = total − returns)
+// without ever following the payments, and "Долги с заказов" / "Ожидаемые оплаты" read a
+// non-NULL order_balance as a reference snapshot that wins over the cash ledger. Clears only
+// the values that are provably that derivation (paid_amount NULL, no reference debt ids, the
+// value equals total_price − return_price); a reference snapshot (paid_amount set) or any
+// other value stays. Idempotent: app orders no longer write the column.
+const ORDER_BALANCE_RESET = `
+DO $$
+BEGIN
+  UPDATE orders o SET order_balance = NULL
+   WHERE o.order_balance IS NOT NULL AND o.paid_amount IS NULL
+     AND to_jsonb(o) ->> 'debt_client_id' IS NULL AND to_jsonb(o) ->> 'debt_market_id' IS NULL
+     AND abs(o.order_balance - (COALESCE(o.total_price, 0) - COALESCE(o.return_price, 0))) < 0.005;
+EXCEPTION WHEN others THEN
+  RAISE WARNING 'orders balance reset skipped: %', SQLERRM;
+END $$;
+`
+
 // 3: the reference-order snapshot columns (market_name … actual_expand) next to the backfill of 2.
-const SCHEMA_VERSION = 3
+// 4: BRANCH_BACKFILL and ORDER_BALANCE_RESET.
+const SCHEMA_VERSION = 4
 
 declare global {
   var __linkoOrdersSchema: { version: number; ready: Promise<void> } | undefined
 }
 
 /** Order columns, order_items (double precision, FK), order_logs and the
- * organization backfill of older orders; once per process. */
+ * organization / branch backfills of older orders; once per process. */
 export function ensureOrdersSchema(): Promise<void> {
   if (globalThis.__linkoOrdersSchema?.version !== SCHEMA_VERSION) {
     const ready = outsideTransaction(async () => {
@@ -275,6 +334,11 @@ export function ensureOrdersSchema(): Promise<void> {
       await withTransaction(async (tx) => {
         await tx.exec("SELECT pg_advisory_xact_lock(72120931)")
         await tx.exec(ORGANIZATION_BACKFILL)
+      })
+      await withTransaction(async (tx) => {
+        await tx.exec("SELECT pg_advisory_xact_lock(72120931)")
+        await tx.exec(BRANCH_BACKFILL)
+        await tx.exec(ORDER_BALANCE_RESET)
       })
     }).catch((error) => {
       globalThis.__linkoOrdersSchema = undefined
@@ -464,13 +528,16 @@ export function formatMoney(amount: number, currency: string): string {
   return `${grouped} ${currency}`
 }
 
-/** Keeps the reference totals (total / fact price, order balance) that the card and debt pages read in step with the order's amount. */
+/** Keeps the reference totals (total / fact price) that the card and debt pages read in step with the
+ * order's amount. order_balance stays NULL for app orders (paid / remaining come from the cash ledger);
+ * only a reference snapshot that carries one follows the new total. */
 async function syncOrderTotals(db: PgDb, id: number, amount: string): Promise<void> {
   const total = parseMoneyText(amount)?.value ?? 0
   await db
     .prepare(
       `UPDATE orders SET total_price = @total, fact_price = @total - COALESCE(return_price, 0),
-       order_balance = @total - COALESCE(return_price, 0) - COALESCE(paid_amount, 0) WHERE id = @id`,
+       order_balance = CASE WHEN order_balance IS NULL THEN NULL ELSE @total - COALESCE(return_price, 0) - COALESCE(paid_amount, 0) END
+       WHERE id = @id`,
     )
     .run({ id, total })
 }
@@ -1022,7 +1089,7 @@ export async function clientLedgerBalances(options: { keys?: string[]; mode?: "c
   return out
 }
 
-async function attachBalances(orders: Order[]): Promise<Order[]> {
+async function attachBalances<T extends Order>(orders: T[]): Promise<T[]> {
   if (!orders.length) return orders
   const ids = [...new Set(orders.map((order) => order.clientId).filter((id): id is number => typeof id === "number"))]
   const balances = await clientLedgerBalances(ids.length <= 50 ? { keys: ids.map(String) } : {})
@@ -1040,8 +1107,11 @@ async function attachBalances(orders: Order[]): Promise<Order[]> {
 
 export type OrderInput = Omit<Order, "id">
 export type OrderPatch = Partial<OrderInput>
+/** An order as the list and the card send it, with `payableRest` (what the cash desk still
+ * accepts for it, withLedgerDues; the group payment offers it). */
+export type OrderWithDues = Order
 
-export async function listOrders(search?: string, options: { withBalances?: boolean } = {}): Promise<Order[]> {
+export async function listOrders(search?: string, options: { withBalances?: boolean } = {}): Promise<OrderWithDues[]> {
   await ensureOrdersSchema()
   const db = getDb()
   const branch = await selectedBranchName()
@@ -1050,16 +1120,16 @@ export async function listOrders(search?: string, options: { withBalances?: bool
         .prepare(`${ORDER_SELECT} WHERE (o.client ILIKE @q OR o.agent ILIKE @q OR o.id::text = @id) AND (@branch::text = '' OR o.branch_name = @branch) ORDER BY o.id DESC`)
         .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`, id: search.trim(), branch })) as OrderRow[])
     : ((await db.prepare(`${ORDER_SELECT} WHERE (@branch::text = '' OR o.branch_name = @branch) ORDER BY o.id DESC`).all({ branch })) as OrderRow[])
-  const orders = await withLocalPayments(rows.map(rowToOrder))
+  const orders = await withLedgerDues(rows.map(rowToOrder), options.withBalances !== false)
   return options.withBalances === false ? orders : attachBalances(orders)
 }
 
-export async function getOrder(id: number, options: { withBalances?: boolean } = {}): Promise<Order | null> {
+export async function getOrder(id: number, options: { withBalances?: boolean } = {}): Promise<OrderWithDues | null> {
   if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
   await ensureOrdersSchema()
   const row = (await getDb().prepare(`${ORDER_SELECT} WHERE o.id = ?`).get(id)) as OrderRow | undefined
   if (!row) return null
-  const [order] = await withLocalPayments([rowToOrder(row)])
+  const [order] = await withLedgerDues([rowToOrder(row)], options.withBalances !== false)
   return options.withBalances === false ? order : (await attachBalances([await withLedgerDebt(order)]))[0]
 }
 
@@ -1067,7 +1137,7 @@ export async function getOrder(id: number, options: { withBalances?: boolean } =
  * order carries, else the client's ledger end balance per currency, by creation / by
  * realization (lib/finance/ledger.ts, by clients.id) — the figures of getOrderClientDebt.
  * Currencies are never summed: one line per currency, 0 in the base currency when none. */
-async function withLedgerDebt(order: Order): Promise<Order> {
+async function withLedgerDebt<T extends Order>(order: T): Promise<T> {
   if (!order.clientId || order.operativeExpand?.length || order.operativeDebt || order.actualDebt) return order
   const key = [String(order.clientId)]
   const [operative, actual, base] = await Promise.all([
@@ -1085,38 +1155,148 @@ async function withLedgerDebt(order: Order): Promise<Order> {
 }
 
 /**
- * "Оплачено" / "Остаток" of the order list and card: the stored snapshot (orders.paid_amount /
- * order_balance) plus the live payments linked to the order (customer_payments.order_id, not
- * deleted — accepted or not, as the client balance counts them) in the order's own currency;
- * a payment in another currency is never added to it.
+ * "Оплачено" / "Остаток" of the order list (the pay icon, "Статус оплаты", the group payment):
+ * the cash ledger's figures (lib/cash/orders.ts allocatedOrderDues) — the same as the order
+ * card, "Ожидаемые оплаты" and "Долги с заказов": the payments linked to the order (live
+ * customer_payments, accepted or not) plus its FIFO share of the client's other credits, in the
+ * order's own currency (never summed across currencies). An order the ledger does not count
+ * as debt (Отменен, Не подтвержден, unknown client) owes nothing: no orderBalance, paidAmount =
+ * its linked payments. The stored paid_amount / order_balance columns are never shown.
+ * `payableRest` is what the cash desk still accepts for the order (POST /api/cash/orders/[id]/pay,
+ * lib/cash/write.ts: "Сумма больше остатка заказа"): the ledger remaining in the order's currency —
+ * orderBalance for a counted order, total − linked payments for an unconfirmed one, 0 for a
+ * cancelled order or one without a known client. The group payment offers it.
+ * `dues: false` (callers that only need the order itself) leaves all three undefined.
  */
-async function withLocalPayments(orders: Order[]): Promise<Order[]> {
-  if (!orders.length) return orders
+async function withLedgerDues(orders: Order[], dues = true): Promise<OrderWithDues[]> {
+  const cleared: OrderWithDues[] = orders.map((order) => ({ ...order, paidAmount: undefined, orderBalance: undefined, payableRest: undefined }))
+  if (!dues || !cleared.length) return cleared
   const db = getDb()
-  const table = (await db.prepare("SELECT to_regclass('customer_payments') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
-  if (!table?.ok) return orders
-  const sums = (await db
-    .prepare(
-      `SELECT o.id AS order_id, SUM(p.amount::float8) AS total
-         FROM unnest(@ids::int[], @currencies::text[]) AS o(id, cur)
-         JOIN customer_payments p ON p.order_id = o.id
-        WHERE COALESCE(p.is_deleted, 0) = 0 AND COALESCE(fin_cur(p.currency), @base::text) = COALESCE(fin_cur(o.cur), @base::text)
-        GROUP BY o.id`,
-    )
-    .all({ ids: orders.map((order) => order.id), currencies: orders.map((order) => order.currency ?? ""), base: await baseCurrency(db) })) as Array<{
-    order_id: number
-    total: number
-  }>
-  const byOrder = new Map(sums.map((row) => [Number(row.order_id), Number(row.total) || 0]))
-  return orders.map((order) => {
-    const extra = byOrder.get(order.id)
-    if (!extra) return order
-    return {
-      ...order,
-      paidAmount: (order.paidAmount ?? 0) + extra,
-      orderBalance: order.orderBalance === undefined ? undefined : Math.max(0, order.orderBalance - extra),
-    }
+  let found: AllocatedOrderDue[] = []
+  let base = ""
+  try {
+    await ensureCashSchema(db)
+    const cc = await currencyContext(db)
+    base = cc.base
+    found = await allocatedOrderDues(db, cleared.map((order) => order.id), cc)
+  } catch (error) {
+    console.error("order dues unavailable", error)
+    return cleared
+  }
+  const byId = new Map(found.map((due) => [due.id, due]))
+  return cleared.map((order) => {
+    const due = byId.get(order.id)
+    if (!due) return order
+    const code = normCurrency(order.currency || parseMoneyText(order.amount)?.currency || base, base)
+    const part = due.currencies.find((entry) => normCurrency(entry.currency, base) === code)
+    if (!part) return due.counted ? { ...order, paidAmount: 0, orderBalance: 0, payableRest: 0 } : { ...order, payableRest: 0 }
+    const paidAmount = roundMoney(due.counted ? part.paid : part.linked)
+    const remaining = roundMoney(Math.max(0, part.remaining))
+    // The cash desk refuses a cancelled order ("Заказ отменен") and an order whose client is unknown.
+    const payableRest = due.status === "Отменен" || due.clientId === null ? 0 : remaining
+    return due.counted
+      ? { ...order, paidAmount, orderBalance: remaining, payableRest }
+      : { ...order, paidAmount: paidAmount || undefined, payableRest }
   })
+}
+
+/** A line of "Список оплат по заказу" (the order card's "Оплачено" link). */
+export type OrderPaymentLine = {
+  /** "payment": a customer payment linked to the order (cash ledger, customer_payments.order_id);
+   * "allocated": the FIFO share of the client's other credits the ledger counts towards this order. */
+  kind: "payment" | "allocated"
+  /** customer_payments.id (0 for the allocated share). */
+  id: number
+  /** The cash document number ("№" of the cash pages; 0 when none). */
+  docNo: number
+  /** Local "YYYY-MM-DDTHH:mm:ss" ("" for the allocated share). */
+  date: string
+  client: string
+  user: string
+  comment: string
+  /** Accepted into a cashbox (an agent's payment may still wait for the cashier). */
+  accepted: boolean
+  /** The money taken (cash side) and its currency. */
+  amount: number
+  currency: string
+  /** What it pays of the order (debt side) and that currency. */
+  orderAmount: number
+  orderCurrency: string
+}
+
+type OrderPaymentSqlRow = {
+  id: number
+  doc_no: string | number | null
+  day: string
+  client: string
+  user_name: string
+  comment: string
+  accepted: number
+  cash_amount: number
+  cash_cur: string
+  amount: number
+  cur: string
+}
+
+/** "Список оплат по заказу": the live payments linked to the order (accepted or not, as the client
+ * balance counts them) plus the share of the client's other credits allocated to it — the lines
+ * add up to the card's "Оплачено" (lib/cash/orders.ts allocatedOrderDue). null when the order
+ * does not exist. */
+export async function listOrderPayments(orderId: number): Promise<OrderPaymentLine[] | null> {
+  if (!Number.isSafeInteger(orderId) || orderId <= 0 || orderId > 2_147_483_647) return null
+  await ensureOrdersSchema()
+  const db = getDb()
+  const order = (await db.prepare("SELECT id, client FROM orders WHERE id = ?").get(orderId)) as { id: number; client: string } | undefined
+  if (!order) return null
+  await ensureCashSchema(db)
+  const cc = await currencyContext(db)
+  const rows = (await db
+    .prepare(
+      `SELECT p.id, p.doc_no,
+              COALESCE(to_char(COALESCE(fin_ts(NULLIF(p.payment_date, '')), fin_ts(p.created_at, true)), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS day,
+              COALESCE(NULLIF(btrim(p.client), ''), @client::text) AS client, COALESCE(p.created_by, '') AS user_name,
+              COALESCE(p.comment, '') AS comment, COALESCE(p.accepted, 0) AS accepted,
+              COALESCE(p.real_amount, p.amount)::float8 AS cash_amount,
+              COALESCE(fin_cur(NULLIF(p.real_currency, '')), fin_cur(p.currency), @base::text) AS cash_cur,
+              p.amount::float8 AS amount, COALESCE(fin_cur(p.currency), @base::text) AS cur
+         FROM customer_payments p
+        WHERE p.order_id = @id AND COALESCE(p.is_deleted, 0) = 0
+        ORDER BY 3, p.id`,
+    )
+    .all({ id: orderId, client: order.client ?? "", base: cc.base })) as OrderPaymentSqlRow[]
+  const lines: OrderPaymentLine[] = rows.map((row) => ({
+    kind: "payment",
+    id: Number(row.id),
+    docNo: Number(row.doc_no ?? 0) || 0,
+    date: row.day ?? "",
+    client: row.client ?? "",
+    user: row.user_name ?? "",
+    comment: NOT_SET.has(nameKey(row.comment ?? "")) ? "" : (row.comment ?? "").trim(),
+    accepted: Number(row.accepted) === 1,
+    amount: roundMoney(Number(row.cash_amount) || 0),
+    currency: row.cash_cur,
+    orderAmount: roundMoney(Number(row.amount) || 0),
+    orderCurrency: row.cur,
+  }))
+  const [due] = await allocatedOrderDues(db, [orderId], cc)
+  for (const part of due?.counted ? due.currencies : []) {
+    if (part.allocated <= 0.005) continue
+    lines.push({
+      kind: "allocated",
+      id: 0,
+      docNo: 0,
+      date: "",
+      client: order.client ?? "",
+      user: "",
+      comment: "",
+      accepted: true,
+      amount: roundMoney(part.allocated),
+      currency: part.currency,
+      orderAmount: roundMoney(part.allocated),
+      orderCurrency: part.currency,
+    })
+  }
+  return lines
 }
 
 /** The client's operative (by creation) and actual (by realization) debt, for the order card. */
@@ -1184,7 +1364,7 @@ export type OrderUpdateInput = Omit<OrderCreateInput, "items"> & {
   dueDate?: string
   acceptedDate?: string
   invoiceContract?: string
-  /** Snapshot paid / balance of the order (reference data). */
+  /** Refused (400): paid / remaining come from the cash ledger, never from a typed-in figure. */
   paidAmount?: number
   orderBalance?: number
   createdAt?: string
@@ -1240,6 +1420,8 @@ async function prepareWrites() {
   // The product restriction tables (and the move of the older name-based table): the order
   // checks below read them inside the transaction and never run DDL there.
   await ensureProductRestrictionsSchema()
+  // Notifications (order_delivered) are written inside the order transaction.
+  await ensureUserNotificationsSchema()
 }
 
 export async function createOrder(input: OrderCreateInput, user: { displayName: string }): Promise<Order> {
@@ -1331,13 +1513,14 @@ export async function createOrder(input: OrderCreateInput, user: { displayName: 
     const orderId = Number(inserted.lastInsertRowid)
     await syncOrderTotals(tx, orderId, amount)
     // The order card's snapshot fields: the client's name, the payment method (cash unless the
-    // order says bank), the selected branch and the order's own warehouse.
+    // order says bank), the branch (the one picked in the account menu, else the client's — so
+    // the branch filter finds the order) and the order's own warehouse.
     await tx
       .prepare(
         `UPDATE orders SET market_name = client, pay_method = @payMethod, branch_name = COALESCE(NULLIF(@branch, ''), branch_name), stock_name = warehouse
           WHERE id = @id`,
       )
-      .run({ id: orderId, branch, payMethod: input.paymentType === "bank" ? "bank" : "cash" })
+      .run({ id: orderId, branch: branch || (await clientBranch(tx, client.id)), payMethod: input.paymentType === "bank" ? "bank" : "cash" })
     for (const line of resolved) await insertLine(tx, orderId, line, currency)
     await addLog(tx, orderId, { kind: "Создан", status, amount, user: user.displayName })
     return orderId
@@ -1367,8 +1550,6 @@ const FINAL_EDITABLE = new Set([
   // The order card's snapshot fields (payment terms, documents, transport).
   "invoiceContract",
   "dueDate",
-  "paidAmount",
-  "orderBalance",
   "acceptedDate",
   "transportNumber",
   "expeditor",
@@ -1400,6 +1581,18 @@ const FIELD_COLUMNS: Record<string, string> = {
   createdAt: "created_at",
 }
 
+/** The client's branch as the Филиалы directory spells it, "" when it has none (or an unknown one). */
+async function clientBranch(db: PgDb, clientId: number): Promise<string> {
+  if (!(await tableExists(db, "branches"))) return ""
+  const row = (await db
+    .prepare(
+      `SELECT b.name FROM clients c JOIN branches b ON ${keySql("b.name")} = ${keySql("to_jsonb(c) ->> 'branch'")}
+        WHERE c.id = @clientId AND ${keySql("to_jsonb(c) ->> 'branch'")} <> '' ORDER BY b.id LIMIT 1`,
+    )
+    .get({ clientId })) as { name: string } | undefined
+  return row?.name ?? ""
+}
+
 /** Canonical branch name ("" clears it); 400 when unknown. */
 async function resolveBranch(db: PgDb, name: string): Promise<string> {
   if (NOT_SET.has(nameKey(name))) return ""
@@ -1408,14 +1601,6 @@ async function resolveBranch(db: PgDb, name: string): Promise<string> {
     : undefined
   if (!row) throw new OrderError("Филиал не найден", 400, { field: "branchName" })
   return row.name
-}
-
-/** A money figure of the order card snapshot (paid / balance): a finite number within ±MAX_MONEY. */
-function snapshotMoney(value: number, field: string, min = -MAX_MONEY): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new OrderError("Неверная сумма", 400, { field })
-  if (value < min) throw new OrderError("Сумма не может быть отрицательной", 400, { field })
-  if (Math.abs(value) > MAX_MONEY) throw new OrderError("Сумма слишком большая", 400, { field })
-  return value
 }
 
 /** A day of the order card snapshot (due / realization date, "" clears it): canonical "YYYY-MM-DD". */
@@ -1433,6 +1618,11 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
   // availability), never into a free-text column the stock does not read.
   const { stockName, ...rest } = request
   const patch: OrderUpdateInput = stockName !== undefined && rest.warehouse === undefined ? { ...rest, warehouse: stockName } : rest
+  // "Оплачено" / "Остаток" follow the cash ledger (withLedgerDues): a typed-in figure would
+  // silently disagree with the real payments, so it is refused instead of stored.
+  for (const field of ["paidAmount", "orderBalance"] as const) {
+    if (patch[field] !== undefined) throw new OrderError("Оплаты заказа вносятся через кассу", 400, { field })
+  }
   await prepareWrites()
   const found = await withTransaction(async (tx) => {
     await lockOrders(tx)
@@ -1459,6 +1649,11 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
         const column = FIELD_COLUMNS[key]
         if (!column || typeof value !== "string") return true
         const stored = String((current as Record<string, unknown>)[column] ?? "")
+        // createdAt is typed in local (Tashkent) time and stored as UTC: the same moment is no change.
+        if (key === "createdAt" && value.trim() !== stored) {
+          const local = parseAnyDate(value)
+          return !local || localToUtcText(local) !== stored
+        }
         return key === "client" || key === "agent" || key === "deliveryMan" || key === "warehouse" ? nameKey(value) !== nameKey(stored) : value.trim() !== stored
       })
       if (reallyChanged.length) throw new OrderError(`Заказ в статусе «${from}» нельзя изменить`, 409, { fields: reallyChanged })
@@ -1562,24 +1757,23 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
       if (day !== (current[column] ?? "")) sets(column, day)
     }
     // The stored creation moment (UTC "YYYY-MM-DD HH:MM:SS", as datetime('now') writes it): a real date, never after today.
+    // The typed value is a local (Tashkent) time; reports and finance read created_at as UTC.
     if (patch.createdAt !== undefined && patch.createdAt.trim() !== (current.created_at ?? "")) {
-      const parsed = parseDocDate(patch.createdAt, { current: current.created_at })
-      if (!parsed.ok) throw new OrderError(parsed.error, 400, { field: "createdAt" })
-      sets("created_at", parsed.date.replace("T", " ").slice(0, 19))
+      const parsed = parseDocDate(patch.createdAt, { current: parseAnyDate(current.created_at, true) })
+      const utc = parsed.ok ? localToUtcText(parsed.date) : null
+      if (!parsed.ok || !utc) throw new OrderError(parsed.ok ? "Неверная дата" : parsed.error, 400, { field: "createdAt" })
+      // The same moment sent back in local time is no change.
+      if (utc !== (current.created_at ?? "")) sets("created_at", utc)
     }
-    // The card's paid / balance snapshot (the ledger and the cash pages never read it).
-    const paid = patch.paidAmount === undefined ? undefined : snapshotMoney(patch.paidAmount, "paidAmount", 0)
-    const balance = patch.orderBalance === undefined ? undefined : snapshotMoney(patch.orderBalance, "orderBalance")
-    if (paid !== undefined && paid !== current.paid_amount) sets("paid_amount", paid)
-    if (balance !== undefined && balance !== current.order_balance) sets("order_balance", balance)
-    // A new amount moves the totals with it, and a new paid amount the balance (unless one is sent).
-    if ("amount" in next || (paid !== undefined && balance === undefined)) {
-      const total = "amount" in next ? (parseMoneyText(String(next.amount))?.value ?? 0) : Number(current.total_price ?? parseMoneyText(current.amount)?.value ?? 0)
-      if ("amount" in next) {
-        sets("total_price", total)
-        sets("fact_price", total - Number(current.return_price ?? 0))
+    // A new amount moves the totals with it; order_balance only for a reference snapshot that
+    // carries one (an app order's paid / remaining come from the cash ledger, see withLedgerDues).
+    if ("amount" in next) {
+      const total = parseMoneyText(String(next.amount))?.value ?? 0
+      sets("total_price", total)
+      sets("fact_price", total - Number(current.return_price ?? 0))
+      if (current.order_balance !== null && current.order_balance !== undefined) {
+        sets("order_balance", total - Number(current.return_price ?? 0) - Number(current.paid_amount ?? 0))
       }
-      if (balance === undefined) sets("order_balance", total - Number(current.return_price ?? 0) - Number(paid ?? current.paid_amount ?? 0))
     }
     if (patch.invoiceActive !== undefined && (patch.invoiceActive ? 1 : 0) !== (current.invoice_active ?? 0)) sets("invoice_active", patch.invoiceActive ? 1 : 0)
 
@@ -1661,6 +1855,22 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
           : `Изменено: ${changedColumns.join(", ")}`
       const amountRow = (await tx.prepare("SELECT amount FROM orders WHERE id = ?").get(id)) as { amount: string }
       await addLog(tx, id, { kind: "Обновленный", status: target, comment, amount: amountRow.amount, user: user.displayName })
+      if (target === "Доставлено" && from !== "Доставлено") {
+        // Настройки → Уведомления "order_delivered": the administrators, the subscribers and the order's agent
+        // (in this transaction: a rolled-back change notifies nobody; a failed notification never undoes it).
+        await notifySafely("order_delivered", async () => {
+          const head = (await tx.prepare("SELECT client, agent, delivery_man FROM orders WHERE id = ?").get(id)) as {
+            client: string | null
+            agent: string | null
+            delivery_man: string | null
+          }
+          await notifyTemplate(
+            "order_delivered",
+            { id, client: head.client ?? "", delivery_man: head.delivery_man ?? "" },
+            { objectId: id, link: `/analytics/sales/${id}`, employeeNames: [head.agent ?? ""] },
+          )
+        })
+      }
     }
     return true
   })
@@ -1672,7 +1882,7 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
 const ORDER_DELETE_LINKS: ReadonlyArray<{ table: string; label: string; where: string }> = [
   { table: "customer_payments", label: "Оплаты", where: "order_id = @id AND COALESCE(is_deleted, 0) = 0" },
   { table: "client_returns", label: "Возвраты", where: "order_id = @id AND status <> 'cancelled'" },
-  { table: "customer_returns", label: "Возвраты", where: "order_id = @id" },
+  // customer_returns (the removed legacy return path) is not read: its old demo rows must not block a delete.
 ]
 
 /** Deletes an order that never left the warehouse, with its lines and log, in one transaction

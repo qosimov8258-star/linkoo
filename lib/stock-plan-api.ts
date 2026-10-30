@@ -3,6 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { dbErrorResponse } from "@/lib/db-errors"
 import { isIsoDay } from "@/lib/finance/dates"
 import type { PlanPaging, PlanTaskFilters } from "@/lib/stock-plan"
 import type { PlanMoveFilters } from "@/lib/stock-plan-movements"
@@ -89,8 +90,9 @@ export function parseMoveFilters(params: URLSearchParams): Parsed<PlanMoveFilter
   }
 }
 
-/** 500 with the message. */
+/** A busy database → 503 / 409 (lib/db-errors.ts); anything else → 500 with a Russian i18n key, never
+ * the raw error text (it can carry SQL). The error itself is logged. */
 export function planFailure(error: unknown): NextResponse {
   console.error("stock plan:", error)
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 })
+  return dbErrorResponse(error) ?? NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 })
 }

@@ -117,13 +117,14 @@ export function RadioRow({ checked, onChange, label }: { checked: boolean; onCha
 
 /** Underlined date field of the reference dialogs: the label is the placeholder, a calendar icon opens the date picker. */
 export function DateLineField({ label, value, onChange, required }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
+  const { language } = useLanguage()
   const [open, setOpen] = useState(false)
   return (
     <div className="relative h-[40px] cursor-pointer border-b border-[#d5dae1]" onClick={() => setOpen(true)}>
       <span className={`pointer-events-none absolute left-0 ${value ? "top-0 text-[10px] font-semibold leading-3" : "top-[16px] text-[13px] leading-4"}`}>
         {label}{required && <span className="text-red-500"> *</span>}
       </span>
-      {value && <span className="absolute inset-x-0 bottom-[6px] text-[13px]">{formatReportDate(value)}</span>}
+      {value && <span className="absolute inset-x-0 bottom-[6px] text-[13px]">{formatReportDate(value, language)}</span>}
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[2px] right-0 h-5 w-5 fill-[#c4c4c4]" aria-hidden>
         <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
       </svg>

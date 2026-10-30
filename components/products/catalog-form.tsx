@@ -271,6 +271,11 @@ export function CatalogFormDialog({
     // A number field the server would refuse: marked here with the server's message instead of sending NaN (null).
     let numberError = ""
     for (const key of NUMBER_KEYS) if (Number.isNaN(body[key])) local[key] = numberError = "Некорректное число"
+    // Days: 0 … 100 000, the server's range (a negative or huge value is marked here, not sent).
+    for (const key of ["expirationDays", "notifyExpireDays"] as const) {
+      const value = body[key]
+      if (value !== null && !(value >= 0 && value <= 100_000)) local[key] = numberError = "Некорректное число"
+    }
     if (body.boxSizes.some((size) => [size.height, size.width, size.length].some(Number.isNaN))) numberError = "Некорректное число"
     if (body.priceLists.some((entry) => [entry.cash, entry.nonCash, entry.min, entry.max].some(Number.isNaN))) local.priceLists = numberError = "Некорректная цена"
     const vat = draft.vatPercent.trim() ? parseNum(draft.vatPercent.trim()) : 0
@@ -421,7 +426,14 @@ export function CatalogFormDialog({
           />
           <Toggle className="mt-[15px]" checked={draft.showInBot} onChange={(showInBot) => set({ showInBot })} title={t("Показывать в боте")} subTitle={t("Показывать в телеграм боте")} />
           <Toggle className="mt-[15px]" checked={draft.trackExpiry} onChange={(trackExpiry) => set({ trackExpiry })} title={t("Учитывать срок годности")} />
-          {draft.trackExpiry && <Toggle className="mt-[15px]" checked={draft.trackSeries} onChange={(trackSeries) => set({ trackSeries })} title={t("Учитывать серии")} />}
+          {draft.trackExpiry && (
+            <>
+              <Toggle className="mt-[15px]" checked={draft.trackSeries} onChange={(trackSeries) => set({ trackSeries })} title={t("Учитывать серии")} />
+              {/* Shelf life of the product and the warning threshold, whole days (stored as expiration_days / notify_expire_days). */}
+              <div className="mt-[5px]">{amount("expirationDays", "Дата окончания срока годности (дней)")}</div>
+              {amount("notifyExpireDays", "Предупредить, если больше дней")}
+            </>
+          )}
           <Toggle className="mt-[15px]" checked={draft.markedProduct} onChange={(markedProduct) => set({ markedProduct })} title={t("Маркировочный товар")} />
           {draft.showAdditionals && <BoxSizesEditor value={draft.boxSizes} onChange={(boxSizes) => set({ boxSizes })} units={units} />}
           <Toggle

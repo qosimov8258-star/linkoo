@@ -30,7 +30,9 @@ import { availableByKey } from "@/lib/repricings-items"
 import { createRepricingTx } from "@/lib/repricings-repo"
 import { getItemCosts, refreshProductCostCache } from "@/lib/stock/costs"
 import { ensureStockSchema } from "@/lib/stock/schema"
+import { notifySafely } from "@/lib/notify-event"
 import type { SupplierIncomingBody, IncomingExpenseBody } from "@/lib/supplier-incomings-api"
+import { ensureUserNotificationsSchema, notifyTemplate } from "@/lib/user-notifications-repo"
 import {
   currencyRates,
   ensureProcurementFunctions,
@@ -80,7 +82,6 @@ async function installSchema(): Promise<void> {
       ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS accepted_by TEXT NOT NULL DEFAULT '';
       ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS invoice_id INTEGER;
       ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS rate_to_base DOUBLE PRECISION;
-      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS ref_items TEXT NOT NULL DEFAULT '[]';
       ALTER TABLE products ADD COLUMN IF NOT EXISTS initial_cost DOUBLE PRECISION;
 
       CREATE TABLE IF NOT EXISTS supplier_incoming_expenses (
@@ -202,8 +203,6 @@ type Row = {
   time: string
   comment: string
   items: string
-  /** Lines of the reference's own supplies, shown in the detail card only: the stock ledger reads `items`, and the reference stock is already in its balance rows. */
-  ref_items?: string
   currency: string
   invoice_date: string
   accepted_at: string
@@ -247,7 +246,7 @@ function rowToIncoming(row: Row, expenses: ExpenseSum[], rates: Rates): Incoming
     supplier: row.supplier,
     warehouse: row.warehouse,
     date: row.date,
-    // Older demo rows say "Наличные"; the reference prints "Наличный" (uz "Naqd") for every cash delivery.
+    // Older rows say "Наличные"; the reference prints "Наличный" (uz "Naqd") for every cash delivery.
     paymentType: (/^нал/i.test(row.payment_type) ? "Наличный" : row.payment_type) as Incoming["paymentType"],
     contractNumber: row.contract_number,
     amount: Number(row.amount) || 0,
@@ -261,7 +260,7 @@ function rowToIncoming(row: Row, expenses: ExpenseSum[], rates: Rates): Incoming
     paid: Number(row.paid) || 0,
     time: row.time,
     comment: row.comment,
-    items: parseItems(row.items).length ? parseItems(row.items) : parseItems(row.ref_items ?? "[]"),
+    items: parseItems(row.items),
     currency: row.currency || "SUM",
     invoiceDate: row.invoice_date,
     acceptedAt: row.accepted_at,
@@ -311,10 +310,8 @@ function withPaid(incoming: Incoming, paid: Map<number, number>): Incoming {
 export async function listIncomings(): Promise<Incoming[]> {
   const db = await incomingsDb()
   const branch = await selectedBranchName()
-  // Demo receipts that exist only to keep the stock consistent are not part of the list (reference shows the real ones).
-  const hasRegistry = ((await db.prepare("SELECT to_regclass('demo_seed_rows') AS t").get()) as { t: string | null }).t
-  const hideDemo = hasRegistry ? ` AND NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'supplier_incomings' AND d.row_id = i.id::text)` : ""
-  const rows = await loadIncomings(db, `WHERE (@branch::text = '' OR i.branch = @branch::text)${hideDemo}`, { branch })
+  // Every supply of the selected branch (all of them without one): only what this company entered.
+  const rows = await loadIncomings(db, "WHERE (@branch::text = '' OR i.branch = @branch::text)", { branch })
   const paid = await paidBySupply(null, db)
   return rows.map((row) => withPaid(row, paid))
 }
@@ -636,11 +633,32 @@ async function assertAcceptable(tx: PgDb, current: Incoming, index: CatalogIndex
   if (messages.length) throw new ProcurementError(messages[0], 409, fields)
 }
 
+/** The moment an acceptance is booked at (`at`) and its local day (`day`): now, or the day picked in
+ * the «ПРИЕМКА ТОВАРА» dialog at the current local time of day. That day is a supply document date
+ * (lib/document-dates.ts): a year 2000..2100 and never after today (Asia/Tashkent) — else a 400 field
+ * error. (Not before the supply's own date either: checked once the supply is locked.) */
+function acceptanceMoment(acceptDate: string | undefined): { at: string; day: string } {
+  const now = new Date()
+  const today = todayIso(now)
+  if (acceptDate === undefined || !acceptDate.trim()) return { at: now.toISOString(), day: today }
+  const day = parseDocDay(acceptDate)
+  if (!day.ok) throw fieldError("date", day.error)
+  // Whole days back from today: the same local clock time on the picked day (a UTC time-of-day glued
+  // to the local day could land on the next local day, i.e. in the future).
+  const daysBack = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${day.date}T00:00:00Z`)) / 86_400_000)
+  return { at: new Date(now.getTime() - daysBack * 86_400_000).toISOString(), day: day.date }
+}
+
 /** "Принять на склад" / "Отменить приемку" / "Отменить". Accepting puts the goods on the
  * warehouse at the supply currency's current rate (frozen in rate_to_base); undoing it is
  * refused while the warehouse no longer holds the goods (returned, moved, used, sold). */
 export async function changeIncomingStatus(id: number, action: StatusAction, userName: string, acceptDate?: string): Promise<IncomingChange> {
+  // Checked before anything is locked: a bad date is a 400, whatever the supply's state.
+  // (Only an accept reads the date; the other actions ignore whatever was sent.)
+  const acceptance = acceptanceMoment(action === "accept" ? acceptDate : undefined)
   await incomingsDb()
+  // The supply_accepted notification is written inside the status transaction.
+  if (action === "accept") await ensureUserNotificationsSchema()
   const transition = TRANSITIONS[action]
   let products: string[] = []
   const result = await withTransaction(async (tx): Promise<IncomingChange> => {
@@ -652,14 +670,17 @@ export async function changeIncomingStatus(id: number, action: StatusAction, use
     if (!current) return "not_found"
     if (current.status !== transition.from) return "locked"
     if (action === "accept") {
+      // The stock core books the receipt on the earlier of the supply date and the acceptance: an
+      // acceptance before the supply's own date would put the goods on the warehouse before the
+      // supply exists (internal transfers refuse the same: lib/internal-transfers-repo.ts).
+      const supplyDay = parseAnyDay(current.date)
+      if (supplyDay && acceptance.day < supplyDay) throw fieldError("date", "Дата приемки не может быть раньше даты поставки")
       await lockWarehouseStock(tx, [current.warehouse])
       await assertAcceptable(tx, current, await catalogIndex(tx))
       const rate = await rateToBase(tx, current.currency)
-      // The reference's "ПРИЕМКА ТОВАРА" dialog picks the acceptance day; the time of day is the current one.
-      const acceptedAt = acceptDate && /^\d{4}-\d{2}-\d{2}$/.test(acceptDate) ? `${acceptDate}T${new Date().toISOString().slice(11)}` : new Date().toISOString()
       await tx
         .prepare("UPDATE supplier_incomings SET status = 'принят', accepted_at = @at, accepted_by = @by, rate_to_base = @rate, updated_at = datetime('now') WHERE id = @id")
-        .run({ id, at: acceptedAt, by: userName, rate })
+        .run({ id, at: acceptance.at, by: userName, rate })
     } else if (action === "unaccept") {
       // The goods leave the warehouse again: it must still have them.
       await lockWarehouseStock(tx, [current.warehouse])
@@ -693,6 +714,17 @@ export async function changeIncomingStatus(id: number, action: StatusAction, use
       await tx.prepare("UPDATE supplier_incomings SET status = 'отменен', updated_at = datetime('now') WHERE id = @id").run({ id })
     }
     await addLog(tx, id, action === "accept" ? "accepted" : action === "unaccept" ? "unaccepted" : "cancelled", userName)
+    if (action === "accept") {
+      // Настройки → Уведомления "supply_accepted": the administrators and the subscribers (in this
+      // transaction: a rolled-back acceptance notifies nobody; a failed notification never undoes it).
+      await notifySafely("supply_accepted", () =>
+        notifyTemplate(
+          "supply_accepted",
+          { id, stock_name: current.warehouse, accepted_by: userName, provider_name: current.supplier },
+          { objectId: id, link: "/analytics/supplier-incomings" },
+        ),
+      )
+    }
     products = current.items.map((item) => item.product)
     return (await getIncoming(id, tx))!
   })
@@ -889,32 +921,6 @@ export async function productSupplyHistory(productName: string, db?: PgDb): Prom
     }
   }
   return history
-}
-
-/** Running average cost per product (lower-cased name) over every accepted supply: the reference's "Себестоимость". */
-export async function supplyAverageCosts(): Promise<Record<string, number>> {
-  const db = await incomingsDb()
-  const incomings = await loadIncomings(db, "WHERE i.status = 'принят'", {}, "ORDER BY i.accepted_at, i.id")
-  const rates = await currencyRates(db)
-  const totals = new Map<string, { qty: number; value: number }>()
-  for (const incoming of incomings) {
-    const rate = positive(incoming.rateToBase) ?? rates.rateOf(incoming.currency) ?? 1
-    for (const line of supplyCostLines(incoming)) {
-      if (!(line.qty > 0)) continue
-      const key = line.product.trim().toLocaleLowerCase("ru")
-      const current = totals.get(key) ?? { qty: 0, value: 0 }
-      current.qty += line.qty
-      current.value += line.qty * line.unitCost * rate
-      totals.set(key, current)
-    }
-  }
-  // A product that has the reference's own net cost (product_reference_prices) never falls back to the supply average.
-  const hasReference = ((await db.prepare("SELECT to_regclass('product_reference_prices') AS t").get()) as { t: string | null }).t
-  if (hasReference) {
-    const referenced = (await db.prepare("SELECT lower(btrim(p.name)) AS k FROM products p JOIN product_reference_prices r ON r.product_id = p.id").all()) as { k: string }[]
-    for (const { k } of referenced) totals.delete(k)
-  }
-  return Object.fromEntries([...totals].map(([key, total]) => [key, Math.round((total.value / total.qty) * 1e6) / 1e6]))
 }
 
 // ---------------------------------------------------------------------------

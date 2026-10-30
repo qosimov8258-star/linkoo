@@ -39,6 +39,9 @@ export type Order = {
   payMethod?: string
   /** Outstanding amount of this order (red payment icon while > 0). */
   orderBalance?: number
+  /** What the cash desk still accepts for the order (lib/orders-repo.ts withLedgerDues): 0 for a
+   * cancelled order or one without a client; sent by the list and the card. */
+  payableRest?: number
   invoiceActive?: boolean
   transportNumber?: string
   branchName?: string

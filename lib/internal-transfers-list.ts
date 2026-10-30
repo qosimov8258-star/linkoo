@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { getStockOptions } from "@/lib/stock/options"
 import { jsonLines } from "@/lib/stock/sources"
-import { ensureTransfersSchema, rowToTransfer, type TransferRow } from "@/lib/internal-transfers-repo"
+import { ensureTransfersSchema, rowToTransfer, syncTransferValues, type TransferRow } from "@/lib/internal-transfers-repo"
 import type { Transfer, TransferListResult, TransferOptions, TransferStatus, TransferWarehouse } from "@/lib/internal-transfers-types"
 
 // List of "Передачи между складами" (demo stock/stock_transfer/ with
@@ -120,6 +120,8 @@ function orderBy(ordering: string): string {
 
 export async function listTransfers(query: TransferListQuery): Promise<TransferListResult> {
   await ensureTransfersSchema()
+  // Sums (and their sort) as the cost ledger values the given transfers now.
+  await syncTransferValues()
   const db = getDb()
   const filter = where(query)
   // The db shim binds a lone object only when the SQL has @names.
@@ -135,6 +137,7 @@ export async function listTransfers(query: TransferListQuery): Promise<TransferL
 /** Legacy GET /api/internal-transfers (no paging params): every transfer, newest first. */
 export async function listAllTransfers(): Promise<Transfer[]> {
   await ensureTransfersSchema()
+  await syncTransferValues()
   const rows = (await getDb().prepare("SELECT * FROM internal_transfers ORDER BY id DESC").all()) as TransferRow[]
   return rows.map(rowToTransfer)
 }

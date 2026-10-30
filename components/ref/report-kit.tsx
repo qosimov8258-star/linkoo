@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 
 import { RefButton, RefHeader, RI } from "./list-kit"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
+import type { LanguageCode } from "@/lib/i18n/types"
 
 /**
  * Shared chrome of the reference app's "dynamic report" pages: title row with
@@ -18,10 +20,12 @@ const FLOAT_LABEL = "absolute left-0 top-[7px] text-[10px] font-normal leading-3
 
 const MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 
-/** 2026-10-01 -> "1 октября 2026 г." (the reference app's date field format). */
-export function formatReportDate(iso: string) {
+/** 2026-10-01 -> "1 октября 2026 г." (the reference app's date field format) in Russian; the UI language's
+ * date ("01 okt 2026", lib/i18n/format-date.ts) otherwise, already in the server HTML. */
+export function formatReportDate(iso: string, language: LanguageCode = "ru") {
   const [year, month, day] = iso.split("-").map(Number)
   if (!year || !month || !day) return ""
+  if (language !== "ru") return formatDateText(iso, language, { withTime: false })
   return `${day} ${MONTHS_RU[month - 1]} ${year} г.`
 }
 
@@ -212,12 +216,12 @@ export function ReportDateField({
   /** Text shown while no date is set (the reference's "Укажите дату"). */
   placeholder?: string
 }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [open, setOpen] = useState(false)
   return (
     <div className={`${FIELD} cursor-pointer`} onClick={() => setOpen(true)}>
       <span className={FLOAT_LABEL}>{t(label)}</span>
-      <span data-no-translate={value || !placeholder ? "" : undefined} className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">{value || !placeholder ? formatReportDate(value) : t(placeholder)}</span>
+      <span data-no-translate={value || !placeholder ? "" : undefined} className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">{value || !placeholder ? formatReportDate(value, language) : t(placeholder)}</span>
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[8px] right-0 h-5 w-5 fill-[#c4c4c4]" aria-hidden>
         <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
       </svg>

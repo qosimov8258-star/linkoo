@@ -61,8 +61,8 @@ export function InventoryFormDialog({
   const [warehouse, setWarehouse] = useState(inventory?.warehouse ?? "")
   const [invDate, setInvDate] = useState(inventory?.type === "custom_date" ? inventory.invDate : "")
   const [forDayEnd, setForDayEnd] = useState(inventory?.type === "custom_date" ? inventory.forDayEnd : false)
-  // The reference form has no comment field; an edited document keeps the comment it already has.
-  const [comment] = useState(inventory?.comment ?? "")
+  // "Комментарий" under the header fields; an edited document starts from the comment it already has.
+  const [comment, setComment] = useState(inventory?.comment ?? "")
   const [lines, setLines] = useState<InventoryLine[]>(
     () => inventory?.items.map((item) => ({ key: item.key, name: item.name, unit: item.unit, article: item.article, amount: String(item.amount) })) ?? [],
   )
@@ -208,7 +208,7 @@ export function InventoryFormDialog({
           </>
         }
       >
-        <div className="w-[300px] shrink-0 overflow-y-auto border-r border-[#efefef] px-[30px] pt-[20px]">
+        <div className="w-[300px] shrink-0 overflow-y-auto border-r border-[#efefef] px-[30px] pb-[20px] pt-[20px]">
           <div className="text-[13px] leading-4 text-[#333]">{t("Тип инвентаризации")}</div>
           <div className="mt-px">
             {STOCK_INVENTORY_TYPES.map((value) => (
@@ -260,6 +260,17 @@ export function InventoryFormDialog({
               </div>
             )
           )}
+          {/* Material text area: 10 px bold label over a 13 px value on the underline (the form's other fields). */}
+          <label className="mt-[27px] block border-b border-[#e8e8e8] pb-[6px]">
+            <span className="block text-[10px] font-bold leading-3 text-black">{t("Комментарий")}</span>
+            <textarea
+              value={comment}
+              onChange={(event) => setComment(event.target.value)}
+              rows={3}
+              maxLength={2000}
+              className="mt-[6px] block w-full resize-none bg-transparent text-[13px] leading-4 text-black outline-none"
+            />
+          </label>
         </div>
 
         <div className="min-w-0 flex-1 overflow-y-auto px-[30px] pt-[20px]">

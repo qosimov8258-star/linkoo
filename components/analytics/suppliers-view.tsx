@@ -3,8 +3,11 @@
 import { askDelete } from "@/lib/ask-confirm"
 import { useEffect, useMemo, useState } from "react"
 
+import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
 import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { importKey, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
 import { formatMoney } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -13,6 +16,19 @@ import { SupplierFormModal } from "./supplier-form-modal"
 import { SupplierReserveDialog } from "./supplier-reserve-dialog"
 import type { Supplier } from "./suppliers-data"
 import { notify } from "@/lib/notify"
+
+/** One row of "Импортировать" (Excel; ours, not in the demo): created through POST /api/suppliers like the form. */
+type SupplierImport = { name: string; category: string; address: string; branch: string; organization: string; contacts: [] }
+
+/** Stored names of a reference list by comparison key. */
+async function namesOf(url: string): Promise<Map<string, string>> {
+  const response = await fetch(url, { cache: "no-store" })
+  if (!response.ok) throw new Error("load")
+  const body = (await response.json()) as unknown
+  const names = new Map<string, string>()
+  for (const item of Array.isArray(body) ? (body as Array<{ name?: string }>) : []) if (item.name && !names.has(importKey(item.name))) names.set(importKey(item.name), item.name)
+  return names
+}
 
 export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
   const { t, language } = useLanguage()
@@ -25,6 +41,48 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const canImport = useCanManage(["procurement.manage"])
+
+  async function reloadSuppliers() {
+    const response = await fetch("/api/suppliers", { cache: "no-store" }).catch(() => null)
+    if (response?.ok) setRows((await response.json()) as Supplier[])
+  }
+
+  const importSpec: ExcelImportSpec<SupplierImport> = {
+    templateName: "suppliers-template",
+    columns: [
+      { field: "name", header: "Название", aliases: ["Наименование", "Поставщик", "Name"] },
+      { field: "category", header: "Категория", aliases: ["Category"] },
+      { field: "address", header: "Адрес", aliases: ["Местоположение", "Address"] },
+      { field: "branch", header: "Филиал", aliases: ["Branch"] },
+      { field: "organization", header: "Организация", aliases: ["Organization"] },
+    ],
+    keyField: "name",
+    prepare: async (records) => {
+      // Category, branch and organization must exist (by name); they are sent as stored.
+      const [categoriesByKey, branchesByKey, organizationsByKey] = await Promise.all([namesOf("/api/supplier-categories"), namesOf("/api/branches"), namesOf("/api/organizations")])
+      const rows: PreparedRow<SupplierImport>[] = []
+      const errors: ImportRowError[] = []
+      for (const { line, values } of records) {
+        const label = values.name || t("Название")
+        const category = categoriesByKey.get(importKey(values.category))
+        const branch = values.branch ? branchesByKey.get(importKey(values.branch)) : ""
+        const organization = values.organization ? organizationsByKey.get(importKey(values.organization)) : ""
+        if (!values.name) errors.push({ line, label, message: "Название обязательно" })
+        else if (!values.category) errors.push({ line, label, message: "Выберите категорию" })
+        else if (!category) errors.push({ line, label: `${label}, ${values.category}`, message: "Категория не найдена" })
+        else if (!values.address) errors.push({ line, label, message: "Адрес обязателен" })
+        else if (branch === undefined) errors.push({ line, label: `${label}, ${values.branch}`, message: "Филиал не найден" })
+        else if (organization === undefined) errors.push({ line, label: `${label}, ${values.organization}`, message: "Организация не найдена" })
+        else rows.push({ line, label, item: { name: values.name, category, address: values.address, branch, organization, contacts: [] } })
+      }
+      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+    },
+    send: (item) => postJson("/api/suppliers", item),
+    fallbackError: "Не удалось сохранить поставщика",
+  }
+  const importButton = canImport ? <RefButton icon={RI.chart} label={t("Импортировать")} onClick={() => setImportOpen(true)} /> : null
 
   useEffect(() => {
     let cancelled = false
@@ -109,6 +167,9 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
     ])
   }
 
+  // A branch / organization name is this company's data, shown as stored; only the "Не указано" placeholder is translated.
+  const named = (value: string) => (!value.trim() || value.trim() === "Не указано" ? t("Не указано") : value)
+
   const iconButton = (path: string, label: string, onClick: () => void, extra = "") => (
     <button type="button" onClick={onClick} aria-label={label} title={label} className={`flex h-6 w-6 items-center justify-center ${extra}`}>
       <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={path} /></svg>
@@ -119,6 +180,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
     <>
       {!embedded && (
         <RefHeader title={t("Поставщики")}>
+          {importButton}
           <RefButton green icon={RI.add} label={t("Добавить")} onClick={openCreate} />
         </RefHeader>
       )}
@@ -143,7 +205,14 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.download} /></svg>
             </button>
           }
-          extra={embedded ? <RefButton green icon={RI.add} label={t("Добавить")} onClick={openCreate} /> : undefined}
+          extra={
+            embedded ? (
+              <>
+                {importButton}
+                <RefButton green icon={RI.add} label={t("Добавить")} onClick={openCreate} />
+              </>
+            ) : undefined
+          }
         />
         <RefTable
           cols="97fr 380fr 230fr 200fr"
@@ -171,8 +240,8 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
                     <dl>
                       <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Адрес")}</dt><dd>{row.address}</dd></div>
                       <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Категория")}</dt><dd>{row.category}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Филиал")}</dt><dd>{t(row.branch)}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Организация")}</dt><dd>{t(row.organization)}</dd></div>
+                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Филиал")}</dt><dd>{named(row.branch)}</dd></div>
+                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Организация")}</dt><dd>{named(row.organization)}</dd></div>
                       <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Дата добавления")}</dt><dd>{formatDateText(row.createdDate, language)}</dd></div>
                     </dl>
                     <p className="mt-[24px] font-semibold">{t("Контакты")}</p>
@@ -215,6 +284,18 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
           onSaved={(saved) => {
             setRows((current) => (editingId !== null ? current.map((row) => (row.id === editingId ? saved : row)) : [saved, ...current]))
             setModalOpen(false)
+          }}
+        />
+      )}
+
+      {importOpen && (
+        <ExcelRowImportDialog
+          spec={importSpec}
+          onClose={() => setImportOpen(false)}
+          onChanged={() => void reloadSuppliers()}
+          onDone={(summary) => {
+            setImportOpen(false)
+            notify(summary)
           }}
         />
       )}

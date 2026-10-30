@@ -8,7 +8,7 @@ import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { isIsoDay } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { getClientBalanceOptions } from "@/lib/finance-client-balance"
-import { insertCustomerPayment } from "@/lib/finance/customer-payment"
+import { insertCustomerPayment, lockClientPayments } from "@/lib/finance/customer-payment"
 import {
   CashError,
   currencyContext,
@@ -27,7 +27,7 @@ import {
   resolveOrganization,
 } from "@/lib/cash/common"
 import { guardCashboxBalances } from "@/lib/cash/guard"
-import { allocatedOrderDues, orderClientIdSql } from "@/lib/cash/orders"
+import { allocatedOrderDues, lockOrderPayments, orderClientIdSql } from "@/lib/cash/orders"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { deleteCashOperation } from "@/lib/cash/write"
 import {
@@ -465,7 +465,9 @@ async function applyPaymentEdit(
     debt = roundMoney(internal / debtRate, 5)
   }
   if (row.order_id) {
-    // Never more than the order still owes (this payment's own amount counts as available).
+    // Never more than the order still owes (this payment's own amount counts as available). The order's client is
+    // locked first, so a parallel payment of the order re-reads the remainder after this edit commits.
+    await lockOrderPayments(tx, row.order_id)
     const [due] = await allocatedOrderDues(tx, [row.order_id], cc)
     const part = due?.currencies.find((item) => item.currency === debtCur)
     const own = normCurrency(row.currency, cc.base) === debtCur ? num(row.amount) : 0
@@ -585,6 +587,8 @@ export async function createClientCardPayment(
   const rate = pickRate(currency, cc)
   return withTransaction(async (tx) => {
     const client = await loadClient(tx, input.clientId)
+    // The client's credit changes what its orders still owe: same lock as the order payments (lib/cash/orders.ts).
+    await lockClientPayments(tx, [client.id])
     const card = (await tx.prepare("SELECT agent, branch FROM clients WHERE id = @id").get({ id: client.id })) as { agent: string | null; branch: string | null } | undefined
     const agent = await collectingAgent(tx, card?.agent ?? "", user)
     const organization = await resolveOrganization(tx, input.organization, { clientId: client.id, employeeName: agent }, "organization")
@@ -677,15 +681,15 @@ function ordersSql(where: string, clientId: string): string {
            COALESCE(NULLIF(fin_place(o.zone), ''), fin_place(COALESCE(c.zone, '')), '') AS zone,
            fin_place(COALESCE(c.branch, '')) AS branch, fin_place(o.agent) AS agent,
            COALESCE(NULLIF(fin_place(o.delivery_man), ''), fin_place(COALESCE(c.deliverer, '')), '') AS delivery_man,
-           o.status, fin_ts(o.created_at) AS created_ts, fin_ts(o.delivery) AS delivery_ts,
+           o.status, fin_ts(o.created_at, true) AS created_ts, fin_ts(o.delivery) AS delivery_ts,
            fin_ts(NULLIF(o.payment_date, '')) AS payment_ts, fin_place(o.organization) AS organization,
-           COALESCE(NULLIF(fin_pt(o.payment_type), ''), 'cash') AS payment_type, o.order_balance
+           COALESCE(NULLIF(fin_pt(o.payment_type), ''), 'cash') AS payment_type
     FROM orders o LEFT JOIN ck ON ck.k = fin_key(o.client) LEFT JOIN clients c ON c.id = ${clientId}
   )
   SELECT id, client, client_id, zone, branch, agent, delivery_man, status,
          COALESCE(to_char(created_ts, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created,
          COALESCE(to_char(delivery_ts, 'YYYY-MM-DD'), '') AS delivery_day,
-         COALESCE(to_char(payment_ts, 'YYYY-MM-DD'), '') AS payment_day, organization, payment_type, order_balance
+         COALESCE(to_char(payment_ts, 'YYYY-MM-DD'), '') AS payment_day, organization, payment_type
   FROM base WHERE ${where}`
 }
 
@@ -703,8 +707,6 @@ type OrderBaseRow = {
   payment_day: string
   organization: string
   payment_type: string
-  /** The demo's own balance (set for orders backfilled from the demo, null for orders created here). */
-  order_balance: number | null
 }
 
 const ORDERS_WHERE = `fin_key(status) <> 'отменен'
@@ -764,17 +766,9 @@ export async function listExpectedOrders(query: ExpectedOrdersQuery): Promise<Ex
   )
   const rows: ExpectedOrderRow[] = []
   for (const order of orders) {
-    const demoBalance = order.order_balance === null ? null : Number(order.order_balance)
-    // The demo's own balance (it also nets the returns) decides for orders backfilled from the demo:
-    // settled → not an expected payment, otherwise the remainder is that balance.
-    if (demoBalance !== null && demoBalance <= 0) continue
-    let parts = dues.get(order.id)?.currencies ?? []
-    if (demoBalance !== null) {
-      const main = [...parts].sort((a, b) => b.total - a.total)[0]
-      parts = main ? [{ ...main, remaining: roundMoney(demoBalance) }] : []
-    }
-    for (const part of parts) {
-      if (demoBalance === null && part.remaining <= 0.005) continue
+    // The remainder comes from the cash ledger only (order dues − live payments), never from a stored balance column.
+    for (const part of dues.get(order.id)?.currencies ?? []) {
+      if (part.remaining <= 0.005) continue
       rows.push({
         key: `${order.id}-${part.currency}`,
         orderId: order.id,

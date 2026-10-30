@@ -5,6 +5,9 @@ import { useState } from "react"
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { ConfirmDialog, EmptyBlock, ErrorBlock, LoadingBlock, mutationError } from "@/components/analytics/cash-management-shared"
 import { docDate, formatQty } from "@/components/analytics/internal-transfers-shared"
+import { RI } from "@/components/ref/list-kit"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { WRITE_OFF_STATUS_COLORS, type WriteOff, type WriteOffAction, type WriteOffStatus } from "@/lib/write-offs-types"
 
@@ -28,7 +31,7 @@ type Cell = string | number
 
 export function writeOffItemsSheet(writeOff: WriteOff, t: (text: string) => string): Cell[][] {
   return [
-    [`${t("Списание")} № ${writeOff.id}`, writeOff.warehouse],
+    [`${t("Списание №")} ${writeOff.id}`, writeOff.warehouse],
     [],
     [t("Товар"), t("Код товара"), t("Серия"), t("Блок"), t("Кол-во"), t("Ед. изм."), t("Себестоимость"), t("Сумма")],
     ...writeOff.items.map((item) => [item.product, item.code || "-", item.series || "-", item.block, item.qty, item.unit, item.cost, Math.round(item.sum * 100) / 100]),
@@ -62,7 +65,7 @@ export function WriteOffDetailPanel({ id, canEdit, onClose, onChanged, notify }:
   }
 
   const iconButton = "flex h-6 w-6 items-center justify-center text-[#555] hover:opacity-70 disabled:opacity-40"
-  const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+  const money = (value: number) => formatMoney(value)
   const row = "flex h-[25px] items-center justify-between"
   // Reference layout (measured on #/write-off/69): 66 px title row, 370 px info column, 13 px text, columns 3:1:2:1:1:2:2.
   const cols = "grid grid-cols-[3fr_1fr_2fr_1fr_1fr_2fr_2fr]"
@@ -71,7 +74,7 @@ export function WriteOffDetailPanel({ id, canEdit, onClose, onChanged, notify }:
       <div className="relative flex h-[66px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[27px]">
         <button type="button" onClick={onClose} className="absolute inset-0 cursor-pointer" aria-label={t("Закрыть")} />
         <h3 className="relative z-[1] text-[18px] font-semibold">
-          {t("Списание")} № {data.id}
+          {t("Списание №")} {data.id}
         </h3>
         <div className="relative z-[3] flex items-center gap-[24px]">
           {canEdit && data.status === "ожидает" && (
@@ -84,6 +87,9 @@ export function WriteOffDetailPanel({ id, canEdit, onClose, onChanged, notify }:
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" /></svg>
             </button>
           )}
+          <button type="button" onClick={() => downloadExcelTable(`${t("Списание №")} ${data.id}`, writeOffItemsSheet(data, t))} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className={iconButton}>
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden><path d={RI.download} /></svg>
+          </button>
           <button type="button" onClick={() => window.print()} title={t("Печать")} aria-label={t("Печать")} className={iconButton}>
             <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z" /></svg>
           </button>
@@ -131,11 +137,11 @@ export function WriteOffDetailPanel({ id, canEdit, onClose, onChanged, notify }:
       {pending && (
         <ConfirmDialog
           title={pending === "finish" ? t("Списать") : t("Отменить списание")}
-          text={`${t("Списание")} №${data.id}`}
+          text={`${t("Списание №")} ${data.id}`}
           confirmLabel={pending === "finish" ? "Списать" : "Да"}
           tone={pending === "finish" ? "blue" : "red"}
           kind={pending === "cancel" ? "cancel" : undefined}
-          item={`${t("Списание")} №${data.id}`}
+          item={`${t("Списание №")} ${data.id}`}
           busy={busy}
           error={error}
           onConfirm={() => void run()}

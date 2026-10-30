@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
-import { insertCustomerPayment } from "@/lib/finance/customer-payment"
+import { insertCustomerPayment, lockClientPayments } from "@/lib/finance/customer-payment"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
@@ -111,6 +111,9 @@ export async function createGroupPayment(input: GroupPaymentInput, createdBy: st
   const isBank = /^(банк|bank|card|переч)/.test(nameKey(cashbox.payment_type))
 
   const ids = await withTransaction(async (tx) => {
+    // The clients' credits change what their orders still owe: same lock as the order payments (lib/cash/orders.ts),
+    // every client up front in ascending id order.
+    await lockClientPayments(tx, resolved.map((row) => row.client.id))
     const created: number[] = []
     for (const row of resolved) {
       const { id } = await insertCustomerPayment(tx, {

@@ -10,6 +10,13 @@ type DraftContact = { id: number; name: string; email: string; phone: string }
 
 type Draft = { name: string; category: string; address: string; branch: string; organization: string }
 
+/** A branch / organization of its own list (/api/branches, /api/organizations): keyed by id, sent by name
+ * (the server resolves the canonical name and refuses unknown ones). */
+type Named = { id: number; name: string }
+
+const namedRows = (data: unknown): Named[] =>
+  Array.isArray(data) ? data.filter((item): item is Named => Boolean(item) && Number.isInteger(item.id) && typeof item.name === "string" && item.name.trim() !== "") : []
+
 function draftFromSupplier(supplier: Supplier | null): Draft {
   if (!supplier) return { name: "", category: "", address: "", branch: "", organization: "" }
   return { name: supplier.name, category: supplier.category, address: supplier.address, branch: supplier.branch, organization: supplier.organization }
@@ -38,8 +45,8 @@ export function SupplierFormModal({
   const [draft, setDraft] = useState<Draft>(() => draftFromSupplier(supplier))
   const [contacts, setContacts] = useState<DraftContact[]>(() => contactsFromSupplier(supplier))
   const [categoryOptions, setCategoryOptions] = useState<string[]>([])
-  const [branchOptions, setBranchOptions] = useState<string[]>([])
-  const [organizationOptions, setOrganizationOptions] = useState<string[]>([])
+  const [branchOptions, setBranchOptions] = useState<Named[]>([])
+  const [organizationOptions, setOrganizationOptions] = useState<Named[]>([])
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
   const [touched, setTouched] = useState(false)
@@ -56,8 +63,8 @@ export function SupplierFormModal({
       ])
       if (cancelled) return
       if (categoriesRes?.ok) setCategoryOptions(((await categoriesRes.json()) as { name: string }[]).map((item) => item.name))
-      if (branchesRes?.ok) setBranchOptions(((await branchesRes.json()) as { name: string }[]).map((item) => item.name))
-      if (organizationsRes?.ok) setOrganizationOptions(((await organizationsRes.json()) as { name: string }[]).map((item) => item.name))
+      if (branchesRes?.ok) setBranchOptions(namedRows(await branchesRes.json().catch(() => [])))
+      if (organizationsRes?.ok) setOrganizationOptions(namedRows(await organizationsRes.json().catch(() => [])))
     }
     void loadOptions()
     return () => {
@@ -169,7 +176,7 @@ export function SupplierFormModal({
             {t("Филиал")}
             <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
               <option value="">{t("Выберите...")}</option>
-              {branchOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
+              {branchOptions.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
             </select>
           </label>
 
@@ -177,7 +184,7 @@ export function SupplierFormModal({
             {t("Организация")}
             <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
               <option value="">{t("Выберите...")}</option>
-              {organizationOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
+              {organizationOptions.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
             </select>
           </label>
 

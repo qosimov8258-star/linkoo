@@ -2,6 +2,7 @@ import "server-only"
 
 import { isUniqueViolation } from "@/lib/auth-request"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { refreshEmployeePositions, withEmployeeLinks } from "@/lib/employees-usage"
 import type { AccessRight } from "@/components/analytics/access-rights-data"
 
 type Row = { id: number; name: string; capability_ids: string }
@@ -91,6 +92,8 @@ export async function updateAccessRight(id: number, input: AccessRightInput): Pr
       await tx
         .prepare("UPDATE access_rights SET name = @name, capability_ids = @capabilityIds, updated_at = datetime('now') WHERE id = @id")
         .run({ id, name: input.name, capabilityIds: JSON.stringify(capabilityIds) })
+      // employees.position ("access right · job") of the employees linked by access_right_id follows the new name.
+      await refreshEmployeePositions(tx, "access_rights", id)
       return true
     })
     return found ? await getAccessRight(id) : null
@@ -99,8 +102,9 @@ export async function updateAccessRight(id: number, input: AccessRightInput): Pr
   }
 }
 
-/** Where an access right is used: users (users.access_right_id) and dashboard
- * widgets shown to it (dashboard_widgets.access_right_ids, a JSON array). */
+/** Where an access right is used: users (users.access_right_id), employees
+ * (employees.access_right_id) and dashboard widgets shown to it
+ * (dashboard_widgets.access_right_ids, a JSON array). */
 export async function accessRightUsage(db: PgDb, id: number): Promise<AccessRightUsage[]> {
   const usage: AccessRightUsage[] = []
   const users = (await db.prepare("SELECT COUNT(*)::int AS count FROM users WHERE access_right_id = ?").get(id)) as { count: number }
@@ -117,7 +121,7 @@ export async function accessRightUsage(db: PgDb, id: number): Promise<AccessRigh
     }
   }).length
   if (widgets) usage.push({ table: "dashboard_widgets", label: "Виджеты дашборда", count: widgets })
-  return usage
+  return withEmployeeLinks(db, "access_rights", { id }, usage)
 }
 
 export async function deleteAccessRight(id: number): Promise<boolean> {

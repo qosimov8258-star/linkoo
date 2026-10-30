@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { getClassification, getClassificationOptions, type ClassificationParams } from "@/lib/client-classification-repo"
 import { getCurrentUser } from "@/lib/current-user"
+import { strictNumber } from "@/lib/strict-number"
 
 const list = (params: URLSearchParams, key: string) => (params.get(key) ?? "").split("|").filter(Boolean)
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -20,15 +21,16 @@ export async function GET(request: NextRequest) {
   const classes = list(params, "classes")
     .map((item) => {
       const cut = item.lastIndexOf(":")
-      return { name: item.slice(0, cut), amount: Number(item.slice(cut + 1)) }
+      // Strict: "0x10" / "1e999" / "12abc" are no class limit.
+      return { name: item.slice(0, cut), amount: strictNumber(item.slice(cut + 1)) }
     })
-    .filter((item) => item.name && item.amount > 0)
+    .filter((item) => item.name && Number.isFinite(item.amount) && item.amount > 0 && item.amount <= 1e13)
 
   const closed = params.get("closed_status")
   const dateType = params.get("date_type")
   const query: ClassificationParams = {
     closed: closed === "closed" || closed === "all" ? closed : "not_closed",
-    statuses: (params.get("order_status") ?? "2-3").split("-").map(Number).filter((id) => Number.isInteger(id)),
+    statuses: (params.get("order_status") ?? "2-3").split("-").filter((id) => /^\d{1,2}$/.test(id)).map(Number), // status ids (0 = "В процессе"), digits only
     dateType: dateType === "created_date" || dateType === "accepted_time" ? dateType : "date_delivery",
     periods: dates as ClassificationParams["periods"],
     classes,

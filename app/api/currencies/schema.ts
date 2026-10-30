@@ -3,12 +3,13 @@ import { z } from "zod"
 
 import { nameField } from "@/lib/auth-request"
 import { CurrencyError, type CurrencyInput } from "@/lib/currencies-repo"
-import { strictNumber } from "@/lib/strict-number"
+import { parseRate, RATE_MAX } from "@/lib/currency-rates-schema"
 
-export const MAX_RATE = 1e9
+export const MAX_RATE = RATE_MAX
 
-/** {name, code, rate, isBase} → CurrencyInput. The rate is required and must be
- * a finite number in (0, 1e9] unless the currency is the base one (rate 1). */
+/** {name, code, rate, isBase} → CurrencyInput. The rate is required and must be a strict
+ * number in (0, 1e9] (lib/currency-rates-schema.ts parseRate: no "", hex, exponent or sign)
+ * unless the currency is the base one (rate 1). */
 export const currencySchema = z
   .object({
     name: nameField("Укажите название валюты", 100),
@@ -22,21 +23,12 @@ export const currencySchema = z
   .transform((value, ctx): CurrencyInput => {
     const isBase = value.isBase === true
     if (isBase) return { name: value.name, code: value.code, rate: 1, isBase }
-    const raw = value.rate
-    if (raw === undefined || raw === null || (typeof raw === "string" && raw.trim() === "")) {
-      ctx.addIssue({ code: "custom", message: "Укажите курс валюты", path: ["rate"] })
+    const parsed = parseRate(value.rate)
+    if (!parsed.ok) {
+      ctx.addIssue({ code: "custom", message: parsed.error, path: ["rate"] })
       return z.NEVER
     }
-    const rate = strictNumber(raw, { locale: true })
-    if (!Number.isFinite(rate) || rate <= 0) {
-      ctx.addIssue({ code: "custom", message: "Курс должен быть положительным числом", path: ["rate"] })
-      return z.NEVER
-    }
-    if (rate > MAX_RATE) {
-      ctx.addIssue({ code: "custom", message: "Курс слишком большой", path: ["rate"] })
-      return z.NEVER
-    }
-    return { name: value.name, code: value.code, rate, isBase }
+    return { name: value.name, code: value.code, rate: parsed.rate, isBase }
   })
 
 export function currencyErrorResponse(error: unknown): NextResponse | null {

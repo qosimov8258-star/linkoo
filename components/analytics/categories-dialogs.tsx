@@ -1,20 +1,17 @@
 "use client"
 
-import { FileText, Loader2, X } from "lucide-react"
-import { ChangeEvent, useEffect, useRef, useState } from "react"
+import { Loader2, X } from "lucide-react"
+import { useEffect, useState } from "react"
 
 import type { CategoryErrorBody, CategoryUsage } from "@/lib/categories-schema"
 import type { CategoryKind } from "@/lib/category-options"
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { categoriesApi, categoryRequestErrors, type SavedCategory } from "./category-form-modal"
-import { EXPENSE_CATEGORIES_API, type ExpenseCategory } from "./expense-categories-data"
+import { categoriesApi, type SavedCategory } from "./category-form-modal"
 
 // Dialogs of the "Категории приходов / расходов" pages: the delete confirm (demo
 // ConfirmDialog type "delete": "Подтверждение удаления" + the category name; a refused
-// delete shows "Удаление невозможно из-за связи с другими данными"), the Excel import
-// kept from our earlier pages, and the snackbar ("Успешно сохранено" / "Успешно удалено").
+// delete shows "Удаление невозможно из-за связи с другими данными") and the snackbar
+// ("Успешно сохранено" / "Успешно удалено"). The Excel import lives in categories-grid.tsx.
 
 export type CategoryNotice = { text: string; tone: "success" | "error" }
 
@@ -157,163 +154,6 @@ export function CategoryDeleteDialog({
             className="rounded px-5 py-2.5 text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#129fdd]/10 disabled:opacity-50"
           >
             {t("Удалить")}
-          </button>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-// --- Excel import (extra of our settings pages, not in the demo) ---------------------
-
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "наименование": "name", "название": "name", "name": "name", "nomi": "name",
-  "параметры": "parameter", "параметр": "parameter", "дополнительные параметры": "parameter", "parameter": "parameter", "parameters": "parameter", "parametrlar": "parameter",
-  "прочий приход": "otherIncome", "other income": "otherIncome", "boshqa tushum": "otherIncome",
-  "родительская категория": "parentName", "род категория": "parentName", "родитель": "parentName", "parent category": "parentName", "parent": "parentName",
-  "прямой расход на товар": "direct", "прямой расход": "direct", "внутренний расход": "direct", "direct expense": "direct",
-  "не учитывать в отчёте p l": "excludeFromPnl", "не учитывать в отчете p l": "excludeFromPnl", "не учитывать в pnl": "excludeFromPnl", "exclude from p l": "excludeFromPnl",
-}
-
-/** Column order of the template (and of a file without a header row). */
-const TEMPLATE_FIELDS: Record<CategoryKind, string[]> = {
-  income: ["name", "parameter", "otherIncome"],
-  expense: ["name", "parentName", "parameter", "direct", "excludeFromPnl"],
-}
-
-const TEMPLATE_HEADERS: Record<string, string> = {
-  name: "Наименование",
-  parameter: "Параметры",
-  otherIncome: "Прочий приход (да/нет)",
-  parentName: "Родительская категория",
-  direct: "Прямой расход на товар (да/нет)",
-  excludeFromPnl: "Не учитывать в отчёте P&L (да/нет)",
-}
-
-const TRUE_VALUES = /^(да|yes|true|1|\+|✓|ha|bor|прямой расход на товар)$/i
-
-const nameKey = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
-
-export function CategoryImportDialog({ kind, onClose, onImported }: { kind: CategoryKind; onClose: () => void; onImported: (notice: CategoryNotice) => void }) {
-  const { t } = useLanguage()
-  const api = categoriesApi(kind)
-  const [file, setFile] = useState<File | null>(null)
-  const [saving, setSaving] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  function downloadTemplate() {
-    downloadExcelTable(`${kind}-categories-template`, [TEMPLATE_FIELDS[kind].map((field) => t(TEMPLATE_HEADERS[field]))])
-  }
-
-  function pickFile(event: ChangeEvent<HTMLInputElement>) {
-    setFile(event.target.files?.[0] ?? null)
-  }
-
-  /** Parent names of the file are looked up among the existing expense categories and the rows created before. */
-  async function parentIds(): Promise<Map<string, number>> {
-    if (kind !== "expense") return new Map()
-    const response = await fetch(EXPENSE_CATEGORIES_API, { cache: "no-store" })
-    const list = response.ok ? ((await response.json()) as ExpenseCategory[]) : []
-    return new Map(list.map((item) => [nameKey(item.name), item.id]))
-  }
-
-  async function save() {
-    if (!file || saving) return
-    setSaving(true)
-    try {
-      const rows = await readExcelRows(file)
-      const fieldByIndex = rows.length ? mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES) : new Map<number, string>()
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      // Header cells we do not recognise (a template downloaded in another language) keep the template position.
-      if (hasHeader) {
-        const used = new Set(fieldByIndex.values())
-        TEMPLATE_FIELDS[kind].forEach((field, index) => {
-          if (!fieldByIndex.has(index) && !used.has(field)) fieldByIndex.set(index, field)
-        })
-      }
-      const records: Array<Record<string, string>> = []
-      for (const row of hasHeader ? rows.slice(1) : rows) {
-        const record: Record<string, string> = {}
-        row.forEach((cell, index) => {
-          const field = hasHeader ? fieldByIndex.get(index) : TEMPLATE_FIELDS[kind][index]
-          if (field) record[field] = String(cell ?? "").trim()
-        })
-        if (record.name) records.push(record)
-      }
-      if (!records.length) {
-        onImported({ text: t("Не удалось найти данные для импорта в выбранном файле"), tone: "error" })
-        return
-      }
-      const parents = await parentIds()
-      let created = 0
-      const failures: string[] = []
-      for (const record of records) {
-        let body: Record<string, unknown> = { name: record.name, parameter: record.parameter ?? "" }
-        if (kind === "income") {
-          body = { ...body, otherIncome: TRUE_VALUES.test(record.otherIncome ?? "") }
-        } else {
-          const parentName = record.parentName ?? ""
-          const parentId = parentName ? parents.get(nameKey(parentName)) : null
-          if (parentId === undefined) {
-            failures.push(`${record.name} — ${t("Родительская категория не найдена")}`)
-            continue
-          }
-          const direct = TRUE_VALUES.test(record.direct ?? "")
-          body = { ...body, parentId, direct, excludeFromPnl: !direct && TRUE_VALUES.test(record.excludeFromPnl ?? "") }
-        }
-        try {
-          const response = await fetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-          const data = (await response.json().catch(() => ({}))) as SavedCategory & CategoryErrorBody
-          if (response.ok) {
-            created += 1
-            parents.set(nameKey(data.name), data.id)
-          } else {
-            const errors = categoryRequestErrors(data, "Не удалось сохранить категорию")
-            failures.push(`${record.name} — ${t(errors.name || errors.options || errors.parentId || errors.general)}`)
-          }
-        } catch {
-          failures.push(`${record.name} — ${t("Сервер недоступен, попробуйте ещё раз")}`)
-        }
-      }
-      const summary = `${t("Импортировано")} ${created} ${t("из")} ${records.length}`
-      onImported(
-        failures.length
-          ? { text: `${summary}. ${t("Не удалось сохранить")}: ${failures.slice(0, 5).join("; ")}${failures.length > 5 ? "…" : ""}`, tone: "error" }
-          : { text: summary, tone: "success" },
-      )
-    } catch {
-      onImported({ text: t("Не удалось прочитать файл"), tone: "error" })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-      <div className="w-full max-w-md rounded bg-white">
-        <header className="flex items-center justify-between border-b p-6">
-          <b className="uppercase">{t("Импорт с Excel")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-        <div className="p-8">
-          <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-            1. {t("Скачать шаблон")}
-          </button>
-          <input ref={inputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickFile} className="hidden" />
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-          >
-            <FileText className="h-8 w-8" />
-            {file ? file.name : t("Добавьте файл Excel или нажмите для выбора")}
-          </button>
-        </div>
-        <footer className="flex justify-end border-t p-5">
-          <button type="button" disabled={!file || saving} onClick={save} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-            {saving ? t("Импорт...") : t("Сохранить")}
           </button>
         </footer>
       </div>

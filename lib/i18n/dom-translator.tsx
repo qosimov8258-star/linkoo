@@ -5,8 +5,7 @@ import { useLayoutEffect } from "react"
 import { useLanguage } from "./language-context"
 import { usePathname } from "next/navigation"
 
-import { REFERENCE_RUSSIAN_TEXTS } from "./reference-russian-texts"
-import { isUntranslated, setKeepRussianMonths, translate } from "./translate"
+import { isUntranslated, translate } from "./translate"
 import type { LanguageCode } from "./types"
 
 const CYRILLIC = /[А-Яа-яЁё]/
@@ -64,20 +63,6 @@ function reportMissing(language: LanguageCode, text: string) {
  * Walks the DOM, translates any text/attribute found in the dictionary and
  * remembers the original so switching back to Russian restores it.
  */
-// Pages where the reference prints dates with Russian month names while the uz interface is on (measured on
-// the live reference: every date cell of these lists is Russian, none Latin).
-const REFERENCE_RU_DATE_ROUTES = [
-  "/tracking",
-  "/analytics/supplier-returns",
-  "/analytics/receipt-transfer-plan",
-  "/analytics/customer-payments",
-  "/analytics/supplier-payments",
-  "/analytics/returns",
-  "/analytics/sessions",
-  "/analytics/currencies",
-  "/analytics/surveys",
-]
-
 export function DomTranslator() {
   const { language } = useLanguage()
   const pathname = usePathname() ?? ""
@@ -86,7 +71,6 @@ export function DomTranslator() {
   // browser paints again, so hydrated screens never flash their Russian literals.
   useLayoutEffect(() => {
     currentLanguage = language
-    setKeepRussianMonths(language === "uz" && REFERENCE_RU_DATE_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`)))
     patchDialogs()
 
     // Server HTML of a Suspense boundary that React has not hydrated yet has no fiber key. Rewriting its text
@@ -103,16 +87,12 @@ export function DomTranslator() {
       return !element || !!element.closest(SKIP) || !hydrated(element)
     }
 
-    // Texts the reference prints in Russian on this page although they are in its dictionary.
-    const routeTable = language === "uz" || language === "en" ? REFERENCE_RUSSIAN_TEXTS[language] : {}
-    const routeKey = Object.keys(routeTable).find((route) => pathname === route || pathname.startsWith(`${route}/`))
-    const keepRussian = new Set(routeKey ? routeTable[routeKey] : [])
-
+    // Every text with a translation is translated on every page (the user's decision of 2026-10-30): the
+    // reference's habit of printing some dictionary texts and dates in Russian on some pages is not copied.
     const convert = (source: string) => {
       const lead = source.match(/^\s*/)?.[0] ?? ""
       const trail = source.match(/\s*$/)?.[0] ?? ""
       const core = source.trim()
-      if (keepRussian.has(core.replace(/\s+/g, " "))) return source
       return core ? lead + translate(language, core) + trail : source
     }
 

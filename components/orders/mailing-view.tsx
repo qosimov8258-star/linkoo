@@ -71,10 +71,8 @@ export function MailingView() {
       debt,
       photo: photoPreview,
     } as Omit<Mailing, "id">).catch(() => null)
-    if (!created) {
-      setNotice(t("Не удалось сохранить изменения на сервере"))
-      return
-    }
+    // Refused: useRefRecords already shows the server's reason in the app alert; the composer stays open.
+    if (!created) return
     setSelectedId(created.id)
     paging.setPage(1)
     setComposerOpen(false)

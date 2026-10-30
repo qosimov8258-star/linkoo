@@ -225,7 +225,7 @@ function finishList(
 
 function listParams(filters: ExpenseReportFilters, base: string) {
   // Only the shared filters: the report search applies to the row name, not to the operations.
-  // listMode: the report reads the same archive as the cash list (reference rows + operations created after the import); internal categories are not reported, like in the demo app.
+  // listMode: the cash page's own reports; internal categories and uncategorised outflows are not reported, like in the demo app.
   return buildParams({ from: filters.from, to: filters.to, branches: filters.branches, organizations: filters.organizations, listMode: true }, base, [])
 }
 

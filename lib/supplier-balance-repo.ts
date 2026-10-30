@@ -2,7 +2,7 @@ import "server-only"
 
 import { CashError } from "@/lib/cash/common"
 import { updateMoneyRequest } from "@/lib/cash/money-requests"
-import { appendLog, requestStatus } from "@/lib/cash/request-links"
+import { appendLog, notifyMoneyRequest, requestStatus } from "@/lib/cash/request-links"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { DOC_DATE_FUTURE, docDateError, parseDocInput } from "@/lib/document-dates"
 import { resolveCurrencyCode } from "@/lib/finance/context"
@@ -10,6 +10,7 @@ import { normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
 import { ensureLedgerExtensions } from "@/lib/finance/schema"
 import { tableColumns } from "@/lib/supplier-refs"
+import { ensureUserNotificationsSchema } from "@/lib/user-notifications-repo"
 
 // Manual supplier balance ledger of "Баланс поставщиков" (demo
 // provider_transactions type 6 "Нет типа" + money requests):
@@ -227,6 +228,8 @@ export async function createSupplierBalanceTransaction(input: SupplierBalanceCre
   if (issue) return issue
   const currency = await resolveCurrencyCode(getDb(), input.currency)
   if (!currency) return { error: "currency_not_found" }
+  // The money_request notification is written inside the transaction that creates the request.
+  if (input.kind === "fund_request") await ensureUserNotificationsSchema()
   return withTransaction(async (db) => {
     // Share-lock the supplier row so it cannot be deleted between the check and the insert.
     if (!(await db.prepare("SELECT id FROM suppliers WHERE id = ? FOR SHARE").get(input.supplierId))) return { error: "supplier_not_found" }
@@ -251,6 +254,7 @@ export async function createSupplierBalanceTransaction(input: SupplierBalanceCre
         status: input.kind === "fund_request" ? "pending" : "",
       })
     const transaction = await getSupplierBalanceTransaction(Number(result.lastInsertRowid), db)
+    if (transaction && input.kind === "fund_request") await notifyMoneyRequest(db, "money_request", transaction.id)
     return transaction ? { transaction } : { error: "not_found" }
   })
 }

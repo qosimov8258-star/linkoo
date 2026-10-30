@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 import { correctionSchema, createClientCorrection, FinanceInputError } from "@/lib/finance-store-reconciliation-writes"
@@ -18,6 +19,9 @@ export async function POST(request: Request) {
     return NextResponse.json(await createClientCorrection(parsed.data, auth.user.displayName), { status: 201 })
   } catch (error) {
     if (error instanceof FinanceInputError) return NextResponse.json({ error: error.message }, { status: error.status })
+    // The client-payments lock timing out / the server busy: 409 / 503 JSON, never a 500.
+    const db = dbErrorResponse(error)
+    if (db) return db
     throw error
   }
 }

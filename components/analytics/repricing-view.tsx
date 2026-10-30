@@ -10,6 +10,7 @@ import { docDate, formatSum } from "@/components/analytics/internal-transfers-sh
 import { RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { RefMultiField } from "@/components/ref/multi-field"
 import { RefTip } from "@/components/ref/ref-tip"
+import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { RepricingDetailPanel, RepricingStatusLabel } from "./repricing-detail"
 import { RepricingLinkedDialog } from "./repricing-dialogs"
@@ -18,6 +19,7 @@ import {
   REPRICINGS_API,
   REPRICING_STATUSES,
   REPRICING_STATUS_LABELS,
+  type Repricing,
   type RepricingListResult,
   type RepricingOptions,
   type RepricingStatus,
@@ -25,8 +27,9 @@ import {
 
 // "Переоценка" (reference #/revaluation/). Header buttons "Переоценку связанных" (tooltip "Создать переоценку для
 // связанных прайс-листов") and "Добавить"; toolbar "Показать фильтр" opens a full-width panel (Прайс лист,
-// Пользователь, Статус, Товар + ПРИМЕНИТЬ), search, page size + "1 - 25 из N"; columns № | Создал | Дата создания |
-// Прайс лист | Сумма переоценки | Статус (проведен / отменен); a row opens its detail card in place.
+// Пользователь, Статус, Товар + ПРИМЕНИТЬ), search, page size + "1 - 25 из N", "Скачать Excel" (ours: every row
+// of the current search / filters); columns № | Создал | Дата создания | Прайс лист | Сумма переоценки |
+// Статус (проведен / отменен); a row opens its detail card in place.
 // The URL keeps the state; the price lists page links here with ?openCreateDialog=true&priceListId=&currency=.
 
 type Filters = { priceLists: string[]; users: string[]; status: RepricingStatus | ""; products: string[] }
@@ -144,6 +147,21 @@ export function RepricingView() {
     </button>
   )
 
+  // "Скачать Excel": all rows of the current search and filters (pageSize 0 = no paging), not only the shown page.
+  const downloadExcel = async () => {
+    try {
+      const response = await fetch(`${REPRICINGS_API}?${buildCashQuery(listQuery(state, 0))}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (RepricingListResult & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error || "Не удалось загрузить данные")
+      downloadExcelTable(t("Переоценка"), [
+        ["№", t("Создал"), t("Дата создания"), t("Прайс лист"), t("Сумма переоценки"), t("Валюта"), t("Статус"), t("Комментарий")],
+        ...body.results.map((row: Repricing) => [row.id, row.createdBy, docDate(row.createdAt, language, true), row.priceList, Math.round(row.total * 100) / 100, row.currency, t(REPRICING_STATUS_LABELS[row.status]), row.comment]),
+      ])
+    } catch (reason) {
+      notify(reason instanceof Error ? t(reason.message) : t("Сервер недоступен, попробуйте ещё раз"), true)
+    }
+  }
+
   const th = "whitespace-nowrap px-2 py-0 text-left font-semibold"
   const td = "px-2 py-0 align-middle leading-[16.25px]"
   const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
@@ -187,6 +205,11 @@ export function RepricingView() {
           page={state.page}
           pageCount={pageCount}
           onPage={(page) => update({ page, detailId: null })}
+          icons={
+            <button type="button" onClick={() => void downloadExcel()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-12 w-12 items-center justify-center disabled:opacity-40">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.download} /></svg>
+            </button>
+          }
         />
 
         {list.error && (

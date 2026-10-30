@@ -8,7 +8,7 @@ import { docDateCheck, parseDocDate } from "@/lib/document-dates"
 import { MAX_MONEY } from "@/lib/finance/api"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { convertAmount, currencyLabel, formatMoney, normCurrency, roundMoney } from "@/lib/finance/currency"
-import { customerPaymentColumns } from "@/lib/finance/customer-payment"
+import { customerPaymentColumns, lockClientPayments } from "@/lib/finance/customer-payment"
 import { formatDotDate, isIsoDay, nowLocalIso, todayIso } from "@/lib/finance/dates"
 import { innKey, loadContractNames, nameKey, placeName } from "@/lib/finance/entities"
 import { FinanceInputError } from "@/lib/finance/group-payment"
@@ -337,7 +337,9 @@ async function defaultClientOrganization(db: PgDb, clientId: number): Promise<st
 }
 
 /** One manual movement of a client: a correction row, or (kind "payment") an
- * unaccepted customer payment that shows up on "Оплаты от клиентов". */
+ * unaccepted customer payment that shows up on "Оплаты от клиентов". Written in a transaction under the
+ * client-payments lock (lib/finance/customer-payment.ts lockClientPayments), like every other client income:
+ * the client's credit changes what its orders still owe, so it serialises with a parallel order payment. */
 export async function createClientCorrection(input: CorrectionInput, createdBy: string): Promise<{ id: number; table: string }> {
   const db = getDb()
   await ensureStoreReconciliationSchema(db)
@@ -347,9 +349,32 @@ export async function createClientCorrection(input: CorrectionInput, createdBy: 
   const date = localDate(input.date)
   const amount = roundMoney(Math.abs(input.amount))
   const organization = placeName(input.organization) || (await defaultClientOrganization(db, client.id))
+  const context = input.kind === "payment" ? await loadCurrencyContext(db) : null
+  return withTransaction(async (tx) => {
+    await lockClientPayments(tx, [client.id])
+    // The client may have been deleted since it was read.
+    if (!(await tx.prepare("SELECT id FROM clients WHERE id = @id FOR SHARE").get({ id: client.id }))) throw new FinanceInputError("Клиент не найден", 404)
+    return insertClientCorrection(tx, s, { input, createdBy, client, currency, date, amount, organization, context })
+  })
+}
 
-  if (input.kind === "payment") {
-    const context = await loadCurrencyContext(db)
+async function insertClientCorrection(
+  db: PgDb,
+  s: FinanceSchema,
+  v: {
+    input: CorrectionInput
+    createdBy: string
+    client: ClientRecord
+    currency: string
+    date: string
+    amount: number
+    organization: string
+    context: Awaited<ReturnType<typeof loadCurrencyContext>> | null
+  },
+): Promise<{ id: number; table: string }> {
+  const { input, createdBy, client, currency, date, amount, organization } = v
+  if (input.kind === "payment" && v.context) {
+    const context = v.context
     const sumEquivalent = convertAmount(amount, currency, context.base, context.rates)
     const columns = {
       ...customerPaymentColumns({

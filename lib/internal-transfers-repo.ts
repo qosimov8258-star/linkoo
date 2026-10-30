@@ -1,9 +1,9 @@
 import "server-only"
 
-import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, inTransaction as insideTransaction, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { docDateError, docYearOk, parseDocInput } from "@/lib/document-dates"
 import { isIsoDay, nowLocalIso, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
-import { costsInWarehouse, getWarehouseItemCosts } from "@/lib/stock/costs"
+import { costsInWarehouse, getWarehouseItemCosts, loadCostLedger, type CostLedger } from "@/lib/stock/costs"
 import { getStockBalances } from "@/lib/stock/ledger"
 import { nowLocalMoment } from "@/lib/stock/moments"
 import { ensureStockSchema } from "@/lib/stock/schema"
@@ -13,6 +13,7 @@ import {
   documentKeys,
   findShortages,
   findWarehouse,
+  ledgerKey,
   lockDocumentWarehouses,
   lockWarehousesOf,
   lockWarehouseStock,
@@ -50,19 +51,23 @@ import {
 // action dates cannot be in the future; a give / accept whose items a
 // confirmed inventory already counted cannot be undone. Without a price list the lines are valued at the
 // cost of goods (lib/stock/costs.ts) when the goods leave, so transfers between
-// branches reach the branch balances.
+// branches reach the branch balances; once given, those values follow the cost
+// ledger (syncTransferValues): a back-dated document that changes the average at
+// the moment the goods left re-values the transfer as the ledger re-books it.
 
 /** Contract 3 bounds. */
 export const MAX_TRANSFER_QTY = 1e9
 export const MAX_TRANSFER_PRICE = 1e13
 
 declare global {
-  var __linkoTransfersSchemaV2: Promise<void> | undefined
+  var __linkoTransfersSchemaV3: Promise<void> | undefined
+  /** Ledger fingerprint the stored transfer values were last found equal to (syncTransferValues). */
+  var __linkoTransferValuesAtV2: string | undefined
 }
 
 export async function ensureTransfersSchema(): Promise<void> {
-  if (!globalThis.__linkoTransfersSchemaV2) {
-    globalThis.__linkoTransfersSchemaV2 = outsideTransaction(async () => {
+  if (!globalThis.__linkoTransfersSchemaV3) {
+    globalThis.__linkoTransfersSchemaV3 = outsideTransaction(async () => {
       await ensureStockSchema()
       await getDb().exec(`
         ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS given_at TEXT NOT NULL DEFAULT '';
@@ -86,20 +91,6 @@ export async function ensureTransfersSchema(): Promise<void> {
           created_at TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS internal_transfer_logs_transfer_idx ON internal_transfer_logs (transfer_id);
-        CREATE TABLE IF NOT EXISTS transfer_reference_items (
-          id SERIAL PRIMARY KEY,
-          transfer_id INTEGER NOT NULL,
-          position INTEGER NOT NULL DEFAULT 0,
-          product TEXT NOT NULL DEFAULT '',
-          article TEXT NOT NULL DEFAULT '',
-          unit TEXT NOT NULL DEFAULT '',
-          quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
-          weight DOUBLE PRECISION NOT NULL DEFAULT 0,
-          price DOUBLE PRECISION NOT NULL DEFAULT 0,
-          series TEXT NOT NULL DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS transfer_reference_items_transfer_idx ON transfer_reference_items (transfer_id);
-        ALTER TABLE transfer_reference_items ADD COLUMN IF NOT EXISTS box_label TEXT NOT NULL DEFAULT '';
         DO $$ BEGIN
           IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'internal_transfers' AND column_name = 'amount' AND data_type = 'real') THEN
             ALTER TABLE internal_transfers ALTER COLUMN amount TYPE double precision;
@@ -109,44 +100,12 @@ export async function ensureTransfersSchema(): Promise<void> {
           END IF;
         END $$;
       `)
-      try {
-        await valueUnpricedTransfers()
-      } catch (error) {
-        // Valuing old rows must never block the module; it is retried by the next process.
-        console.error("internal transfers: valuing transfers without a price list", error)
-      }
     }).catch((error) => {
-      globalThis.__linkoTransfersSchemaV2 = undefined
+      globalThis.__linkoTransfersSchemaV3 = undefined
       throw error
     })
   }
-  await globalThis.__linkoTransfersSchemaV2
-}
-
-/** Transfers that left without a price list before they were valued at cost (amount 0):
- * their lines get the cost of goods of the day they were given (one-time, idempotent:
- * only rows that still have no value). */
-async function valueUnpricedTransfers(): Promise<void> {
-  const db = getDb()
-  const rows = (await db
-    .prepare(
-      `SELECT id, from_warehouse, items, given_at, created_at_label, created_at FROM internal_transfers
-       WHERE status IN ('в пути', 'принят') AND btrim(COALESCE(price_list, '')) = '' AND COALESCE(amount, 0) = 0`,
-    )
-    .all()) as Array<{ id: number; from_warehouse: string; items: string; given_at: string; created_at_label: string; created_at: string }>
-  if (!rows.length) return
-  const index = await catalogIndex(db)
-  const costsByDay = new Map<string, Awaited<ReturnType<typeof getWarehouseItemCosts>>>()
-  for (const row of rows) {
-    const day = parseAnyDay(row.given_at) ?? parseAnyDay(row.created_at_label) ?? parseAnyDay(row.created_at, true) ?? todayIso()
-    let costs = costsByDay.get(day)
-    if (!costs) costsByDay.set(day, (costs = await getWarehouseItemCosts({ date: day }, db)))
-    const items = priceAtCost(parseItems(row.items), index, costsInWarehouse(costs, row.from_warehouse))
-    const amount = round6(items.reduce((sum, item) => sum + item.quantity * item.price, 0))
-    if (amount > 0) {
-      await db.prepare("UPDATE internal_transfers SET items = @items, amount = @amount WHERE id = @id AND COALESCE(amount, 0) = 0").run({ id: row.id, items: JSON.stringify(items), amount })
-    }
-  }
+  await globalThis.__linkoTransfersSchemaV3
 }
 
 /** The lines of a transfer without a price list, valued at the cost of goods (`priced: "cost"`). */
@@ -156,6 +115,156 @@ function priceAtCost(items: TransferItem[], index: CatalogIndex, costs: Map<stri
     // Брак carries no value.
     return { ...item, price: item.defect ? 0 : round6(costs.get(key) ?? 0), priced: "cost" as const }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Values of given transfers = the cost ledger's
+// ---------------------------------------------------------------------------
+//
+// A transfer without a price list is priced at the cost of goods when it is given. The
+// ledger (lib/stock/costs.ts, the one cost of goods) moves its goods out at the moving
+// average of that moment, and re-books it whenever an earlier document changes that
+// average (a back-dated supply, write-off, inventory, an expense added to a supply...).
+// The stored line prices / amount (read by the transfer list and print, its sort by sum,
+// and the branch and van-sell balances) are kept equal to that value: the lines of a given
+// or accepted transfer carry the unit cost the ledger moved them out at (Брак: 0).
+
+const outLegIndexes = new WeakMap<CostLedger, Map<number, Map<string, number>>>()
+
+/** Value (≤ 0) the ledger moved each item of each transfer out at: transfer id → ledger item key → Σ value. */
+function transferOutValues(ledger: CostLedger): Map<number, Map<string, number>> {
+  let index = outLegIndexes.get(ledger)
+  if (index) return index
+  index = new Map()
+  for (const [item, postings] of ledger.postings) {
+    for (const posting of postings) {
+      // The out leg itself; its revaluation postings belong to the stock on hand, not to the transfer.
+      if (posting.docType !== "internal_transfers" || posting.kind !== "transfer_out") continue
+      let byItem = index.get(posting.docId)
+      if (!byItem) index.set(posting.docId, (byItem = new Map()))
+      byItem.set(item, (byItem.get(item) ?? 0) + posting.value)
+    }
+  }
+  outLegIndexes.set(ledger, index)
+  return index
+}
+
+/** The lines of a given transfer at the unit cost the ledger moved them out at (`out`: its
+ * out-leg values by ledger item key), and the transfer's value. The ledger books a line by
+ * its product name (products first, as ledgerKey) and Брак at no value, so a good unit costs
+ * the item's out value ÷ its good quantity. Lines the ledger did not move keep their price.
+ * The amount is the ledger's value itself (each line's share of its item's out value), not
+ * Σ qty × the rounded unit price, so it equals what the stock value lost to the cent. */
+function priceAtLedger(items: TransferItem[], index: CatalogIndex, out: Map<string, number>): { items: TransferItem[]; amount: number } {
+  const goodQty = new Map<string, number>()
+  for (const item of items) {
+    if (item.defect) continue
+    const key = ledgerKey(index, item.product)
+    goodQty.set(key, (goodQty.get(key) ?? 0) + item.quantity)
+  }
+  let amount = 0
+  const priced = items.map((item) => {
+    if (item.defect) return { ...item, price: 0, priced: "cost" as const }
+    const key = ledgerKey(index, item.product)
+    const value = out.get(key)
+    const qty = goodQty.get(key) ?? 0
+    if (value === undefined || !(qty > 0)) {
+      amount += item.quantity * item.price
+      return item
+    }
+    amount += (Math.abs(value) * item.quantity) / qty
+    return { ...item, price: round6(Math.abs(value) / qty), priced: "cost" as const }
+  })
+  return { items: priced, amount: round6(amount) }
+}
+
+const VALUED_STATUSES = "status IN ('в пути', 'принят') AND btrim(COALESCE(price_list, '')) = ''"
+/** Transfers re-valued per statement. */
+const SYNC_BATCH = 500
+
+/** The stored items JSON with the prices of `items` (parseItems' lines, in its order): only
+ * `price` / `priced` change, every other stored field of a line stays as it was. */
+function withLinePrices(text: string, items: TransferItem[]): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text || "[]")
+  } catch {
+    return JSON.stringify(items)
+  }
+  if (!Array.isArray(parsed)) return JSON.stringify(items)
+  let position = 0
+  return JSON.stringify(
+    parsed.map((line) => {
+      // The lines parseItems keeps (objects), in its order.
+      if (!line || typeof line !== "object") return line
+      const item = items[position++]
+      return item ? { ...(line as Record<string, unknown>), price: item.price, ...(item.priced ? { priced: item.priced } : {}) } : line
+    }),
+  )
+}
+
+/** Writes the ledger's values onto the given / accepted transfers without a price list whose
+ * stored values differ (returns how many changed). Only transfers the ledger moved: one it
+ * does not know (no lines, an unparseable document) keeps what it has. The changes are
+ * autocommitted UPDATEs that lock only the transfer rows they change and skip a row a
+ * transaction holds (an action on it re-reads it under its own locks): they never wait inside
+ * the lock order of the stock writers (catalog → warehouses → rows). The fingerprint of a
+ * ledger found in step is kept, so later reads cost nothing until a document changes. */
+async function syncTransferValuesWith(db: PgDb): Promise<number> {
+  const ledger = await loadCostLedger(db)
+  if (globalThis.__linkoTransferValuesAtV2 === ledger.fingerprint) return 0
+  const rows = (await db.prepare(`SELECT id, items, amount FROM internal_transfers WHERE ${VALUED_STATUSES} ORDER BY id`).all()) as Array<{
+    id: number
+    items: string
+    amount: number
+  }>
+  const out = transferOutValues(ledger)
+  let index: CatalogIndex | null = null
+  const updates: Array<{ id: number; items: string; amount: number; old: string }> = []
+  for (const row of rows) {
+    const moved = out.get(Number(row.id))
+    if (!moved) continue
+    const stored = parseItems(row.items)
+    if (!stored.length) continue
+    index ??= await catalogIndex(db)
+    const { items, amount } = priceAtLedger(stored, index, moved)
+    const same = Math.abs(amount - (Number(row.amount) || 0)) <= 1e-6 && items.every((item, position) => Math.abs(item.price - stored[position].price) <= 1e-6)
+    if (!same) updates.push({ id: Number(row.id), items: withLinePrices(row.items, items), amount, old: row.items })
+  }
+  let changed = 0
+  for (let start = 0; start < updates.length; start += SYNC_BATCH) {
+    const batch = updates.slice(start, start + SYNC_BATCH)
+    // Rows still as read (same lines, still valued); a row a transaction holds is skipped, never waited for.
+    const result = await db
+      .prepare(
+        `UPDATE internal_transfers t SET items = v.items, amount = v.amount
+           FROM unnest(@ids::int[], @items::text[], @amounts::double precision[], @olds::text[]) AS v(id, items, amount, old)
+          WHERE t.id = v.id AND t.items = v.old
+            AND t.id IN (SELECT id FROM internal_transfers WHERE id = ANY(@ids::int[]) AND ${VALUED_STATUSES} ORDER BY id FOR UPDATE SKIP LOCKED)`,
+      )
+      .run({ ids: batch.map((u) => u.id), items: batch.map((u) => u.items), amounts: batch.map((u) => u.amount), olds: batch.map((u) => u.old) })
+    changed += result.changes
+  }
+  // In step with this ledger only when nothing had to change (a changed row changes the fingerprint).
+  if (!updates.length) globalThis.__linkoTransferValuesAtV2 = ledger.fingerprint
+  return changed
+}
+
+/** Brings the stored values of the given transfers to the cost ledger (see above) before
+ * they are read: the transfer list / detail / print call it here, a transfer movement right
+ * after its commit (revalued); another reader of
+ * internal_transfers.amount (the branch and van-sell balances of lib/finance) calls it
+ * before its query. Only outside a transaction (a no-op inside one): a transaction must not
+ * wait for a ledger build on another connection (C1), and its own reads see what it wrote.
+ * Never throws: a failing ledger leaves the stored values (logged), the transfers stay readable. */
+export async function syncTransferValues(): Promise<void> {
+  if (insideTransaction()) return
+  try {
+    await ensureTransfersSchema()
+    await syncTransferValuesWith(getDb())
+  } catch (error) {
+    console.error("internal transfers: valuing transfers at the cost of goods", error)
+  }
 }
 
 export type TransferRow = {
@@ -248,34 +357,13 @@ export function rowToTransfer(row: TransferRow): Transfer {
   }
 }
 
+/** One transfer. Read on its own (no `db`, outside a transaction: the detail / print view),
+ * its values are brought to the cost ledger first (syncTransferValues). */
 export async function getTransfer(id: number, db?: PgDb): Promise<Transfer | null> {
   await ensureTransfersSchema()
+  if (!db) await syncTransferValues()
   const row = (await (db ?? getDb()).prepare("SELECT * FROM internal_transfers WHERE id = @id").get({ id })) as TransferRow | undefined
   return row ? rowToTransfer(row) : null
-}
-
-/**
- * Product lines the reference shows for a transfer whose own `items` are empty (read-only display data copied from the
- * reference; they never take part in stock or in actions).
- */
-export async function getTransferReferenceItems(id: number): Promise<TransferItem[]> {
-  await ensureTransfersSchema()
-  const rows = (await getDb()
-    .prepare("SELECT product, article, unit, quantity, weight, price, series, box_label FROM transfer_reference_items WHERE transfer_id = @id ORDER BY position, id")
-    .all({ id })) as Array<{ product: string; article: string; unit: string; quantity: number; weight: number; price: number; series: string; box_label: string }>
-  return rows.map((row, index) => ({
-    id: index + 1,
-    key: "",
-    product: row.product,
-    article: row.article,
-    unit: row.unit,
-    quantity: Number(row.quantity) || 0,
-    price: Number(row.price) || 0,
-    // `weight` of a line is its total weight; TransferItem keeps the weight of one unit
-    weight: Number(row.quantity) ? (Number(row.weight) || 0) / Number(row.quantity) : 0,
-    series: row.series,
-    boxLabel: row.box_label || undefined,
-  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -574,10 +662,24 @@ async function inTransaction(fn: (tx: PgDb) => Promise<Transfer | TransferError>
   }
 }
 
+/** Actions that move goods (an out or in leg booked or undone). */
+const MOVING_ACTIONS: ReadonlySet<TransferAction> = new Set(["give", "cancel_given", "accept", "cancel_accepted"])
+
+/** After a committed movement: the ledger books it (possibly back-dated) and re-books the later
+ * transfers of its items at the averages it changed, and books this one at the exact value (the lines were priced at the rounded unit cost). The stored values follow at
+ * once (syncTransferValues), so the readers of internal_transfers.amount (the branch and
+ * van-sell balances) see them without waiting for a transfer read; the transfer is returned as
+ * stored then. Outside a transaction only (syncTransferValues is a no-op inside one). */
+async function revalued(change: TransferChange): Promise<TransferChange> {
+  if (isTransferError(change) || insideTransaction()) return change
+  await syncTransferValues()
+  return (await getTransfer(change.id, getDb())) ?? change
+}
+
 /** POST /api/internal-transfers/[id]/action. */
 export async function transferAction(id: number, action: TransferAction, options: ActionOptions, userName: string): Promise<TransferChange> {
   await ensureTransfersSchema()
-  return inTransaction(async (tx) => {
+  const change = await inTransaction(async (tx) => {
     // Lock order (C1): the stock locks of both warehouses before the row lock — the goods leave
     // or enter them, and the log row names both: a rename of either waits for this action (and
     // then carries its log over too) instead of cascading past it.
@@ -592,6 +694,7 @@ export async function transferAction(id: number, action: TransferAction, options
     await lockWarehouseStock(tx, [current.fromWarehouse, current.toWarehouse])
     return applyAction(tx, current, action, options, userName)
   })
+  return MOVING_ACTIONS.has(action) ? revalued(change) : change
 }
 
 /** Transitions that take a freshly saved transfer to the requested status. */
@@ -666,7 +769,7 @@ export async function createTransfer(input: TransferInput, userName: string): Pr
   if (isTransferError(checked)) return checked
   if (input.status === "отменен") return { error: "Нельзя создать отмененную передачу", status: 400 }
   const initial: TransferStatus = input.status === "ожидает" ? "ожидает" : "потвержден"
-  return inTransaction(async (tx) => {
+  const change = await inTransaction(async (tx) => {
     // Rename race: the names are written under their warehouses' stock locks, as they are now.
     const data = await lockedInput(tx, checked, await lockTransferWarehouses(tx, checked), input, index)
     const row = values(data)
@@ -679,6 +782,8 @@ export async function createTransfer(input: TransferInput, userName: string): Pr
     for (const action of pathTo(input.status)) transfer = await applyAction(tx, transfer, action, {}, userName, index)
     return transfer
   })
+  // Sent at once (in transit / accepted): goods moved, as by transferAction.
+  return pathTo(input.status).length ? revalued(change) : change
 }
 
 export async function updateTransfer(id: number, input: TransferInput, userName: string): Promise<TransferChange> {
