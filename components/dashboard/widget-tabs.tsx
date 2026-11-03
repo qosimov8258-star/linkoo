@@ -25,7 +25,7 @@ export function WidgetTabs() {
   return (
     <div className="flex h-[60px] items-center justify-between">
       <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-        <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+        <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
         <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
         {t("Виджеты")}
       </h1>

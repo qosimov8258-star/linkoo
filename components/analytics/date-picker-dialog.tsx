@@ -43,7 +43,7 @@ export function DatePickerDialog({ value, onCancel, onPick, anchor }: { value: s
         style={anchor ? { position: "absolute", left: Math.max(8, Math.min(anchor.left, window.innerWidth - 318)), top: Math.max(8, Math.min(anchor.top, window.innerHeight - 442)) } : undefined}
         className={`flex h-[434px] w-[310px] flex-col bg-white text-[#333] ${anchor ? "rounded-[2px] [box-shadow:0_2px_10px_rgba(0,0,0,0.2)]" : "shadow-xl"}`}
       >
-        <div data-no-translate className="h-[104px] bg-[#4f71dc] px-[20px] pt-[17px] text-white">
+        <div data-no-translate className="h-[104px] bg-[#1E4A9A] px-[20px] pt-[17px] text-white">
           <div className="text-[16px] opacity-80">{chosen.year}</div>
           <div className="mt-[2px] text-[36px] leading-[44px]">{heading}</div>
         </div>
@@ -68,7 +68,7 @@ export function DatePickerDialog({ value, onCancel, onPick, anchor }: { value: s
                 key={day}
                 type="button"
                 onClick={() => setSelected(iso(view.year, view.month, day))}
-                className={`mx-auto my-0 h-[36px] w-[36px] rounded-full ${selected === iso(view.year, view.month, day) ? "bg-[#4f71dc] text-white" : "hover:bg-black/5"}`}
+                className={`mx-auto my-0 h-[36px] w-[36px] rounded-full ${selected === iso(view.year, view.month, day) ? "bg-[#1E4A9A] text-white" : "hover:bg-black/5"}`}
               >
                 {day}
               </button>

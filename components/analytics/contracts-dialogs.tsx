@@ -458,7 +458,7 @@ export function ContractImportDialog({ onClose, onDone }: { onClose: () => void;
       }
     >
       <div className="flex flex-col gap-4">
-        <button type="button" onClick={downloadTemplate} className="self-start font-semibold text-[#4f70e7] hover:underline">
+        <button type="button" onClick={downloadTemplate} className="self-start font-semibold text-[#1E4A9A] hover:underline">
           {t("1. Скачать шаблон")}
         </button>
         <p className="text-[13px] text-[#7b8497]">{t("Клиенты, агент и организация ищутся по названию; несколько клиентов разделяйте «;».")}</p>
@@ -466,7 +466,7 @@ export function ContractImportDialog({ onClose, onDone }: { onClose: () => void;
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+          className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#1E4A9A] hover:text-[#1E4A9A]"
         >
           <FileSpreadsheet className="h-8 w-8" />
           {file ? file.name : t("Добавьте файл Excel или нажмите для выбора")}

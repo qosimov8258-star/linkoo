@@ -137,7 +137,7 @@ export function RepricingImportDialog({ rows, priceList, onClose, onImport }: { 
       }
     >
       <div className="flex flex-col gap-4 text-[14px]">
-        <button type="button" onClick={template} disabled={!rows.length} className="self-start font-semibold text-[#4f71dc] hover:underline disabled:opacity-40">
+        <button type="button" onClick={template} disabled={!rows.length} className="self-start font-semibold text-[#1E4A9A] hover:underline disabled:opacity-40">
           {t("Скачать шаблон")}
         </button>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />

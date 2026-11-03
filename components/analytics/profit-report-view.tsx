@@ -85,7 +85,7 @@ export function ProfitReportView({ title, entity: entityProp = "", source: sourc
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[60px] items-center px-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t(title)}</span>
         </div>
@@ -133,7 +133,7 @@ export function ProfitReportView({ title, entity: entityProp = "", source: sourc
       </section>
 
       <section className="flex flex-wrap items-center justify-between gap-4 px-[10px] pt-4">
-        <p className="flex items-center gap-2 text-[16px] font-semibold text-[#4f71dc]">
+        <p className="flex items-center gap-2 text-[16px] font-semibold text-[#1E4A9A]">
           <Info className="h-5 w-5" /> {t("В этом отчете показываются только реализованные заказы и возвраты")}
         </p>
         <div className="flex items-center gap-4 pr-5 text-[13px]">
@@ -156,14 +156,14 @@ export function ProfitReportView({ title, entity: entityProp = "", source: sourc
           <button
             type="button"
             onClick={() => setByCreation(true)}
-            className={`h-8 border px-4 ${byCreation ? "border-[#4f71dc] bg-[#4f71dc] text-white" : "border-[#e1e5eb] bg-white text-[#333]"}`}
+            className={`h-8 border px-4 ${byCreation ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#e1e5eb] bg-white text-[#333]"}`}
           >
             {t("ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ")}
           </button>
           <button
             type="button"
             onClick={() => setByCreation(false)}
-            className={`h-8 border px-4 ${byCreation ? "border-[#e1e5eb] bg-white text-[#333]" : "border-[#4f71dc] bg-[#4f71dc] text-white"}`}
+            className={`h-8 border px-4 ${byCreation ? "border-[#e1e5eb] bg-white text-[#333]" : "border-[#1E4A9A] bg-[#1E4A9A] text-white"}`}
           >
             {t(realizedLabel)}
           </button>
@@ -171,7 +171,7 @@ export function ProfitReportView({ title, entity: entityProp = "", source: sourc
       </section>
 
       {!period ? (
-        <p className="py-[110px] text-center text-[20px] font-semibold text-[#4f71dc]">{t("Пожалуйста укажите дату передачи со склада")}</p>
+        <p className="py-[110px] text-center text-[20px] font-semibold text-[#1E4A9A]">{t("Пожалуйста укажите дату передачи со склада")}</p>
       ) : (
         <div className={`px-[30px] pb-10 pt-4 ${loading ? "opacity-60" : ""}`}>
           <table className="w-full border-collapse text-[13px]">

@@ -186,7 +186,7 @@ function WarehousesGrid() {
             role="tab"
             aria-selected={state.isActive === value}
             onClick={() => update({ isActive: value, page: 1 })}
-            className={`h-10 flex-1 border-b-[3px] text-[13px] font-medium text-black ${state.isActive === value ? "border-[#4f71dc]" : "border-transparent"}`}
+            className={`h-10 flex-1 border-b-[3px] text-[13px] font-medium text-black ${state.isActive === value ? "border-[#1E4A9A]" : "border-transparent"}`}
           >
             {value === "true" ? t("Активные") : t("Не активные")}
           </button>

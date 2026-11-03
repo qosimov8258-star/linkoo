@@ -40,9 +40,9 @@ export function CatalogFilterBar({
       {count > 0 ? (
         <FilterToggle count={count} open={open} onOpen={onOpen} onClose={onClose} onClear={onClear} />
       ) : (
-        <button type="button" onClick={open ? onClose : onOpen} className="flex items-center text-[13px] text-[#4f71dc]">
+        <button type="button" onClick={open ? onClose : onOpen} className="flex items-center text-[13px] text-[#1E4A9A]">
           {t("Показать фильтр")}
-          <svg viewBox="0 0 24 24" className="h-5 w-[13px] fill-[#4f71dc]"><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
+          <svg viewBox="0 0 24 24" className="h-5 w-[13px] fill-[#1E4A9A]"><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
         </button>
       )}
       {open && (

@@ -4,6 +4,10 @@ import { analyticsReports } from "@/lib/analytics-catalog"
 // their own; app/layout.tsx translates them into the UI language on the
 // server, so the first paint already has the right title.
 const ROUTE_TITLES: Record<string, string> = {
+  "/": "Виджеты",
+  "/about": "Версия",
+  "/analytics/draft-orders": "Интеграция",
+  "/analytics/kpi-tab": "KPI",
   "/login": "Войти в систему",
   "/login/add-account": "Войти в систему",
   "/analytics/agent-profit": "Прибыль от агентов",

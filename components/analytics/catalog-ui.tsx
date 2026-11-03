@@ -12,7 +12,7 @@ export function CatalogHeader({ addLabel, onAdd, from, to, total, onPrev, onNext
   return (
     <div className="flex h-[65px] items-center justify-between border-b border-[#eef0f4] pt-[14px]">
       <div className="flex items-center">
-        <button type="button" onClick={onAdd} className="pl-[15px] text-[13px] text-[#4f71dc] hover:underline">+ {t(addLabel)}</button>
+        <button type="button" onClick={onAdd} className="pl-[15px] text-[13px] text-[#1E4A9A] hover:underline">+ {t(addLabel)}</button>
         {extra}
       </div>
       <div className={`flex items-center text-[13px] ${tight ? "" : "pr-[3px]"}`}>
@@ -91,7 +91,7 @@ export function ToggleRow({ checked, onChange, label }: { checked: boolean; onCh
   return (
     <label className="flex cursor-pointer items-center gap-[10px] text-[13px] font-semibold">
       <span className={`relative inline-block h-[14px] w-[34px] rounded-full ${checked ? "bg-[#9fb1f5]" : "bg-[#c8c8c8]"}`}>
-        <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full shadow ${checked ? "left-[16px] bg-[#4f71dc]" : "left-[-2px] bg-[#f1f1f1]"}`} />
+        <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full shadow ${checked ? "left-[16px] bg-[#1E4A9A]" : "left-[-2px] bg-[#f1f1f1]"}`} />
         <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
       </span>
       {t(label)}
@@ -231,7 +231,7 @@ export function ListToolbar({
   return (
     <div className={`relative flex items-center whitespace-nowrap pr-[5px] text-[13px] text-[#333] ${slim ? "h-[50px]" : compact ? "h-[51px]" : "h-[60px]"}`}>
       {!hideAdd && (
-        <button type="button" onClick={onAdd} style={addPad !== undefined ? { paddingTop: addPad } : undefined} className={`flex items-center gap-[6px] pl-[20px] text-[13px] text-[#4f71dc] hover:underline ${addPad !== undefined ? "" : slim ? "pt-[4px]" : "pt-[8px]"}`}>
+        <button type="button" onClick={onAdd} style={addPad !== undefined ? { paddingTop: addPad } : undefined} className={`flex items-center gap-[6px] pl-[20px] text-[13px] text-[#1E4A9A] hover:underline ${addPad !== undefined ? "" : slim ? "pt-[4px]" : "pt-[8px]"}`}>
           <span className={bigPlus ? "text-[26px] font-light leading-none" : ""}>+</span>
           {t(addLabel)}
         </button>
@@ -318,7 +318,7 @@ export function ImportDialog({ file, onFile, onTemplate, onSave, saving, onClose
         </header>
         <div className="p-[30px]">
           <div className="border border-[#e8ebf0] px-[20px] pb-[20px] pt-[18px]">
-            <button type="button" onClick={onTemplate} className="block w-full text-center text-[13px] uppercase hover:text-[#4f71dc]">{t("1. Скачать шаблон")}</button>
+            <button type="button" onClick={onTemplate} className="block w-full text-center text-[13px] uppercase hover:text-[#1E4A9A]">{t("1. Скачать шаблон")}</button>
             <div onClick={() => inputRef.current?.click()} className="mt-[10px] flex h-[200px] cursor-pointer flex-col items-center justify-center gap-[10px] border border-dashed border-[#c9ced6] text-center">
               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-black"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z" /></svg>
               <span className="whitespace-nowrap text-[13px]">{file ? file.name : t("Добавьте файл Excel или нажмите для выбора")}</span>
@@ -349,9 +349,9 @@ export function ErrorAlert({ message, onClose }: { message: string; onClose: () 
   return createPortal(
     <div ref={rootRef} className="fixed inset-0 z-[120] flex items-center justify-center bg-black/[0.54]">
       <div className="flex h-[300px] w-[400px] max-w-full flex-col items-center bg-white px-[15px] pt-[24px] text-center text-[#333] shadow-xl">
-        <span className="flex h-[48px] w-[48px] items-center justify-center rounded-full border-[3px] border-[#4f71dc] text-[30px] font-bold leading-none text-[#4f71dc]">!</span>
+        <span className="flex h-[48px] w-[48px] items-center justify-center rounded-full border-[3px] border-[#1E4A9A] text-[30px] font-bold leading-none text-[#1E4A9A]">!</span>
         <p className="mt-[13px] self-stretch whitespace-pre-line px-[5px] text-left text-[15px] font-semibold">{message}</p>
-        <button type="button" autoFocus onClick={onClose} className="mb-[20px] mt-auto h-[40px] w-full rounded-[2px] bg-[#4f71dc] text-[13px] font-bold uppercase text-white hover:brightness-95">{t("Ок")}</button>
+        <button type="button" autoFocus onClick={onClose} className="mb-[20px] mt-auto h-[40px] w-full rounded-[2px] bg-[#1E4A9A] text-[13px] font-bold uppercase text-white hover:brightness-95">{t("Ок")}</button>
       </div>
     </div>,
     document.body,

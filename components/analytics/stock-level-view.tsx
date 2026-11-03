@@ -223,7 +223,7 @@ export function StockLevelView() {
                 type="button"
                 onClick={() => update({ mode: item.mode, page: 1, ordering: "" })}
                 style={{ minWidth: [70, 90.7, 146.7][index] }}
-                className={`h-[32px] px-[16px] text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.mode === item.mode ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
+                className={`h-[32px] px-[16px] text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.mode === item.mode ? "bg-[#1E4A9A] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
               >
                 {t(item.label)}
               </button>

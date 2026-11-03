@@ -48,7 +48,7 @@ export function StockColumnSettings({ mode, hidden, onChange }: { mode: StockLev
   }, [open])
   return (
     <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen((value) => !value)} title={t("Настройки таблицы")} aria-label={t("Настройки таблицы")} className="p-1 text-[#586174] hover:text-[#4f70e7]">
+      <button type="button" onClick={() => setOpen((value) => !value)} title={t("Настройки таблицы")} aria-label={t("Настройки таблицы")} className="p-1 text-[#586174] hover:text-[#1E4A9A]">
         <Settings2 className="h-5 w-5" />
       </button>
       {open && (
@@ -59,7 +59,7 @@ export function StockColumnSettings({ mode, hidden, onChange }: { mode: StockLev
                 type="checkbox"
                 checked={!hidden.includes(column.id)}
                 onChange={() => onChange(hidden.includes(column.id) ? hidden.filter((id) => id !== column.id) : [...hidden, column.id])}
-                className="h-4 w-4 accent-[#4f70e7]"
+                className="h-4 w-4 accent-[#1E4A9A]"
               />
               {t(column.label)}
             </label>
@@ -177,7 +177,7 @@ export function StockLevelTable({
                     <button type="button" onClick={() => toggle(row.key)} disabled={!row.stocks.length} aria-label={t(open ? "Свернуть" : "Развернуть")} className="flex h-[26px] w-[24px] shrink-0 items-center disabled:opacity-30">
                       <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#333]"><path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} /></svg>
                     </button>
-                    <button type="button" onClick={() => onOpenItem(row)} className="min-w-0 break-words py-[3px] text-left hover:text-[#4f71dc]">
+                    <button type="button" onClick={() => onOpenItem(row)} className="min-w-0 break-words py-[3px] text-left hover:text-[#1E4A9A]">
                       {row.name}
                     </button>
                   </div>

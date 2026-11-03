@@ -39,7 +39,7 @@ export function SupplyPaymentsDialog({ supplyId, onClose }: { supplyId: number; 
             <span>
               {t("Не удалось загрузить данные")}: {t(error)}
             </span>
-            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

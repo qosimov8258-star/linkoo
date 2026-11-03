@@ -241,7 +241,7 @@ function HeaderButton({ icon, label, onClick, disabled }: { icon: string; label:
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+      className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Mi d={icon} className="mb-1 h-[18px] w-[18px] fill-white" />
       <span className="pl-2 pr-4">{label}</span>
@@ -720,7 +720,7 @@ export function OrderDetailCard({
           <ul>
             {row(
               `${t("Клиент")}:`,
-              <button type="button" onClick={() => onNavigate(`/clients?openClient=${encodeURIComponent(order.client)}`)} className="font-semibold text-[#5869f0] hover:underline">
+              <button type="button" onClick={() => onNavigate(`/clients?openClient=${encodeURIComponent(order.client)}`)} className="font-semibold text-[#1E4A9A] hover:underline">
                 {order.marketName || order.client}
               </button>,
             )}
@@ -746,7 +746,7 @@ export function OrderDetailCard({
               !due ? (
                 "…"
               ) : paid ? (
-                <button type="button" onClick={() => setPaymentsOpen(true)} className="cursor-pointer border-b border-dashed border-[#4f71dc] font-semibold text-[#4f71dc]">
+                <button type="button" onClick={() => setPaymentsOpen(true)} className="cursor-pointer border-b border-dashed border-[#1E4A9A] font-semibold text-[#1E4A9A]">
                   {dueLine("paid")}
                 </button>
               ) : (
@@ -756,14 +756,14 @@ export function OrderDetailCard({
             {row(`${t("Остаток")}:`, due ? dueLine("remaining") : "…", due?.currencies.some((entry) => entry.remaining > 0) ? "text-[#e57373]" : "")}
             <li className="flex min-h-[25px] items-center justify-between gap-3 font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
-                <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
+                <Mi d={ICONS.info} className="h-6 w-6 fill-[#1E4A9A]" />
                 {t("Оперативный долг клиента")}:
               </span>
               <span className="text-right">{detail ? debtLines(debt?.operative) : "…"}</span>
             </li>
             <li className="flex min-h-[25px] items-center justify-between gap-3 font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
-                <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
+                <Mi d={ICONS.info} className="h-6 w-6 fill-[#1E4A9A]" />
                 {t("Фактический долг клиента")}:
               </span>
               <span className="text-right">{detail ? debtLines(debt?.actual) : "…"}</span>
@@ -791,7 +791,7 @@ export function OrderDetailCard({
             <button
               type="button"
               onClick={() => onNavigate("/analytics/client-debts")}
-              className="mt-[5px] flex h-[30px] w-full items-center justify-center rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white hover:brightness-95"
+              className="mt-[5px] flex h-[30px] w-full items-center justify-center rounded-[5px] bg-[#1E4A9A] text-[13px] font-semibold text-white hover:brightness-95"
             >
               {t("Пересчитать")}
             </button>
@@ -811,7 +811,7 @@ export function OrderDetailCard({
             </button>
           ))}
           <span
-            className="absolute -bottom-[1px] h-[2px] bg-[#4f71dc] transition-all duration-300"
+            className="absolute -bottom-[1px] h-[2px] bg-[#1E4A9A] transition-all duration-300"
             style={{ left: `${tabIndex * 20}%`, width: "20%" }}
           />
         </div>
@@ -850,7 +850,7 @@ export function OrderDetailCard({
                 {returns.map((entry) => (
                   <tr key={entry.id} className="border-t border-dotted border-[#d6d6d6]">
                     <td className="py-2">
-                      <button type="button" onClick={() => onNavigate(`/analytics/returns?r=${entry.id}`)} className="text-[#4f71dc] hover:underline">
+                      <button type="button" onClick={() => onNavigate(`/analytics/returns?r=${entry.id}`)} className="text-[#1E4A9A] hover:underline">
                         {entry.id}
                       </button>
                     </td>
@@ -874,7 +874,7 @@ export function OrderDetailCard({
               <button
                 type="button"
                 onClick={() => setDialog("logDetails")}
-                className="mr-2 flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"
+                className="mr-2 flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white"
               >
                 {t("Детали изменений заказа")}
               </button>
@@ -1315,7 +1315,7 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
                 <td className={cell}>{index + 1}</td>
                 <td className={cell}>
                   {item.productName}
-                  {item.article && <span className="block text-[#4f71dc]">{item.article}</span>}
+                  {item.article && <span className="block text-[#1E4A9A]">{item.article}</span>}
                 </td>
                 <td className={cell}>
                   {formatNumber(item.quantity)} {t(item.unit)}
@@ -1680,7 +1680,7 @@ function DiscountSizePopover({ onClose, onApply }: { onClose: () => void; onAppl
           />
           <span className="absolute left-5 top-[53px] h-px w-[110px] bg-[#e0e0e0]" />
           <button type="button" onClick={submit} className="absolute left-[138px] top-[21.5px] h-9 w-[50.1px] text-center">
-            <span className="inline-block py-[9px] text-[13px] leading-[18px] text-[#4f71dc]">OK</span>
+            <span className="inline-block py-[9px] text-[13px] leading-[18px] text-[#1E4A9A]">OK</span>
           </button>
         </div>
       </div>
@@ -2316,7 +2316,7 @@ function PrintSheet({ order, items, debt, copies = 1, onClose }: { order: Order;
         <div key={index}>{block}</div>
       ))}
       <div className="mt-6 flex justify-center gap-3 print:hidden">
-        <button type="button" onClick={() => window.print()} className="h-9 rounded-[3px] bg-[#4f71dc] px-5 text-[12px] font-semibold uppercase text-white">
+        <button type="button" onClick={() => window.print()} className="h-9 rounded-[3px] bg-[#1E4A9A] px-5 text-[12px] font-semibold uppercase text-white">
           {t("Распечатать")}
         </button>
       </div>

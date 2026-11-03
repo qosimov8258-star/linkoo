@@ -129,7 +129,7 @@ export function RefSearchSelect({
                 key={`${item.value}:${index}`}
                 type="button"
                 onClick={() => pick(item)}
-                style={{ height: rowHeight }} className={`block w-full truncate px-[10px] text-left text-[13px] font-semibold hover:bg-[#e6f2ff] ${dense ? "text-[#666] hover:text-[#333]" : ""} ${chosen.has(item.value) ? "bg-[#e6f2ff] text-[#4f71dc]" : index === 0 && !needle ? `bg-[#e6f2ff] ${dense ? "!text-[#333]" : ""}` : ""}`}
+                style={{ height: rowHeight }} className={`block w-full truncate px-[10px] text-left text-[13px] font-semibold hover:bg-[#e6f2ff] ${dense ? "text-[#666] hover:text-[#333]" : ""} ${chosen.has(item.value) ? "bg-[#e6f2ff] text-[#1E4A9A]" : index === 0 && !needle ? `bg-[#e6f2ff] ${dense ? "!text-[#333]" : ""}` : ""}`}
               >
                 {item.label}
               </button>

@@ -181,7 +181,7 @@ function AccountDetail({ account, onEdit, onDelete }: { account: Account; onEdit
         <div className="px-[30px] py-[20px]">
           <div className="flex items-center gap-4 text-[11px] font-semibold uppercase leading-[14px] tracking-[0.4px] text-[#9ba0ac]">
             {t("Магазины")}
-            <span className="rounded-full bg-[#eef1fb] px-[7px] py-[1px] text-[#4f71dc]">{account.markets.length}</span>
+            <span className="rounded-full bg-[#eef1fb] px-[7px] py-[1px] text-[#1E4A9A]">{account.markets.length}</span>
           </div>
           <div className="mt-[14px] flex flex-wrap gap-2">
             {account.markets.map((market) => (

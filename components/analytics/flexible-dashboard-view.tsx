@@ -124,14 +124,14 @@ export function FlexibleDashboardView() {
             type="button"
             key={item.key}
             onClick={() => go(item.key)}
-            className={`${buttonCls} ${period === item.key ? `bg-[#4f71dc] text-white ${RAISED}` : FLAT}`}
+            className={`${buttonCls} ${period === item.key ? `bg-[#1E4A9A] text-white ${RAISED}` : FLAT}`}
           >
             {t(item.key)}
           </button>
         ))}
         {period === "СВОЯ" && (
           <div className="relative ml-[37px]">
-            <button type="button" onClick={() => setPickerOpen((open) => !open)} className="text-[13px] font-bold text-[#4f71dc]">
+            <button type="button" onClick={() => setPickerOpen((open) => !open)} className="text-[13px] font-bold text-[#1E4A9A]">
               {`${formatStatementDate(toISODate(range.begin), language, false)} - ${formatStatementDate(toISODate(range.end), language, false)}`}
             </button>
             {pickerOpen && (

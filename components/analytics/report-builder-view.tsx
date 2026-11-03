@@ -270,7 +270,7 @@ export function ReportBuilderView() {
 
       <div className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <section className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
-        <button onClick={() => void saveReport()} disabled={saving} className="flex h-[38px] items-center rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
+        <button onClick={() => void saveReport()} disabled={saving} className="flex h-[38px] items-center rounded-[3px] bg-[#1E4A9A] px-[15px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
           <Bookmark className="mr-3 h-[18px] w-[18px] fill-white" /> {savedFlash ? t("Сохранено ✓") : saving ? t("Сохранение...") : t("Сохранить")}
         </button>
 
@@ -293,8 +293,8 @@ export function ReportBuilderView() {
         </button>
 
         <div className="ml-auto flex items-center gap-[19px]">
-          <input value={dateRange} onChange={(event) => setDateRange(event.target.value)} className="w-[190px] bg-transparent text-right text-[12px] font-bold text-[#4f71dc] outline-none" />
-          <button onClick={() => setSettingsOpen((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
+          <input value={dateRange} onChange={(event) => setDateRange(event.target.value)} className="w-[190px] bg-transparent text-right text-[12px] font-bold text-[#1E4A9A] outline-none" />
+          <button onClick={() => setSettingsOpen((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
             <span>{settingsOpen ? `${t("Скрыть настройки")} ▲` : `${t("Показать настройки")} ▼`}</span>
           </button>
           <button onClick={generateReport} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
@@ -353,7 +353,7 @@ export function ReportBuilderView() {
               </div>
             ))}
 
-            <button onClick={addCustomFilter} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
+            <button onClick={addCustomFilter} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium uppercase text-white hover:brightness-95">
               <span>{t("Добавить индивидуальный фильтр")}</span>
             </button>
           </div>

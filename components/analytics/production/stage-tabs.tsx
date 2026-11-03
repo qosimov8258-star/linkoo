@@ -52,7 +52,7 @@ function TabCard({ addLabel, onAdd, query, onQuery, count, filter, paging, addAs
     <>
       <div className="flex h-[56px] items-center justify-end pr-[16px]">
         {!addAsButton && (
-          <button type="button" onClick={onAdd} className="text-[13px] text-[#4f71dc] hover:underline">
+          <button type="button" onClick={onAdd} className="text-[13px] text-[#1E4A9A] hover:underline">
             + {t(addLabel)}
           </button>
         )}
@@ -69,7 +69,7 @@ function TabCard({ addLabel, onAdd, query, onQuery, count, filter, paging, addAs
             ) : addAsButton ? (
               <div className="pl-[5px]"><RefButton icon={RI.add} label={t(addLabel)} onClick={onAdd} /></div>
             ) : filter ? (
-              <button type="button" onClick={() => setFilterOpen((value) => !value)} className="text-[13px] text-[#4f71dc]">
+              <button type="button" onClick={() => setFilterOpen((value) => !value)} className="text-[13px] text-[#1E4A9A]">
                 {filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")} ⌄
               </button>
             ) : undefined
@@ -408,7 +408,7 @@ function ComponentList({ title, rows, onUpdate, onRemove, cols, hideHeader }: { 
                   setEditing(null)
                 }}
                 inputMode="decimal"
-                className="w-28 border-b border-[#4f71dc] outline-none"
+                className="w-28 border-b border-[#1E4A9A] outline-none"
               />
             ) : (
               formatAmount(row.amount, row.unit)

@@ -214,7 +214,7 @@ export function SelectField({
           type="button"
           onClick={onAdd}
           style={{ right: gutter, top: top - 15, width: addWidth - 10 }}
-          className="pointer-events-auto absolute whitespace-nowrap text-right text-[13px] leading-[18px] text-[#4f71dc] hover:underline"
+          className="pointer-events-auto absolute whitespace-nowrap text-right text-[13px] leading-[18px] text-[#1E4A9A] hover:underline"
         >
           {addLabel}
         </button>
@@ -527,7 +527,7 @@ export function SupplierIncomingForm({
                 />
                 <StripInput label={t("Сумма за ед")} value={stripCost} onChange={(value) => setStripCost(groupDigits(value))} />
                 <button type="button" onClick={addFromStrip} aria-label={t("добавить товар")} className="-ml-px mt-[29px] flex h-12 w-12 shrink-0 items-center justify-center">
-                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]">
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#1E4A9A]">
                     <path d={PLUS} />
                   </svg>
                 </button>

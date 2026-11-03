@@ -241,7 +241,7 @@ export function MaterialReportView() {
   const sortHead = (label: string, key: SortKey) => (
     <button type="button" onClick={() => toggleSort(key)} className="inline-flex items-center justify-center gap-1 font-semibold">
       {t(label)}
-      <span className={`text-[10px] ${sortKey === key ? "text-[#4f71dc]" : "text-transparent"}`}>{sortDir === "asc" ? "▲" : "▼"}</span>
+      <span className={`text-[10px] ${sortKey === key ? "text-[#1E4A9A]" : "text-transparent"}`}>{sortDir === "asc" ? "▲" : "▼"}</span>
     </button>
   )
   const sel = (label: string, value: string, setter: (value: string) => void, allLabel: string, options: string[]) => (

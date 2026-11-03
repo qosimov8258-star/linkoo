@@ -293,9 +293,9 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
           }
           leftSlot={
             filterCount === 0 ? (
-              <button type="button" onClick={() => setFilterOpen((open) => !open)} className="flex h-[16.3px] w-fit items-center text-[13px] text-[#4f71dc]">
+              <button type="button" onClick={() => setFilterOpen((open) => !open)} className="flex h-[16.3px] w-fit items-center text-[13px] text-[#1E4A9A]">
                 {t("Показать фильтр")}
-                <svg viewBox="6 2 12 20" className="ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#4f71dc]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" /></svg>
+                <svg viewBox="6 2 12 20" className="ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#1E4A9A]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" /></svg>
               </button>
             ) : (
               <FilterToggle
@@ -327,7 +327,7 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f71dc] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

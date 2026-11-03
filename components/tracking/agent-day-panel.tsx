@@ -105,7 +105,7 @@ function ViewLink({ onClick }: { onClick: () => void }) {
   return (
     <>
       {" ("}
-      <button type="button" onClick={onClick} className="text-[#4f71dc] hover:underline">
+      <button type="button" onClick={onClick} className="text-[#1E4A9A] hover:underline">
         {t("Просмотреть")}
       </button>
       {")"}
@@ -350,7 +350,7 @@ export function AgentDayPanel({
           <ChevronRight className="h-5 w-5" />
         </button>
         {status === "all" ? (
-          <button type="button" onClick={() => setFilterOpen((open) => !open)} className="flex shrink-0 items-center gap-[2px] text-[#4f71dc]">
+          <button type="button" onClick={() => setFilterOpen((open) => !open)} className="flex shrink-0 items-center gap-[2px] text-[#1E4A9A]">
             {t("Показать фильтр")}
             <ChevronDown className="h-4 w-4" />
           </button>
@@ -513,7 +513,7 @@ export function AgentDayPanel({
                         />
                       )}
                       {client.clientId !== null ? (
-                        <button type="button" onClick={() => actions.onOpenClient(client.clientId as number)} className="min-w-0 truncate text-left text-[14px] font-bold text-[#333] hover:text-[#4f71dc] hover:underline">
+                        <button type="button" onClick={() => actions.onOpenClient(client.clientId as number)} className="min-w-0 truncate text-left text-[14px] font-bold text-[#333] hover:text-[#1E4A9A] hover:underline">
                           {client.clientName}
                         </button>
                       ) : (

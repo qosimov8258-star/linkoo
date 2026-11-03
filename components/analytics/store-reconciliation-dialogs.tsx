@@ -165,7 +165,7 @@ export function TelegramDialog({
               <div key={row.id} className="grid grid-cols-12 items-start gap-2 border-b border-dotted border-[#dbe0e8] py-3">
                 <span className="col-span-2 flex flex-col">
                   {row.telegramUser ? `${row.telegramUser.firstName} ${row.telegramUser.secondName}`.trim() : t("Не подключен")}
-                  {row.telegramUser?.phoneNumber && <span className="mt-1 text-[#4f71dc]">{row.telegramUser.phoneNumber}</span>}
+                  {row.telegramUser?.phoneNumber && <span className="mt-1 text-[#1E4A9A]">{row.telegramUser.phoneNumber}</span>}
                 </span>
                 <span className="col-span-4 whitespace-pre-line">{row.text}</span>
                 <span className="col-span-2">{formatStatementDate(row.createdAt, language)}</span>
@@ -223,7 +223,7 @@ export function DeadlineDialog({
           <button type="button" onClick={onClose} className="h-10 rounded-md px-5 font-semibold text-[#586174]">
             {t("Отмена")}
           </button>
-          <button type="button" disabled={saving} onClick={() => void save()} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white disabled:opacity-60">
+          <button type="button" disabled={saving} onClick={() => void save()} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white disabled:opacity-60">
             {t("Сохранить")}
           </button>
         </>
@@ -234,7 +234,7 @@ export function DeadlineDialog({
           <span className="flex items-center gap-2">
             <input type="date" value={value} onChange={(event) => setValue(event.target.value)} className={fieldClass} />
             {value && (
-              <button type="button" onClick={() => setValue("")} className="whitespace-nowrap text-[13px] font-semibold text-[#4f71dc]">
+              <button type="button" onClick={() => setValue("")} className="whitespace-nowrap text-[13px] font-semibold text-[#1E4A9A]">
                 {t("Очистить")}
               </button>
             )}
@@ -323,7 +323,7 @@ export function CorrectionDialog({
       title={`${kind === "expense" ? t("Добавить расход клиенту") : t("Добавить приход клиенту")} ${row.name}`}
       onClose={onClose}
       footer={
-        <button type="button" disabled={saving} onClick={() => void save()} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white disabled:opacity-60">
+        <button type="button" disabled={saving} onClick={() => void save()} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white disabled:opacity-60">
           {t("Сохранить")}
         </button>
       }
@@ -411,7 +411,7 @@ export function CorrectionDialog({
               ] as const
             ).map(([value, label]) => (
               <label key={value} className="flex items-center gap-2">
-                <input type="radio" name="correction-type" checked={form.type === value} onChange={() => set("type", value)} className="h-4 w-4 accent-[#4f70e7]" />
+                <input type="radio" name="correction-type" checked={form.type === value} onChange={() => set("type", value)} className="h-4 w-4 accent-[#1E4A9A]" />
                 {t(label)}
               </label>
             ))}

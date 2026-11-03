@@ -139,7 +139,7 @@ export function SurveyForm({
                     <PlusMinus
                       last={last}
                       onClick={() => (last ? patch({ questions: [...draft.questions, emptyQuestion()] }) : patch({ questions: draft.questions.filter((_, i) => i !== index) }))}
-                      className="h-[40px] w-[40px] rounded-[4px] bg-[#4f71dc] text-white shadow-[0_2px_6px_rgba(0,0,0,0.3)]"
+                      className="h-[40px] w-[40px] rounded-[4px] bg-[#1E4A9A] text-white shadow-[0_2px_6px_rgba(0,0,0,0.3)]"
                     />
                   </div>
                   <div className="grid grid-cols-[390px_minmax(0,1fr)] gap-x-[34px]">
@@ -203,13 +203,13 @@ export function SurveyForm({
       {alertLines && (
         <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-black/[0.54]" onClick={() => setAlertLines(null)}>
           <div onClick={(event) => event.stopPropagation()} className="flex h-[300px] w-[400px] flex-col items-center bg-white px-[15px] pb-[20px] pt-[24px] shadow-[0_3px_10px_rgba(0,0,0,0.3)]">
-            <span className="flex h-[48px] w-[48px] items-center justify-center rounded-full border-[3px] border-[#4f71dc] text-[26px] font-bold leading-none text-[#4f71dc]">!</span>
+            <span className="flex h-[48px] w-[48px] items-center justify-center rounded-full border-[3px] border-[#1E4A9A] text-[26px] font-bold leading-none text-[#1E4A9A]">!</span>
             <div className="mt-[16px] flex-1 text-center text-[15px] leading-[19px]">
               {alertLines.map((line, index) => (
                 <p key={index}>{line}</p>
               ))}
             </div>
-            <button type="button" onClick={() => setAlertLines(null)} className="h-[40px] w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-bold text-white">
+            <button type="button" onClick={() => setAlertLines(null)} className="h-[40px] w-full rounded-[3px] bg-[#1E4A9A] text-[13px] font-bold text-white">
               OK
             </button>
           </div>

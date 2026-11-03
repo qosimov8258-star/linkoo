@@ -180,7 +180,7 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
     <section className="mt-8 border-t border-slate-200">
       <div className="flex flex-wrap items-center gap-6 px-5 py-4">
         <h2 className="text-[16px] font-bold text-black">{t("Пользователи")}</h2>
-        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f71dc] hover:underline">
+        <button type="button" onClick={openCreate} className="text-[16px] text-[#1E4A9A] hover:underline">
           + {t("создать пользователя")}
         </button>
       </div>

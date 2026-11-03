@@ -195,7 +195,7 @@ export function ClientDynamicsView() {
               <tr key={row.name} className="h-[57px]">
                 <td className="border border-[#ddd] px-[6px]">{t(row.name)}</td>
                 {row.periods.flatMap((data, period) => [
-                  <td key={`${period}-stores`} className={`border border-[#ddd] px-[6px] text-right font-semibold text-[#4f71dc] ${period ? "border-l-2 border-l-black" : ""}`}>{format(data.stores)}</td>,
+                  <td key={`${period}-stores`} className={`border border-[#ddd] px-[6px] text-right font-semibold text-[#1E4A9A] ${period ? "border-l-2 border-l-black" : ""}`}>{format(data.stores)}</td>,
                   <td key={`${period}-sp`} className="border border-[#ddd] px-[6px] text-right">{data.storePercent} %</td>,
                   <td key={`${period}-sum`} className="border border-[#ddd] px-[6px] text-right">{format(Math.round(data.sum))}</td>,
                   <td key={`${period}-sump`} className="border border-[#ddd] px-[6px] text-right">{data.sumPercent} %</td>,
@@ -275,7 +275,7 @@ function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRo
               setDraftName("")
               setDraftAmount("")
             }}
-            className="mt-[20px] h-[35px] w-full rounded-[3px] bg-[#4f71dc] font-semibold text-white hover:brightness-95"
+            className="mt-[20px] h-[35px] w-full rounded-[3px] bg-[#1E4A9A] font-semibold text-white hover:brightness-95"
           >
             {t("Добавить")}
           </button>

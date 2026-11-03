@@ -189,7 +189,7 @@ export function DocTemplateFormDialog({ templateId, onClose, onSaved }: { templa
     <div className="fixed inset-0 z-[100] overflow-y-auto bg-white text-[13px] text-[#333]">
       {loading ? (
         <div className="flex h-full items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
         </div>
       ) : (
         <form onSubmit={(event) => { event.preventDefault(); void submit() }} noValidate>

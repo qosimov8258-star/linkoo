@@ -26,7 +26,7 @@ export function MaterialRadio({
       </svg>
       <span className="ml-4 flex-1">{label}</span>
       {hint && (
-        <span title={hint} className="flex h-6 w-6 shrink-0 items-center justify-center text-[#4f71dc]">
+        <span title={hint} className="flex h-6 w-6 shrink-0 items-center justify-center text-[#1E4A9A]">
           <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden>
             <path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
           </svg>
@@ -113,11 +113,11 @@ export function MaterialAlert({ message, onClose }: { message: ReactNode; onClos
         className="flex h-[300px] w-[400px] flex-col bg-white px-[15px] pb-[20px] pt-[25px] shadow-[0_10px_30px_rgba(0,0,0,0.19),0_6px_10px_rgba(0,0,0,0.23)]"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <svg viewBox="0 0 24 24" className="mx-auto h-[46px] w-[46px] shrink-0 fill-[#4f71dc]" aria-hidden>
+        <svg viewBox="0 0 24 24" className="mx-auto h-[46px] w-[46px] shrink-0 fill-[#1E4A9A]" aria-hidden>
           <path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" />
         </svg>
         <div className="mt-[16px] flex-1 overflow-auto whitespace-pre-line text-center text-[15px] font-semibold leading-5 text-[#333]">{message}</div>
-        <button type="button" autoFocus onClick={onClose} className="h-10 w-full rounded-[2px] bg-[#4f71dc] text-[14px] font-bold uppercase text-white hover:brightness-95">
+        <button type="button" autoFocus onClick={onClose} className="h-10 w-full rounded-[2px] bg-[#1E4A9A] text-[14px] font-bold uppercase text-white hover:brightness-95">
           OK
         </button>
       </div>

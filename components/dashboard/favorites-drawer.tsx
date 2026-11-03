@@ -65,7 +65,7 @@ function loadItems(): FavoriteItem[] {
  * Shared "★ | Избранные" header trigger. The star adds / removes the current page
  * (like the reference app); the label opens the slide-in favorites drawer.
  */
-export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f71dc]" }: { className?: string }) {
+export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E4A9A]" }: { className?: string }) {
   const { t } = useLanguage()
   const router = useRouter()
   const pathname = usePathname()
@@ -223,7 +223,7 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f
                 <button
                   type="button"
                   onClick={() => goTo(item)}
-                  className={`flex h-5 flex-1 cursor-pointer items-center justify-between px-[10px] text-left text-[13px] font-semibold leading-[16.25px] ${isActive ? "text-[#4f71dc]" : "text-[#333]"}`}
+                  className={`flex h-5 flex-1 cursor-pointer items-center justify-between px-[10px] text-left text-[13px] font-semibold leading-[16.25px] ${isActive ? "text-[#1E4A9A]" : "text-[#333]"}`}
                 >
                   <span>{item.label}</span>
                   <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#5d6474]">

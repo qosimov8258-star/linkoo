@@ -247,7 +247,7 @@ export function InventoryManagementView() {
               <RefIconButton
                 path={RI.checklist}
                 label={t("Выбрать из списка")}
-                color={selectMode ? "#4f71dc" : "#666"}
+                color={selectMode ? "#1E4A9A" : "#666"}
                 onClick={() => {
                   setSelectMode((on) => !on)
                   setSelected([])
@@ -275,7 +275,7 @@ export function InventoryManagementView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

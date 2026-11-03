@@ -21,7 +21,7 @@ function Spinner() {
     <div className="flex h-[400px] items-center justify-center">
       <div className="relative h-[50px] w-[50px] animate-spin">
         {Array.from({ length: 8 }, (_, index) => (
-          <span key={index} className="absolute left-1/2 top-1/2 h-[6px] w-[6px] rounded-full bg-[#4f71dc]" style={{ transform: `rotate(${index * 45}deg) translate(0, -22px)`, opacity: 0.3 + index * 0.1 }} />
+          <span key={index} className="absolute left-1/2 top-1/2 h-[6px] w-[6px] rounded-full bg-[#1E4A9A]" style={{ transform: `rotate(${index * 45}deg) translate(0, -22px)`, opacity: 0.3 + index * 0.1 }} />
         ))}
       </div>
     </div>
@@ -102,7 +102,7 @@ export function DuplicateAnalysisView() {
               <span>{group.name}</span>
               <div className="flex flex-col items-start gap-[5px] py-[5px] pr-[200px]">
                 {group.markets.map((market, position) => (
-                  <Link key={market.id} href={`/clients?ids=${group.markets.map((item) => item.id).join("-")}`} className="flex h-[26.3px] max-w-full items-center rounded-[5px] bg-[#e9ecef] px-[10px] text-left font-semibold text-[#4f71dc] hover:bg-[#dfe3ea]">
+                  <Link key={market.id} href={`/clients?ids=${group.markets.map((item) => item.id).join("-")}`} className="flex h-[26.3px] max-w-full items-center rounded-[5px] bg-[#e9ecef] px-[10px] text-left font-semibold text-[#1E4A9A] hover:bg-[#dfe3ea]">
                     <span className="truncate"><span className="mr-[2px] font-normal text-[#333]">{position + 1}.</span> {market.name}</span>
                   </Link>
                 ))}
@@ -199,7 +199,7 @@ function MergeDialog({ initial, onClose, onMerged }: { initial: { removed: Clien
               <button
                 type="button"
                 onClick={() => { if (pending) { setRemoved((list) => [...list, pending]); setPending(null) } }}
-                className="mr-[23px] mt-[24px] text-[13px] font-semibold uppercase text-[#4f71dc] hover:opacity-80"
+                className="mr-[23px] mt-[24px] text-[13px] font-semibold uppercase text-[#1E4A9A] hover:opacity-80"
               >
                 {t("Добавить")}
               </button>

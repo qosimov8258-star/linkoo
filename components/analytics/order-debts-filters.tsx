@@ -130,10 +130,10 @@ export function OrderDebtFilterButton({ filters, onOpen }: { filters: OrderDebtF
   const scope = [...filters.division, ...filters.branch]
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg><span className="pl-2">{t("Фильтр")} / {countFilters(filters)}</span>
       </button>
-      <span className="font-semibold text-[#4f70e7]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
+      <span className="font-semibold text-[#1E4A9A]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
     </div>
   )
 }

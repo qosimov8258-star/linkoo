@@ -121,7 +121,7 @@ export function PhotoReportReviewView() {
     <ReportPage>
       <header className="relative pl-[28px] pr-[38px]">
         <RefHeader title={t("Активность")}>
-          <strong className="mr-[10px] text-[13px] font-bold text-[#4f71dc]">
+          <strong className="mr-[10px] text-[13px] font-bold text-[#1E4A9A]">
             {t(`${formatDate(range.from)} - ${formatDate(range.to)}`)}
           </strong>
           <button
@@ -129,7 +129,7 @@ export function PhotoReportReviewView() {
             ref={filterButtonRef}
             onClick={() => setFiltersOpen((value) => !value)}
             aria-expanded={filtersOpen}
-            className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 pr-4 text-[13px] font-semibold text-white hover:brightness-95"
+            className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 pr-4 text-[13px] font-semibold text-white hover:brightness-95"
           >
             <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>
             {t("Показать фильтр")}
@@ -213,7 +213,7 @@ export function PhotoReportReviewView() {
               className={`flex shrink-0 flex-col justify-center border-l border-[#efefef] px-[10px] text-center ${activeEmployee === name ? "bg-[#f2f5f8]" : ""}`}
             >
               <strong className="block whitespace-nowrap text-[13px] font-semibold leading-[18px]" title={name}>{name}</strong>
-              <span className="mt-[2px] block h-[18px] min-w-[85px] bg-[#5c6df3] text-[13px] leading-[18px] text-white">0</span>
+              <span className="mt-[2px] block h-[18px] min-w-[85px] bg-[#1E4A9A] text-[13px] leading-[18px] text-white">0</span>
               <span className="mt-[2px] block text-[13px] leading-[18px] text-[#666]">0 SUM</span>
             </button>
           ))}

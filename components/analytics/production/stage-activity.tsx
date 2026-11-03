@@ -83,12 +83,12 @@ export function ActivityTab({ stage, equipment, staff }: { stage: Stage; equipme
       <div className="flex h-[56px] items-center justify-end gap-[10px]">
         <ColorButton color="bg-[#fa8072]" icon="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" label="Сверить" onClick={() => setDialog("reconcile")} />
         <ColorButton color="bg-[#4db6ac]" icon="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z" label="Добавить продукт" onClick={() => setDialog("made")} />
-        <ColorButton color="bg-[#4f71dc]" icon="M10 17l5-5-5-5v10zM19 3H5a2 2 0 0 0-2 2v4h2V5h14v14H5v-4H3v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" label="Добавить сырье" onClick={() => setDialog("raw")} />
+        <ColorButton color="bg-[#1E4A9A]" icon="M10 17l5-5-5-5v10zM19 3H5a2 2 0 0 0-2 2v4h2V5h14v14H5v-4H3v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" label="Добавить сырье" onClick={() => setDialog("raw")} />
       </div>
 
       <div className="relative bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="relative flex h-[66px] items-center justify-between pl-[30px] pr-[30px]">
-          <button type="button" onClick={() => setPeriodOpen((value) => !value)} className="text-[13px] font-bold text-[#4f71dc]">
+          <button type="button" onClick={() => setPeriodOpen((value) => !value)} className="text-[13px] font-bold text-[#1E4A9A]">
             {capDate(from, language)} - {capDate(to, language)}
           </button>
           {periodOpen && (
@@ -103,7 +103,7 @@ export function ActivityTab({ stage, equipment, staff }: { stage: Stage; equipme
               }}
             />
           )}
-          <button onClick={() => { setDraft(filters); setFilterOpen((value) => !value) }} className="flex h-[34px] items-center rounded-[3px] bg-[#4f71dc] pl-[8px] pr-[12px] text-[13px] font-bold text-white">
+          <button onClick={() => { setDraft(filters); setFilterOpen((value) => !value) }} className="flex h-[34px] items-center rounded-[3px] bg-[#1E4A9A] pl-[8px] pr-[12px] text-[13px] font-bold text-white">
             <svg viewBox="0 0 24 24" className="mr-[4px] h-6 w-6 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg>
             {t("Фильтр")}
           </button>
@@ -140,8 +140,8 @@ export function ActivityTab({ stage, equipment, staff }: { stage: Stage; equipme
 
         <nav className="flex h-[48px] border-y border-[#efefef]">
           {SUB_TABS.map(([value, label, path]) => (
-            <button key={value} onClick={() => setSubTab(value)} className={`flex h-[48px] items-center border-b-2 px-[42px] text-[13px] ${subTab === value ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-[#333]"}`}>
-              <svg viewBox="0 0 24 24" className="mr-[12px] h-[18px] w-[18px]" style={{ fill: subTab === value ? "#4f71dc" : "#5d6474" }} aria-hidden><path d={path} /></svg>
+            <button key={value} onClick={() => setSubTab(value)} className={`flex h-[48px] items-center border-b-2 px-[42px] text-[13px] ${subTab === value ? "border-[#1E4A9A] text-[#1E4A9A]" : "border-transparent text-[#333]"}`}>
+              <svg viewBox="0 0 24 24" className="mr-[12px] h-[18px] w-[18px]" style={{ fill: subTab === value ? "#1E4A9A" : "#5d6474" }} aria-hidden><path d={path} /></svg>
               {t(label)}
             </button>
           ))}

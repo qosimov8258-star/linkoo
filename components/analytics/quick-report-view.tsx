@@ -43,7 +43,7 @@ export function QuickReportView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [favouritesOpen])
 
-  const parameter = "flex h-[42.5px] w-[84.4px] items-center justify-between rounded-[4px] bg-[#4f71dc] px-[5px] text-left text-[13px] leading-[16.25px] text-white"
+  const parameter = "flex h-[42.5px] w-[84.4px] items-center justify-between rounded-[4px] bg-[#1E4A9A] px-[5px] text-left text-[13px] leading-[16.25px] text-white"
 
   return (
     <main className="min-h-[calc(100vh-50px)] bg-[#f2f5f8] font-sans text-[13px] text-[#333]">
@@ -52,7 +52,7 @@ export function QuickReportView() {
       </div>
 
       <section className={`relative mx-[30px] h-[50px] ${CARD}`}>
-        <button type="button" onClick={() => setPickerOpen((open) => !open)} className="absolute left-[36px] top-[11px] text-[13px] font-bold text-[#4f71dc]">
+        <button type="button" onClick={() => setPickerOpen((open) => !open)} className="absolute left-[36px] top-[11px] text-[13px] font-bold text-[#1E4A9A]">
           {formatRangeLabel(parseISODate(range.from), parseISODate(range.to))}
         </button>
         {pickerOpen && (
@@ -78,7 +78,7 @@ export function QuickReportView() {
               type="button"
               aria-label={item.key}
               onClick={() => setChart(item.key)}
-              className={`flex h-[28px] w-[50px] items-center justify-center rounded-[5px] ${chart === item.key ? "bg-[#4f71dc]" : "bg-[#dadada]"}`}
+              className={`flex h-[28px] w-[50px] items-center justify-center rounded-[5px] ${chart === item.key ? "bg-[#1E4A9A]" : "bg-[#dadada]"}`}
             >
               <svg viewBox="0 0 24 24" className={`h-[20px] w-[20px] ${chart === item.key ? "fill-white" : "fill-white"}`}><path d={item.path} /></svg>
             </button>
@@ -87,9 +87,9 @@ export function QuickReportView() {
       </section>
 
       <section className={`relative mx-[30px] h-[50px] ${CARD}`}>
-        <span className="absolute left-[30px] top-[14px] flex items-center text-[13px] text-[#4f71dc]">
+        <span className="absolute left-[30px] top-[14px] flex items-center text-[13px] text-[#1E4A9A]">
           {t("Замеры")}
-          <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#4f71dc]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" /></svg>
+          <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#1E4A9A]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" /></svg>
         </span>
         <svg viewBox="0 0 24 24" className="absolute left-[177px] top-[13px] h-6 w-6 fill-[#555]"><path d="M22 6.92l-1.41-1.41-2.85 3.21C15.68 6.4 12.83 5 9.61 5 6.72 5 4.07 6.16 2 8l1.42 1.42C5.12 7.93 7.27 7 9.61 7c2.74 0 5.09 1.36 6.7 3.51l-2.82 3.18-3.55-3.54L2 17.99 3.41 19.4l5.43-5.43 3.55 3.54z" /></svg>
         <button type="button" aria-label={t("Графики")} onClick={() => setFavourites(true)} className="absolute left-[225px] top-[13px] h-6 w-6">

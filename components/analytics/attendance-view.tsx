@@ -211,7 +211,7 @@ export function AttendanceView() {
           <button
             type="button"
             onClick={() => setFilterOpen((open) => !open)}
-            className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 pr-4 text-[13px] font-semibold text-white hover:brightness-95"
+            className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 pr-4 text-[13px] font-semibold text-white hover:brightness-95"
           >
             <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden>
               <path d={RI.filter} />
@@ -270,7 +270,7 @@ export function AttendanceView() {
 
         {loading ? (
           <div className="flex justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-[#4f71dc]" />
+            <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
           </div>
         ) : data?.error ? (
           <ErrorBlock error={data.error} onRetry={() => setReload((value) => value + 1)} />
@@ -315,7 +315,7 @@ export function AttendanceView() {
                   <th className="whitespace-nowrap pl-[25px] pr-[12px] text-right font-semibold">
                     <span className="inline-flex items-center gap-[4px]" title={t("Пришел вовремя / Опоздал (время опоздания) / Не пришел / Всего")}>
                       {t("Пришел вовремя")}
-                      <Icon path={ICONS.info} color="#4f71dc" size={18} />
+                      <Icon path={ICONS.info} color="#1E4A9A" size={18} />
                     </span>
                   </th>
                 </tr>

@@ -21,7 +21,7 @@ function Slot({ text, slot, size, selected }: { text: string; slot: [number, num
   return (
     <span
       style={{ left: FACE / 2 - size / 2, top: 0, width: size, height: size, transform: `translate(${slot[0]}px, ${slot[1]}px)` }}
-      className={`pointer-events-none absolute select-none rounded-full pt-[5px] text-center text-[17.6px] leading-[22px] ${selected ? "bg-[#4f71dc] text-white" : "text-[#7d7d7d]"}`}
+      className={`pointer-events-none absolute select-none rounded-full pt-[5px] text-center text-[17.6px] leading-[22px] ${selected ? "bg-[#1E4A9A] text-white" : "text-[#7d7d7d]"}`}
     >
       {text}
     </span>
@@ -64,11 +64,11 @@ export function ClockTimePicker({ value, onCancel, onPick }: { value: string; on
         <div className="flex justify-center pb-[20px] pt-[20px]">
           <div onClick={onFaceClick} className="relative cursor-pointer rounded-full bg-[#ededed]" style={{ width: FACE, height: FACE }}>
             <div
-              className="pointer-events-none absolute w-[2px] bg-[#4f71dc]"
+              className="pointer-events-none absolute w-[2px] bg-[#1E4A9A]"
               style={{ left: CENTER - 1, bottom: CENTER, height: handLength, transformOrigin: "center bottom", transform: `rotate(${handAngle}deg)` }}
             >
               {mode === "minutes" && minute % 5 !== 0 && (
-                <div className="absolute rounded-full border-4 border-solid border-[#4f71dc] bg-white" style={{ boxSizing: "content-box", width: 7, height: 7, top: -5, left: -6 }} />
+                <div className="absolute rounded-full border-4 border-solid border-[#1E4A9A] bg-white" style={{ boxSizing: "content-box", width: 7, height: 7, top: -5, left: -6 }} />
               )}
             </div>
             {mode === "hours"

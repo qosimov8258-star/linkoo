@@ -207,7 +207,7 @@ function SystemDistributionTable({ rows, totals }: { rows: Row[]; totals: Row })
     })
   }, [rows, sort])
   const toCell = (value: string | number, index: number) =>
-    index === 0 ? <span className="text-[#4f71dc]">{value}</span> : typeof value === "number" ? matrixNumber(value) : value
+    index === 0 ? <span className="text-[#1E4A9A]">{value}</span> : typeof value === "number" ? matrixNumber(value) : value
   const matrixRows: MatrixRow[] = [
     ...ordered.map((row, rowIndex) => ({
       key: `${row[0]}-${rowIndex}`,

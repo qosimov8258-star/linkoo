@@ -167,7 +167,7 @@ export function ManagementBalanceView() {
           <p>
             {t("Не удалось загрузить данные")}: {t(error)}
           </p>
-          <button type="button" onClick={reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+          <button type="button" onClick={reload} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
             {t("Повторить")}
           </button>
         </div>

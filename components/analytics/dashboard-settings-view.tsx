@@ -81,7 +81,7 @@ export function DashboardSettingsView() {
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#e0e0e0] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#5d6474] focus:shadow-[inset_0_-1px_0_#5d6474]" />
             <svg viewBox="0 0 24 24" className="absolute right-2 top-1.5 h-[18px] w-[18px] fill-[#c4cad4]"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
           </label>
-          <button type="button" onClick={() => setDialog({ kind: "form" })} className="absolute right-[44px] top-[22px] text-[13px] text-[#4f71dc] hover:underline">+ {t("добавить дашборд")}</button>
+          <button type="button" onClick={() => setDialog({ kind: "form" })} className="absolute right-[44px] top-[22px] text-[13px] text-[#1E4A9A] hover:underline">+ {t("добавить дашборд")}</button>
         </div>
         <div className={`grid h-[50px] items-center bg-[#5d6474] pl-[30px] font-semibold text-white ${GRID}`}>
           {header("id", "N°")}
@@ -98,7 +98,7 @@ export function DashboardSettingsView() {
               <button type="button" onClick={() => view(item)} className={`${buttonCls} w-[141px] bg-[#71ce87]`}><MdEye className="mr-[8px] h-[18px] w-[18px]" />{t("Просмотреть")}</button>
             </span>
             <span>
-              <button type="button" onClick={() => setDialog({ kind: "form", item })} className={`${buttonCls} w-[165px] bg-[#4f71dc]`}><MdEdit className="mr-[8px] h-[18px] w-[18px]" />{t("Изменить статус")}</button>
+              <button type="button" onClick={() => setDialog({ kind: "form", item })} className={`${buttonCls} w-[165px] bg-[#1E4A9A]`}><MdEdit className="mr-[8px] h-[18px] w-[18px]" />{t("Изменить статус")}</button>
             </span>
             <span>
               <button type="button" onClick={() => setDialog({ kind: "delete", item })} className={`${buttonCls} w-[109px] bg-[#fa8072]`}><MdDelete className="mr-[8px] h-[18px] w-[18px]" />{t("Удалить")}</button>

@@ -124,7 +124,7 @@ function popupOf(client: MapDayClient, labels: MapLabels, onOpen: (id: number) =
     row.appendChild(element("b", {}, `${label} `))
     row.appendChild(document.createTextNode(value))
     if (link) {
-      const anchor = element("a", { color: "#4f71dc", marginLeft: "6px" }, labels.showOnMap) as HTMLAnchorElement
+      const anchor = element("a", { color: "#1E4A9A", marginLeft: "6px" }, labels.showOnMap) as HTMLAnchorElement
       anchor.href = link
       anchor.target = "_blank"
       anchor.rel = "noopener noreferrer"
@@ -146,7 +146,7 @@ function popupOf(client: MapDayClient, labels: MapLabels, onOpen: (id: number) =
   }
   if (client.clientId !== null) {
     const id = client.clientId
-    const button = element("button", { color: "#4f71dc", fontWeight: "600", background: "none", border: "0", padding: "0", cursor: "pointer" }, labels.showClient)
+    const button = element("button", { color: "#1E4A9A", fontWeight: "600", background: "none", border: "0", padding: "0", cursor: "pointer" }, labels.showClient)
     button.addEventListener("click", () => onOpen(id))
     root.appendChild(button)
   }

@@ -49,11 +49,11 @@ export function BalanceFilterButton({
   const { t } = useLanguage()
   return (
     <div className="flex flex-wrap items-center">
-      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.filter} /></svg>
         <span className="pl-2">{t("Фильтр")}{count ? ` / ${count}` : ""}</span>
       </button>
-      <span className="ml-[14px] text-[13px] font-semibold text-[#4f71dc]">
+      <span className="ml-[14px] text-[13px] font-semibold text-[#1E4A9A]">
         {hidePeriod ? "" : `${formatDotDate(from)} - ${formatDotDate(to)} `}{scope.length ? scope.join(", ") : t("Во всей организации")}
       </span>
       {extra}
@@ -65,13 +65,13 @@ export function BalanceFilterChip({ count, onOpen, onClear }: { count: number; o
   const { t } = useLanguage()
   if (!count) {
     return (
-      <button type="button" onClick={onOpen} className="text-[13px] text-[#4f71dc]">
+      <button type="button" onClick={onOpen} className="text-[13px] text-[#1E4A9A]">
         {t("Показать фильтр")} ⌄
       </button>
     )
   }
   return (
-    <span className="flex h-[30px] items-center gap-3 rounded-[3px] border border-[#4f71dc] px-3 text-[13px] font-semibold text-[#4f71dc]">
+    <span className="flex h-[30px] items-center gap-3 rounded-[3px] border border-[#1E4A9A] px-3 text-[13px] font-semibold text-[#1E4A9A]">
       {t("Фильтр")}: {count} {t("элемента")}
       <button type="button" onClick={onOpen} aria-label={t("Изменить")}>
         <Pencil className="h-4 w-4" />

@@ -139,7 +139,7 @@ export function SupplierReserveDialog({ supplier, onClose, onSaved }: { supplier
           <button
             type="button"
             onClick={() => setLines((current) => [...current, { key: Math.max(...current.map((line) => line.key)) + 1, product: "", qty: "1", price: "", currency: "" }])}
-            className="inline-flex items-center gap-1 text-sm text-[#4f70e7] hover:underline"
+            className="inline-flex items-center gap-1 text-sm text-[#1E4A9A] hover:underline"
           >
             <Plus className="h-4 w-4" /> {t("добавить товар")}
           </button>

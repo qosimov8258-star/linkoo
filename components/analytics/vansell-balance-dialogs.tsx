@@ -18,7 +18,7 @@ export type VansellEmployeeOption = { id: number; name: string }
 
 type FieldErrors = Partial<Record<"user" | "currency" | "amount" | "date" | "form", string>>
 
-const fieldClass = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] font-semibold text-[#17233b] outline-none focus:border-[#4f70e7]"
+const fieldClass = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] font-semibold text-[#17233b] outline-none focus:border-[#1E4A9A]"
 
 /** Demo normalizeNumber: thousands separated by spaces, comma → dot, up to 3 decimals. */
 export function formatAmountInput(raw: string, allowNegative = false): string {
@@ -229,7 +229,7 @@ export function VansellMovementDialog({
           onChange={(event) => setComment(event.target.value)}
           placeholder={t("Оставить комментарий...")}
           rows={Math.min(6, Math.max(1, comment.split("\n").length))}
-          className="block w-full resize-none border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] text-[#17233b] outline-none placeholder:text-[#586174] focus:border-[#4f70e7]"
+          className="block w-full resize-none border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] text-[#17233b] outline-none placeholder:text-[#586174] focus:border-[#1E4A9A]"
         />
         <FieldError text={errors.form} />
       </div>
@@ -409,7 +409,7 @@ export function VansellLimitDialog({
               inputMode="decimal"
               value={values[row.id] ?? ""}
               onChange={(event) => setValues((current) => ({ ...current, [row.id]: formatAmountInput(event.target.value) }))}
-              className="border-b border-[#dbe0e8] bg-transparent pb-1 text-[14px] font-semibold outline-none focus:border-[#4f70e7]"
+              className="border-b border-[#dbe0e8] bg-transparent pb-1 text-[14px] font-semibold outline-none focus:border-[#1E4A9A]"
               aria-label={`${t("Лимит")} ${row.name}`}
             />
           </div>
@@ -480,7 +480,7 @@ export function VansellUsersSelect({ options, value, onChange }: { options: Vans
               const checked = selected.has(id)
               return (
                 <button key={id} type="button" onClick={() => toggle(id)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[14px] hover:bg-[#f2f5f8]">
-                  <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#9aa3b6]"}`}>
+                  <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#9aa3b6]"}`}>
                     {checked && <Check className="h-3 w-3" />}
                   </span>
                   {item.name}

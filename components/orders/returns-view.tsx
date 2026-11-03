@@ -317,18 +317,18 @@ export function ReturnsView({ initialId }: { initialId?: number } = {}) {
             <>
               {row.client}
               <br />
-              <span className="text-[#4f71dc]">{row.zone}</span>
+              <span className="text-[#1E4A9A]">{row.zone}</span>
             </>,
             <>
               {row.warehouse || t("Не указан")}
               <br />
-              <span className="text-[#4f71dc]">{row.orderId ? `${t("Заказ №")}${row.orderId}` : ""}</span>
+              <span className="text-[#1E4A9A]">{row.orderId ? `${t("Заказ №")}${row.orderId}` : ""}</span>
             </>,
             row.deliverer || t("Не указано"),
             <>
               {t(displayDay(row.returnDate))}
               <br />
-              <span className="text-[#4f71dc]">{t(displayMoment(row.acceptedAt))}</span>
+              <span className="text-[#1E4A9A]">{t(displayMoment(row.acceptedAt))}</span>
             </>,
             row.createdBy || "—",
             row.agent || t("Не указано"),
@@ -339,7 +339,7 @@ export function ReturnsView({ initialId }: { initialId?: number } = {}) {
                 <br />
                 <span className={STATUS_COLOR[row.status]}>{t(STATUS_LABEL[row.status])}</span>
               </span>
-              <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="#4f71dc" strokeWidth="2" /><text x="12" y="17" textAnchor="middle" fontSize="13" fontWeight="700" fill="#4f71dc">$</text></svg>
+              <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="#1E4A9A" strokeWidth="2" /><text x="12" y="17" textAnchor="middle" fontSize="13" fontWeight="700" fill="#1E4A9A">$</text></svg>
             </span>,
           ]}
         />
@@ -457,7 +457,7 @@ function Detail({
   const line = (label: string, value: string, link = false) => (
     <div className="flex justify-between gap-3 py-[2px] leading-[21px]">
       <span className="shrink-0">{label}</span>
-      <b className={`text-right ${link ? "text-[#4f71dc]" : ""}`}>{value}</b>
+      <b className={`text-right ${link ? "text-[#1E4A9A]" : ""}`}>{value}</b>
     </div>
   )
 
@@ -524,7 +524,7 @@ function Detail({
       </div>
       <div className="grid grid-cols-[347px_minmax(0,1fr)]">
         <aside className="border-r border-[#efefef] px-[30px] py-[16px]">
-          {row.orderId ? <div className="py-[2px] font-bold leading-[21px] text-[#4f71dc]">{t("Заказ")} №{row.orderId}</div> : null}
+          {row.orderId ? <div className="py-[2px] font-bold leading-[21px] text-[#1E4A9A]">{t("Заказ")} №{row.orderId}</div> : null}
           {line(t("Добавил") + ":", row.createdBy || "—")}
           {line(t("Клиент") + ":", row.client, true)}
           {line(t("Зона") + ":", row.zone || t("Не указано"))}
@@ -545,7 +545,7 @@ function Detail({
         <div className="min-w-0 px-[30px] pb-[30px]">
           <div className="flex h-[49px] items-end border-b border-[#efefef]">
             {([["items", "Список товаров"], ["series", "Серии"], ["logs", "Логи"], ["photos", "Фотоотчеты"]] as const).map(([key, label]) => (
-              <button key={key} type="button" onClick={() => setTab(key)} className={`h-[41px] min-w-[112px] border-b-[2px] px-[6px] text-center text-[13px] font-medium ${tab === key ? "border-[#4f71dc]" : "border-transparent"}`}>
+              <button key={key} type="button" onClick={() => setTab(key)} className={`h-[41px] min-w-[112px] border-b-[2px] px-[6px] text-center text-[13px] font-medium ${tab === key ? "border-[#1E4A9A]" : "border-transparent"}`}>
                 {t(label)}
               </button>
             ))}
@@ -691,7 +691,7 @@ function Detail({
               {t("Комментарий")}
               <input value={edit.comment} onChange={(event) => setEdit({ ...edit, comment: event.target.value })} className="mt-1 block w-full border-b border-slate-200 bg-transparent py-1 text-[15px] font-semibold text-slate-900 outline-none" />
             </label>
-            <button type="submit" disabled={busy} className="w-full rounded-md bg-[#4f71dc] py-3 font-semibold text-white disabled:opacity-50">
+            <button type="submit" disabled={busy} className="w-full rounded-md bg-[#1E4A9A] py-3 font-semibold text-white disabled:opacity-50">
               {t("Сохранить")}
             </button>
           </form>

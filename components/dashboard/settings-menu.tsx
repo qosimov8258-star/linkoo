@@ -75,7 +75,7 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
               {section.items.map((item) =>
                 item.href ? (
                   <li key={item.label} className="pl-[20px] pt-[10px]">
-                    <Link href={item.href} onClick={onClose} className="block text-[13px] leading-[16.25px] hover:text-[#4f71dc]">
+                    <Link href={item.href} onClick={onClose} className="block text-[13px] leading-[16.25px] hover:text-[#1E4A9A]">
                       {t(item.label)}
                     </Link>
                   </li>

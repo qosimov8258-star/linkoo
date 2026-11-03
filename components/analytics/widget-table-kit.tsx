@@ -43,10 +43,10 @@ export function MoreButton({ expanded, onToggle }: { expanded: boolean; onToggle
     <button
       type="button"
       onClick={onToggle}
-      className="mx-[17.5px] my-[5px] flex h-[30px] w-[calc(100%-35px)] items-center justify-center gap-[6px] rounded-[100px] bg-[#f0f4f8] text-[13px] text-[#5869f0]"
+      className="mx-[17.5px] my-[5px] flex h-[30px] w-[calc(100%-35px)] items-center justify-center gap-[6px] rounded-[100px] bg-[#f0f4f8] text-[13px] text-[#1E4A9A]"
     >
       {expanded ? t("Скрыть") : t("Показать еще")}
-      <svg viewBox="0 0 24 24" className={`h-4 w-4 fill-[#5869f0] ${expanded ? "rotate-180" : ""}`} aria-hidden>
+      <svg viewBox="0 0 24 24" className={`h-4 w-4 fill-[#1E4A9A] ${expanded ? "rotate-180" : ""}`} aria-hidden>
         <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
       </svg>
     </button>
@@ -55,7 +55,7 @@ export function MoreButton({ expanded, onToggle }: { expanded: boolean; onToggle
 
 /** Segmented 32px buttons of the widget tabs (blue / green active tone). */
 export function ToggleButtons<T extends string>({ options, value, onChange, tone, className = "" }: { options: readonly { value: T; label: ReactNode }[]; value: T; onChange: (value: T) => void; tone: "blue" | "green"; className?: string }) {
-  const active = tone === "blue" ? "bg-[#4f71dc] text-white" : "bg-[#2bcd53] text-white"
+  const active = tone === "blue" ? "bg-[#1E4A9A] text-white" : "bg-[#2bcd53] text-white"
   return (
     <div className={`flex ${className}`}>
       {options.map((option) => (

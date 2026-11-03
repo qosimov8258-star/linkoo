@@ -72,9 +72,9 @@ export function FilterToggle({ count, open, onOpen, onClose, onClear, barWidth =
       </div>
     )
   return (
-    <button type="button" onClick={open ? onClose : onOpen} className="flex h-[16.3px] w-fit items-center whitespace-nowrap text-[13px] text-[#4f71dc]">
+    <button type="button" onClick={open ? onClose : onOpen} className="flex h-[16.3px] w-fit items-center whitespace-nowrap text-[13px] text-[#1E4A9A]">
       {t("Показать фильтр")}
-      <svg viewBox="6 2 12 20" className={`ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#4f71dc] transition ${open ? "rotate-180" : ""}`}>
+      <svg viewBox="6 2 12 20" className={`ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#1E4A9A] transition ${open ? "rotate-180" : ""}`}>
         <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
       </svg>
     </button>

@@ -229,7 +229,7 @@ export function CashboxFormModal({
       bodyClassName="relative min-h-[390px] pl-[30px] pr-[52px] pb-[60px] pt-[13px]"
       footer={<SaveButton disabled={busy || Boolean(loadError)} onClick={() => void save()}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
     >
-      {busy && !saving && <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80"><Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" /></div>}
+      {busy && !saving && <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80"><Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" /></div>}
       {loadError ? (
         <p className="py-10 text-center text-[14px] text-[#f44336]">{t(loadError)}</p>
       ) : (

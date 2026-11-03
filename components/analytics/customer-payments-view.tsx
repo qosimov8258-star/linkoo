@@ -106,7 +106,7 @@ function PaymentTypeIcon({ type }: { type: "cash" | "bank" }) {
     </Tip>
   ) : (
     <Tip text={t("наличные")}>
-      <Banknote className="h-4 w-4 text-[#4f70e7]" />
+      <Banknote className="h-4 w-4 text-[#1E4A9A]" />
     </Tip>
   )
 }
@@ -123,7 +123,7 @@ function ConfirmationIcon({ status }: { status: CustomerPaymentRow["clientConfir
     ) : status === "requested" ? (
       <Clock className="h-4 w-4 text-[#f0a030]" />
     ) : (
-      <CheckCheck className="h-4 w-4 text-[#4f70e7]" />
+      <CheckCheck className="h-4 w-4 text-[#1E4A9A]" />
     )
   return (
     <span title={label} aria-label={label} className="inline-flex">
@@ -170,7 +170,7 @@ function ColumnSettings({ hidden, onChange }: { hidden: ColumnId[]; onChange: (n
                 type="checkbox"
                 checked={!hidden.includes(column.id)}
                 onChange={() => onChange(hidden.includes(column.id) ? hidden.filter((id) => id !== column.id) : [...hidden, column.id])}
-                className="h-4 w-4 accent-[#4f70e7]"
+                className="h-4 w-4 accent-[#1E4A9A]"
               />
               {t(column.label)}
             </label>
@@ -197,7 +197,7 @@ function MaterialIcon({ name }: { name: keyof typeof MATERIAL_PATHS }) {
 
 function IconButton({ label, onClick, disabled = false, children, className = "" }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode; className?: string }) {
   return (
-    <button type="button" title={label} aria-label={label} disabled={disabled} onClick={onClick} className={`p-0.5 text-[#5d6474] hover:text-[#4f70e7] disabled:cursor-not-allowed disabled:opacity-40 ${className}`}>
+    <button type="button" title={label} aria-label={label} disabled={disabled} onClick={onClick} className={`p-0.5 text-[#5d6474] hover:text-[#1E4A9A] disabled:cursor-not-allowed disabled:opacity-40 ${className}`}>
       {children}
     </button>
   )
@@ -400,7 +400,7 @@ export function CustomerPaymentsView() {
         return (
           <>
             <div className="min-w-[140px]">{row.client.name}</div>
-            {row.client.inn && <div className="text-[13px] font-medium text-[#4f70e7]">{row.client.inn}</div>}
+            {row.client.inn && <div className="text-[13px] font-medium text-[#1E4A9A]">{row.client.inn}</div>}
           </>
         )
       case "user":
@@ -412,7 +412,7 @@ export function CustomerPaymentsView() {
           <>
             <div className="whitespace-nowrap">{row.acceptedAt ? dateTime(row.acceptedAt, language) : "-"}</div>
             {row.invoiceDate && (
-              <div title={t("Дата счет фактура")} className="whitespace-nowrap text-[13px] text-[#4f70e7]">
+              <div title={t("Дата счет фактура")} className="whitespace-nowrap text-[13px] text-[#1E4A9A]">
                 {formatRuDate(row.invoiceDate, false, language)}
               </div>
             )}
@@ -464,7 +464,7 @@ export function CustomerPaymentsView() {
                   href={`/analytics/cash-management?search=${row.cashDocNo}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="whitespace-nowrap font-medium text-[#4f70e7] hover:underline"
+                  className="whitespace-nowrap font-medium text-[#1E4A9A] hover:underline"
                 >
                   {row.cashbox.name}
                 </a>
@@ -531,7 +531,7 @@ export function CustomerPaymentsView() {
   const WEIGHTS: Record<ColumnId, number> = { id: 42, client: 166, user: 138, created_date: 138, accepted_time: 139, responsible_agent: 138, division: 139, amount: 138, real_amount: 138, cashbox: 69, comment: 139 }
   const pageCount = Math.max(1, Math.ceil((list.data?.count ?? 0) / state.pageSize))
   const heads = [
-    ...(state.showCheckboxes ? [<input key="all" type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#4f71dc]" />] : []),
+    ...(state.showCheckboxes ? [<input key="all" type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#1E4A9A]" />] : []),
     ...visibleColumns.map((column) => {
       const label = (
         <span className={column.align === "right" ? "-mr-[22px] block text-right" : undefined}>
@@ -555,7 +555,7 @@ export function CustomerPaymentsView() {
         <RefButton green icon={RI.download} label={exporting ? t("Загрузка...") : t("Скачать Excel")} onClick={() => void exportAll()} disabled={exporting || !list.data} />
       </RefHeader>
 
-      <div className={`relative px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white ${hasSelection ? "bg-[#09890f]" : "bg-[#5869f0]"}`} aria-live="polite">
+      <div className={`relative px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white ${hasSelection ? "bg-[#09890f]" : "bg-[#1E4A9A]"}`} aria-live="polite">
         {t("Оплаты от клиентов")}: {summary || "0"}
         {totals.loading && !hasSelection && <RefreshCw className="ml-2 inline h-3.5 w-3.5 animate-spin" />}
       </div>
@@ -606,7 +606,7 @@ export function CustomerPaymentsView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={reloadAll} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={reloadAll} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>
@@ -621,7 +621,7 @@ export function CustomerPaymentsView() {
           rowClass={(row) => (selected.has(row.id) ? "!bg-[#eaf0fd]" : "")}
           empty={list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
           render={(row) => [
-            ...(state.showCheckboxes ? [<input key="check" type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row)} aria-label={`№ ${row.id}`} className="h-4 w-4 accent-[#4f71dc]" />] : []),
+            ...(state.showCheckboxes ? [<input key="check" type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row)} aria-label={`№ ${row.id}`} className="h-4 w-4 accent-[#1E4A9A]" />] : []),
             ...visibleColumns.map((column) =>
               column.id === "comment" ? (
                 <div key={column.id} className="relative text-right">

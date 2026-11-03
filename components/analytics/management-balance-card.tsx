@@ -95,7 +95,7 @@ export function ManagementBranchCard({
                     <td className="border border-[#dcdcdc] px-[9px] py-[9px] font-semibold text-[#333]">
                       <span className="inline-flex items-center gap-1.5">
                         {t(section.label)}
-                        {expandable && (open ? <ChevronUp className="h-4 w-4 text-[#4f71dc]" /> : <ChevronDown className="h-4 w-4 text-[#4f71dc]" />)}
+                        {expandable && (open ? <ChevronUp className="h-4 w-4 text-[#1E4A9A]" /> : <ChevronDown className="h-4 w-4 text-[#1E4A9A]" />)}
                       </span>
                     </td>
                     <td className={`${cell} py-[9px]`}>{formatMoney(section.begin_balance)}</td>
@@ -107,7 +107,7 @@ export function ManagementBranchCard({
                       <tr key={`${line.key}|${line.label}|${line.currency}`} className="border-b border-dashed border-slate-200">
                         <td className="px-9 py-2.5 text-slate-600">
                           {line.href ? (
-                            <Link href={line.href} className="text-[#4f70e7] hover:underline">
+                            <Link href={line.href} className="text-[#1E4A9A] hover:underline">
                               {managementLineLabel(line, t)}
                             </Link>
                           ) : (

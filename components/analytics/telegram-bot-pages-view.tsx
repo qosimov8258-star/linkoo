@@ -144,7 +144,7 @@ export function TelegramBotPagesView() {
             <div className="p-8">
                         <div className="mb-6 flex items-center justify-between">
                           <h2 className="text-2xl font-semibold text-slate-800">{seededText(page, "title", t)}</h2>
-                          <button type="button" onClick={() => openEdit(page)} aria-label={t("Изменить")} className="text-slate-500 hover:text-[#4f71dc]">
+                          <button type="button" onClick={() => openEdit(page)} aria-label={t("Изменить")} className="text-slate-500 hover:text-[#1E4A9A]">
                             <Pencil className="h-5 w-5" />
                           </button>
                         </div>
@@ -154,7 +154,7 @@ export function TelegramBotPagesView() {
                               key={tab.key}
                               type="button"
                               onClick={() => setLang(tab.key)}
-                              className={`border-b-2 pb-3 text-base font-medium ${lang === tab.key ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                              className={`border-b-2 pb-3 text-base font-medium ${lang === tab.key ? "border-[#1E4A9A] text-[#1E4A9A]" : "border-transparent text-slate-500 hover:text-slate-700"}`}
                             >
                               {t(tab.label)}
                             </button>
@@ -173,7 +173,7 @@ export function TelegramBotPagesView() {
                           </div>
                           <div>
                             <p className="mb-2 font-semibold text-slate-800">{t("Содержание:")}</p>
-                            <p className="whitespace-pre-line text-[#4f71dc]">{page.content[lang]}</p>
+                            <p className="whitespace-pre-line text-[#1E4A9A]">{page.content[lang]}</p>
                           </div>
                         </div>
                       </div>

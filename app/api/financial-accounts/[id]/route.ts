@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { deleteFinancialAccount, updateFinancialAccount } from "@/lib/financial-accounts-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 
 const accountSchema = z.object({
   name: z.string().trim().min(1),
@@ -15,8 +15,8 @@ type RouteParams = { params: Promise<{ id: string }> }
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (!id) return invalidIdResponse()
   const parsed = await parseJsonBody(request, accountSchema)
   if (parsed.error) return parsed.error
 
@@ -27,8 +27,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (!id) return invalidIdResponse()
   if (!(await deleteFinancialAccount(id))) return NextResponse.json({ error: "Финансовый счет не найден" }, { status: 404 })
   return NextResponse.json({ ok: true })
 }

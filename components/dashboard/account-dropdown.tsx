@@ -157,7 +157,7 @@ export function ChangePasswordDialog({
     }
   }
 
-  const inputClass = "mt-1 block w-full border-b border-slate-300 py-2 text-[15px] text-slate-800 outline-none focus:border-[#4f71dc]"
+  const inputClass = "mt-1 block w-full border-b border-slate-300 py-2 text-[15px] text-slate-800 outline-none focus:border-[#1E4A9A]"
   const locked = required && !done
 
   return (
@@ -219,7 +219,7 @@ export function ChangePasswordDialog({
             </button>
           )}
           {!done && (
-            <button type="submit" disabled={saving} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white disabled:opacity-60">
+            <button type="submit" disabled={saving} className="rounded-md bg-[#1E4A9A] px-5 py-2.5 font-semibold text-white disabled:opacity-60">
               {saving ? t("Сохранение...") : t("Сохранить")}
             </button>
           )}

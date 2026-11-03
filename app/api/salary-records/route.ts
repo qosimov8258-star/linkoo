@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { dbErrorResponse } from "@/lib/db-errors"
 import { requireRole } from "@/lib/rbac"
 import { SalaryInputError, allSalaryRecords, listSalaryRecords, salaryKpiStats, setSalaries } from "@/lib/salary-records-repo"
@@ -20,8 +20,8 @@ function clampYear(value: string | null) {
 
 /** GET /api/salary-records?month=&year=&tab=all|true|false&search=&page=&pageSize=  (all=1 returns the whole month). */
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
   const url = new URL(request.url)
   const month = clampMonth(url.searchParams.get("month"))
   const year = clampYear(url.searchParams.get("year"))

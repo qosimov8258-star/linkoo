@@ -242,7 +242,7 @@ function CashManagementContent() {
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[60px] flex-wrap items-center gap-3 pl-[28px] pr-[37px]">
         <div className="flex min-w-0 items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <h1 className="truncate text-[18px] font-bold text-[#5d6474]">{t("Управления кассой")}</h1>
         </div>
@@ -285,7 +285,7 @@ function CashManagementContent() {
                     </span>
                   ) : (
                     <span title={t("наличные")} aria-label={t("наличные")}>
-                      <Banknote className="h-[18px] w-[18px] shrink-0 text-[#4f71dc]" />
+                      <Banknote className="h-[18px] w-[18px] shrink-0 text-[#1E4A9A]" />
                     </span>
                   )}
                 </span>
@@ -303,7 +303,7 @@ function CashManagementContent() {
           <div className="mb-[10px] flex flex-wrap items-center gap-3">
             <h2 className="mr-auto min-w-0 truncate text-[13px] font-bold leading-[22px] text-[#333]">{title}</h2>
             {canWrite && (
-              <button type="button" disabled={cashboxes.length < 2} onClick={() => setDialog({ kind: "transfer" })} className="inline-flex h-[24px] items-center gap-1.5 border border-[#4f71dc] px-[11px] text-[13px] text-[#4f71dc] hover:bg-[#f2f5f8] disabled:opacity-40">
+              <button type="button" disabled={cashboxes.length < 2} onClick={() => setDialog({ kind: "transfer" })} className="inline-flex h-[24px] items-center gap-1.5 border border-[#1E4A9A] px-[11px] text-[13px] text-[#1E4A9A] hover:bg-[#f2f5f8] disabled:opacity-40">
                 {t("Перевод")}
               </button>
             )}
@@ -320,7 +320,7 @@ function CashManagementContent() {
 
           <section className="relative rounded-[2px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {filterCount > 0 && totals.data && totals.data.totals.length > 0 && (
-              <div className="flex flex-col gap-1 rounded-t-md bg-[#5869f0] px-4 py-2.5 text-[13px] text-white md:px-5">
+              <div className="flex flex-col gap-1 rounded-t-md bg-[#1E4A9A] px-4 py-2.5 text-[13px] text-white md:px-5">
                 {totals.data.totals.map((row) => (
                   <div key={row.currency} className="flex flex-wrap gap-x-6 gap-y-0.5">
                     <span>
@@ -341,7 +341,7 @@ function CashManagementContent() {
               {filterCount ? (
                 <span className="inline-flex h-9 items-center gap-3 rounded-md bg-[#eef1f5] px-3 text-[14px] font-semibold text-[#586174]">
                   {t("Фильтр")}: {filterCount} {t("элемента")}
-                  <button type="button" onClick={() => setFilterOpen((value) => !value)} aria-label={t("Изменить")} className="text-[#4f70e7]">
+                  <button type="button" onClick={() => setFilterOpen((value) => !value)} aria-label={t("Изменить")} className="text-[#1E4A9A]">
                     <Pencil className="h-4 w-4" />
                   </button>
                   <button
@@ -357,9 +357,9 @@ function CashManagementContent() {
                   </button>
                 </span>
               ) : (
-                <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex w-[310px] shrink-0 items-center gap-1 text-[13px] text-[#4f71dc] hover:underline">
+                <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex w-[310px] shrink-0 items-center gap-1 text-[13px] text-[#1E4A9A] hover:underline">
                   {t("Показать фильтр")}
-                  <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#4f71dc]" aria-hidden><path d="M7 10l5 5 5-5z" /></svg>
+                  <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#1E4A9A]" aria-hidden><path d="M7 10l5 5 5-5z" /></svg>
                 </button>
               )}
               <label className="relative ml-[2px] w-full sm:w-[272px]">
@@ -367,7 +367,7 @@ function CashManagementContent() {
                   value={searchDraft}
                   onChange={(event) => setSearchDraft(event.target.value)}
                   placeholder={t("Поиск")}
-                  className="h-9 w-full border-b border-[#dbe0e8] bg-transparent pr-8 text-[13px] outline-none focus:border-[#4f70e7]"
+                  className="h-9 w-full border-b border-[#dbe0e8] bg-transparent pr-8 text-[13px] outline-none focus:border-[#1E4A9A]"
                 />
                 <Search className="pointer-events-none absolute right-1 top-2 h-5 w-5 text-[#c4cbd6]" />
               </label>
@@ -525,7 +525,7 @@ function CashManagementContent() {
 }
 
 function HeaderButton({ tone, icon: Icon, label, onClick }: { tone: "green" | "blue" | "red"; icon: typeof CreditCard; label: string; onClick: () => void }) {
-  const color = { green: "bg-[#71ce87]", blue: "bg-[#4f71dc]", red: "bg-[#fa8072]" }[tone]
+  const color = { green: "bg-[#71ce87]", blue: "bg-[#1E4A9A]", red: "bg-[#fa8072]" }[tone]
   return (
     <button type="button" onClick={onClick} className={`inline-flex h-[30px] items-center gap-2 rounded-[4px] px-[14px] text-[13px] font-semibold text-white hover:brightness-95 ${color}`}>
       <Icon className="h-[18px] w-[18px]" /> {label}

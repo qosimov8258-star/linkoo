@@ -92,7 +92,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
     onSaved(result.data)
   }
 
-  const field = "h-10 w-full rounded-md border border-[#dbe0e8] px-3 text-[14px] outline-none focus:border-[#4f70e7]"
+  const field = "h-10 w-full rounded-md border border-[#dbe0e8] px-3 text-[14px] outline-none focus:border-[#1E4A9A]"
   return (
     <CashModal
       title={t("Списание товара")}

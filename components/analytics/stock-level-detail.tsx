@@ -180,7 +180,7 @@ export function CheckNetCostDialog({ onClose }: { onClose: () => void }) {
         {data && <p style={{ color: data.text_color }}>{t(data.text)}</p>}
       </div>
       <div className="flex justify-end border-t border-[#efefef] px-6 py-4">
-        <button type="button" onClick={onClose} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white">
+        <button type="button" onClick={onClose} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white">
           {t("Ок")}
         </button>
       </div>

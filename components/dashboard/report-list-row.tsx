@@ -27,7 +27,7 @@ export function ReportListRow({ title }: { title: string }) {
             </svg>
             <span className="pl-2 pr-4">{t("Скачать")}</span>
           </button>
-          <button type="button" onClick={handleOpenReport} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={handleOpenReport} className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white hover:brightness-95">
             <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white" aria-hidden>
               <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" />
             </svg>

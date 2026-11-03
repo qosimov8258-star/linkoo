@@ -143,7 +143,7 @@ export function CatalogImportDialog({
         </>
       }
     >
-      <button type="button" onClick={() => void onTemplate()} className="mb-3 text-[13px] font-semibold uppercase text-[#4f71dc] hover:underline">
+      <button type="button" onClick={() => void onTemplate()} className="mb-3 text-[13px] font-semibold uppercase text-[#1E4A9A] hover:underline">
         {t(mode === "create" ? "1. Скачать шаблон" : "1. Скачать текущий список")}
       </button>
       <div
@@ -164,7 +164,7 @@ export function CatalogImportDialog({
           const dropped = event.dataTransfer.files?.[0]
           if (dropped) setFile(dropped)
         }}
-        className={`flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-4 text-center text-[14px] ${drag ? "border-[#4f71dc] bg-[#eef2ff]" : "border-[#dbe0e8]"}`}
+        className={`flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-4 text-center text-[14px] ${drag ? "border-[#1E4A9A] bg-[#eef2ff]" : "border-[#dbe0e8]"}`}
       >
         <FileSpreadsheet className="h-8 w-8 text-[#71ce87]" />
         {file ? <span className="font-semibold text-[#17233b]">{file.name}</span> : <span className="text-[#586174]">{t("2. Добавьте файл Excel или нажмите для выбора")}</span>}

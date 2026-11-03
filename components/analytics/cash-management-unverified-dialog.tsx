@@ -99,7 +99,7 @@ export function CashUnverifiedDialog({
                       <button type="button" disabled={transfer} onClick={() => onDelete(operation)} aria-label={t("Удалить")} title={t("Удалить")} className="text-[#e57373] disabled:opacity-30">
                         <Trash2 className="h-4 w-4" />
                       </button>
-                      <button type="button" disabled={transfer || operation.type === 8} onClick={() => onEdit(operation)} aria-label={t("Изменить")} title={t("Изменить")} className="text-[#4f70e7] disabled:opacity-30">
+                      <button type="button" disabled={transfer || operation.type === 8} onClick={() => onEdit(operation)} aria-label={t("Изменить")} title={t("Изменить")} className="text-[#1E4A9A] disabled:opacity-30">
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button

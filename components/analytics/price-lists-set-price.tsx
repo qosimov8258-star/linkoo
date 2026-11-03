@@ -92,7 +92,7 @@ export function SetPriceDialog({ onClose, onSaved }: { onClose: () => void; onSa
 
   const check = (label: string, checked: boolean, onChange: (value: boolean) => void) => (
     <label className="flex items-center gap-3 text-[14px] text-[#17233b]">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" />
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
       {label}
     </label>
   )
@@ -113,7 +113,7 @@ export function SetPriceDialog({ onClose, onSaved }: { onClose: () => void; onSa
           <div className="flex flex-col gap-2">
             {(["manually", "excel"] as const).map((type) => (
               <label key={type} className="flex items-center gap-3 text-[14px] text-[#17233b]">
-                <input type="radio" name="inputType" checked={setup.inputType === type} onChange={() => setSetup((current) => ({ ...current, inputType: type }))} className="h-4 w-4 accent-[#4f71dc]" />
+                <input type="radio" name="inputType" checked={setup.inputType === type} onChange={() => setSetup((current) => ({ ...current, inputType: type }))} className="h-4 w-4 accent-[#1E4A9A]" />
                 {type === "manually" ? t("Вручную") : t("Импортировать с excel")}
               </label>
             ))}
@@ -140,7 +140,7 @@ export function SetPriceDialog({ onClose, onSaved }: { onClose: () => void; onSa
                   if (result) downloadPriceTemplate(result, lists, mode, t)
                   else setError(t("Не удалось загрузить данные"))
                 }}
-                className="self-start font-semibold text-[#4f71dc] hover:underline disabled:opacity-40"
+                className="self-start font-semibold text-[#1E4A9A] hover:underline disabled:opacity-40"
               >
                 {t("Скачать шаблон")}
               </button>
@@ -262,7 +262,7 @@ function PriceGrid({ lists, mode, setup, onClose, onSaved }: { lists: GridList[]
       aria-label={label}
       title={label}
       onChange={(event) => onChange(event.target.value)}
-      className={`h-9 ${width} border-b bg-transparent px-1 text-[13px] outline-none focus:border-[#4f71dc] ${Number.isNaN(parse(value) ?? 0) ? "border-[#e57373] text-[#e57373]" : "border-[#bac6ce]"}`}
+      className={`h-9 ${width} border-b bg-transparent px-1 text-[13px] outline-none focus:border-[#1E4A9A] ${Number.isNaN(parse(value) ?? 0) ? "border-[#e57373] text-[#e57373]" : "border-[#bac6ce]"}`}
     />
   )
 
@@ -294,7 +294,7 @@ function PriceGrid({ lists, mode, setup, onClose, onSaved }: { lists: GridList[]
       <div className="relative min-h-0 flex-1 overflow-auto">
         {grid.loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70">
-            <Loader2 className="h-8 w-8 animate-spin text-[#4f71dc]" />
+            <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
           </div>
         )}
         {!rows.length && !grid.loading ? (

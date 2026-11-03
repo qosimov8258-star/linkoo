@@ -301,7 +301,7 @@ export function EmployeeBalanceView() {
     <main className="ref-white min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс сотрудников")}</span>
         </div>
@@ -315,12 +315,12 @@ export function EmployeeBalanceView() {
             {list.error ? (
               <>
                 <span className="text-[#e57373]">{t(list.error)}</span>
-                <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] underline">
+                <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] underline">
                   {t("Повторить")}
                 </button>
               </>
             ) : (
-              <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />
+              <Loader2 className="h-7 w-7 animate-spin text-[#1E4A9A]" />
             )}
           </div>
         )}

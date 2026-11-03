@@ -157,7 +157,7 @@ export function KnowledgeBaseFormDialog({ articleId, onClose, onSaved }: { artic
         <div className="relative min-h-0 flex-1 overflow-y-auto px-[30px] pb-8 pt-4">
           {loading ? (
             <div className="flex h-full min-h-[200px] items-center justify-center">
-              <Loader2 className="h-9 w-9 animate-spin text-[#4f70e7]" aria-label={t("Загрузка...")} />
+              <Loader2 className="h-9 w-9 animate-spin text-[#1E4A9A]" aria-label={t("Загрузка...")} />
             </div>
           ) : loadError ? (
             <p className="py-10 text-center text-[14px] text-[#f44336]">{t(loadError)}</p>
@@ -187,7 +187,7 @@ export function KnowledgeBaseFormDialog({ articleId, onClose, onSaved }: { artic
               </UnderlinedField>
 
               <label className="flex w-fit cursor-pointer items-center gap-[10px] text-[14px]">
-                <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} className="h-[18px] w-[18px] accent-[#4f71dc]" />
+                <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} className="h-[18px] w-[18px] accent-[#1E4A9A]" />
                 {t("Активный")}
               </label>
 
@@ -237,7 +237,7 @@ export function KnowledgeBaseFormDialog({ articleId, onClose, onSaved }: { artic
 function UnderlinedField({ label, error, filled, children }: { label: string; error: string; filled: boolean; children: ReactNode }) {
   return (
     <div>
-      <div className={`border-b ${error ? "border-[#f44336]" : "border-[#d5dae1] focus-within:border-[#4f71dc]"}`}>
+      <div className={`border-b ${error ? "border-[#f44336]" : "border-[#d5dae1] focus-within:border-[#1E4A9A]"}`}>
         <span className={`block text-[12px] ${error ? "text-[#f44336]" : filled ? "text-[#586174]" : "text-[#8a93a6]"}`}>{label}</span>
         {children}
       </div>
@@ -316,7 +316,7 @@ function PositionsPicker({
         tabIndex={0}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`flex min-h-[44px] cursor-pointer flex-col border-b outline-none ${error ? "border-[#f44336]" : open ? "border-[#4f71dc]" : "border-[#d5dae1] focus:border-[#4f71dc]"}`}
+        className={`flex min-h-[44px] cursor-pointer flex-col border-b outline-none ${error ? "border-[#f44336]" : open ? "border-[#1E4A9A]" : "border-[#d5dae1] focus:border-[#1E4A9A]"}`}
         onClick={() => (open ? close() : onOpenChange(true))}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return
@@ -479,11 +479,11 @@ function PdfDropZone({
         onDragLeave={() => setDragging(false)}
         onDrop={drop}
         className={`flex h-[200px] cursor-pointer flex-col items-center justify-center gap-3 rounded border-2 border-dashed px-4 text-center transition-colors ${
-          dragging ? "border-[#4f71dc] bg-[#f3f6fd] text-[#4f71dc]" : shownError ? "border-[#f44336] text-[#757575]" : "border-[#c4cad4] text-[#757575] hover:border-[#4f71dc] hover:text-[#4f71dc]"
+          dragging ? "border-[#1E4A9A] bg-[#f3f6fd] text-[#1E4A9A]" : shownError ? "border-[#f44336] text-[#757575]" : "border-[#c4cad4] text-[#757575] hover:border-[#1E4A9A] hover:text-[#1E4A9A]"
         }`}
       >
         {uploading ? (
-          <Loader2 className="h-9 w-9 animate-spin text-[#4f70e7]" aria-label={t("Загрузка...")} />
+          <Loader2 className="h-9 w-9 animate-spin text-[#1E4A9A]" aria-label={t("Загрузка...")} />
         ) : (
           <>
             <FileText className="h-10 w-10" />
@@ -494,7 +494,7 @@ function PdfDropZone({
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(event) => event.stopPropagation()}
-                  className="max-w-full truncate text-[14px] font-semibold text-[#4f71dc] hover:underline"
+                  className="max-w-full truncate text-[14px] font-semibold text-[#1E4A9A] hover:underline"
                 >
                   {file.name}
                 </a>
@@ -508,7 +508,7 @@ function PdfDropZone({
       </div>
       {file && !uploading && (
         <div className="mt-2 flex items-center gap-4 text-[13px]">
-          <button type="button" onClick={() => inputRef.current?.click()} className="font-semibold text-[#4f71dc] hover:underline">
+          <button type="button" onClick={() => inputRef.current?.click()} className="font-semibold text-[#1E4A9A] hover:underline">
             {t("Заменить")}
           </button>
           <button

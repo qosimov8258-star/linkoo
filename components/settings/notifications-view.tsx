@@ -16,7 +16,7 @@ function Switch({ checked, onChange, label }: { checked: boolean; onChange: (val
   return (
     <label className="relative inline-block h-[14px] w-[34px] cursor-pointer">
       <span className={`absolute inset-0 rounded-full ${checked ? "bg-[#9fb1f5]" : "bg-[#c8c8c8]"}`} />
-      <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full shadow ${checked ? "left-[16px] bg-[#4f71dc]" : "left-[-2px] bg-[#f1f1f1]"}`} />
+      <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full shadow ${checked ? "left-[16px] bg-[#1E4A9A]" : "left-[-2px] bg-[#f1f1f1]"}`} />
       <input type="checkbox" aria-label={label} checked={checked} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
     </label>
   )
@@ -176,7 +176,7 @@ export function NotificationsView() {
                 </button>
               </span>
             ))}
-            <button type="button" onClick={() => setAttach(row)} className="h-[28px] rounded-[2px] bg-[#4f71dc] px-[15px] text-[13px] text-white hover:brightness-95">
+            <button type="button" onClick={() => setAttach(row)} className="h-[28px] rounded-[2px] bg-[#1E4A9A] px-[15px] text-[13px] text-white hover:brightness-95">
               {t("добавить")}
             </button>
           </div>

@@ -50,7 +50,7 @@ export function ComboInput({
 export function Hint({ text }: { text: string }) {
   const { t } = useLanguage()
   return (
-    <span title={t(text)} className="inline-flex cursor-help text-[#4f71dc]">
+    <span title={t(text)} className="inline-flex cursor-help text-[#1E4A9A]">
       <Info className="h-4 w-4" />
     </span>
   )
@@ -113,7 +113,7 @@ export function BarcodesEditor({ value, onChange, error }: { value: string[]; on
           <button
             type="button"
             onClick={() => onChange(rows.map((item, i) => (i === index ? generateBarcode() : item)))}
-            className="absolute left-0 top-[61px] text-[13px] leading-4 text-[#4f71dc]"
+            className="absolute left-0 top-[61px] text-[13px] leading-4 text-[#1E4A9A]"
           >
             {t("Сгенерировать")}
           </button>
@@ -233,10 +233,10 @@ export function BoxSizesEditor({ value, onChange, units }: { value: BoxSizeDraft
         </div>
       ))}
       <div className="mt-[34px] flex gap-[9px]">
-        <button type="button" disabled={!canAdd} onClick={() => onChange([...rows, { unit: "", height: "", width: "", length: "" }])} className={`${button} ${canAdd ? "bg-[#4f71dc]" : "bg-[#bdbdbd]"}`}>
+        <button type="button" disabled={!canAdd} onClick={() => onChange([...rows, { unit: "", height: "", width: "", length: "" }])} className={`${button} ${canAdd ? "bg-[#1E4A9A]" : "bg-[#bdbdbd]"}`}>
           {t("Добавить")}
         </button>
-        <button type="button" disabled={rows.length < 2} onClick={() => onChange(rows.slice(0, -1))} className={`${button} ${rows.length > 1 ? "bg-[#4f71dc]" : "bg-[#bdbdbd]"}`}>
+        <button type="button" disabled={rows.length < 2} onClick={() => onChange(rows.slice(0, -1))} className={`${button} ${rows.length > 1 ? "bg-[#1E4A9A]" : "bg-[#bdbdbd]"}`}>
           {t("Удалить")}
         </button>
       </div>

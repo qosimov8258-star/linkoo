@@ -65,14 +65,14 @@ export function OptionMultiSelect({ label, options, value, onChange }: { label: 
       {open && (
         <div className="absolute left-0 right-0 top-full z-[5] mt-1 max-h-64 overflow-y-auto rounded-md border border-[#e1e5eb] bg-white py-1 shadow-lg">
           {value.length > 0 && (
-            <button type="button" onClick={() => onChange([])} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] text-[#4f70e7] hover:bg-[#f2f5f8]">
+            <button type="button" onClick={() => onChange([])} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] text-[#1E4A9A] hover:bg-[#f2f5f8]">
               <X className="h-3.5 w-3.5" /> {t("Очистить")}
             </button>
           )}
           {!all.length && <p className="px-3 py-2 text-sm text-[#9aa3b6]">{t("Нет данных")}</p>}
           {all.map((option) => (
             <button key={option.value} type="button" onClick={() => toggle(option.value)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8]">
-              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(option.value) ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#c4cbd6]"}`}>
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(option.value) ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#c4cbd6]"}`}>
                 {value.includes(option.value) && <Check className="h-3 w-3" />}
               </span>
               <span className="truncate">{option.label}</span>
@@ -176,14 +176,14 @@ export function ColumnChooser({ columns, hidden, onChange }: { columns: Array<{ 
         aria-label={t("Вкл/Выкл колонки")}
         className="flex h-12 w-12 items-center justify-center hover:bg-[#f2f5f8]"
       >
-        <svg viewBox="0 0 24 24" className={`h-6 w-6 ${hidden.length ? "fill-[#4f71dc]" : "fill-[#333]"}`}><path d="M3 21h18v-2H3v2zm4-4h10v-2H7v2zm-4-4h18v-2H3v2zm4-4h10V7H7v2zM3 3v2h18V3H3z" /></svg>
+        <svg viewBox="0 0 24 24" className={`h-6 w-6 ${hidden.length ? "fill-[#1E4A9A]" : "fill-[#333]"}`}><path d="M3 21h18v-2H3v2zm4-4h10v-2H7v2zm-4-4h18v-2H3v2zm4-4h10V7H7v2zM3 3v2h18V3H3z" /></svg>
       </button>
       {open && (
         <div className="absolute right-0 z-[60] mt-1 w-[240px] overflow-hidden rounded-md border border-[#e1e5eb] bg-white py-1 shadow-lg">
           <p className="px-4 py-2 text-xs font-semibold uppercase text-[#9aa3b6]">{t("Вкл/Выкл колонки")}</p>
           {columns.map((column) => (
             <label key={column.id} className="flex cursor-pointer items-center gap-2 px-4 py-2 text-[14px] text-[#17233b] hover:bg-[#f2f5f8]">
-              <input type="checkbox" checked={!hidden.includes(column.id)} onChange={() => toggle(column.id)} className="h-4 w-4 accent-[#4f70e7]" />
+              <input type="checkbox" checked={!hidden.includes(column.id)} onChange={() => toggle(column.id)} className="h-4 w-4 accent-[#1E4A9A]" />
               {t(column.label)}
             </label>
           ))}

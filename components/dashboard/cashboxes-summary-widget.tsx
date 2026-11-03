@@ -104,7 +104,7 @@ export function CashboxesSummaryWidget() {
             <button
               type="button"
               onClick={() => setExpanded((value) => !value)}
-              className="mx-[18px] my-[10px] flex h-[30px] w-[calc(100%-36px)] items-center justify-center gap-1.5 rounded-full bg-[#f2f5f8] text-[13px] text-[#4f71dc]"
+              className="mx-[18px] my-[10px] flex h-[30px] w-[calc(100%-36px)] items-center justify-center gap-1.5 rounded-full bg-[#f2f5f8] text-[13px] text-[#1E4A9A]"
             >
               {expanded ? t("Свернуть") : t("Показать еще")}
               <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />

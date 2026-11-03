@@ -72,7 +72,7 @@ export function TerritoryPanel({
         ) : (
           shown.map((zone) => (
             <div key={zone.id} className="relative flex h-[50px] items-center border-b border-dotted border-[#ddd] pl-[43px] pr-[28px] text-[13px]">
-              <button type="button" onClick={() => onShow(zone)} className="min-w-0 flex-1 truncate text-left hover:text-[#4f71dc]" title={zone.parent ? `${zone.parent} / ${zone.name}` : zone.name}>
+              <button type="button" onClick={() => onShow(zone)} className="min-w-0 flex-1 truncate text-left hover:text-[#1E4A9A]" title={zone.parent ? `${zone.parent} / ${zone.name}` : zone.name}>
                 {zone.name}
                 {zone.branch ? <span className="ml-2 text-[11px] text-[#999]">{zone.branch}</span> : null}
               </button>

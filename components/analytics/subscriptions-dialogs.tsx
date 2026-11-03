@@ -184,8 +184,8 @@ export function ProlongDialog({ ids, onClose, onDone }: { ids: number[]; onClose
       <div className="flex border-b border-[#efefef]">
         {options?.map((item, index) => (
           <button key={item.period} type="button" onClick={() => setActive(index)} className="relative h-[50px] flex-1 text-[16px] font-semibold uppercase">
-            <span className="text-[#4f71dc]">{item.period}</span> {t("месяц")}: <span className="text-[#4f71dc]">{sum(item.total)}</span>
-            {index === active && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-[#4f71dc]" />}
+            <span className="text-[#1E4A9A]">{item.period}</span> {t("месяц")}: <span className="text-[#1E4A9A]">{sum(item.total)}</span>
+            {index === active && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-[#1E4A9A]" />}
           </button>
         ))}
       </div>
@@ -247,7 +247,7 @@ export function PurchaseDialog({ pricing, onClose, onDone }: { pricing: PricePer
       <FullScreen
         title={t("Выберите количество")}
         inset
-        titleSuffix={<span className="text-[22px] font-semibold uppercase text-[#5d6474]"><span className="text-[#4f71dc]">{chosen.period}</span> {t("месяц")}</span>}
+        titleSuffix={<span className="text-[22px] font-semibold uppercase text-[#5d6474]"><span className="text-[#1E4A9A]">{chosen.period}</span> {t("месяц")}</span>}
         onClose={onClose}
         footer={<><span className="pl-[0px] text-[15px]">{t("Итого")}: <b>{sum(total)}</b></span><SaveLink disabled={saving || total <= 0} onClick={() => void save()}>{t("Сохранить")}</SaveLink></>}
       >
@@ -278,8 +278,8 @@ export function PurchaseDialog({ pricing, onClose, onDone }: { pricing: PricePer
         {pricing.map((period) => (
           <div key={period.period} className="flex h-[406px] w-[300px] flex-col shadow-[0_1px_6px_rgba(0,0,0,0.15),0_1px_4px_rgba(0,0,0,0.12)]">
             <div className="flex h-[52px] items-center justify-center gap-[6px] border-b border-[#efefef] text-[20px] text-[#5d6474]">
-              <b className="text-[24px] text-[#4f71dc]">{period.period}</b> {t("месяц")}
-              {period.percent > 0 && <span className="rounded-[10px] bg-[#4f71dc] px-[8px] py-[2px] text-[12px] font-semibold text-white">{t("Скидка")} {period.percent}%</span>}
+              <b className="text-[24px] text-[#1E4A9A]">{period.period}</b> {t("месяц")}
+              {period.percent > 0 && <span className="rounded-[10px] bg-[#1E4A9A] px-[8px] py-[2px] text-[12px] font-semibold text-white">{t("Скидка")} {period.percent}%</span>}
             </div>
             <div className="flex-1 space-y-[3px] px-[30px] pt-[30px] text-[15px] font-semibold text-[#5d6474]">
               {period.licenses.map((license) => (
@@ -289,7 +289,7 @@ export function PurchaseDialog({ pricing, onClose, onDone }: { pricing: PricePer
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => setChosen(period)} className="h-[52px] border-t border-[#efefef] text-[22px] font-bold text-[#4f71dc] hover:bg-[#f7f9ff]">{t("Выбрать")}</button>
+            <button type="button" onClick={() => setChosen(period)} className="h-[52px] border-t border-[#efefef] text-[22px] font-bold text-[#1E4A9A] hover:bg-[#f7f9ff]">{t("Выбрать")}</button>
           </div>
         ))}
       </div>
@@ -331,7 +331,7 @@ export function ActDialog({ onClose }: { onClose: () => void }) {
   return (
     <FullScreen title={t("АКТ сверки")} bigTitle onClose={onClose} footer={<span />}>
       <div className="relative">
-        <button type="button" onClick={() => { setDraft(range); setFilterOpen((open) => !open) }} className="h-[50px] pl-[5px] text-[13px] text-[#4f71dc]">{t("Показать фильтр")} ⌄</button>
+        <button type="button" onClick={() => { setDraft(range); setFilterOpen((open) => !open) }} className="h-[50px] pl-[5px] text-[13px] text-[#1E4A9A]">{t("Показать фильтр")} ⌄</button>
         {filterOpen && (
           <div className="absolute left-[5px] top-[-5px] z-30 w-[300px]">
             <RefFilterPanel narrow className="!w-[300px]" onClose={() => setFilterOpen(false)} onApply={() => { setRange(draft); setFilterOpen(false) }}>

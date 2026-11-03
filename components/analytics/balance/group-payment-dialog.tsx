@@ -221,7 +221,7 @@ export function GroupPaymentDialog({
               </div>
             )}
             <label className="flex items-center gap-2 text-[#17233b]">
-              <input type="checkbox" checked={verified} onChange={(event) => setVerified(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
+              <input type="checkbox" checked={verified} onChange={(event) => setVerified(event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
               {t("Подтвержденный приход (Я получил деньги)")}
             </label>
           </div>
@@ -281,7 +281,7 @@ export function GroupPaymentDialog({
           <button type="button" onClick={onClose} className="h-10 rounded-md border border-[#dbe0e8] px-5 text-[#586174]">
             {t("Отмена")}
           </button>
-          <button type="button" onClick={submit} disabled={saving} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white disabled:opacity-50">
+          <button type="button" onClick={submit} disabled={saving} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white disabled:opacity-50">
             {t("Сохранить")}
           </button>
         </div>

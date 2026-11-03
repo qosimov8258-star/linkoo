@@ -115,7 +115,7 @@ export function CatalogDetailPanel({
       <div onClick={onClose} className="flex h-[65px] cursor-pointer items-center border-b border-[#e0e0e0] px-[30px]">
         <h2 className="min-w-0 flex-1 text-[18px] font-bold leading-[22.5px] text-[#333]">
           {item.name} {item.isInventory && <span className="font-normal text-[#586174]">({t("Инвентарь")})</span>}{" "}
-          {item.isMml && <span className="ml-1 rounded-sm bg-[#4f71dc] px-1.5 py-0.5 align-middle text-[11px] font-semibold text-white">{t("ММЛ")}</span>}
+          {item.isMml && <span className="ml-1 rounded-sm bg-[#1E4A9A] px-1.5 py-0.5 align-middle text-[11px] font-semibold text-white">{t("ММЛ")}</span>}
           {item.deleted && <span className="ml-2 rounded-sm bg-[#e57373] px-1.5 py-0.5 align-middle text-[11px] font-semibold text-white">{t("Удалён")}</span>}
         </h2>
         {canEdit && item.deleted && (

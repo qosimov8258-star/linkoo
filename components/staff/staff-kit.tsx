@@ -27,9 +27,9 @@ export function FilterChip({ count, onEdit, onClear }: { count: number; onEdit: 
 export function FilterLink({ onClick }: { onClick: () => void }) {
   const { t } = useLanguage()
   return (
-    <button type="button" onClick={onClick} className="relative top-[1.9px] flex text-[13px] leading-[16.25px] text-[#4f71dc]">
+    <button type="button" onClick={onClick} className="relative top-[1.9px] flex text-[13px] leading-[16.25px] text-[#1E4A9A]">
       <span>{t("Показать фильтр")}</span>
-      <svg viewBox="0 0 24 24" className="ml-px h-[20px] w-[13px] shrink fill-[#4f71dc]" aria-hidden><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
+      <svg viewBox="0 0 24 24" className="ml-px h-[20px] w-[13px] shrink fill-[#1E4A9A]" aria-hidden><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
     </button>
   )
 }
@@ -120,7 +120,7 @@ export function MultiSelectField({
         {placeholder && selected.length === 0 && !open && <span className="absolute left-0 top-[26px] text-[13px] text-[#999]">{placeholder}</span>}
         <div className={`flex flex-wrap ${flush ? "" : "gap-[6px]"}`}>
           {selected.map((option) => (
-            <span key={option.value} className={flush ? "mr-[5px] mt-[5px] flex h-[22.4px] items-center rounded-[2px] bg-[#5868f0] text-[11.7px] font-semibold leading-[16.38px] text-white" : "flex items-center bg-[#5869f0] text-[12px] font-semibold text-white"}>
+            <span key={option.value} className={flush ? "mr-[5px] mt-[5px] flex h-[22.4px] items-center rounded-[2px] bg-[#5868f0] text-[11.7px] font-semibold leading-[16.38px] text-white" : "flex items-center bg-[#1E4A9A] text-[12px] font-semibold text-white"}>
               <button type="button" aria-label={t("Удалить")} onClick={(event) => { event.stopPropagation(); onChange(value.filter((id) => id !== option.value)) }} className={flush ? "px-[5px] py-[2px]" : "px-[6px] py-[3px] hover:bg-[#4658d8]"}>×</button>
               <span className={flush ? "my-[2px] border-l border-white px-[5px] py-0 leading-[17px]" : "border-l border-white/30 py-[3px] pl-[6px] pr-[8px]"}>{option.label}</span>
             </span>
@@ -175,7 +175,7 @@ export function StaffTabs({ labels, value, onChange, height = 40 }: { labels: st
         </button>
       ))}
       <span
-        className="absolute bottom-0 left-0 z-10 h-[3px] bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+        className="absolute bottom-0 left-0 z-10 h-[3px] bg-[#1E4A9A] shadow-[0_-3px_10px_0_#1E4A9A] transition-transform duration-300"
         style={{ width: `${100 / labels.length}%`, transform: `translateX(${index * 100}%)` }}
       />
     </div>
@@ -223,7 +223,7 @@ export function FilterPick({ label, value, options, onChange }: { label: string;
             <div className="h-9 px-[10px] text-[13px] leading-9 text-[#999]">{t("Ничего не найдено")}</div>
           ) : (
             shown.map((option) => (
-              <button key={option.value} type="button" onClick={() => { onChange(option.value); setOpen(false); setSearch("") }} className={`block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${option.value === value ? "text-[#4f71dc]" : ""}`}>
+              <button key={option.value} type="button" onClick={() => { onChange(option.value); setOpen(false); setSearch("") }} className={`block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${option.value === value ? "text-[#1E4A9A]" : ""}`}>
                 {option.label}
               </button>
             ))
@@ -239,7 +239,7 @@ export function Switch({ checked, onChange, label, hint, tone }: { checked: bool
   return (
     <label className="flex cursor-pointer items-center gap-[10px]">
       <span className={`relative inline-block h-[14px] w-[34px] shrink-0 rounded-full ${checked ? "bg-[#9fb1f5]" : "bg-[#bdbdbd]"}`}>
-        <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] transition-all ${checked ? "left-[16px] bg-[#4f71dc]" : "left-[-2px] bg-[#f1f5f8]"}`} />
+        <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] transition-all ${checked ? "left-[16px] bg-[#1E4A9A]" : "left-[-2px] bg-[#f1f5f8]"}`} />
         <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
       </span>
       <span className="text-[13px] font-semibold leading-[16px] text-[#333]" style={tone ? { color: tone } : undefined}>

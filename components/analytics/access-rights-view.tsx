@@ -38,7 +38,7 @@ function PermissionList({ items, onPick, selected }: { items: Permission[]; onPi
       {items.map((item) => (
         <div key={item.id} className="flex min-h-[36px] items-center justify-between border-b border-[#e0e0e0] px-[8px] py-[2px] text-[12px] font-semibold leading-[15px]">
           <span className="pr-4">{item.label}</span>
-          <button type="button" onClick={() => onPick(item.id)} aria-label={selected ? t("Убрать") : t("Добавить")} className="mr-[2px] flex h-6 w-6 shrink-0 items-center justify-center text-[#4f71dc]">
+          <button type="button" onClick={() => onPick(item.id)} aria-label={selected ? t("Убрать") : t("Добавить")} className="mr-[2px] flex h-6 w-6 shrink-0 items-center justify-center text-[#1E4A9A]">
             {selected ? (
               <X className="h-[22px] w-[22px]" />
             ) : (
@@ -317,8 +317,8 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
       <SettingsToolbar
         left={
           <>
-            <button type="button" onClick={() => setDialog({ role: null })} className="ml-[42px] flex h-[36px] items-center pt-[3px] text-[13px] leading-[36px] text-[#4f71dc] hover:underline"><svg viewBox="0 0 24 24" className="mr-[2px] h-[14px] w-[14px] fill-[#4f71dc]" aria-hidden><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>{t("создать права доступа")}</button>
-            <button type="button" onClick={() => openCapability(null)} className="ml-[28px] flex h-[36px] items-center pt-[3px] text-[13px] leading-[36px] text-[#4f71dc] hover:underline"><svg viewBox="0 0 24 24" className="mr-[2px] h-[14px] w-[14px] fill-[#4f71dc]" aria-hidden><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>{t("создать возможности")}</button>
+            <button type="button" onClick={() => setDialog({ role: null })} className="ml-[42px] flex h-[36px] items-center pt-[3px] text-[13px] leading-[36px] text-[#1E4A9A] hover:underline"><svg viewBox="0 0 24 24" className="mr-[2px] h-[14px] w-[14px] fill-[#1E4A9A]" aria-hidden><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>{t("создать права доступа")}</button>
+            <button type="button" onClick={() => openCapability(null)} className="ml-[28px] flex h-[36px] items-center pt-[3px] text-[13px] leading-[36px] text-[#1E4A9A] hover:underline"><svg viewBox="0 0 24 24" className="mr-[2px] h-[14px] w-[14px] fill-[#1E4A9A]" aria-hidden><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>{t("создать возможности")}</button>
           </>
         }
         query={controls.query}

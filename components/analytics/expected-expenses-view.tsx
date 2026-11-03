@@ -152,7 +152,7 @@ export function ExpectedExpensesView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[60px] items-center px-[28px]">
         <div className="flex min-w-0 items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="truncate text-[18px] font-bold text-[#5d6474]">{t("Ожидаемые расходы")}</span>
         </div>
@@ -168,7 +168,7 @@ export function ExpectedExpensesView() {
               role="tab"
               aria-selected={active}
               onClick={() => changeTab(tab.value)}
-              className={`min-w-fit flex-1 whitespace-nowrap border-b-2 px-3 py-[16px] text-[13px] font-normal ${active ? "text-[#333]" : "border-transparent text-[#333] hover:text-[#4f71dc]"}`}
+              className={`min-w-fit flex-1 whitespace-nowrap border-b-2 px-3 py-[16px] text-[13px] font-normal ${active ? "text-[#333]" : "border-transparent text-[#333] hover:text-[#1E4A9A]"}`}
               style={active ? { borderColor: "rgb(79, 113, 220)" } : undefined}
             >
               {t(tab.label)}
@@ -182,7 +182,7 @@ export function ExpectedExpensesView() {
           <span>
             {t("Не удалось загрузить данные")}: {t(error)}
           </span>
-          <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+          <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
             {t("Повторить")}
           </button>
         </div>

@@ -17,7 +17,7 @@ export async function NotFoundContent() {
       <p className="mt-4 text-[44px] font-bold leading-none text-[#5d6474]">404</p>
       <h1 className="mt-3 text-[20px] font-bold text-[#333]">{t("Страница не найдена")}</h1>
       <p className="mt-2 max-w-[420px] text-[13px] text-[#666]">{t("Такой страницы нет. Проверьте адрес или откройте нужный раздел через меню.")}</p>
-      <Link href="/" className="mt-6 rounded-[3px] bg-[#4f71dc] px-5 py-2 text-[13px] font-semibold text-white hover:brightness-95">
+      <Link href="/" className="mt-6 rounded-[3px] bg-[#1E4A9A] px-5 py-2 text-[13px] font-semibold text-white hover:brightness-95">
         {t("На главную")}
       </Link>
     </main>
@@ -27,5 +27,5 @@ export async function NotFoundContent() {
 /** Metadata of that screen: the localized title, and never indexed. */
 export async function notFoundMetadata() {
   const t = await getServerT()
-  return { title: `${t("Страница не найдена")} — Linko`, robots: { index: false, follow: false } }
+  return { title: `${t("Страница не найдена")} — Mezon`, robots: { index: false, follow: false } }
 }

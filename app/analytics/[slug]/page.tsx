@@ -147,7 +147,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const t = await getServerT()
   const title = "title" in page ? page.title : page.label
   return {
-    title: `${t(title)} — Linko`,
+    title: `${t(title)} — Mezon`,
     description: t(page.description),
   }
 }

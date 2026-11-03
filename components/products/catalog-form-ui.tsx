@@ -45,7 +45,7 @@ export function InfoHint({ text }: { text: string }) {
   const { tip, show, hide } = useTip()
   return (
     <span className="inline-flex h-6 w-6 shrink-0 cursor-pointer" onMouseEnter={(event) => show(event.currentTarget)} onMouseLeave={hide}>
-      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]">
+      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#1E4A9A]">
         <path d={I_PATH} />
       </svg>
       {tip && <TipBox tip={tip}>{t(text)}</TipBox>}
@@ -356,7 +356,7 @@ export function Toggle({
       <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="relative mr-2 h-6 w-9 shrink-0 cursor-pointer py-[4px] pl-[2px] pr-0">
         <span className={`block h-[14px] w-[34px] rounded-[30px] transition-colors duration-[450ms] ${checked ? "bg-[#a7b8ee]" : "bg-[#bdbdbd]"}`} />
         <span
-          className={`absolute left-0 top-[1px] h-5 w-5 rounded-full shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] transition-all duration-[450ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${checked ? "translate-x-4 bg-[#4f71dc]" : "bg-[#f2f5f8]"}`}
+          className={`absolute left-0 top-[1px] h-5 w-5 rounded-full shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] transition-all duration-[450ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${checked ? "translate-x-4 bg-[#1E4A9A]" : "bg-[#f2f5f8]"}`}
         />
       </button>
       <div className="min-w-0 text-[13px] leading-[16.25px] text-[#333]">
@@ -386,7 +386,7 @@ export function CheckField({ label, checked, onChange }: { label: string; checke
 /** Blue 30px button: a 30px icon area, then the label (the width follows the text, like the reference). */
 export function BlueButton({ children, minus, onClick, disabled }: { children: ReactNode; minus?: boolean; onClick: () => void; disabled?: boolean }) {
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className="flex h-[30px] items-center rounded-[2px] bg-[#4f71dc] text-[13px] font-semibold leading-[30px] text-white disabled:opacity-50">
+    <button type="button" onClick={onClick} disabled={disabled} className="flex h-[30px] items-center rounded-[2px] bg-[#1E4A9A] text-[13px] font-semibold leading-[30px] text-white disabled:opacity-50">
       <span className="flex w-[30px] items-center pl-3">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white">
           <path d={minus ? DASH : ADD_CIRCLE} />

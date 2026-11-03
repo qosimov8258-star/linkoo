@@ -241,7 +241,7 @@ export function ClientsFilterPanel({
       onClose={onClose}
       onApply={() => onApply(draft)}
       footer={
-        <button type="button" onClick={() => setExpanded((current) => !current)} className="text-[13px] text-[#4f71dc] hover:underline">
+        <button type="button" onClick={() => setExpanded((current) => !current)} className="text-[13px] text-[#1E4A9A] hover:underline">
           {expanded ? t("Свернуть") : t("Расширить")} {expanded ? "⌃" : "⌄"}
         </button>
       }

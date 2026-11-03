@@ -123,9 +123,9 @@ export function TimeRestrictionsView({ embedded = false }: { embedded?: boolean 
               onChange={(event) => setInput(event.target.value)}
               placeholder={t("Поиск")}
               aria-label={t("Поиск")}
-              className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4f71dc]"
+              className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#1E4A9A]"
             />
-            <button type="submit" aria-label={t("Поиск")} className="absolute right-1 top-[5px] text-[#9aa3b6] hover:text-[#4f71dc]">
+            <button type="submit" aria-label={t("Поиск")} className="absolute right-1 top-[5px] text-[#9aa3b6] hover:text-[#1E4A9A]">
               <Search className="h-[18px] w-[18px]" />
             </button>
           </form>

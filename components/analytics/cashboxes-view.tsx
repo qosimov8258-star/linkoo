@@ -152,7 +152,7 @@ function CashboxesGrid() {
         left={
           canEdit ? (
             <>
-              <button type="button" onClick={() => setDialog({ kind: "create" })} className="ml-[5px] flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#4f71dc] px-[12px] text-[13px] font-bold text-white hover:brightness-95">
+              <button type="button" onClick={() => setDialog({ kind: "create" })} className="ml-[5px] flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#1E4A9A] px-[12px] text-[13px] font-bold text-white hover:brightness-95">
                 <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
                 {t("Добавить кассу")}
               </button>

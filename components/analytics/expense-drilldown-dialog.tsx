@@ -94,7 +94,7 @@ export function ExpenseDrilldownDialog({
             <p>
               {t("Не удалось выполнить запрос")}: {t(error)}
             </p>
-            <button type="button" onClick={reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+            <button type="button" onClick={reload} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
               {t("Повторить")}
             </button>
           </div>
@@ -176,7 +176,7 @@ function DetailRow({ row, base, language, rowLink }: { row: ExpenseDetailRow; ba
             rel="noopener noreferrer"
             onClick={(event: MouseEvent) => event.stopPropagation()}
             title={t("Открыть в кассе")}
-            className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline"
+            className="inline-flex items-center gap-1 text-[#1E4A9A] hover:underline"
           >
             {row.docNo}
             <ExternalLink className="h-3 w-3" />

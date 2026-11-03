@@ -218,7 +218,7 @@ export function CategoryFormModal({
         <div className={`relative min-h-[300px] space-y-3 pl-[30px] pt-[10px] ${kind === "income" ? "pb-[19px] pr-[54px]" : "pb-[20px] pr-[52px]"}`}>
           {busy && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80">
-              <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
+              <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
             </div>
           )}
           <Field label={t("Наименование")} required filled={Boolean(draft.name)} error={nameError ? t(nameError) : ""}>
@@ -319,7 +319,7 @@ function ParentSelect({
   return (
     <div ref={ref} className="relative mt-[4px] pt-4">
       <span className={`pointer-events-none absolute left-0 font-semibold text-[#333] transition-all ${selectedName ? "top-0 text-[10px]" : "top-[28px] text-[13px]"}`}>{t("Родительская категория")}</span>
-      <div className={`flex h-9 items-center border-b ${error ? "border-rose-500" : open ? "border-[#4f70e7]" : "border-[#e0e0e0]"}`}>
+      <div className={`flex h-9 items-center border-b ${error ? "border-rose-500" : open ? "border-[#1E4A9A]" : "border-[#e0e0e0]"}`}>
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}

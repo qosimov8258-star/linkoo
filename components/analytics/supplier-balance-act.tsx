@@ -60,7 +60,7 @@ export function SupplierActDialog({
       render: (row) =>
         canEdit && row.editable && row.source === "supplier_manual" && row.sourceId ? (
           <span className="flex items-center gap-2 text-[#666]">
-            <button type="button" onClick={() => onEdit(row)} aria-label={t("Изменить")} title={t("Изменить")} className="hover:text-[#4f70e7]">
+            <button type="button" onClick={() => onEdit(row)} aria-label={t("Изменить")} title={t("Изменить")} className="hover:text-[#1E4A9A]">
               <Pencil className="h-4 w-4" />
             </button>
             <button type="button" onClick={() => onDelete(row)} aria-label={t("Удалить")} title={t("Удалить")} className="hover:text-[#e57373]">
@@ -93,13 +93,13 @@ export function SupplierActDialog({
         </header>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#efefef] px-8 py-3">
-          <div className="flex items-center gap-2 text-[13px] font-bold text-[#4f71dc]">
+          <div className="flex items-center gap-2 text-[13px] font-bold text-[#1E4A9A]">
             <input
               type="date"
               value={from}
               aria-label={t("Дата начала")}
               onChange={(event) => setPeriod({ from: event.target.value, to })}
-              className="h-9 rounded border border-transparent bg-transparent px-1 outline-none hover:border-[#dbe0e8] focus:border-[#4f71dc]"
+              className="h-9 rounded border border-transparent bg-transparent px-1 outline-none hover:border-[#dbe0e8] focus:border-[#1E4A9A]"
             />
             <span>—</span>
             <input
@@ -107,10 +107,10 @@ export function SupplierActDialog({
               value={to}
               aria-label={t("Дата окончания")}
               onChange={(event) => setPeriod({ from, to: event.target.value })}
-              className="h-9 rounded border border-transparent bg-transparent px-1 outline-none hover:border-[#dbe0e8] focus:border-[#4f71dc]"
+              className="h-9 rounded border border-transparent bg-transparent px-1 outline-none hover:border-[#dbe0e8] focus:border-[#1E4A9A]"
             />
             {customPeriod && (
-              <button type="button" onClick={onPeriodReset} aria-label={t("Сбросить")} title={t("Сбросить")} className="ml-1 text-[#9aa3b6] hover:text-[#4f71dc]">
+              <button type="button" onClick={onPeriodReset} aria-label={t("Сбросить")} title={t("Сбросить")} className="ml-1 text-[#9aa3b6] hover:text-[#1E4A9A]">
                 <RotateCcw className="h-4 w-4" />
               </button>
             )}

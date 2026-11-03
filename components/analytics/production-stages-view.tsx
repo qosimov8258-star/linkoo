@@ -59,7 +59,7 @@ export function ProductionStagesView() {
                   <img src="/production-stage.svg" alt="" className="mr-[10px] h-5 w-5 shrink-0" />
                   <span className="truncate">{entry.name}</span>
                 </button>
-                <button onClick={() => setStageDialog(entry)} aria-label={t("Изменить")} className="mr-3 p-1 text-[#9aa1ae] opacity-0 hover:text-[#4f71dc] group-hover:opacity-100 focus:opacity-100">
+                <button onClick={() => setStageDialog(entry)} aria-label={t("Изменить")} className="mr-3 p-1 text-[#9aa1ae] opacity-0 hover:text-[#1E4A9A] group-hover:opacity-100 focus:opacity-100">
                   <Pencil className="h-4 w-4" />
                 </button>
               </div>
@@ -72,7 +72,7 @@ export function ProductionStagesView() {
           <nav className={`flex h-[54px] bg-white text-[13px] text-black ${CARD_SHADOW}`}>
             {TABS.map(([value, label]) => (
               <button key={value} type="button" onClick={() => setTab(value)} className="h-[54px] px-[6px] font-[Arial,sans-serif]">
-                <span className={`flex h-[52px] items-center border-b-2 px-[20px] ${tab === value ? "border-[#4f71dc] font-semibold text-[#4f71dc]" : "border-transparent"}`}>{t(label)}</span>
+                <span className={`flex h-[52px] items-center border-b-2 px-[20px] ${tab === value ? "border-[#1E4A9A] font-semibold text-[#1E4A9A]" : "border-transparent"}`}>{t(label)}</span>
               </button>
             ))}
           </nav>

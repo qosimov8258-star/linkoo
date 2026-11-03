@@ -309,7 +309,7 @@ export function SupplierPaymentsView() {
       case "cashbox":
         if (!row.cashbox) return t("Не указано")
         return row.cashbox.linked && row.docNo ? (
-          <Link href={`/analytics/cash-management?search=${row.docNo}`} className="font-medium text-[#5869f0] hover:underline">
+          <Link href={`/analytics/cash-management?search=${row.docNo}`} className="font-medium text-[#1E4A9A] hover:underline">
             {row.cashbox.name}
           </Link>
         ) : (
@@ -350,7 +350,7 @@ export function SupplierPaymentsView() {
   return (
     <RefPage>
       <RefHeader title={t("Оплаты поставщикам")} />
-      <div className="flex flex-wrap items-center gap-x-2 bg-[#5869f0] px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white">
+      <div className="flex flex-wrap items-center gap-x-2 bg-[#1E4A9A] px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white">
         <span>{t("Оплаты поставщикам")}:</span>
         {loading && !data ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-label={t("Загрузка...")} />
@@ -371,7 +371,7 @@ export function SupplierPaymentsView() {
           <span>
             {t("Не удалось загрузить данные")}: {t(error)}
           </span>
-          <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+          <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
             {t("Повторить")}
           </button>
         </div>

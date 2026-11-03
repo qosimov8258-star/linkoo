@@ -314,8 +314,8 @@ export function BranchesView() {
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <div className="relative flex h-[50px] items-center pr-[5px] text-[13px]">
         <div className="absolute left-[5px] top-[7px] flex items-center">
-          <button type="button" onClick={() => openForm()} className="flex h-[36px] items-center rounded-[5px] bg-white pl-[12px] pr-[16px] leading-[36px] text-[#4f71dc]">
-            <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[2px] h-[14px] w-[14px] shrink-0 fill-[#4f71dc]"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+          <button type="button" onClick={() => openForm()} className="flex h-[36px] items-center rounded-[5px] bg-white pl-[12px] pr-[16px] leading-[36px] text-[#1E4A9A]">
+            <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[2px] h-[14px] w-[14px] shrink-0 fill-[#1E4A9A]"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
             <span className="relative top-[1.5px]">{t("Добавить филиал")}</span>
           </button>
           {canImport && <ExcelImportLink className="h-[36px] pl-0 pt-[3px] leading-[36px]" onClick={() => setImportOpen(true)} />}

@@ -477,7 +477,7 @@ export function SalaryPlanningView() {
                     <div className="flex flex-wrap pl-2">
                       {row.indicators.map((item) => (
                         <div key={item.id} className="my-[5px] mr-[10px] ml-0 flex h-[28px] items-center rounded-[2px] bg-[#e9ecef] px-[10px]">
-                          {item.name}:<span className="ml-1 font-semibold text-[#4f71dc]">{fmt(item.plan)}</span>
+                          {item.name}:<span className="ml-1 font-semibold text-[#1E4A9A]">{fmt(item.plan)}</span>
                         </div>
                       ))}
                     </div>

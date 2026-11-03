@@ -5,7 +5,7 @@ import { getServerT } from "@/lib/i18n/server"
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getServerT()
-  return { title: `${t("Остаток на определенную дату")} — Linko` }
+  return { title: `${t("Остаток на определенную дату")} — Mezon` }
 }
 
 export default function Page() {

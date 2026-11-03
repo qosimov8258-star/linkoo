@@ -64,7 +64,7 @@ export function ExpectedExpenseDetail({
   if (loading && !request) {
     return (
       <div className="flex h-[100px] items-center justify-center bg-white">
-        <Loader2 className="h-6 w-6 animate-spin text-[#4f70e7]" aria-label={t("Загрузка...")} />
+        <Loader2 className="h-6 w-6 animate-spin text-[#1E4A9A]" aria-label={t("Загрузка...")} />
       </div>
     )
   }
@@ -192,7 +192,7 @@ function RequestForm({
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
             inputMode="decimal"
-            className={`h-9 border-b bg-transparent text-[15px] outline-none ${fieldError?.field === "amount" ? "border-[#e57373]" : "border-[#dbe0e8] focus:border-[#4f70e7]"}`}
+            className={`h-9 border-b bg-transparent text-[15px] outline-none ${fieldError?.field === "amount" ? "border-[#e57373]" : "border-[#dbe0e8] focus:border-[#1E4A9A]"}`}
           />
           {fieldError?.field === "amount" && <span className="text-xs text-[#e57373]">{t(fieldError.message)}</span>}
         </label>

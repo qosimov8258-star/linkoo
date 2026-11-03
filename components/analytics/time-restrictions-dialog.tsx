@@ -210,7 +210,7 @@ function TimeField({ label, value, error, onChange }: { label: string; value: st
         value={value}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={Boolean(error)}
-        className={`mt-[4px] h-[28px] w-full border-b bg-transparent text-[13px] outline-none focus:border-[#4f71dc] ${error ? "border-[#e57373]" : "border-[#d5dae1]"}`}
+        className={`mt-[4px] h-[28px] w-full border-b bg-transparent text-[13px] outline-none focus:border-[#1E4A9A] ${error ? "border-[#e57373]" : "border-[#d5dae1]"}`}
       />
       <FieldError text={error} />
     </label>
@@ -221,8 +221,8 @@ function Radio({ checked, label, onChange }: { checked: boolean; label: string; 
   const { t } = useLanguage()
   return (
     <label className="flex cursor-pointer items-center gap-[10px] text-[13px]">
-      <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2 ${checked ? "border-[#4f71dc]" : "border-[#757575]"}`}>
-        {checked && <span className="h-[8px] w-[8px] rounded-full bg-[#4f71dc]" />}
+      <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2 ${checked ? "border-[#1E4A9A]" : "border-[#757575]"}`}>
+        {checked && <span className="h-[8px] w-[8px] rounded-full bg-[#1E4A9A]" />}
       </span>
       <input type="radio" name="time-restriction-scope" checked={checked} onChange={onChange} className="sr-only" />
       {t(label)}

@@ -86,7 +86,7 @@ export function RivalProductsView() {
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <div className="flex h-[70px] items-center border-b border-[#eef0f4] pl-[20px]">
-        <button type="button" onClick={() => open()} className="flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#4f71dc] px-[12px] text-[13px] font-bold text-white hover:brightness-95">
+        <button type="button" onClick={() => open()} className="flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#1E4A9A] px-[12px] text-[13px] font-bold text-white hover:brightness-95">
           <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
           {t("Добавить продукт конкурентов")}
         </button>
@@ -108,7 +108,7 @@ export function RivalProductsView() {
           hideAdd
           compact
           extra={
-            <button type="button" onClick={() => { setFilterDraft(filter); setFilterOpen((current) => !current) }} className="ml-[5px] flex items-center gap-[3px] text-[13px] text-[#4f71dc]">
+            <button type="button" onClick={() => { setFilterDraft(filter); setFilterOpen((current) => !current) }} className="ml-[5px] flex items-center gap-[3px] text-[13px] text-[#1E4A9A]">
               {t("Показать фильтр")} <ChevronDown className="h-3 w-3" />
             </button>
           }

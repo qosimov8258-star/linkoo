@@ -154,7 +154,7 @@ function PriceListsGrid() {
         searchClassName="left-[335px] top-[20px]"
         left={
           canEdit ? (
-            <button type="button" onClick={() => setDialog({ kind: "create" })} className={`ml-[5px] bg-[#4f71dc] pr-[15px] ${buttonClass}`}>
+            <button type="button" onClick={() => setDialog({ kind: "create" })} className={`ml-[5px] bg-[#1E4A9A] pr-[15px] ${buttonClass}`}>
               <svg viewBox="0 0 24 24" className="h-[20px] w-[20px] fill-white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
               {t("Добавить прайс-лист")}
             </button>

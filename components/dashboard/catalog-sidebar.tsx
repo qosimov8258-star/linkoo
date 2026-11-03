@@ -20,11 +20,11 @@ export function CatalogSidebar({ width = 225 }: { width?: number }) {
           <li className="font-bold">{t(group.title)}</li>
           {group.items.map((item, index) => {
             const active = item.href !== undefined && pathname === item.href
-            const cls = `block px-[6px] py-px font-[Arial,sans-serif] leading-[15px] ${active ? "text-[#4f71dc]" : "text-[#333]"}`
+            const cls = `block px-[6px] py-px font-[Arial,sans-serif] leading-[15px] ${active ? "text-[#1E4A9A]" : "text-[#333]"}`
             return (
               <li key={`${item.label}-${index}`} className="pl-[20px] pt-[10px] last:pb-[10px]">
                 {item.href ? (
-                  <Link href={item.query ? `${item.href}?${item.query}` : item.href} className={`${cls} hover:text-[#4f71dc]`}>
+                  <Link href={item.query ? `${item.href}?${item.query}` : item.href} className={`${cls} hover:text-[#1E4A9A]`}>
                     {t(item.label)}
                   </Link>
                 ) : (

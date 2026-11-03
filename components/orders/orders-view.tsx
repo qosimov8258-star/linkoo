@@ -505,7 +505,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
       <div className="flex h-[60px] items-center justify-between">
         <div className="flex items-center">
           <h1 className="flex items-center text-[18px] font-bold leading-[22.5px] text-[#5d6474]">
-            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
             <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
             {t("Заказы")}
           </h1>
@@ -569,12 +569,12 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
           ))}
           {tab && (
             <span
-              className="absolute -bottom-[2px] left-0 h-[3px] w-1/4 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+              className="absolute -bottom-[2px] left-0 h-[3px] w-1/4 bg-[#1E4A9A] shadow-[0_-3px_10px_0_#1E4A9A] transition-transform duration-300"
               style={{ transform: `translateX(${TAB_LABELS.indexOf(tab) * 100}%)` }}
             />
           )}
         </div>
-        <div className={`mt-px flex justify-between border-b border-[#efefef] pb-[5px] pl-[5px] pr-[33px] pt-[5px] text-[13px] font-semibold leading-[16.25px] text-white ${selecting ? "bg-[#008000]" : "bg-[#5869f0]"}`}>
+        <div className={`mt-px flex justify-between border-b border-[#efefef] pb-[5px] pl-[5px] pr-[33px] pt-[5px] text-[13px] font-semibold leading-[16.25px] text-white ${selecting ? "bg-[#008000]" : "bg-[#1E4A9A]"}`}>
           {[
             { label: t("Заказы"), value: totals.orders },
             { label: t("Возвраты"), value: totals.returns },
@@ -615,7 +615,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                   <button
                     type="button"
                     onClick={() => setFilterOpen((value) => !value)}
-                    className="ml-[5px] flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white"
+                    className="ml-[5px] flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white"
                   >
                     <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={ICON.filter} /></svg>
                     <span className="pl-2 pr-4">{filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
@@ -927,7 +927,7 @@ const ICON = {
 
 function TopButton({ icon, text, onClick, green }: { icon: string; text: string; onClick: () => void; green?: boolean }) {
   return (
-    <button type="button" onClick={onClick} className={`flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white hover:brightness-95 ${green ? "bg-[#71ce87]" : "bg-[#4f71dc]"}`}>
+    <button type="button" onClick={onClick} className={`flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white hover:brightness-95 ${green ? "bg-[#71ce87]" : "bg-[#1E4A9A]"}`}>
       <svg viewBox="0 0 24 24" className="mb-[1px] h-[18px] w-[18px] fill-white"><path d={icon} /></svg>
       <span className="pl-2 pr-4 leading-[18px]">{text}</span>
     </button>
@@ -1006,16 +1006,16 @@ function OrderRow({ row, returned, selectMode, checked, onToggle, onOpen }: { ro
         <div style={{ width: `${COL_PCT[4]}%` }} className={cell}>
           {delivererOf(row) || t("Не указано")}
           <br />
-          <span className="text-[#4f71dc]">{row.expeditor || t("Не указано")}</span>
-          {row.transportNumber && <><br /><span className="text-[#4f71dc]">{row.transportNumber}</span></>}
+          <span className="text-[#1E4A9A]">{row.expeditor || t("Не указано")}</span>
+          {row.transportNumber && <><br /><span className="text-[#1E4A9A]">{row.transportNumber}</span></>}
         </div>
         <div style={{ width: `${COL_PCT[5]}%` }} className={cell}>
           <span>{t(displayDay(row.delivery))}</span>
-          {accepted && <><br /><span className="text-[#4f71dc]">{accepted}</span></>}
+          {accepted && <><br /><span className="text-[#1E4A9A]">{accepted}</span></>}
         </div>
         <div style={{ width: `${COL_PCT[6]}%` }} className={cell}>
           {row.agent}
-          <p className="text-[12px] font-medium leading-[15px] text-[#4f71dc]"><span>{formatNumber(weight)} {t("кг.")}</span></p>
+          <p className="text-[12px] font-medium leading-[15px] text-[#1E4A9A]"><span>{formatNumber(weight)} {t("кг.")}</span></p>
         </div>
         <div style={{ width: `${COL_PCT[7]}%` }} className={cell}>
           <span className="ml-[3px] inline-block">

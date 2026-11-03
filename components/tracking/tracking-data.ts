@@ -43,7 +43,7 @@ export const hasZone = (client: Pick<Client, "zone">) => !NOT_SET.has(zoneKey(cl
 export const isLocated = (client: Pick<Client, "locationLat" | "locationLng">) =>
   typeof client.locationLat === "number" && typeof client.locationLng === "number" && Number.isFinite(client.locationLat) && Number.isFinite(client.locationLng)
 
-const PALETTE = ["#4f71dc", "#27ae60", "#e67e22", "#8e44ad", "#16a085", "#c0392b", "#2c3e50", "#d35400", "#2980b9", "#7f8c8d"]
+const PALETTE = ["#1E4A9A", "#27ae60", "#e67e22", "#8e44ad", "#16a085", "#c0392b", "#2c3e50", "#d35400", "#2980b9", "#7f8c8d"]
 const NO_ZONE_COLOR = "#9e9e9e"
 
 /** One color per zone (by its place in the sorted zone list), grey for clients without a zone. */

@@ -5,7 +5,7 @@ import { getServerT } from "@/lib/i18n/server"
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getServerT()
   return {
-    title: `${t("Новый конструктор отчетов")} — Linko`,
+    title: `${t("Новый конструктор отчетов")} — Mezon`,
     description: t("Настраиваемый отчет с колонками, группировками, фильтрами и экспортом в Excel."),
   }
 }

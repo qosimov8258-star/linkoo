@@ -154,7 +154,7 @@ export function StockPlanMovements({
         filterPanel={<PlanMoveFilterDialog state={state} options={options} onClose={() => setFilterOpen(false)} onApply={applyFilter} />}
         leftSlot={
           filterCount === 0 ? (
-            <button type="button" onClick={openFilter} className="text-[13px] text-[#4f71dc]">
+            <button type="button" onClick={openFilter} className="text-[13px] text-[#1E4A9A]">
               {t("Показать фильтр")} ⌄
             </button>
           ) : (
@@ -197,7 +197,7 @@ export function StockPlanMovements({
           <span>
             {t("Не удалось загрузить данные")}: {t(list.error)}
           </span>
-          <button type="button" onClick={list.reload} className="font-semibold text-[#4f71dc] hover:underline">
+          <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
             {t("Повторить")}
           </button>
         </div>

@@ -2,7 +2,7 @@ import "server-only"
 
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { DOC_DATE_INVALID, docDateError, docYearOk } from "@/lib/document-dates"
-import { todayIso } from "@/lib/finance/dates"
+import { localToUtcText, todayIso } from "@/lib/finance/dates"
 import { placeName } from "@/lib/finance/entities"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { ownAgentSql } from "@/lib/finance/sources"
@@ -568,7 +568,8 @@ async function lockReturns(db: PgDb) {
   await db.exec("SELECT pg_advisory_xact_lock(72120934)")
 }
 
-async function acceptRow(db: PgDb, row: ReturnRow, user: string) {
+/** `at`: the acceptance moment (ISO UTC); default now. */
+async function acceptRow(db: PgDb, row: ReturnRow, user: string, at = new Date().toISOString()) {
   if (row.status !== "pending") throw new ClientReturnError(row.status === "accepted" ? "Возврат уже принят" : "Отмененный возврат нельзя принять", 409, { id: row.id })
   if (!row.warehouse.trim()) throw new ClientReturnError("Укажите склад возврата", 400, { field: "warehouse", id: row.id })
   await resolveWarehouse(db, row.warehouse)
@@ -576,7 +577,15 @@ async function acceptRow(db: PgDb, row: ReturnRow, user: string) {
   if (!items.n) throw new ClientReturnError("В возврате нет товаров", 400, { id: row.id })
   await db
     .prepare("UPDATE client_returns SET status = 'accepted', accepted_at = @at, accepted_by = @user, updated_at = datetime('now') WHERE id = @id")
-    .run({ id: row.id, at: new Date().toISOString(), user })
+    .run({ id: row.id, at, user })
+}
+
+/** A return created already accepted reaches the warehouse on its own return day: today = now,
+ * an earlier day = the end of that local day (after the day's other movements, as transfers do). */
+function acceptMomentOf(returnDate: string): string {
+  if (!returnDate || returnDate >= todayIso()) return new Date().toISOString()
+  const utc = localToUtcText(`${returnDate}T23:59:59`)
+  return utc ? `${utc.replace(" ", "T")}.000Z` : new Date().toISOString()
 }
 
 export async function createClientReturn(input: ClientReturnInput, user: { displayName: string }): Promise<ClientReturn> {
@@ -608,7 +617,7 @@ export async function createClientReturn(input: ClientReturnInput, user: { displ
       })
     const returnId = Number(inserted.lastInsertRowid)
     await writeLines(tx, returnId, prepared.lines)
-    if (input.accept) await acceptRow(tx, (await loadReturn(tx, returnId, true))!, user.displayName)
+    if (input.accept) await acceptRow(tx, (await loadReturn(tx, returnId, true))!, user.displayName, acceptMomentOf(prepared.returnDate))
     // Настройки → Уведомления "added_return_order": the administrators, the subscribers and the client's agent (in
     // this transaction: a rolled-back return notifies nobody; a failed notification never undoes it).
     await notifySafely("added_return_order", () =>

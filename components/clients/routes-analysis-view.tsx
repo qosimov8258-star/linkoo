@@ -225,7 +225,7 @@ export function RoutesAnalysisView() {
 const SECTION_TONE = {
   problem: { bar: "bg-[#ee667d]", count: "text-[#ee667d]" },
   active: { bar: "bg-[#3ac977]", count: "text-[#3ac977]" },
-  notOut: { bar: "bg-[#4f71dc]", count: "text-[#4f71dc]" },
+  notOut: { bar: "bg-[#1E4A9A]", count: "text-[#1E4A9A]" },
 } as const
 
 function BoardSection({ title, count, tone, drawerOpen, children }: { title: string; count: number; tone: keyof typeof SECTION_TONE; drawerOpen: boolean; children: React.ReactNode }) {
@@ -258,7 +258,7 @@ function RouteCard({ name, data, money, problem = false }: { name: string; data?
             <span>{t("мин")}</span>
           </span>
         ) : (
-          <span className={`absolute right-[20px] top-[20px] flex h-[46px] w-[46px] items-center justify-center rounded-full px-[6px] text-center text-[10px] font-bold leading-[11px] text-white ${data ? "bg-[#3ac977]" : "bg-[#4f71dc]"}`}>{data ? t("На маршруте") : t("Не вышел")}</span>
+          <span className={`absolute right-[20px] top-[20px] flex h-[46px] w-[46px] items-center justify-center rounded-full px-[6px] text-center text-[10px] font-bold leading-[11px] text-white ${data ? "bg-[#3ac977]" : "bg-[#1E4A9A]"}`}>{data ? t("На маршруте") : t("Не вышел")}</span>
         )}
         <div className="mt-[25px] grid grid-cols-[122px_122px_122px] justify-between gap-[6px]">
           <Metric
@@ -279,12 +279,12 @@ function RouteCard({ name, data, money, problem = false }: { name: string; data?
             <span className="text-[14px] font-semibold">{t("Не посещал клиента")}</span>
           )}
         </div>
-        <div className={`relative flex items-center gap-[20px] ${data ? "mt-[27px]" : "mt-[47px]"}`}><span className="relative z-10 h-[20px] w-[20px] shrink-0 rounded-full border-[3px] border-[#4f71dc] bg-white" /><span className="text-[14px] font-semibold">{t("Нет следующего клиента")}</span></div>
+        <div className={`relative flex items-center gap-[20px] ${data ? "mt-[27px]" : "mt-[47px]"}`}><span className="relative z-10 h-[20px] w-[20px] shrink-0 rounded-full border-[3px] border-[#1E4A9A] bg-white" /><span className="text-[14px] font-semibold">{t("Нет следующего клиента")}</span></div>
       </div>
     </article>
   )
 }
 
 function Metric({ icon, text }: { icon: React.ReactNode; text: React.ReactNode }) {
-  return <div className="flex h-[40px] items-center justify-start gap-[5px] pl-[15px] rounded-[6px] bg-white text-[13px] font-semibold"><span className="text-[#4f71dc]">{icon}</span>{text}</div>
+  return <div className="flex h-[40px] items-center justify-start gap-[5px] pl-[15px] rounded-[6px] bg-white text-[13px] font-semibold"><span className="text-[#1E4A9A]">{icon}</span>{text}</div>
 }

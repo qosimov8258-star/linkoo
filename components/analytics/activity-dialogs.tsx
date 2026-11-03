@@ -113,7 +113,7 @@ export function Spinner({ className = "" }: { className?: string }) {
   return (
     <span role="status" aria-label={t("Загрузка...")} className={`inline-flex items-center gap-[6px] ${className}`}>
       {[0, 1, 2].map((index) => (
-        <span key={index} className="h-[10px] w-[10px] animate-bounce rounded-full bg-[#4f71dc]" style={{ animationDelay: `${index * 0.15}s` }} />
+        <span key={index} className="h-[10px] w-[10px] animate-bounce rounded-full bg-[#1E4A9A]" style={{ animationDelay: `${index * 0.15}s` }} />
       ))}
     </span>
   )

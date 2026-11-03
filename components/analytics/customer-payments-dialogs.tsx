@@ -53,7 +53,7 @@ function ErrorLine({ error }: { error: string }) {
 function SaveButton({ busy, disabled, label = "Сохранить" }: { busy: boolean; disabled?: boolean; label?: string }) {
   const { t } = useLanguage()
   return (
-    <button type="submit" disabled={busy || disabled} className="h-10 w-full rounded-md bg-[#4f70e7] font-semibold text-white disabled:opacity-50">
+    <button type="submit" disabled={busy || disabled} className="h-10 w-full rounded-md bg-[#1E4A9A] font-semibold text-white disabled:opacity-50">
       {busy ? t("Сохранение...") : t(label)}
     </button>
   )

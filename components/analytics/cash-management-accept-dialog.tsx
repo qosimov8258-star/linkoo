@@ -108,11 +108,11 @@ export function CashAcceptDialog({
         <span className="flex items-center gap-[40px]">
           {t("Принять наличные")}
           <span className="relative flex items-center gap-[40px] text-[13px] font-semibold normal-case">
-            <button type="button" onClick={() => setFilterOpen((current) => !current)} className="inline-flex h-[30px] items-center gap-2 rounded-[2px] bg-[#4f71dc] px-[14px] font-bold text-white hover:brightness-95">
+            <button type="button" onClick={() => setFilterOpen((current) => !current)} className="inline-flex h-[30px] items-center gap-2 rounded-[2px] bg-[#1E4A9A] px-[14px] font-bold text-white hover:brightness-95">
               <Filter className="h-4 w-4" />
               {filterCount ? `${t("Фильтр")}: ${filterCount} ${t("элемента")}` : t("Показать фильтр")}
             </button>
-            <button type="button" onClick={() => setPeriodOpen((current) => !current)} className="font-bold text-[#4f71dc] hover:underline">
+            <button type="button" onClick={() => setPeriodOpen((current) => !current)} className="font-bold text-[#1E4A9A] hover:underline">
               {period.from || period.to ? `${period.from || "…"} — ${period.to || "…"}` : t("Укажите Период Создания")}
             </button>
             {periodOpen && (
@@ -169,7 +169,7 @@ export function CashAcceptDialog({
                       <td className="px-3 py-[12px]">{item.agentCashbox?.name ?? t("Не указано")}</td>
                       <td className="px-3 py-[12px]">{item.branch || "—"}</td>
                       <td className="px-3 py-[12px]">{item.organization || "—"}</td>
-                      <td className="px-3 py-[12px] whitespace-nowrap text-[#4f71dc]">{formatCash(item.amount, item.currency)}</td>
+                      <td className="px-3 py-[12px] whitespace-nowrap text-[#1E4A9A]">{formatCash(item.amount, item.currency)}</td>
                       <td className="px-3 py-[8px] text-right">
                         {canWrite && (
                           <button
@@ -195,7 +195,7 @@ export function CashAcceptDialog({
                               <Download className="h-4 w-4" /> Excel
                             </button>
                             <span className="text-[#586174]">
-                              {t("Сумма")}: <b className="text-[#4f71dc]">{formatCash(item.amount, item.currency)}</b> ({item.count})
+                              {t("Сумма")}: <b className="text-[#1E4A9A]">{formatCash(item.amount, item.currency)}</b> ({item.count})
                             </span>
                             {canWrite && (
                               <button type="button" onClick={() => setTarget({ group: item, payment: null })} className="ml-auto rounded-md bg-[#71ce87] px-4 py-1.5 font-semibold text-white hover:brightness-95">

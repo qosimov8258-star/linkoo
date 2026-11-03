@@ -221,14 +221,25 @@ async function touchLastDate(db: ReturnType<typeof getDb>, month: number, year: 
     .run(month, year, now)
 }
 
+/** «Зачислить» wrote the salary of an approved record to the employee's balance (salary_credits) and to the P&L:
+ * a new salary there would leave the credit behind, so it is refused until «Отменить зачисление». */
+function assertNotCredited(rows: Array<Row | undefined>) {
+  const credited = rows.filter((row): row is Row => row?.is_approved === 1)
+  if (!credited.length) return
+  const names = credited.map((row) => `${row.first_name} ${row.second_name}`.trim()).slice(0, 5).join(", ")
+  throw new SalaryInputError(`Зарплата уже зачислена (${names}${credited.length > 5 ? "…" : ""}): сначала отмените зачисление`)
+}
+
 /** Creates (or updates the salary of) the employees' records for the month. */
 export async function setSalaries(month: number, year: number, currency: string, entries: Array<{ userId: number; salary: number }>): Promise<number> {
   await ensureSchema()
   const db = getDb()
   const cur = await salaryCurrency(db, currency)
+  const rows = await Promise.all(entries.map((entry) => findRow(db, entry.userId, month, year)))
+  assertNotCredited(rows.filter((row, index) => row && (Number(row.salary) !== entries[index].salary || row.currency !== cur)))
   let done = 0
-  for (const entry of entries) {
-    const existing = await findRow(db, entry.userId, month, year)
+  for (const [index, entry] of entries.entries()) {
+    const existing = rows[index]
     if (existing) {
       const t = totals(entry.salary, cur, parseJson<SalaryCurrencyTotal[]>(existing.currencies, []))
       await db
@@ -334,9 +345,11 @@ export async function copyMonth(
   await ensureSchema()
   const db = getDb()
   const source = (await allSalaryRecords(from.month, from.year)).filter((record) => !userIds.length || userIds.includes(record.userId))
+  const targets = await Promise.all(source.map((record) => findRow(db, record.userId, to.month, to.year)))
+  if (options.copySalary) assertNotCredited(targets.filter((row, index) => row && (Number(row.salary) !== source[index].salary || row.currency !== source[index].currency)))
   let done = 0
-  for (const record of source) {
-    const existing = await findRow(db, record.userId, to.month, to.year)
+  for (const [index, record] of source.entries()) {
+    const existing = targets[index]
     if (existing) {
       const current = rowToRecord(existing)
       const salary = options.copySalary ? record.salary : current.salary

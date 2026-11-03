@@ -114,7 +114,7 @@ export function NetCostDetailPanel({
           {data.checkData.map((check) => (
             <li key={check.key} className="flex h-[25px] items-center leading-[25px]">
               {!check.isCorrect && check.key === "is_negative_balance_correct" && data.negativeTransactions.length ? (
-                <button type="button" onClick={() => setFactOpen(true)} className="text-left font-semibold text-[#4f71dc] hover:underline">
+                <button type="button" onClick={() => setFactOpen(true)} className="text-left font-semibold text-[#1E4A9A] hover:underline">
                   {check.name}:
                 </button>
               ) : (

@@ -102,8 +102,8 @@ export function BalanceTable<R extends BalanceRow>({
   const subColumns = split ? currencies : [""]
   const pageKeys = rows.map((row) => row.key)
   const allSelected = Boolean(selection) && pageKeys.length > 0 && pageKeys.every((key) => selection!.selected.has(key))
-  const headClass = headerTone === "blue" ? "bg-[#4f71dc] text-white" : "bg-[#f0f4f9] text-[#374557]"
-  const subHeadClass = headerTone === "blue" ? "bg-[#4f71dc] text-white" : "bg-[#f8fafc] text-[#374557]"
+  const headClass = headerTone === "blue" ? "bg-[#1E4A9A] text-white" : "bg-[#f0f4f9] text-[#374557]"
+  const subHeadClass = headerTone === "blue" ? "bg-[#1E4A9A] text-white" : "bg-[#f8fafc] text-[#374557]"
   const headCell = headerTone === "blue" ? "whitespace-nowrap px-[5px] py-[10px]" : fixedWidth ? "px-[5px] py-[7px]" : "px-[5px] py-[5px]"
   const headWeight = headerTone === "blue" ? "font-bold" : "font-semibold"
   const bodyCell = headerTone === "blue" ? "border border-[#efefef] px-[5px] py-[10px] text-[#333]" : `border border-[#efefef] px-[5px] ${compact ? "py-[6px]" : fixedWidth ? (rowPad === 8 ? "py-[7.5px]" : rowPad === 9 ? "py-[9px]" : "py-[13px]") : "py-[8px]"}`
@@ -144,12 +144,12 @@ export function BalanceTable<R extends BalanceRow>({
 
   const selectHead = (left: number) => (
     <th rowSpan={split ? 2 : 1} className="sticky z-[2] w-10 border border-[#efefef] px-2 py-2" style={{ left, background: "inherit", verticalAlign: fixedWidth && split ? "bottom" : undefined }}>
-      <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f70e7]" aria-label={t("Выбрать все")} />
+      <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#1E4A9A]" aria-label={t("Выбрать все")} />
     </th>
   )
   const selectCell = (row: R, background: string, left: number) => (
     <td className={`sticky border border-[#efefef] px-2 text-center ${fixedWidth ? "py-[6px]" : "py-2"}`} style={{ left, background }}>
-      <input type="checkbox" checked={selection!.selected.has(row.key)} onChange={() => toggleOne(row.key)} className={`h-4 w-4 accent-[#4f70e7] ${fixedWidth ? "mx-auto block" : ""}`} />
+      <input type="checkbox" checked={selection!.selected.has(row.key)} onChange={() => toggleOne(row.key)} className={`h-4 w-4 accent-[#1E4A9A] ${fixedWidth ? "mx-auto block" : ""}`} />
     </td>
   )
 

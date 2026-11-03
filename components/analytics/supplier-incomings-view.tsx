@@ -117,7 +117,7 @@ function TipIconButton({ path, label, onClick }: { path: string; label: string; 
   )
 }
 
-function SupplyAction({ children, icon, onClick, color = "#4f71dc", disabled, width }: { children: ReactNode; icon: string; onClick: () => void; color?: string; disabled?: boolean; width?: number }) {
+function SupplyAction({ children, icon, onClick, color = "#1E4A9A", disabled, width }: { children: ReactNode; icon: string; onClick: () => void; color?: string; disabled?: boolean; width?: number }) {
   return (
     <button type="button" disabled={disabled} onClick={onClick} style={{ backgroundColor: color, width }} className="inline-flex h-[30px] min-w-[88px] items-center justify-center gap-[8px] rounded-[5px] pl-[12px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50">
       <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden>
@@ -832,7 +832,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                 label={`${t("Оплачено")}:`}
                                 value={
                                   row.paid > 0 ? (
-                                    <button type="button" onClick={() => setPaymentsTarget(row.id)} className="border-b border-dashed border-[#4f70e7] font-semibold text-[#4f70e7]">
+                                    <button type="button" onClick={() => setPaymentsTarget(row.id)} className="border-b border-dashed border-[#1E4A9A] font-semibold text-[#1E4A9A]">
                                       {formatMoney(row.paid, row.currency)}
                                     </button>
                                   ) : (
@@ -900,11 +900,11 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                   <div className="relative flex items-center pl-[19px]">
                                     <span>{item.id}</span>
                                     <svg viewBox="0 0 24 24" className="absolute left-[58px] top-1/2 h-5 w-5 -translate-y-1/2 fill-[#333]"><path d="M3 11h8V3H3v8zm2-6h4v4H5V5zm8-2v8h8V3h-8zm6 6h-4V5h4v4zM3 21h8v-8H3v8zm2-6h4v4H5v-4zm13-2h-2v3h-3v2h3v3h2v-3h3v-2h-3v-3z" /></svg>
-                                    <span className="absolute right-[10px] top-1/2 -translate-y-1/2 text-[10px] text-[#4f71dc]">0 / 0</span>
+                                    <span className="absolute right-[10px] top-1/2 -translate-y-1/2 text-[10px] text-[#1E4A9A]">0 / 0</span>
                                   </div>
                                   <div className="flex flex-col justify-center pl-[18px] pr-[8px] leading-[19px]">
                                     <span>{item.product}</span>
-                                    {productInfo[item.product]?.barcode && productInfo[item.product].barcode !== "не установлен" && <span className="text-[#4f71dc]">{productInfo[item.product].barcode}</span>}
+                                    {productInfo[item.product]?.barcode && productInfo[item.product].barcode !== "не установлен" && <span className="text-[#1E4A9A]">{productInfo[item.product].barcode}</span>}
                                   </div>
                                   <div className="flex items-center pl-[18px]">{item.expiry}</div>
                                   <div className="flex items-center px-[18px] py-[8px]">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ? t(productUnits[item.product]) : ""}</div>

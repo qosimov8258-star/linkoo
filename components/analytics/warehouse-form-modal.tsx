@@ -300,7 +300,7 @@ export function WarehouseFormModal({
         <MaterialBody className="relative pb-[24px] pt-[29px]" minHeight={200}>
           {busy && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80">
-              <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
+              <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
             </div>
           )}
           {loadError ? (

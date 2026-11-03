@@ -72,7 +72,7 @@ export function DateRangeBar({
             onClick={() => {
               setPickerOpen((open) => !open)
             }}
-            className={`w-[200px] text-right text-[13px] font-bold capitalize text-[#4f71dc] ${label === "Укажите Дату" ? "underline" : ""}`}
+            className={`w-[200px] text-right text-[13px] font-bold capitalize text-[#1E4A9A] ${label === "Укажите Дату" ? "underline" : ""}`}
           >
             {t(label)}
           </button>
@@ -97,7 +97,7 @@ export function DateRangeBar({
               onClick={() => onPeriodChange(btn)}
               className={`h-8 min-w-[70px] rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${
                 btn === period
-                  ? "bg-[#4f71dc] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+                  ? "bg-[#1E4A9A] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
                   : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"
               }`}
             >
@@ -110,7 +110,7 @@ export function DateRangeBar({
           type="button"
           onClick={() => setWidgetsOpen(true)}
           aria-expanded={widgetsOpen}
-          className="flex h-9 items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
+          className="flex h-9 items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
         >
           <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white" aria-hidden>
             <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />

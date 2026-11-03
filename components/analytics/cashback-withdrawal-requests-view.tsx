@@ -208,7 +208,7 @@ export function CashbackWithdrawalRequestsView() {
           onToggleFilter={() => setFilterOpen((open) => !open)}
           leftSlot={
             filterCount === 0 ? (
-              <button type="button" onClick={() => setFilterOpen((open) => !open)} className="text-[13px] text-[#4f71dc]">
+              <button type="button" onClick={() => setFilterOpen((open) => !open)} className="text-[13px] text-[#1E4A9A]">
                 {filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")} ⌄
               </button>
             ) : (
@@ -245,7 +245,7 @@ export function CashbackWithdrawalRequestsView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(error)}
             </span>
-            <button type="button" onClick={reload} className="font-semibold text-[#4f71dc] hover:underline">
+            <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

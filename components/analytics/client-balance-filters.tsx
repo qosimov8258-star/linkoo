@@ -310,15 +310,15 @@ export function ClientBalanceFilterButton({ state, onOpen }: { state: ClientBala
   const scopeText = scope.length ? scope.join(" ") : realization ? `${t("Реализовано")}${f.deliveryMan ? ` ${t("(По доставщику)")}` : ""}` : t("Во всей организации")
   return (
     <div className="flex flex-wrap items-center gap-[10px]">
-      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg><span className="pl-2">{t("Фильтр")} / {countClientFilters(state)}</span>
       </button>
       {!realization && (
-        <span className="text-[13px] font-semibold text-[#4f71dc]">
+        <span className="text-[13px] font-semibold text-[#1E4A9A]">
           {formatDotDate(f.from)} - {formatDotDate(f.to)}
         </span>
       )}
-      <span className="text-[13px] font-semibold" style={{ color: realization ? "rgb(113, 206, 135)" : "#4f71dc" }}>
+      <span className="text-[13px] font-semibold" style={{ color: realization ? "rgb(113, 206, 135)" : "#1E4A9A" }}>
         {scopeText}
       </span>
     </div>
@@ -388,7 +388,7 @@ export function MultiSelect({ value, options, onChange, disabled = false, label 
           <div className="max-h-56 overflow-y-auto py-1">
             {shown.map((option) => (
               <label key={option.value} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[#17233b] hover:bg-[#f2f5f8]">
-                <input type="checkbox" checked={value.includes(option.value)} onChange={() => toggle(option.value)} className="h-4 w-4 accent-[#4f70e7]" />
+                <input type="checkbox" checked={value.includes(option.value)} onChange={() => toggle(option.value)} className="h-4 w-4 accent-[#1E4A9A]" />
                 <span className="truncate">{option.label}</span>
               </label>
             ))}
@@ -540,7 +540,7 @@ export function ClientBalanceFilterFields({
           ] as Array<[FlagField, string]>
         ).map(([field, label]) => (
           <label key={field} className="flex items-center gap-2">
-            <input type="checkbox" checked={draft[field]} onChange={(event) => set(field, event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
+            <input type="checkbox" checked={draft[field]} onChange={(event) => set(field, event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
             {t(label)}
           </label>
         ))}

@@ -323,8 +323,8 @@ export function PhotoReportsView() {
       <section className="overflow-hidden bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <RefTabs labels={TABS.map(([label]) => label)} value={tab} onChange={(value) => changeFilter(() => setTab(value as typeof tab))} />
         <div className="flex h-[50px] items-center gap-5 px-[10px]">
-          <button onClick={() => { setDraft(period); setDraftEmployee(employeeId ? String(employeeId) : ""); setDraftClient(clientId ? String(clientId) : ""); setFilterOpen(true) }} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Filter className="h-4 w-4" />{t("Фильтр")} / {activeFilters}</button>
-          <span className="text-[12px] font-bold text-[#4f71dc]">{dotted(period.begin)} - {dotted(period.end)}</span>
+          <button onClick={() => { setDraft(period); setDraftEmployee(employeeId ? String(employeeId) : ""); setDraftClient(clientId ? String(clientId) : ""); setFilterOpen(true) }} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Filter className="h-4 w-4" />{t("Фильтр")} / {activeFilters}</button>
+          <span className="text-[12px] font-bold text-[#1E4A9A]">{dotted(period.begin)} - {dotted(period.end)}</span>
           <div className="relative mx-auto w-[260px]"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-[#d0d0d0] py-1 text-[13px] font-semibold outline-none placeholder:text-black" /><Search className="absolute right-1 top-1 hidden h-4 w-4 text-slate-400" /></div>
           <span className="text-[13px]">{t("Фотоотчеты")}: <b className="text-[16px] font-medium">{count} {t("шт")}</b></span>
         </div>
@@ -341,7 +341,7 @@ export function PhotoReportsView() {
       {!loading && rows.length === 0 && <div className="py-16 text-center text-[13px] text-[#666]">{t("Ничего не найдено")}</div>}
       {loading && <div className="py-6 text-center text-[13px] text-[#666]">{t("Загрузка...")}</div>}
       {!loading && nextCursor && (
-        <button type="button" onClick={() => setMore({ query: current, cursor: nextCursor })} className="mx-auto mb-6 block h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={() => setMore({ query: current, cursor: nextCursor })} className="mx-auto mb-6 block h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">
           {t("Загрузить еще...")}
         </button>
       )}

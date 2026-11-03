@@ -222,7 +222,7 @@ function LinkColumn({
   const pathname = usePathname()
   return (
     <div className="min-w-0 shrink-0">
-      <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#5869f0]">{t(title)}</h3>
+      <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#1E4A9A]">{t(title)}</h3>
       <ul className="flex flex-col">
         {items.map((item) => (
           <li key={`${item.href}-${item.label}`} className={`rounded-[12px] border-b border-[#f1f1f1] py-[10px] pl-[5px] pr-[5px] transition-colors hover:bg-white ${item.href === pathname ? "bg-white" : ""}`}>
@@ -254,7 +254,7 @@ export function AnalyticsMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
     >
       <div className="mt-[7px] grid grid-cols-[320px_minmax(0,1fr)] overflow-hidden rounded-[10px] bg-[#f9fafb] font-sans text-[#333] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.24)]">
         <div className="bg-white px-5 pb-5 pt-5">
-          <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#5869f0]">Resources</h3>
+          <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#1E4A9A]">Resources</h3>
           <ul className="flex flex-col">
             {analyticsResources
               .filter((resource) => resource.slug !== "production")

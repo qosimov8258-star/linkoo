@@ -4,7 +4,7 @@ import { Suspense } from "react"
 import { QuickReportView } from "@/components/analytics/quick-report-view"
 
 export const metadata: Metadata = {
-  title: "Конструктор отчетов — Linko",
+  title: "Конструктор отчетов — Mezon",
   description: "Быстрый отчет по выбранной модели с тремя параметрами и видами диаграмм.",
 }
 

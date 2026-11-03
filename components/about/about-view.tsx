@@ -48,7 +48,7 @@ export function AboutView() {
               <li className="font-bold">{category.title}</li>
               {category.lessons.map((item) => (
                 <li key={item.id} className="pl-[20px] pt-[10px] last:pb-[10px]">
-                  <button type="button" onClick={() => { setLessonId(item.id); window.scrollTo({ top: 0 }) }} className="block py-px text-left leading-[15.2px] hover:text-[#4f71dc]">
+                  <button type="button" onClick={() => { setLessonId(item.id); window.scrollTo({ top: 0 }) }} className="block py-px text-left leading-[15.2px] hover:text-[#1E4A9A]">
                     {item.title}
                   </button>
                 </li>

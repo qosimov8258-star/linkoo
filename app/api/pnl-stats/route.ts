@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { dbErrorResponse } from "@/lib/db-errors"
 import { parseDocDay } from "@/lib/document-dates"
 import { getPnlOptions, getPnlStats } from "@/lib/pnl-stats-repo"
@@ -21,8 +21,8 @@ function list(params: URLSearchParams, key: string): string[] | null {
 // (two periods compared); ?options=1 → the filter lists. Every bound is a business day (lib/document-dates.ts:
 // a real date, year 2000–2100; a period may reach into the future), begin ≤ end; wrong input → 400 JSON.
 export async function GET(request: NextRequest) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
 
   const params = request.nextUrl.searchParams
   try {

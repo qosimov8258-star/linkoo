@@ -243,7 +243,7 @@ export function DebtImportDialog({
               <span className="text-[12px] text-[#9aa3b6]">{t("Без организации долг устанавливается по всем организациям")}</span>
             </Field>
             <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-              <input type="checkbox" checked={form.byPaymentType} onChange={(event) => reset({ byPaymentType: event.target.checked })} className="h-4 w-4 accent-[#4f70e7]" />
+              <input type="checkbox" checked={form.byPaymentType} onChange={(event) => reset({ byPaymentType: event.target.checked })} className="h-4 w-4 accent-[#1E4A9A]" />
               {t("Разделить по типу оплаты")}
             </label>
             <p className="text-[12px] text-[#586174]">{t("Сумма как на странице: долг клиента — отрицательное число")}</p>
@@ -257,7 +257,7 @@ export function DebtImportDialog({
                 <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => void readFile(event.target.files?.[0])} />
               </label>
               {file && !preview && !busy && (
-                <button type="button" onClick={() => void send(file.lines, file.name, false)} className="h-9 rounded-md border border-[#4f70e7] font-semibold text-[#4f70e7]">
+                <button type="button" onClick={() => void send(file.lines, file.name, false)} className="h-9 rounded-md border border-[#1E4A9A] font-semibold text-[#1E4A9A]">
                   {t("Проверить")}
                 </button>
               )}
@@ -274,7 +274,7 @@ export function DebtImportDialog({
               </p>
               <div className="max-h-[460px] overflow-auto border border-[#efefef]">
                 <table className="w-full border-collapse text-[13px]">
-                  <thead className="sticky top-0 bg-[#4f71dc] text-white">
+                  <thead className="sticky top-0 bg-[#1E4A9A] text-white">
                     <tr>
                       <th className="px-3 py-2 text-left">№</th>
                       <th className="px-3 py-2 text-left">{t("Клиент")}</th>
@@ -335,7 +335,7 @@ export function DebtImportDialog({
             type="button"
             disabled={!canSave}
             onClick={() => file && void send(file.lines, file.name, true)}
-            className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white disabled:opacity-50"
+            className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white disabled:opacity-50"
           >
             {busy === "commit" ? t("Загрузка...") : t("Сохранить")}
           </button>

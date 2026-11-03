@@ -141,7 +141,7 @@ export function ClientMultiSelect({
             {!items.length && <p className="px-3 py-2 text-[13px] text-[#9aa3b6]">{loading ? t("Загрузка...") : t("Ничего не найдено")}</p>}
             {items.map((client) => (
               <button key={client.id} type="button" onClick={() => toggle(client)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8]">
-                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selected.has(client.id) ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#c4cbd6]"}`}>
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selected.has(client.id) ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#c4cbd6]"}`}>
                   {selected.has(client.id) && <Check className="h-3 w-3" />}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{client.name}</span>

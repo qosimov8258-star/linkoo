@@ -33,7 +33,7 @@ function Comment({ text }: { text: string }) {
   const { t } = useLanguage()
   if (!text) return null
   return (
-    <span title={text} className="block text-[12px] text-[#4f71dc]">
+    <span title={text} className="block text-[12px] text-[#1E4A9A]">
       ({t("ком.")})
     </span>
   )
@@ -42,7 +42,7 @@ function Comment({ text }: { text: string }) {
 export function TotalsBar({ totals, loading }: { totals: InventoryTotals | null; loading: boolean }) {
   const { t } = useLanguage()
   return (
-    <div className="relative bg-[#5869f0] px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white">
+    <div className="relative bg-[#1E4A9A] px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white">
       {loading && !totals ? (
         <div className="flex h-4 items-center justify-center">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -98,7 +98,7 @@ export function ItemsTable({
           aria-label={t("Выбрать все")}
           checked={allChecked}
           onChange={() => onSelect(allChecked ? selected.filter((id) => !rows.some((row) => row.id === id)) : [...new Set([...selected, ...rows.map((row) => row.id)])])}
-          className="h-4 w-4 accent-[#4f70e7]"
+          className="h-4 w-4 accent-[#1E4A9A]"
         />
       )}
       <SortHeader ordering={ordering} sortKey="id" onSort={onSort}>
@@ -133,7 +133,7 @@ export function ItemsTable({
                 disabled={row.deleted}
                 checked={selected.includes(row.id)}
                 onChange={() => onSelect(selected.includes(row.id) ? selected.filter((id) => id !== row.id) : [...selected, row.id])}
-                className="h-4 w-4 accent-[#4f70e7]"
+                className="h-4 w-4 accent-[#1E4A9A]"
               />
             </span>
           )}
@@ -147,7 +147,7 @@ export function ItemsTable({
         <span key="product">
           {row.product.name}
           {row.stockNumber && (
-            <span title={t("Инвентарный №")} className="block text-[13px] text-[#4f71dc]">
+            <span title={t("Инвентарный №")} className="block text-[13px] text-[#1E4A9A]">
               {row.stockNumber}
             </span>
           )}

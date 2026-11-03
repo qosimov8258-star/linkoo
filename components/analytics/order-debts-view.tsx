@@ -352,7 +352,7 @@ export function OrderDebtsView() {
           {t("Долги этих клиентов исключены из итогов")}
         </h3>
         {canEdit && (
-          <button type="button" disabled={recalcBusy} onClick={() => void recalcAll()} className="h-[30px] w-[116.8px] rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white disabled:opacity-60">
+          <button type="button" disabled={recalcBusy} onClick={() => void recalcAll()} className="h-[30px] w-[116.8px] rounded-[5px] bg-[#1E4A9A] text-[13px] font-semibold text-white disabled:opacity-60">
             {recalcBusy ? t("Загрузка...") : t("Пересчитать")}
           </button>
         )}
@@ -533,7 +533,7 @@ export function OrderDebtsView() {
                 <button
                   type="button"
                   onClick={() => (row.client.id !== null ? openClientPanel(row.client.id) : openDetail(row.client.key))}
-                  className="break-words text-left text-[#4f71dc]"
+                  className="break-words text-left text-[#1E4A9A]"
                 >
                   {row.client.name || t("Не указано")}
                 </button>
@@ -544,7 +544,7 @@ export function OrderDebtsView() {
               </td>
               <td className={`${cell} font-semibold text-[#e27676]`}>-{formatMoney(row.remaining, 2)}</td>
               <td className={cell}>
-                <button type="button" onClick={() => update({ orderId: row.orderId })} className="text-left text-[#4f71dc]">
+                <button type="button" onClick={() => update({ orderId: row.orderId })} className="text-left text-[#1E4A9A]">
                   {dateCell(row.paymentDate)}
                 </button>
               </td>
@@ -578,8 +578,8 @@ export function OrderDebtsView() {
 
   const detailName = clientRows.find((row) => row.key === state.detailId)?.name ?? orderRows.find((row) => row.client.key === state.detailId)?.client.name ?? ""
   const toggleButton = (active: boolean) =>
-    `h-8 min-w-[70px] whitespace-nowrap rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${active ? "bg-[#4f71dc] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"}`
-  const headerButton = "flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] text-[13px] font-semibold text-white"
+    `h-8 min-w-[70px] whitespace-nowrap rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${active ? "bg-[#1E4A9A] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"}`
+  const headerButton = "flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12px] text-[13px] font-semibold text-white"
   const filterCount = countFilters(state.filters)
   const scope = [...state.filters.division, ...state.filters.branch]
   const lastPage = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
@@ -594,14 +594,14 @@ export function OrderDebtsView() {
 
       <section className="flex h-[34px] items-center justify-between px-[30px] mt-[20px]">
         <div className="flex items-center">
-          <button type="button" onClick={() => setFilterOpen(true)} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] text-[13px] font-semibold text-white">
+          <button type="button" onClick={() => setFilterOpen(true)} className="flex h-[34px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12px] text-[13px] font-semibold text-white">
             <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg>
             <span className="px-[12px]">
               {t("Фильтр")}
               {filterCount > 0 && ` / ${filterCount}`}
             </span>
           </button>
-          <span className="ml-[14px] text-[13px] font-semibold text-[#4f71dc]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
+          <span className="ml-[14px] text-[13px] font-semibold text-[#1E4A9A]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
         </div>
         <div className="flex items-center gap-[8px]">
           {isOrders && (
@@ -664,7 +664,7 @@ export function OrderDebtsView() {
           )}
           {/* POST /api/order-debts/group-payment needs cash.manage: hide the button without it. */}
           {hasSelection && canGroupPay && (
-            <button type="button" onClick={() => setGroupOpen(true)} className="ml-[120px] flex h-[30px] w-[172px] items-center justify-center gap-[7px] rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">
+            <button type="button" onClick={() => setGroupOpen(true)} className="ml-[120px] flex h-[30px] w-[172px] items-center justify-center gap-[7px] rounded-[5px] bg-[#1E4A9A] text-[13px] font-semibold text-white">
               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" /></svg>
               {t("Групповая оплата")}
             </button>
@@ -693,7 +693,7 @@ export function OrderDebtsView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f71dc] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

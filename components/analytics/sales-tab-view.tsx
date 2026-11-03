@@ -56,7 +56,7 @@ const CARD = "bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0
 const FLAT = "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"
 const RAISED = "shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
 const BTN = "h-8 min-w-[70px] whitespace-nowrap rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase"
-const BAR = "#5869f0"
+const BAR = "#1E4A9A"
 const CELL = "border-r border-[#e8e8e8] px-[17.5px]"
 
 const metricValue = (row: SalesRow, metric: Metric) => row[metric]
@@ -290,7 +290,7 @@ export function SalesTabView() {
         onPeriod={(value) => go({ period: value as PeriodKey })}
         rangeSlot={
           <div className="relative ml-auto mr-[15px]">
-            <button type="button" onClick={() => setPickerOpen((open) => !open)} className="text-[13px] font-bold capitalize text-[#4f71dc]">
+            <button type="button" onClick={() => setPickerOpen((open) => !open)} className="text-[13px] font-bold capitalize text-[#1E4A9A]">
               {rangeLabel}
             </button>
             {pickerOpen && (

@@ -12,7 +12,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 export const BRANCH_KPI_API = "/api/branch-kpi-plans"
 
 /** Demo flatButtonStyle2 colours. */
-export const KPI_COLORS = { blue: "#4f71dc", green: "#71ce87", disabled: "#cfcfcf" } as const
+export const KPI_COLORS = { blue: "#1E4A9A", green: "#71ce87", disabled: "#cfcfcf" } as const
 
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init })
@@ -73,7 +73,7 @@ export function KpiMonthYearFilter({
   const now = new Date()
   return (
     <div className={`flex ${dialog ? "h-[54px]" : "h-[50px]"} items-start ${className}`} style={{ gap }}>
-      <label className={`relative block ${dialog ? "h-[52px] border-[#e8e8e8]" : "h-[50px] border-[#e0e0e0]"} border-b focus-within:border-[#4f71dc]`} style={{ width: monthWidth }}>
+      <label className={`relative block ${dialog ? "h-[52px] border-[#e8e8e8]" : "h-[50px] border-[#e0e0e0]"} border-b focus-within:border-[#1E4A9A]`} style={{ width: monthWidth }}>
         <span className={dialog ? "absolute left-0 top-[2.5px] origin-top-left scale-75 text-[13px] font-semibold leading-[16.3px] text-black" : "absolute left-0 top-[2.8px] origin-top-left scale-75 text-[13px] font-semibold leading-[16.3px] text-black"}>{t("Месяц")}</span>
         <span className="absolute left-0 top-[28.5px] text-[13px] font-semibold leading-[18px] text-[#333]">{t(BRANCH_KPI_MONTHS[month - 1] ?? "")}</span>
         <select value={month} onChange={(event) => onChange({ month: Number(event.target.value), year })} aria-label={t("Месяц")} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
@@ -108,7 +108,7 @@ export function KpiMonthYearFilter({
 function KpiYearField({ year, label, onApply, width = 120, dialog = false }: { year: number; label: string; onApply: (year: number) => void; width?: number; dialog?: boolean }) {
   const [draft, setDraft] = useState(String(year))
   return (
-    <label className={`relative block ${dialog ? "h-[54px]" : "h-[50px]"} border-b border-[#e0e0e0] focus-within:border-[#4f71dc]`} style={{ width }}>
+    <label className={`relative block ${dialog ? "h-[54px]" : "h-[50px]"} border-b border-[#e0e0e0] focus-within:border-[#1E4A9A]`} style={{ width }}>
       <span className={dialog ? "absolute left-0 top-[9px] origin-top-left scale-75 text-[13px] font-semibold leading-[16.3px] text-black" : "absolute left-0 top-[9.5px] origin-top-left scale-75 text-[13px] font-semibold leading-[16.3px] text-black"}>{label}</span>
       <input
         value={draft}

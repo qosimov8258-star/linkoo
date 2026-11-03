@@ -108,7 +108,7 @@ export function VansellDetailDialog({
     >
       {!data && statement.loading ? (
         <div className="flex h-[300px] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
         </div>
       ) : !data ? (
         <div className="px-7 py-16 text-center text-[#e57373]">{statement.error ? t(statement.error) : t("Не удалось загрузить данные")}</div>

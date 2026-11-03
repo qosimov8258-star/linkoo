@@ -169,7 +169,7 @@ export function StatementComment({ row }: { row: StatementRow }) {
   const { t } = useLanguage()
   const text = describeStatementRow(row, t)
   return row.href ? (
-    <Link href={row.href} className="text-[#4f70e7] hover:underline">
+    <Link href={row.href} className="text-[#1E4A9A] hover:underline">
       {text}
     </Link>
   ) : (

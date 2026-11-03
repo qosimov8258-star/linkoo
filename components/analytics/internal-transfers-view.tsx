@@ -267,7 +267,7 @@ export function InternalTransfersView() {
                 aria-label={t("Выбрать из списка")}
                 className="flex h-12 w-12 items-center justify-center"
               >
-                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${selectMode ? "fill-[#4f71dc]" : "fill-[#5d6474]"}`}><path d={RI.checklist} /></svg>
+                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${selectMode ? "fill-[#1E4A9A]" : "fill-[#5d6474]"}`}><path d={RI.checklist} /></svg>
               </button>
               <div ref={menuRef} className="relative">
                 <button type="button" onClick={() => setMenuOpen((open) => !open)} title={t("Скачать")} aria-label={t("Скачать")} className="flex h-12 w-12 items-center justify-center">
@@ -297,7 +297,7 @@ export function InternalTransfersView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>
@@ -354,7 +354,7 @@ export function InternalTransfersView() {
                         <td className={`${td} whitespace-nowrap`}>{docDate(row.deliveredAt, language)}</td>
                         <td className={`${td} whitespace-nowrap`}>
                           {formatSum(row.amount)}
-                          <span className="block text-[#4f71dc]">{formatWeight(row.weight, t("кг"))}</span>
+                          <span className="block text-[#1E4A9A]">{formatWeight(row.weight, t("кг"))}</span>
                         </td>
                         <td className={`${td} pr-[38px]`}>
                           <TransferStatusLabel status={row.status} wrap />

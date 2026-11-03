@@ -123,7 +123,7 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
       {!embedded && (
         <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
             <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Тип отказа")}
           </h1>
         </header>

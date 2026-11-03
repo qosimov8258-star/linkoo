@@ -273,7 +273,7 @@ export function VansellBalanceView() {
     <main className="ref-white min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс вансел")}</span>
         </div>
@@ -284,7 +284,7 @@ export function VansellBalanceView() {
           <BalanceSummaryCards compact marginClass="mx-[10px]" boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center pb-6">
-            {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
+            {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#1E4A9A]" />}
           </div>
         )}
       </div>
@@ -310,7 +310,7 @@ export function VansellBalanceView() {
           </label>
           <div className="ml-auto flex flex-wrap items-center gap-5">
             {canEdit && (
-              <button type="button" onClick={() => setLimitOpen(true)} className="flex h-[30px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white">
+              <button type="button" onClick={() => setLimitOpen(true)} className="flex h-[30px] items-center gap-2 rounded-[3px] bg-[#1E4A9A] pl-2 pr-4 text-[13px] font-semibold text-white">
                 <Pencil className="h-4 w-4" /> {t("Изменить лимит")}
                 {selected.size > 0 && <span className="rounded-full bg-white/25 px-2 text-[12px]">{selected.size}</span>}
               </button>

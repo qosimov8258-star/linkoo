@@ -232,11 +232,11 @@ function SelectField({ label, values, options, loading, onChange }: { label: str
                 event.stopPropagation()
                 onChange(values.filter((item) => item !== value))
               }}
-              className="border-r border-white/30 bg-[#5c6df3] px-[5px] text-[12px]"
+              className="border-r border-white/30 bg-[#1E4A9A] px-[5px] text-[12px]"
             >
               ×
             </button>
-            <span className="bg-[#5c6df3] px-[5px]">{value}</span>
+            <span className="bg-[#1E4A9A] px-[5px]">{value}</span>
           </span>
         ))}
         <input
@@ -424,7 +424,7 @@ export function PnLView() {
       <section className="mx-[30px] mt-[22px] flex items-center">
         <div className="flex">
           {metricTabs.map((tab, index) => (
-            <button key={tab.label} type="button" onClick={() => setMetric(index)} className={`${tabButton} ${metric === index ? `bg-[#4f71dc] ${on}` : off}`}>
+            <button key={tab.label} type="button" onClick={() => setMetric(index)} className={`${tabButton} ${metric === index ? `bg-[#1E4A9A] ${on}` : off}`}>
               {t(tab.label)}
             </button>
           ))}

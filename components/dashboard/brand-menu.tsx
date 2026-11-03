@@ -12,7 +12,7 @@ export type CustomServer = {
 }
 
 const workspaces: { id: WorkspaceId; label: string; icon: typeof Truck; iconClass: string }[] = [
-  { id: "distribution", label: "Управление дистрибуцией", icon: Truck, iconClass: "text-[#4f71dc]" },
+  { id: "distribution", label: "Управление дистрибуцией", icon: Truck, iconClass: "text-[#1E4A9A]" },
   { id: "store", label: "Управление магазином", icon: ShoppingBasket, iconClass: "text-[#e0952e]" },
   { id: "edo", label: "ЭДО & ЭДИ", icon: FileText, iconClass: "text-[#586174]" },
 ]
@@ -40,14 +40,14 @@ export function BrandMenu({ selected, customServers, onSelect, onSelectServer, o
                 onClick={() => onSelect(workspace.id)}
                 className={`flex w-full items-center gap-3 rounded-[8px] border px-3 py-[13px] text-left text-[13px] font-normal transition-colors ${
                   isSelected
-                    ? "border-[#4f71dc] bg-[#eef2ff] text-[#333]"
+                    ? "border-[#1E4A9A] bg-[#eef2ff] text-[#333]"
                     : "border-transparent text-[#333] hover:bg-slate-50"
                 }`}
               >
                 <Icon className={`h-6 w-6 shrink-0 ${workspace.iconClass}`} />
                 <span className="flex-1 whitespace-nowrap">{t(workspace.label)}</span>
                 {isSelected ? (
-                  <Check className="h-5 w-5 shrink-0 text-[#4f71dc]" />
+                  <Check className="h-5 w-5 shrink-0 text-[#1E4A9A]" />
                 ) : (
                   <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
                 )}
@@ -65,14 +65,14 @@ export function BrandMenu({ selected, customServers, onSelect, onSelectServer, o
                 onClick={() => onSelectServer(server.id)}
                 className={`flex w-full items-center gap-3 rounded-[8px] border px-3 py-[13px] text-left text-[13px] font-normal transition-colors ${
                   isSelected
-                    ? "border-[#4f71dc] bg-[#eef2ff] text-[#333]"
+                    ? "border-[#1E4A9A] bg-[#eef2ff] text-[#333]"
                     : "border-transparent text-[#333] hover:bg-slate-50"
                 }`}
               >
                 <Truck className="h-5 w-5 shrink-0 text-[#3aa76d]" />
                 <span className="flex-1 truncate">{server.name}</span>
                 {isSelected ? (
-                  <Check className="h-5 w-5 shrink-0 text-[#4f71dc]" />
+                  <Check className="h-5 w-5 shrink-0 text-[#1E4A9A]" />
                 ) : (
                   <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
                 )}
@@ -86,11 +86,11 @@ export function BrandMenu({ selected, customServers, onSelect, onSelectServer, o
         <button
           type="button"
           onClick={onCreateServer}
-          className="flex w-full items-center gap-3 rounded-[8px] border border-[#4f71dc] bg-[#eef2ff] px-3 py-[13px] text-left text-[13px] font-normal text-[#333] transition-colors hover:bg-[#e3eaff]"
+          className="flex w-full items-center gap-3 rounded-[8px] border border-[#1E4A9A] bg-[#eef2ff] px-3 py-[13px] text-left text-[13px] font-normal text-[#333] transition-colors hover:bg-[#e3eaff]"
         >
-          <Plus className="h-5 w-5 shrink-0 text-[#4f71dc]" />
+          <Plus className="h-5 w-5 shrink-0 text-[#1E4A9A]" />
           <span className="flex-1">{t("Создать сервер")}</span>
-          <ChevronRight className="h-5 w-5 shrink-0 text-[#4f71dc]" />
+          <ChevronRight className="h-5 w-5 shrink-0 text-[#1E4A9A]" />
         </button>
       </div>
     </div>

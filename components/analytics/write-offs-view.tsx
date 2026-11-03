@@ -205,7 +205,7 @@ export function WriteOffsView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

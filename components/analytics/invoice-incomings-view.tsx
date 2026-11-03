@@ -271,7 +271,7 @@ export function InvoiceIncomingsView() {
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-4 px-[28px]">
         <div className="flex min-w-0 items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <h1 className="truncate text-[18px] font-bold text-[#5d6474]">{t("Входящие счет фактуры")}</h1>
         </div>
@@ -304,7 +304,7 @@ export function InvoiceIncomingsView() {
                     }}
                     className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] hover:bg-[#f2f5f8]"
                   >
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#4f70e7] text-white">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1E4A9A] text-white">
                       <Download className="h-4 w-4" />
                     </span>
                     {t("Скачать шаблон")}
@@ -335,7 +335,7 @@ export function InvoiceIncomingsView() {
               className={`flex h-[52px] items-center justify-center gap-2 border-b-[3px] px-2 text-[15px] ${state.tab === tab ? "border-[rgb(79,113,220)] font-semibold text-[#17233b]" : "border-transparent text-[#586174] hover:text-[#17233b]"}`}
             >
               {t(INVOICE_TAB_LABELS[tab])}
-              {data && <span className={`rounded-full px-2 text-[12px] ${state.tab === tab ? "bg-[#4f70e7] text-white" : "bg-[#eef1f5] text-[#586174]"}`}>{data.tabCounts[tab]}</span>}
+              {data && <span className={`rounded-full px-2 text-[12px] ${state.tab === tab ? "bg-[#1E4A9A] text-white" : "bg-[#eef1f5] text-[#586174]"}`}>{data.tabCounts[tab]}</span>}
             </button>
           ))}
         </div>
@@ -366,7 +366,7 @@ export function InvoiceIncomingsView() {
           <div className="flex flex-wrap gap-3 border-b border-[#e1e5eb] bg-[#f7f9fc] px-4 py-3 md:px-6">
             {data.totals.map((total) => (
               <div key={total.currency} className="flex min-w-[260px] flex-1 flex-wrap items-baseline gap-x-5 gap-y-1 rounded-md bg-white px-4 py-2 text-[13px] shadow-sm sm:flex-none">
-                <span className="font-bold text-[#4f70e7]">
+                <span className="font-bold text-[#1E4A9A]">
                   {total.currency} · {total.count} {t("док.")}
                 </span>
                 <span className="text-[#586174]">
@@ -388,7 +388,7 @@ export function InvoiceIncomingsView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>
@@ -450,7 +450,7 @@ export function InvoiceIncomingsView() {
                   </td>
                   <td className={`${td} whitespace-nowrap`} onClick={(event) => event.stopPropagation()}>
                     {row.incoming ? (
-                      <Link href="/analytics/supplier-incomings" className="font-semibold text-[#4f70e7] hover:underline">
+                      <Link href="/analytics/supplier-incomings" className="font-semibold text-[#1E4A9A] hover:underline">
                         {t("Приход №")} {row.incoming.id}
                       </Link>
                     ) : canEdit && row.status === "accepted" ? (

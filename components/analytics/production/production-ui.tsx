@@ -160,7 +160,7 @@ export function Field({ label, required, children, className = "" }: { label: st
   )
 }
 
-export const inputClass = "w-full border-b border-[#e8e8e8] bg-transparent py-[6px] text-[13px] outline-none focus:border-[#4f71dc]"
+export const inputClass = "w-full border-b border-[#e8e8e8] bg-transparent py-[6px] text-[13px] outline-none focus:border-[#1E4A9A]"
 
 /** Searchable dropdown over catalog / stock items; stock items show the
  * demo's "Доступно / Брак" lines under the name. */

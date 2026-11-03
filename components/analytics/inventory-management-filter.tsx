@@ -195,7 +195,7 @@ function FilterPopup({
               </FormField>
             )}
             <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-              <input type="checkbox" checked={draft.showDeleted} onChange={(event) => set({ showDeleted: event.target.checked })} className="h-4 w-4 accent-[#4f70e7]" />
+              <input type="checkbox" checked={draft.showDeleted} onChange={(event) => set({ showDeleted: event.target.checked })} className="h-4 w-4 accent-[#1E4A9A]" />
               {t("Показать удаленные")}
             </label>
           </div>

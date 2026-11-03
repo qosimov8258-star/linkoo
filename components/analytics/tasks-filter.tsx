@@ -110,7 +110,7 @@ export function TaskMultiSelect({ label, options, value, onChange }: { label: st
                       <path d={checked ? "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" : "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"} />
                     </svg>
                     <span className="min-w-0 flex-1">
-                      <span className={`block truncate ${checked ? "font-semibold text-[#4f71dc]" : "font-semibold"}`}>{option.name}</span>
+                      <span className={`block truncate ${checked ? "font-semibold text-[#1E4A9A]" : "font-semibold"}`}>{option.name}</span>
                       {option.hint && <span className="block truncate text-[11px] text-[#999]">{option.hint}</span>}
                     </span>
                   </button>
@@ -176,9 +176,9 @@ export function TaskFilterControl({
   return (
     <div className="relative">
       {count === 0 ? (
-        <button type="button" onClick={openPanel} className="flex items-center pl-[5px] text-[13px] text-[#4f71dc]">
+        <button type="button" onClick={openPanel} className="flex items-center pl-[5px] text-[13px] text-[#1E4A9A]">
           {t("Показать фильтр")}
-          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#4f71dc]" aria-hidden><path d="M7 10l5 5 5-5z" /></svg>
+          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#1E4A9A]" aria-hidden><path d="M7 10l5 5 5-5z" /></svg>
         </button>
       ) : (
         <div className="flex h-[40px] items-center bg-[#f2f5f8] pl-[12px] text-[13px] text-[#5d6474]">

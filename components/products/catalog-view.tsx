@@ -333,7 +333,7 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f71dc] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>
@@ -430,7 +430,7 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
                     <div className="px-2">{row.organization || "-"}</div>
                     <div className="px-2">
                       <strong className="font-semibold">{unit.main}</strong>
-                      {unit.sub && <span className="block text-[#4f71dc]">{unit.sub}</span>}
+                      {unit.sub && <span className="block text-[#1E4A9A]">{unit.sub}</span>}
                     </div>
                     <div className="px-2">{formatDateText(row.createdDate, language)}</div>
                     <div className="px-2">{row.orderNumber}</div>

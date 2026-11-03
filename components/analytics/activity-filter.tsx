@@ -410,7 +410,7 @@ export function ActivityFilterPanel({
           <button
             type="button"
             onClick={() => setDraft({ from: today, to: today, clientTypes: [], withGear: null })}
-            className="text-[13px] text-[#4f71dc] hover:underline"
+            className="text-[13px] text-[#1E4A9A] hover:underline"
           >
             {t("Сбросить")}
           </button>

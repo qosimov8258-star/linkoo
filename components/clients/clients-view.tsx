@@ -830,7 +830,7 @@ export function ClientsView() {
       {/* Header row */}
       <div className="flex h-[60px] items-center justify-between">
         <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           {t("Клиенты")}
         </h1>
@@ -941,7 +941,7 @@ export function ClientsView() {
             </button>
           ))}
           <span
-            className="absolute -bottom-[2px] left-0 z-10 h-[3px] w-1/5 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+            className="absolute -bottom-[2px] left-0 z-10 h-[3px] w-1/5 bg-[#1E4A9A] shadow-[0_-3px_10px_0_#1E4A9A] transition-transform duration-300"
             style={{ transform: `translateX(${clientTabs.findIndex((tab) => tab.id === activeTab) * 100}%)` }}
           />
         </div>
@@ -971,7 +971,7 @@ export function ClientsView() {
               </button>
             ))}
             <span
-              className="absolute -bottom-[2px] left-0 z-10 h-[3px] w-1/4 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+              className="absolute -bottom-[2px] left-0 z-10 h-[3px] w-1/4 bg-[#1E4A9A] shadow-[0_-3px_10px_0_#1E4A9A] transition-transform duration-300"
               style={{ transform: `translateX(${["inn", "territory", "route", "all"].indexOf(problemSub) * 100}%)` }}
             />
           </div>
@@ -987,7 +987,7 @@ export function ClientsView() {
                 type="button"
                 onClick={() => setFiltersOpen((open) => !open)}
                 aria-expanded={filtersOpen}
-                className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
+                className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
               >
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={CI.filter} /></svg>
                 <span className="pl-2 pr-4">{filtersOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
@@ -1347,7 +1347,7 @@ function TopButton({
       type="button"
       onClick={tip ? undefined : onClick}
       disabled={disabled}
-      className={`flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:cursor-wait disabled:opacity-60 ${green ? "bg-[#71ce87]" : "bg-[#4f71dc]"}`}
+      className={`flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:cursor-wait disabled:opacity-60 ${green ? "bg-[#71ce87]" : "bg-[#1E4A9A]"}`}
     >
       <svg viewBox="0 0 24 24" className={`mb-1 h-[18px] w-[18px] fill-white ${spin ? "animate-spin" : ""}`}><path d={icon} /></svg>
       <span className="pl-2 pr-4 whitespace-nowrap">{label}</span>
@@ -1766,7 +1766,7 @@ function ClientModal({
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="relative mb-5 pb-5 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-['']">
-      <h3 className="mb-[10px] text-[16px] font-semibold leading-5 text-[#4f71dc]">{title}</h3>
+      <h3 className="mb-[10px] text-[16px] font-semibold leading-5 text-[#1E4A9A]">{title}</h3>
       {children}
     </section>
   )
@@ -2436,7 +2436,7 @@ export function ClientDetail({
               key={item}
               type="button"
               onClick={() => setTab(item)}
-              className={`h-12 w-1/5 border-b-2 text-[13px] font-medium uppercase text-black ${tab === item ? "border-[#4f71dc]" : "border-transparent"}`}
+              className={`h-12 w-1/5 border-b-2 text-[13px] font-medium uppercase text-black ${tab === item ? "border-[#1E4A9A]" : "border-transparent"}`}
             >
               {t(item)}
             </button>
@@ -2478,7 +2478,7 @@ export function ClientDetail({
                 </svg>
                 <span className="pl-2 pr-4">{t("Позвонить")}</span>
               </button>}
-              <button type="button" onClick={() => setOrderOpen(true)} className={`${actionButton} bg-[#4f71dc]`}>
+              <button type="button" onClick={() => setOrderOpen(true)} className={`${actionButton} bg-[#1E4A9A]`}>
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z" />
                 </svg>
@@ -2629,7 +2629,7 @@ export function ClientDetail({
               <div className={fromActivity ? "mt-[21px] pb-[15px]" : "mt-[21px]"}>
                 <div className="mb-[22px] flex h-[35px] items-center justify-between">
                   <span className="text-base font-bold leading-[35px]">{t("Баланс")}</span>
-                  <span className="mr-[15px] w-[200px] text-right text-[13px] font-bold text-[#4f71dc]">
+                  <span className="mr-[15px] w-[200px] text-right text-[13px] font-bold text-[#1E4A9A]">
                     {t(formatDetailDate(periodStart))} - {t(formatDetailDate(periodEnd))}
                   </span>
                 </div>
@@ -2659,7 +2659,7 @@ export function ClientDetail({
 
         {tab === "ЗАДАЧИ" && (
           <div className="p-5">
-            <button type="button" className="mb-5 h-[34px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">
+            <button type="button" className="mb-5 h-[34px] w-full rounded-[5px] bg-[#1E4A9A] text-[13px] font-semibold text-white">
               {t("Создать задачу")}
             </button>
             <div className="relative pt-[10px]">
@@ -2707,7 +2707,7 @@ export function ClientDetail({
               )}
             </div>
             {visitsCursor && (
-              <button type="button" disabled={loadingMore} onClick={loadMore} className="mx-auto mt-[10px] block h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
+              <button type="button" disabled={loadingMore} onClick={loadMore} className="mx-auto mt-[10px] block h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
                 {t("Загрузить еще...")}
               </button>
             )}
@@ -2729,7 +2729,7 @@ export function ClientDetail({
                   key={item}
                   type="button"
                   onClick={() => setSubTab(item)}
-                  className={`flex h-12 w-1/4 items-center justify-center whitespace-nowrap border-b-2 text-[13px] font-medium uppercase text-black ${subTab === item ? "border-[#4f71dc]" : "border-transparent"}`}
+                  className={`flex h-12 w-1/4 items-center justify-center whitespace-nowrap border-b-2 text-[13px] font-medium uppercase text-black ${subTab === item ? "border-[#1E4A9A]" : "border-transparent"}`}
                 >
                   {t(item)}
                 </button>
@@ -2756,7 +2756,7 @@ export function ClientDetail({
                       <>
                         {client.locationLat!.toFixed(6)}, {client.locationLng!.toFixed(6)}
                         <a
-                          className="-mt-[8px] ml-auto block w-fit cursor-pointer text-[12px] text-[#4f71dc]"
+                          className="-mt-[8px] ml-auto block w-fit cursor-pointer text-[12px] text-[#1E4A9A]"
                           href={`https://www.google.com/maps?q=${client.locationLat},${client.locationLng}`}
                           target="_blank"
                           rel="noreferrer"
@@ -2813,7 +2813,7 @@ export function ClientDetail({
                       key={item}
                       type="button"
                       onClick={() => setLogFilter(item)}
-                      className={`h-[26px] rounded-full border px-4 ${logFilter === item ? "border-[#4f71dc] bg-[#4f71dc] font-semibold text-white" : "border-[#ccc] bg-white"}`}
+                      className={`h-[26px] rounded-full border px-4 ${logFilter === item ? "border-[#1E4A9A] bg-[#1E4A9A] font-semibold text-white" : "border-[#ccc] bg-white"}`}
                     >
                       {t(item)}
                     </button>
@@ -2886,7 +2886,7 @@ export function ClientDetail({
                   <span className="text-[12px] text-[#888]">
                     {fieldRecords.rows.length} / {fieldRecords.count}
                   </span>
-                  <button type="button" disabled={loadingMore} onClick={loadMore} className="h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                  <button type="button" disabled={loadingMore} onClick={loadMore} className="h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
                     {t("Загрузить еще...")}
                   </button>
                 </div>
@@ -3048,7 +3048,7 @@ function ClientRow({
       {columns.zone && <div className="px-2 leading-[16.25px]">
         {client.zone || t("Не указано")}
         <br />
-        <span className="text-[#4f71dc]">{client.zoneAgent}</span>
+        <span className="text-[#1E4A9A]">{client.zoneAgent}</span>
         {routed && <div className="text-[11px] font-semibold text-[#48a34b]">{t("Маршрут установлен")}</div>}
       </div>}
       {columns.agent && <div className="px-2 leading-[16.25px]">{client.agent}</div>}

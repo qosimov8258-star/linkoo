@@ -215,7 +215,7 @@ export function SupplierFormModal({
                 </div>
               </div>
             ))}
-            <button type="button" onClick={addContact} className="mt-3 text-sm text-[#4f71dc] hover:underline">
+            <button type="button" onClick={addContact} className="mt-3 text-sm text-[#1E4A9A] hover:underline">
               + {t("добавить контакт")}
             </button>
           </div>

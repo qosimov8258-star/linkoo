@@ -101,7 +101,7 @@ export function LeftPanel({
             type="button"
             onClick={handleRecalc}
             disabled={recalculating}
-            className="flex h-[30px] items-center rounded-[5px] leading-[18px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white disabled:opacity-70"
+            className="flex h-[30px] items-center rounded-[5px] leading-[18px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white disabled:opacity-70"
           >
             <svg viewBox="0 0 24 24" className={`mb-1 h-[18px] w-[18px] fill-white ${recalculating ? "animate-spin" : ""}`} aria-hidden>
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
@@ -117,7 +117,7 @@ export function LeftPanel({
         <div className="mt-[10px] flex h-[176px] items-center justify-center" role="status" aria-label={t("Загрузка...")}>
           <svg viewBox="0 0 50 50" className="h-[50px] w-[50px] animate-spin" aria-hidden>
             {Array.from({ length: 8 }, (_, index) => (
-              <circle key={index} cx={25 + 20 * Math.sin((index * Math.PI) / 4)} cy={25 - 20 * Math.cos((index * Math.PI) / 4)} r={1.5 + index * 0.25} fill="#4f71dc" />
+              <circle key={index} cx={25 + 20 * Math.sin((index * Math.PI) / 4)} cy={25 - 20 * Math.cos((index * Math.PI) / 4)} r={1.5 + index * 0.25} fill="#1E4A9A" />
             ))}
           </svg>
         </div>

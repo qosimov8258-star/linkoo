@@ -52,7 +52,7 @@ function ErrorLine({ error }: { error: string }) {
 function SaveButton({ busy, disabled = false }: { busy: boolean; disabled?: boolean }) {
   const { t } = useLanguage()
   return (
-    <button type="submit" disabled={busy || disabled} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white disabled:opacity-50">
+    <button type="submit" disabled={busy || disabled} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white disabled:opacity-50">
       {busy ? t("Сохранение...") : t("Сохранить")}
     </button>
   )
@@ -280,7 +280,7 @@ export function ClientDebtDetail({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-6 border-t border-[#efefef] px-[30px] py-2">
           {canEdit && clientId !== null && (
-            <button type="button" onClick={() => setRecalcOpen(true)} className="h-[30px] rounded-md bg-[#4f70e7] px-4 text-[13px] font-semibold text-white">
+            <button type="button" onClick={() => setRecalcOpen(true)} className="h-[30px] rounded-md bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white">
               {t("Пересчитать")}
             </button>
           )}
@@ -309,7 +309,7 @@ export function ClientDebtDetail({
                       title={t("Изменить дату оплаты всех заказов")}
                       aria-label={t("Изменить дату оплаты всех заказов")}
                       onClick={() => setEditDates({ ids: orderIds, single: false, initial: "" })}
-                      className="p-1 text-[#666] hover:text-[#4f70e7]"
+                      className="p-1 text-[#666] hover:text-[#1E4A9A]"
                     >
                       <Pencil className="h-5 w-5" />
                     </button>
@@ -336,7 +336,7 @@ export function ClientDebtDetail({
                           title={t("Изменить дату оплаты")}
                           aria-label={t("Изменить дату оплаты")}
                           onClick={() => setEditDates({ ids: [line.orderId], single: true, initial: line.paymentDate })}
-                          className="p-1 text-[#666] opacity-0 transition-opacity hover:text-[#4f70e7] group-hover:opacity-100 focus:opacity-100"
+                          className="p-1 text-[#666] opacity-0 transition-opacity hover:text-[#1E4A9A] group-hover:opacity-100 focus:opacity-100"
                         >
                           <Pencil className="h-5 w-5" />
                         </button>
@@ -477,7 +477,7 @@ export function OrderDebtOrderDialog({
                     <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-[#E27676]">{money(part.remaining)}</td>
                     <td className="px-3 py-2 text-right">
                       {canEdit && part.remaining > 0.005 && (
-                        <button type="button" onClick={() => setPaying(part.currency)} className="h-8 rounded-md bg-[#4f70e7] px-4 text-[13px] font-semibold text-white">
+                        <button type="button" onClick={() => setPaying(part.currency)} className="h-8 rounded-md bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white">
                           {t("Оплатить")}
                         </button>
                       )}
@@ -519,11 +519,11 @@ export function OrderDebtOrderDialog({
 
           {canEdit && (
             <div className="flex flex-wrap justify-end gap-3">
-              <button type="button" onClick={() => setEditDate(true)} className="flex h-10 items-center gap-2 rounded-md border border-[#4f70e7] px-4 font-semibold text-[#4f70e7]">
+              <button type="button" onClick={() => setEditDate(true)} className="flex h-10 items-center gap-2 rounded-md border border-[#1E4A9A] px-4 font-semibold text-[#1E4A9A]">
                 <Pencil className="h-4 w-4" /> {t("Изменить дату оплаты")}
               </button>
               {open.length === 1 && (
-                <button type="button" onClick={() => setPaying(open[0].currency)} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white">
+                <button type="button" onClick={() => setPaying(open[0].currency)} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white">
                   {t("Оплатить")}
                 </button>
               )}
@@ -684,7 +684,7 @@ export function OrderGroupPaymentDialog({
             </select>
           </Label>
           <label className="flex items-center gap-2 pt-6 text-[14px] text-[#17233b]">
-            <input type="checkbox" checked={verified} onChange={(event) => setVerified(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
+            <input type="checkbox" checked={verified} onChange={(event) => setVerified(event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
             {t("Подтвержденный приход (Я получил деньги)")}
           </label>
         </div>
@@ -729,7 +729,7 @@ export function OrderGroupPaymentDialog({
                           disabled={fill === null}
                           title={t("Остаток")}
                           onClick={() => setAmounts((current) => ({ ...current, [row.key]: fill === null ? "" : String(roundMoney(fill)) }))}
-                          className="h-9 whitespace-nowrap rounded-md border border-[#4f70e7] px-2 text-[12px] font-semibold text-[#4f70e7] disabled:opacity-40"
+                          className="h-9 whitespace-nowrap rounded-md border border-[#1E4A9A] px-2 text-[12px] font-semibold text-[#1E4A9A] disabled:opacity-40"
                         >
                           {t("Остаток")}
                         </button>

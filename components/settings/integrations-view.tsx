@@ -227,7 +227,7 @@ export function IntegrationsView() {
           </button>
         ))}
         <span
-          className="absolute bottom-0 left-0 h-[3px] bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+          className="absolute bottom-0 left-0 h-[3px] bg-[#1E4A9A] shadow-[0_-3px_10px_0_#1E4A9A] transition-transform duration-300"
           style={{ width: `${100 / TABS.length}%`, transform: `translateX(${TABS.findIndex((entry) => entry.key === tab) * 100}%)` }}
         />
       </div>
@@ -252,18 +252,18 @@ export function IntegrationsView() {
               className="h-[50px] pl-[6px] pt-[4px]"
               left={
                 <div className="w-[329px] shrink-0">
-                  <button type="button" onClick={() => { setDraft(applied); setFilterOpen(true) }} className="text-[13px] text-[#4f71dc]">
+                  <button type="button" onClick={() => { setDraft(applied); setFilterOpen(true) }} className="text-[13px] text-[#1E4A9A]">
                     {t("Показать фильтр")} ⌄
                   </button>
-                  {filtersOn && <span className="ml-2 inline-block h-2 w-2 rounded-full bg-[#4f71dc]" />}
+                  {filtersOn && <span className="ml-2 inline-block h-2 w-2 rounded-full bg-[#1E4A9A]" />}
                 </div>
               }
               search={<SettingsSearch value={query} onChange={setQuery} className="w-[295px]" />}
               pager={
                 <>
                   <SettingsPager page={page} pageSize={pageSize} count={count} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1) }} />
-                  <button type="button" onClick={() => setDialog({ item: null, type: "" })} className="ml-[10px] flex h-[30px] items-center gap-2 whitespace-nowrap rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
-                    <Plus className="h-[18px] w-[18px] rounded-full bg-white p-[2px] text-[#4f71dc]" />
+                  <button type="button" onClick={() => setDialog({ item: null, type: "" })} className="ml-[10px] flex h-[30px] items-center gap-2 whitespace-nowrap rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+                    <Plus className="h-[18px] w-[18px] rounded-full bg-white p-[2px] text-[#1E4A9A]" />
                     {t("Добавить")}
                   </button>
                 </>

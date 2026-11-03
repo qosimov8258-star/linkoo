@@ -240,7 +240,7 @@ export function ProductRestrictionsView() {
       <button
         type="button"
         onClick={() => openBulk("set")}
-        className="flex h-9 items-center gap-2 rounded-[3px] bg-[#4f71dc] px-[14px] text-[13px] font-semibold text-white hover:brightness-95"
+        className="flex h-9 items-center gap-2 rounded-[3px] bg-[#1E4A9A] px-[14px] text-[13px] font-semibold text-white hover:brightness-95"
       >
         <SolidIcon d={ICON_SHIELD} />
         {t("Стереть и добавить")}
@@ -398,7 +398,7 @@ export function ProductRestrictionsView() {
                     <button
                       type="button"
                       onClick={() => setReloadKey((key) => key + 1)}
-                      className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]"
+                      className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]"
                     >
                       {t("Повторить")}
                     </button>

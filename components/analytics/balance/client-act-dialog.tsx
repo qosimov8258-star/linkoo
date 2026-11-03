@@ -121,7 +121,7 @@ export function ClientActDialog({
             </div>
           ))}
           {Boolean(data?.organizations?.length) && (
-            <button type="button" onClick={() => setDetails((value) => !value)} className="self-center text-[#4f70e7] hover:underline">
+            <button type="button" onClick={() => setDetails((value) => !value)} className="self-center text-[#1E4A9A] hover:underline">
               {t("Детали")}
             </button>
           )}

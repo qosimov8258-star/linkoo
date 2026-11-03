@@ -131,13 +131,13 @@ function ReorderLevelContent() {
               aria-label={t("Поиск")}
               className="h-[40px] w-[147px] bg-transparent pt-[10px] text-[13px] outline-none placeholder:text-black/30"
             />
-            <button type="submit" aria-label={t("Поиск")} className="absolute left-[156px] top-[13px] text-[#ccc] hover:text-[#4f70e7]">
+            <button type="submit" aria-label={t("Поиск")} className="absolute left-[156px] top-[13px] text-[#ccc] hover:text-[#1E4A9A]">
               <Search className="h-6 w-6" />
             </button>
           </form>
         </div>
         <div className="relative w-[410px] shrink-0">
-          <button type="button" onClick={openFilter} className="absolute left-0 top-[25px] w-[200px] text-right text-[13px] font-bold text-[#4f71dc]" title={t("Диапазон дат")} data-no-translate>
+          <button type="button" onClick={openFilter} className="absolute left-0 top-[25px] w-[200px] text-right text-[13px] font-bold text-[#1E4A9A]" title={t("Диапазон дат")} data-no-translate>
             {periodWord(state.from)} - {periodWord(state.to)}
           </button>
           <label className="absolute left-[210px] top-[9.5px] block h-[36px] w-[200px] border-b border-[#e8e8e8]">
@@ -163,7 +163,7 @@ function ReorderLevelContent() {
             type="button"
             onClick={() => void downloadAll()}
             disabled={downloading}
-            className="absolute left-0 top-[10px] flex h-[30px] w-[189.6px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] text-[13px] font-semibold text-white disabled:opacity-50"
+            className="absolute left-0 top-[10px] flex h-[30px] w-[189.6px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12px] text-[13px] font-semibold text-white disabled:opacity-50"
           >
             {downloading ? <Loader2 className="mr-2 h-[18px] w-[18px] animate-spin" /> : <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white"><path d={RI.download} /></svg>}
             {t("Скачать все")}
@@ -200,7 +200,7 @@ function ReorderLevelContent() {
           <p>
             {t("Не удалось выполнить запрос")}: {t(list.error)}
           </p>
-          <button type="button" onClick={list.reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+          <button type="button" onClick={list.reload} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
             {t("Повторить")}
           </button>
         </div>
@@ -215,7 +215,7 @@ function ReorderLevelContent() {
               <p className="mt-4 text-[#9aa3b6]">{t("По вашему запросу ничего не найдено")}</p>
               {noWarehouseSales && (
                 <p className="mt-4 flex max-w-[640px] items-start gap-2 rounded-md bg-[#f2f5f8] px-4 py-3 text-left text-[14px] text-[#586174]">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#4f70e7]" />
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#1E4A9A]" />
                   <span>
                     {t("Рекомендации строятся по продажам за период: отгруженные заказы («В пути», «Доставлено») со склада.")}{" "}
                     {sales && (!sales.warehouseColumn || sales.ordersWithWarehouse === 0)

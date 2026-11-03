@@ -314,7 +314,25 @@ END $$;
 
 // 3: the reference-order snapshot columns (market_name … actual_expand) next to the backfill of 2.
 // 4: BRANCH_BACKFILL and ORDER_BALANCE_RESET.
-const SCHEMA_VERSION = 4
+/** Weight of an order with lines: Σ quantity × the product's «Масса - кг» (products.weight, free text such as
+ * "1,04" — its leading number). Orders without lines (reference snapshots) keep the weight they came with. */
+const ORDER_WEIGHT_SQL = `COALESCE((SELECT SUM(oi.quantity * COALESCE(NULLIF(replace(substring(COALESCE(p.weight::text, '') FROM '^\\s*([0-9]+(?:[.,][0-9]+)?)'), ',', '.'), '')::float8, 0))
+   FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id WHERE oi.order_id = o.id), 0)`
+
+// Orders created in the app before their weight was kept: computed once from their lines.
+const ORDER_WEIGHT_BACKFILL = `
+DO $$
+BEGIN
+  IF to_regclass('products') IS NULL THEN RETURN; END IF;
+  UPDATE orders o SET weight = ${ORDER_WEIGHT_SQL}
+   WHERE COALESCE(o.weight, 0) = 0 AND EXISTS (SELECT 1 FROM order_items z WHERE z.order_id = o.id)
+     AND ${ORDER_WEIGHT_SQL} > 0;
+EXCEPTION WHEN others THEN
+  RAISE WARNING 'orders weight backfill skipped: %', SQLERRM;
+END $$;
+`
+
+const SCHEMA_VERSION = 5
 
 declare global {
   var __linkoOrdersSchema: { version: number; ready: Promise<void> } | undefined
@@ -339,6 +357,7 @@ export function ensureOrdersSchema(): Promise<void> {
         await tx.exec("SELECT pg_advisory_xact_lock(72120931)")
         await tx.exec(BRANCH_BACKFILL)
         await tx.exec(ORDER_BALANCE_RESET)
+        await tx.exec(ORDER_WEIGHT_BACKFILL)
       })
     }).catch((error) => {
       globalThis.__linkoOrdersSchema = undefined
@@ -869,6 +888,14 @@ async function syncSummary(db: PgDb, order: OrderRow, keepAmount?: string): Prom
   }
   await db.prepare("UPDATE orders SET amount = @amount, product = @product, updated_at = datetime('now') WHERE id = @id").run({ id: order.id, amount, product })
   await syncOrderTotals(db, order.id, amount)
+  await syncOrderWeight(db, order.id)
+}
+
+/** The order's weight from its lines (ORDER_WEIGHT_SQL); an order without lines keeps its own. */
+async function syncOrderWeight(db: PgDb, orderId: number): Promise<void> {
+  await db
+    .prepare(`UPDATE orders o SET weight = ${ORDER_WEIGHT_SQL} WHERE o.id = @id AND EXISTS (SELECT 1 FROM order_items z WHERE z.order_id = o.id)`)
+    .run({ id: orderId })
 }
 
 // ---------------------------------------------------------------------------
@@ -1522,6 +1549,7 @@ export async function createOrder(input: OrderCreateInput, user: { displayName: 
       )
       .run({ id: orderId, branch: branch || (await clientBranch(tx, client.id)), payMethod: input.paymentType === "bank" ? "bank" : "cash" })
     for (const line of resolved) await insertLine(tx, orderId, line, currency)
+    await syncOrderWeight(tx, orderId)
     await addLog(tx, orderId, { kind: "Создан", status, amount, user: user.displayName })
     return orderId
   })
@@ -1897,7 +1925,9 @@ export async function deleteOrder(id: number): Promise<boolean> {
     const current = (await tx.prepare("SELECT id, status FROM orders WHERE id = ? FOR UPDATE").get(id)) as { id: number; status: string } | undefined
     if (!current) return false
     if (RELEASED_STATUSES.includes(current.status)) {
-      throw new OrderError("Отгруженный или доставленный заказ нельзя удалить, его можно только отменить", 409, { status: current.status })
+      // "В пути" can still be cancelled; "Доставлено" is final, goods come back through a client return.
+      const message = current.status === "Доставлено" ? "Доставленный заказ нельзя удалить или отменить: оформите возврат от клиента" : "Отгруженный заказ нельзя удалить, его можно только отменить"
+      throw new OrderError(message, 409, { status: current.status })
     }
     const usage: Array<{ table: string; label: string; count: number }> = []
     for (const link of ORDER_DELETE_LINKS) {

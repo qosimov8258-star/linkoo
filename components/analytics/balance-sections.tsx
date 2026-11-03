@@ -176,7 +176,7 @@ function BalanceTable({ rows, label, currency }: { rows: BalanceRow[]; label: st
         </tbody>
       </table>
       {sorted.length > 8 ? (
-        <button type="button" onClick={() => setMore((value) => !value)} className="mx-[18px] my-[10px] flex h-[30px] w-[calc(100%-36px)] items-center justify-center gap-[6px] rounded-[15px] bg-[#eff3f7] text-[13px] text-[#4f71dc]">
+        <button type="button" onClick={() => setMore((value) => !value)} className="mx-[18px] my-[10px] flex h-[30px] w-[calc(100%-36px)] items-center justify-center gap-[6px] rounded-[15px] bg-[#eff3f7] text-[13px] text-[#1E4A9A]">
           {more ? t("Скрыть") : t("Показать еще")} <ChevronDown className={`h-4 w-4 ${more ? "rotate-180" : ""}`} />
         </button>
       ) : (

@@ -560,7 +560,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                 {!priceListNames.length && !expanded.priceLists.length && <div className="py-6 text-center text-[#999]">{t("Нет прайс-листов — создайте их в разделе «Прайс-листы»")}</div>}
                 {editingPrices && (
                   <div className="mt-4 flex justify-end gap-4">
-                    <button type="button" onClick={() => setEditingPrices(false)} className="h-9 px-4 text-[13px] font-semibold uppercase text-[#4f71dc]">{t("Отмена")}</button>
+                    <button type="button" onClick={() => setEditingPrices(false)} className="h-9 px-4 text-[13px] font-semibold uppercase text-[#1E4A9A]">{t("Отмена")}</button>
                     <button type="submit" className="h-9 px-4 text-[13px] font-semibold uppercase text-[#129fdd]">{t("Сохранить")}</button>
                   </div>
                 )}
@@ -657,15 +657,15 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                   </button>
                 ))}
                 {importMode === "excel" && (
-                  <button type="button" onClick={downloadPriceImportTemplate} className="ml-10 text-[13px] font-semibold text-[#4f71dc] hover:underline">{t("Скачать шаблон")}</button>
+                  <button type="button" onClick={downloadPriceImportTemplate} className="ml-10 text-[13px] font-semibold text-[#1E4A9A] hover:underline">{t("Скачать шаблон")}</button>
                 )}
                 <FilterCheck compact label={t("Установить другую цену для перевода")} checked={separateTransferPrice} onChange={setSeparateTransferPrice} className="pt-[2px]" />
               </div>
             </div>
             <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={importPricesFromExcel} className="hidden" />
             <div className="absolute bottom-[7px] right-[30px] flex items-center gap-[39px]">
-              <button type="button" onClick={() => setAddStage(null)} className="h-9 text-[13px] font-semibold uppercase text-[#4f71dc]">{t("Отмена")}</button>
-              <button type="submit" disabled={!selectedPriceLists.length || !selectedCurrency} className={`h-9 text-[13px] font-semibold uppercase ${selectedPriceLists.length && selectedCurrency ? "text-[#4f71dc]" : "text-[#b0b0b0]"}`}>{t("Далее")}</button>
+              <button type="button" onClick={() => setAddStage(null)} className="h-9 text-[13px] font-semibold uppercase text-[#1E4A9A]">{t("Отмена")}</button>
+              <button type="submit" disabled={!selectedPriceLists.length || !selectedCurrency} className={`h-9 text-[13px] font-semibold uppercase ${selectedPriceLists.length && selectedCurrency ? "text-[#1E4A9A]" : "text-[#b0b0b0]"}`}>{t("Далее")}</button>
             </div>
           </form>
         </div>

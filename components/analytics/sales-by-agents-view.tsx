@@ -221,13 +221,13 @@ export function SalesByAgentsView() {
           />
         </div>
         <div className="-mx-[20px] flex items-start justify-between gap-4 py-[10px] pr-[20px]">
-          <p className="flex w-[660px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
-            <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#4f71dc] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
+          <p className="flex w-[660px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#1E4A9A]">
+            <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#1E4A9A] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
             {t("Это оперативний отчеть для просмотра факта перейдите в другой раздел")}
           </p>
           <div className="mt-[2px] flex">
-            <button type="button" onClick={() => setMode("created")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "created" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ")}</button>
-            <button type="button" onClick={() => setMode("realized")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "realized" ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ")}</button>
+            <button type="button" onClick={() => setMode("created")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "created" ? "bg-[#1E4A9A] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ")}</button>
+            <button type="button" onClick={() => setMode("realized")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "realized" ? "bg-[#1E4A9A] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ")}</button>
           </div>
         </div>
         {itemsLoading ? (

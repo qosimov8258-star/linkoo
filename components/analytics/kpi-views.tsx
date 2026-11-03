@@ -134,7 +134,7 @@ export function KpiPerformanceView({ variant = "page" }: { variant?: "page" | "t
   const actionButtons = (
     <>
       <button type="button" onClick={() => router.push("/analytics/kpi-tasks")} className="h-[30px] rounded-[3px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("KPI задачи")}</button>
-      <button type="button" onClick={() => router.push("/analytics/salary-planning")} className="h-[30px] rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Зарплата и установка планов")}</button>
+      <button type="button" onClick={() => router.push("/analytics/salary-planning")} className="h-[30px] rounded-[3px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Зарплата и установка планов")}</button>
       <button type="button" onClick={() => router.push("/analytics/visits-by-day")} className="h-[30px] rounded-[3px] bg-[#fa8072] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Посещения")}</button>
     </>
   )
@@ -160,7 +160,7 @@ export function KpiPerformanceView({ variant = "page" }: { variant?: "page" | "t
           <WidgetUserCard showPeriods={false}>
             <div className="ml-auto mr-[23px] flex gap-[18px]">
               {actionButtons}
-              <button type="button" onClick={() => toggleFilter(true)} className="flex h-[30px] items-center gap-[6px] rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><ListFilter className="h-4 w-4" />{t("Показать фильтр")}</button>
+              <button type="button" onClick={() => toggleFilter(true)} className="flex h-[30px] items-center gap-[6px] rounded-[3px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"><ListFilter className="h-4 w-4" />{t("Показать фильтр")}</button>
             </div>
           </WidgetUserCard>
         </>
@@ -559,11 +559,11 @@ function KpiTaskDetail({
             {detail.division?.name && <div className="flex justify-between gap-[8px]"><span>{t("Организация:")}</span><b className="font-semibold text-[#333]">{detail.division.name}</b></div>}
             {detail.calc_in_box && <div className={GREEN}>{t("В блоках")}</div>}
             {detail.use_chosen && (
-              <div className="flex items-start justify-between gap-[8px]"><span>{t("Действует для:")}</span><b className="flex items-start font-semibold text-[#333]">{t("Для выбранных клиентов")}<RefTip text={t('Для того что бы KPI заработал нужно привязать задачу к выбранным клиентам через модуль "Клиенты"')} side="right"><svg viewBox="0 0 24 24" className="ml-[3.4px] h-6 w-6 fill-[#4f71dc]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg></RefTip></b></div>
+              <div className="flex items-start justify-between gap-[8px]"><span>{t("Действует для:")}</span><b className="flex items-start font-semibold text-[#333]">{t("Для выбранных клиентов")}<RefTip text={t('Для того что бы KPI заработал нужно привязать задачу к выбранным клиентам через модуль "Клиенты"')} side="right"><svg viewBox="0 0 24 24" className="ml-[3.4px] h-6 w-6 fill-[#1E4A9A]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg></RefTip></b></div>
             )}
             <div className="flex justify-between gap-[8px] whitespace-nowrap"><span>{t("Дополнительные условия:")}</span><b className="font-semibold text-[#333]">{t(extraCondition)}</b></div>
             {detail.currency && (
-              <div className="flex items-start justify-between"><span>{t("Валюта:")}</span><b className="flex items-start font-semibold text-[#333]">{detail.currency.name}<svg viewBox="0 0 24 24" className="ml-[3.4px] h-6 w-6 fill-[#4f71dc]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg></b></div>
+              <div className="flex items-start justify-between"><span>{t("Валюта:")}</span><b className="flex items-start font-semibold text-[#333]">{detail.currency.name}<svg viewBox="0 0 24 24" className="ml-[3.4px] h-6 w-6 fill-[#1E4A9A]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg></b></div>
             )}
             {detail.bonus_fund != null && Number(detail.bonus_fund) !== 0 && <div className="flex justify-between gap-[8px]"><span>{t("Бонусный фонд:")}</span><b className="font-semibold text-[#333]">{amount(detail.bonus_fund)}</b></div>}
             {task.comment && (task.comment.length > 28 ? <div><span>{t("Комментарий:")}</span><b className="block font-semibold text-[#333]">{task.comment}</b></div> : <div className="flex justify-between gap-[8px]"><span>{t("Комментарий:")}</span><b className="font-semibold text-[#333]">{task.comment}</b></div>)}

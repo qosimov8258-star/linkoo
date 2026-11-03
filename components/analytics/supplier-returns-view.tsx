@@ -92,7 +92,7 @@ function StatusChips({ value, onChange }: { value: Status[]; onChange: (next: St
                 key={status}
                 type="button"
                 onClick={() => onChange(value.includes(status) ? value.filter((item) => item !== status) : [...value, status])}
-                className={`block h-9 w-full px-[10px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${value.includes(status) ? "text-[#4f71dc]" : ""}`}
+                className={`block h-9 w-full px-[10px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${value.includes(status) ? "text-[#1E4A9A]" : ""}`}
               >
                 {t(STATUS_LABEL[status])}
               </button>
@@ -659,7 +659,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
 
                   <div className="px-[30px] pt-[14px]">
                     <div className="border-b border-[#e0e0e0]">
-                      <span className="flex h-[46px] w-[450px] items-center justify-center border-b-2 border-[#4f71dc] text-[13px] text-black">{t("Список товаров")}</span>
+                      <span className="flex h-[46px] w-[450px] items-center justify-center border-b-2 border-[#1E4A9A] text-[13px] text-black">{t("Список товаров")}</span>
                     </div>
                     <div className="mt-[18px] grid grid-cols-[34px_minmax(0,2.2fr)_minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,1.3fr)] items-center pb-[12px] font-semibold">
                       <span>{t("№")}</span><span>{t("Товар")}</span><span className="text-right">{t("Количество")}</span><span className="pl-[40px]">{t("Серия")}</span><span className="text-right">{`${t("Цена")} (${row.currency || currencies.base})`}</span><span className="text-right">{`${t("Сумма")} (${row.currency || currencies.base})`}</span>
@@ -822,7 +822,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
               value={pickerQuery}
               onChange={(event) => setPickerQuery(event.target.value)}
               placeholder={t("Поиск товара...")}
-              className="mb-3 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f70e7]"
+              className="mb-3 w-full border-b border-slate-300 py-2 outline-none focus:border-[#1E4A9A]"
             />
             <div className="space-y-2 overflow-y-auto">
               {productOptions.length === 0 && <p className="text-sm text-slate-400">{t("Каталог продуктов пуст")}</p>}
@@ -837,7 +837,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                 ))}
             </div>
             <div className="mt-5 flex justify-end">
-              <button type="button" onClick={() => setPickerOpen(false)} className="rounded bg-[#4f70e7] px-4 py-2 font-semibold text-white">{t("Готово")}</button>
+              <button type="button" onClick={() => setPickerOpen(false)} className="rounded bg-[#1E4A9A] px-4 py-2 font-semibold text-white">{t("Готово")}</button>
             </div>
           </div>
         </div>

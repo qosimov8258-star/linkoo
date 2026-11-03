@@ -197,7 +197,7 @@ export function WeekendDialog({ initialYear, initialMonth, onClose, onSaved }: {
         })}
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/70">
-            <Loader2 className="h-6 w-6 animate-spin text-[#4f71dc]" />
+            <Loader2 className="h-6 w-6 animate-spin text-[#1E4A9A]" />
           </div>
         )}
       </div>
@@ -250,7 +250,7 @@ export function WorkTimeDialog({ initial, onClose, onSaved }: { initial: string 
             setValue(event.target.value)
             setError("")
           }}
-          className={`mt-[10px] block h-[36px] w-full border-b bg-transparent text-[15px] outline-none ${error ? "border-[#e57373]" : "border-[#d9d9d9] focus:border-[#4f71dc]"}`}
+          className={`mt-[10px] block h-[36px] w-full border-b bg-transparent text-[15px] outline-none ${error ? "border-[#e57373]" : "border-[#d9d9d9] focus:border-[#1E4A9A]"}`}
         />
         {error && <span className="mt-[6px] block text-[12px] text-[#e57373]">{t(error)}</span>}
       </label>
@@ -299,7 +299,7 @@ export function ImportDialog({ year, month, onTemplate, onClose, onImported }: {
   return (
     <AttendanceModal title="Импорт с excel" onClose={onClose} width={460} footer={<SaveButton onClick={() => void save()} busy={saving} disabled={!file} />}>
       <div className="border border-[#efefef] px-[20px] pb-[22px] pt-[16px]">
-        <button type="button" onClick={onTemplate} className="mb-[13px] block w-full text-center text-[13px] font-medium uppercase text-[#333] hover:text-[#4f71dc]">
+        <button type="button" onClick={onTemplate} className="mb-[13px] block w-full text-center text-[13px] font-medium uppercase text-[#333] hover:text-[#1E4A9A]">
           {t("1. Скачать шаблон")}
         </button>
         <button
@@ -384,7 +384,7 @@ export function EditDialog({ employeeIds, lateAfter, maxDate, onClose, onSaved }
     onSaved(result.data.updated)
   }
   const field = "mt-[6px] block h-[36px] w-full border-b bg-transparent text-[14px] outline-none"
-  const border = (name: string) => (errors[name] ? "border-[#e57373]" : "border-[#d9d9d9] focus:border-[#4f71dc]")
+  const border = (name: string) => (errors[name] ? "border-[#e57373]" : "border-[#d9d9d9] focus:border-[#1E4A9A]")
   return (
     <AttendanceModal
       title="Изменить"
@@ -514,10 +514,10 @@ export function FilterPanel({
         <div className="mt-[4px] flex min-h-[34px] flex-wrap items-center gap-[5px] border-b border-[#d9d9d9] pb-[4px]">
           {draft.map((id) => (
             <span key={id} className="flex h-5 items-stretch overflow-hidden text-[12px] font-semibold text-white">
-              <button type="button" aria-label={t("Удалить")} onClick={() => setDraft((current) => current.filter((item) => item !== id))} className="border-r border-white/30 bg-[#5c6df3] px-[5px]">
+              <button type="button" aria-label={t("Удалить")} onClick={() => setDraft((current) => current.filter((item) => item !== id))} className="border-r border-white/30 bg-[#1E4A9A] px-[5px]">
                 ×
               </button>
-              <span className="max-w-[200px] truncate bg-[#5c6df3] px-[5px]">{branches.find((branch) => branch.id === id)?.name ?? `#${id}`}</span>
+              <span className="max-w-[200px] truncate bg-[#1E4A9A] px-[5px]">{branches.find((branch) => branch.id === id)?.name ?? `#${id}`}</span>
             </span>
           ))}
           <input

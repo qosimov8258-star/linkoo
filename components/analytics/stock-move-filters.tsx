@@ -288,7 +288,7 @@ export function MoveFilterDialog({
         <PresenceSelect value={draft.balance} onChange={(next) => set("balance", next)} />
       </Field>
       <label className="flex items-center gap-2 text-[#17233b] md:col-span-2">
-        <input type="checkbox" checked={draft.showOthers} onChange={(event) => set("showOthers", event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
+        <input type="checkbox" checked={draft.showOthers} onChange={(event) => set("showOthers", event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
         {t("Показать прочие")}
       </label>
     </BalanceFilterDialog>

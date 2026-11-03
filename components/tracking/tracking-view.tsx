@@ -234,7 +234,7 @@ function ClientsFilterModal({ value, onApply, onClose }: { value: MapFilter; onA
                     key={day}
                     type="button"
                     onClick={() => setDays((current) => (current.includes(day) ? current.filter((item) => item !== day) : [...current, day]))}
-                    className={`h-8 w-8 text-[13px] ${days.includes(day) ? "bg-[#4f71dc] text-white" : "bg-[#eceff1] text-[#666]"}`}
+                    className={`h-8 w-8 text-[13px] ${days.includes(day) ? "bg-[#1E4A9A] text-white" : "bg-[#eceff1] text-[#666]"}`}
                   >
                     {t(day)}
                   </button>
@@ -578,7 +578,7 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
             </button>
           </div>
           <div className="absolute bottom-0 right-0 z-[500] w-[230px] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]">
-            <button type="button" onClick={() => setFilterOpen(true)} className="flex h-[30px] w-full items-center gap-[10px] bg-[#4f71dc] px-[14px] text-[13px] font-semibold text-white"><svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>{t("Показать клиентов")}</button>
+            <button type="button" onClick={() => setFilterOpen(true)} className="flex h-[30px] w-full items-center gap-[10px] bg-[#1E4A9A] px-[14px] text-[13px] font-semibold text-white"><svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>{t("Показать клиентов")}</button>
             <div className="space-y-[8px] px-[14px] pb-[8px] pt-[10px]">
               <CheckLine label="Клиенты" checked={showClients} onChange={setShowClients} />
               <CheckLine label="Зоны" checked={showZones} onChange={setShowZones} />

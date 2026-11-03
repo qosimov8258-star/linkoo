@@ -79,7 +79,7 @@ export function OrderExcelView() {
                   </span>
                 ))}
               </div>
-              <button type="button" onClick={() => setEditing(item)} className="ml-[67px] flex h-[30px] w-[120px] items-center justify-center gap-[8px] rounded-[3px] bg-[#4f70e7] text-[13px] font-bold text-white hover:brightness-95">
+              <button type="button" onClick={() => setEditing(item)} className="ml-[67px] flex h-[30px] w-[120px] items-center justify-center gap-[8px] rounded-[3px] bg-[#1E4A9A] text-[13px] font-bold text-white hover:brightness-95">
                 <MdEdit className="h-[18px] w-[18px]" />
                 {t("Изменить")}
               </button>

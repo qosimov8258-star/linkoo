@@ -150,7 +150,7 @@ function CashBalanceContent() {
     <main className="ref-white min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс кассы")}</span>
         </div>
@@ -174,7 +174,7 @@ function CashBalanceContent() {
           <p>
             {t("Не удалось выполнить запрос")}: {t(error)}
           </p>
-          <button type="button" onClick={reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+          <button type="button" onClick={reload} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
             {t("Повторить")}
           </button>
         </div>

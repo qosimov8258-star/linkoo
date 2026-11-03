@@ -12,7 +12,7 @@ type PageProps = { params: Promise<{ id: string }> }
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getServerT()
   const report = getAnalyticsReport("products")
-  return { title: `${t(report?.label ?? "products")} — Linko` }
+  return { title: `${t(report?.label ?? "products")} — Mezon` }
 }
 
 /** The opened item in the URL (reference: #/product/966). */

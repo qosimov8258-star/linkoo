@@ -30,7 +30,7 @@ export function PerfectStoreView() {
     <RefPage>
       <RefHeader title="Perfect store">
         <button onClick={download} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Download size={16} /> {t("Скачать Excel")}</button>
-        <Link href="/analytics/perfect-store/config" className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Конфигурация")}</Link>
+        <Link href="/analytics/perfect-store/config" className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Конфигурация")}</Link>
       </RefHeader>
 
       <section className="overflow-hidden bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
@@ -38,7 +38,7 @@ export function PerfectStoreView() {
           {tabs.map((label) => (
             <button key={label} type="button" onClick={() => setTab(label)} className={`relative h-full flex-1 text-[13px] ${tab === label ? "text-[#333]" : "text-[#333]"}`}>
               {t(label)}
-              {tab === label && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-[#4f71dc]" />}
+              {tab === label && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-[#1E4A9A]" />}
             </button>
           ))}
         </div>

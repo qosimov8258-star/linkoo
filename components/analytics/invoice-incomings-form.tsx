@@ -200,7 +200,7 @@ export function InvoiceFormDialog({ invoice, onClose, onSaved }: { invoice: Invo
   }
 
   const lineError = (key: number, field: string) => error?.field === `lines.${sentKeys.indexOf(key)}.${field}`
-  const cell = "h-9 w-full min-w-0 rounded-md border bg-white px-2 text-[13px] outline-none focus:border-[#4f70e7]"
+  const cell = "h-9 w-full min-w-0 rounded-md border bg-white px-2 text-[13px] outline-none focus:border-[#1E4A9A]"
   const border = (invalid: boolean) => (invalid ? "border-[#e57373]" : "border-[#dbe0e8]")
   const filledLines = lines.filter(isFilled)
 
@@ -289,13 +289,13 @@ export function InvoiceFormDialog({ invoice, onClose, onSaved }: { invoice: Invo
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-x-5 gap-y-2">
             <p className="mr-auto text-[15px] font-bold text-[#17233b]">{t("Товары и услуги")}</p>
-            <button type="button" onClick={() => setLines((current) => [...current, emptyLine()])} className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={() => setLines((current) => [...current, emptyLine()])} className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#1E4A9A] hover:underline">
               <Plus className="h-4 w-4" /> {t("Добавить строку")}
             </button>
             <div className="w-[240px]">
               <CatalogSelect value="" options={catalog.options} placeholder={t("+ Добавить из каталога")} onChange={addFromCatalog} />
             </div>
-            <button type="button" onClick={matchAll} disabled={!catalog.options.length} className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#4f70e7] hover:underline disabled:opacity-40" title={t("Сопоставить строки с каталогом по ИКПУ или наименованию")}>
+            <button type="button" onClick={matchAll} disabled={!catalog.options.length} className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#1E4A9A] hover:underline disabled:opacity-40" title={t("Сопоставить строки с каталогом по ИКПУ или наименованию")}>
               <Wand2 className="h-4 w-4" /> {t("Сопоставить с каталогом")}
             </button>
           </div>

@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: ClientModulePageProps): Promi
   if (!clientModule) return notFoundMetadata()
 
   return {
-    title: `${t(clientModule.label)} — Linko`,
+    title: `${t(clientModule.label)} — Mezon`,
     description: t(clientModule.description),
   }
 }

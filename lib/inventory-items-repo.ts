@@ -558,8 +558,8 @@ export async function listInventoryLogs(query: InventoryQuery): Promise<Inventor
   if (query.logStatuses.length) add("l.status = ANY(?::text[])", query.logStatuses)
   if (query.createdFrom) add(`${createdDay("l.created_at")} >= ?`, query.createdFrom)
   if (query.createdTo) add(`${createdDay("l.created_at")} <= ?`, query.createdTo)
-  if (query.moveFrom) add("l.move_date >= ?", query.moveFrom)
-  if (query.moveTo) add("l.move_date <= ?", query.moveTo)
+  if (query.moveFrom) add("left(l.move_date, 10) >= ?", query.moveFrom)
+  if (query.moveTo) add("left(l.move_date, 10) <= ?", query.moveTo)
   if (query.search) {
     const pattern = likePattern(query.search)
     add(`(${PRODUCT_NAME_SQL} ILIKE ? OR i.serial_number ILIKE ? OR i.inventory_code ILIKE ? OR COALESCE(c.name, l.client) ILIKE ? OR l.comment ILIKE ?)`, pattern, pattern, pattern, pattern, pattern)

@@ -332,7 +332,7 @@ export function TasksView() {
             ) : loadError ? (
               <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-[13px]">
                 <p className="text-[#e57373]">{t(loadError)}</p>
-                <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="text-[#4f71dc] hover:underline">
+                <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="text-[#1E4A9A] hover:underline">
                   {t("Повторить")}
                 </button>
               </div>

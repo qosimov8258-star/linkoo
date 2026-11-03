@@ -77,7 +77,7 @@ function Info({ text }: { text: string }) {
   const { t } = useLanguage()
   return (
     <span title={t(text)} aria-label={t(text)} role="img" className="ml-2 inline-flex h-5 w-5 shrink-0 cursor-help items-center justify-center">
-      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#4f71dc]" aria-hidden>
+      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#1E4A9A]" aria-hidden>
         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
       </svg>
     </span>

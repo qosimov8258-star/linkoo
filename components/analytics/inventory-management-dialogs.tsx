@@ -138,7 +138,7 @@ function PhotoField({ value, stored, onChange }: { value: string | undefined; st
       <button
         type="button"
         onClick={() => input.current?.click()}
-        className="relative flex h-[250px] w-[250px] flex-col items-center justify-center gap-2 overflow-hidden border border-dashed border-[#c4cbd6] bg-white text-[#9aa3b6] hover:border-[#4f70e7]"
+        className="relative flex h-[250px] w-[250px] flex-col items-center justify-center gap-2 overflow-hidden border border-dashed border-[#c4cbd6] bg-white text-[#9aa3b6] hover:border-[#1E4A9A]"
       >
         {shown ? <Image src={shown} alt="" fill unoptimized className="object-cover" /> : (
           <>

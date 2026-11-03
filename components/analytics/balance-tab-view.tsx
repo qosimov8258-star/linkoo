@@ -88,7 +88,7 @@ function InfoTip({ text }: { text: string }) {
       onMouseEnter={() => setSide("right")}
       onMouseLeave={() => setSide(null)}
     >
-      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]" aria-hidden>
+      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#1E4A9A]" aria-hidden>
         <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
       </svg>
       {side && (
@@ -266,7 +266,7 @@ export function BalanceTabView() {
         <button
           type="button"
           onClick={apply}
-          className="ml-auto mr-[18px] mt-[6px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold uppercase text-white hover:brightness-95"
+          className="ml-auto mr-[18px] mt-[6px] h-[30px] rounded-[3px] bg-[#1E4A9A] px-[15px] text-[13px] font-semibold uppercase text-white hover:brightness-95"
         >
           {t("Применить")}
         </button>

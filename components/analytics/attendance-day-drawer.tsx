@@ -58,7 +58,7 @@ export function AttendanceDayDrawer({ employeeId, date, onDate, onClose }: { emp
             <Icon path={ICONS.person} color="#fff" size={26} />
           </span>
           <strong className="min-w-0 flex-1 truncate text-[14px] uppercase text-[#333]">{data?.employee.name ?? ""}</strong>
-          <Link href={`/tracking?view=agents&agent=${employeeId}&date=${encodeURIComponent(date)}`} className="flex shrink-0 items-center gap-[6px] text-[13px] text-[#4f71dc] hover:underline">
+          <Link href={`/tracking?view=agents&agent=${employeeId}&date=${encodeURIComponent(date)}`} className="flex shrink-0 items-center gap-[6px] text-[13px] text-[#1E4A9A] hover:underline">
             <Icon path={ICONS.reply} color="#999" size={18} />
             {t("Просмотреть на карте")}
           </Link>
@@ -101,7 +101,7 @@ export function AttendanceDayDrawer({ employeeId, date, onDate, onClose }: { emp
         <div className="min-h-0 flex-1 overflow-y-auto px-[24px] py-[16px]">
           {loading ? (
             <div className="flex justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-[#4f71dc]" />
+              <Loader2 className="h-6 w-6 animate-spin text-[#1E4A9A]" />
             </div>
           ) : state.error ? (
             <p className="py-10 text-center text-[13px] text-[#e57373]">{t(state.error)}</p>
@@ -168,9 +168,9 @@ export function AttendanceDayDrawer({ employeeId, date, onDate, onClose }: { emp
                             href={`https://www.openstreetmap.org/?mlat=${event.lat}&mlon=${event.lng}#map=17/${event.lat}/${event.lng}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="mt-[2px] inline-flex items-center gap-[4px] text-[12px] text-[#4f71dc] hover:underline"
+                            className="mt-[2px] inline-flex items-center gap-[4px] text-[12px] text-[#1E4A9A] hover:underline"
                           >
-                            <Icon path={ICONS.pin} color="#4f71dc" size={14} />
+                            <Icon path={ICONS.pin} color="#1E4A9A" size={14} />
                             {event.lat.toFixed(5)}, {event.lng.toFixed(5)}
                             {event.accuracy !== null ? ` (± ${Math.round(event.accuracy)} ${t("м")})` : ""}
                           </a>

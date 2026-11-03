@@ -178,7 +178,7 @@ export function BranchKpiDetailPanel({
   if (!data) return null
 
   const dash = <span className="text-[#999]">—</span>
-  const head = "h-[30px] bg-[#4f71dc] px-1 font-bold text-white"
+  const head = "h-[30px] bg-[#1E4A9A] px-1 font-bold text-white"
   const cell = "h-[30px] bg-[#d7e0ff] px-1 font-bold text-[#666]"
   return (
     <div className="bg-[#f1f5f8] py-[20px]">

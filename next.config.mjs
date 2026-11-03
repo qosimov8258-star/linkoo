@@ -14,6 +14,8 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // A second local instance (e.g. the factory simulation DB) needs its own build folder.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   devIndicators: false,
   poweredByHeader: false,
   images: {

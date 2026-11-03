@@ -130,7 +130,7 @@ export function CategoryDeleteDialog({
         <div className="relative min-h-[150px] px-[30px] text-[14px] text-[#333]">
           {busy && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80">
-              <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
+              <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
             </div>
           )}
           <p className="py-5">{t("Вы уверены что хотите удалить эти данные?")}</p>

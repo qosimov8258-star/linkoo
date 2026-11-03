@@ -111,7 +111,7 @@ export function CashAcceptanceInfoDialog({ id, canWrite, onClose, onChanged }: {
                   <tr key={payment.id} className="border-b border-dashed border-[#d8dee7]">
                     <td className="px-2 py-2">{payment.docNo}</td>
                     <td className="px-2 py-2">
-                      <a href={clientHref(payment.client.id, payment.client.name)} target="_blank" rel="noreferrer" className="text-[#4f70e7] hover:underline">
+                      <a href={clientHref(payment.client.id, payment.client.name)} target="_blank" rel="noreferrer" className="text-[#1E4A9A] hover:underline">
                         {payment.client.name}
                       </a>
                     </td>

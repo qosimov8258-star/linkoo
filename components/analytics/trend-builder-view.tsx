@@ -209,7 +209,7 @@ export function TrendBuilderView() {
 
   const CARD = "bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
   const SMALL = "flex h-[28px] items-center rounded-[3px] px-[14px] text-[13px] font-semibold text-white hover:brightness-95"
-  const CHIP = "flex h-[32px] w-[114px] items-center justify-center rounded-[3px] bg-[#4f71dc] px-1 text-center text-[13px] font-semibold leading-[15px] text-white hover:brightness-95"
+  const CHIP = "flex h-[32px] w-[114px] items-center justify-center rounded-[3px] bg-[#1E4A9A] px-1 text-center text-[13px] font-semibold leading-[15px] text-white hover:brightness-95"
   const cell = "border border-[#ececec] px-3 py-2"
 
   return (
@@ -219,7 +219,7 @@ export function TrendBuilderView() {
       <section className={`mx-7 ${CARD}`}>
         <div className="relative flex h-[48px] items-center border-b border-[#ececec] px-[20px]">
           <div className="relative">
-            <button onClick={() => setDateOpen((v) => !v)} className={`${SMALL} bg-[#4f71dc]`}>⌄ <span className="ml-2">{t("Сверка даты")}</span></button>
+            <button onClick={() => setDateOpen((v) => !v)} className={`${SMALL} bg-[#1E4A9A]`}>⌄ <span className="ml-2">{t("Сверка даты")}</span></button>
             {dateOpen && (
               <div className="absolute left-0 top-full z-20 mt-1 flex gap-4 border border-[#e8e8e8] bg-white p-4 shadow-xl">
                 <label className="text-[11px]">{t("От")}<input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="mt-1 block border-b py-1 text-[13px]" /></label>
@@ -231,14 +231,14 @@ export function TrendBuilderView() {
         </div>
 
         <div ref={toolbarRef} className="relative flex flex-wrap items-center gap-[14px] px-[30px] py-[8px]">
-          <button onClick={() => openPanel("columns")} className={`${SMALL} bg-[#4f71dc]`}>⌄ <span className="ml-2">{t("Колонки")}</span></button>
+          <button onClick={() => openPanel("columns")} className={`${SMALL} bg-[#1E4A9A]`}>⌄ <span className="ml-2">{t("Колонки")}</span></button>
           <button onClick={exportExcel} className={`${SMALL} bg-[#71ce87]`}><Download className="mr-2 h-4 w-4" />{t("Сформировать Excel")}</button>
           <button onClick={addToReports} className={`${SMALL} bg-[#ff8a6f]`}><span className="mr-2">★</span>{saved ? t("Добавлено") : t("Добавить в отчеты")}</button>
           <button onClick={() => router.push("/analytics/report-list")} className={`${SMALL} bg-[#ff8a6f]`}><FolderOpen className="mr-2 h-4 w-4 fill-white" />{t("Отчеты")}</button>
           <div className="ml-auto flex items-center gap-[14px]">
             <button onClick={() => openPanel("table")} className={CHIP}>{t("Оптимизация таблицы")} ⌄</button>
             <button onClick={() => openPanel("vertical")} className={CHIP}>{t("Вертикальная группировка")} ⌄</button>
-            <button onClick={() => openPanel("filters")} className={`${SMALL} ml-[36px] w-[110px] justify-center bg-[#4f71dc]`}>⌄ <span className="ml-2">{t("Фильтры")}{dateFilters.length ? ` (${dateFilters.length})` : ""}</span></button>
+            <button onClick={() => openPanel("filters")} className={`${SMALL} ml-[36px] w-[110px] justify-center bg-[#1E4A9A]`}>⌄ <span className="ml-2">{t("Фильтры")}{dateFilters.length ? ` (${dateFilters.length})` : ""}</span></button>
           </div>
 
           {open === "columns" && (

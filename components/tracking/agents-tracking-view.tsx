@@ -392,7 +392,7 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
 
         <div className="pointer-events-none absolute left-[60px] right-[16px] top-[14px] z-[500] flex flex-wrap items-center gap-x-[16px] gap-y-[8px]">
           <div className="pointer-events-auto flex items-center gap-[11px]">
-            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
             <span className="h-[21px] w-[2px] bg-[#5d6474]" />
             <h1 className="text-[18px] font-bold text-[#5d6474]">{t(detail ? "Показать путь" : "Отслеживание")}</h1>
           </div>

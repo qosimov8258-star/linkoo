@@ -132,7 +132,7 @@ export function DictionaryRowActions({ onEdit, onDelete }: { onEdit: () => void;
   return (
     <div className="absolute right-[34px] top-1/2 flex -translate-y-1/2 gap-[8px] opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
       <button type="button" onClick={onEdit} title={t("Изменить")} aria-label={t("Изменить")}>
-        <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#5d6474] hover:fill-[#4f71dc]"><path d={glyph} /></svg>
+        <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#5d6474] hover:fill-[#1E4A9A]"><path d={glyph} /></svg>
       </button>
       <button type="button" onClick={onDelete} title={t("Удалить")} aria-label={t("Удалить")}>
         <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#5d6474] hover:fill-[#e57373]"><path d={bin} /></svg>
@@ -186,8 +186,8 @@ export function DictionaryToolbar({
   return (
     <div className="relative flex h-[60px] items-center">
       {addLabel && (
-        <button type="button" onClick={onAdd} className={`absolute left-[17px] flex items-center text-[13px] text-[#4f71dc] hover:underline ${plus === "icon" ? "top-[25px]" : "top-[27px]"}`}>
-          <svg viewBox="0 0 24 24" className={`fill-[#4f71dc] ${plus === "icon" ? "h-6 w-6" : "h-[14px] w-[14px]"}`}><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+        <button type="button" onClick={onAdd} className={`absolute left-[17px] flex items-center text-[13px] text-[#1E4A9A] hover:underline ${plus === "icon" ? "top-[25px]" : "top-[27px]"}`}>
+          <svg viewBox="0 0 24 24" className={`fill-[#1E4A9A] ${plus === "icon" ? "h-6 w-6" : "h-[14px] w-[14px]"}`}><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
           <span className={plus === "icon" ? "ml-px" : "ml-[2px]"}>{addLabel}</span>
         </button>
       )}
@@ -329,7 +329,7 @@ export function DictionaryFormShell({
         <div className={`relative pb-6 pl-[30px] pt-[40px] ${narrow ? (width === 400 ? "pr-[47px]" : "pr-[52px]") : "pr-[30px]"}`} style={{ minHeight: bodyMinHeight }}>
           {busy && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80">
-              <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
+              <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
             </div>
           )}
           {loadError ? <p className="py-10 text-center text-[14px] text-[#f44336]">{t(loadError)}</p> : children}
@@ -346,7 +346,7 @@ export function DictionaryFormShell({
 }
 
 /** Underlined text input of the dictionary dialogs (demo material fields). */
-export const dictionaryInputClass = "h-9 w-full min-w-0 border-0 border-b border-[#e0e0e0] bg-transparent px-0 pt-[12px] text-[13px] font-semibold text-[#333] outline-none focus:border-[#4f70e7]"
+export const dictionaryInputClass = "h-9 w-full min-w-0 border-0 border-b border-[#e0e0e0] bg-transparent px-0 pt-[12px] text-[13px] font-semibold text-[#333] outline-none focus:border-[#1E4A9A]"
 
 /** Material floating-label field: the bold label sits on the empty input and shrinks above a filled one. */
 export function Field({ label, required, error, filled = false, select = false, className = "", children }: { label: string; required?: boolean; error?: string; filled?: boolean; /** Select blocks are 42 px tall with the label 9 px from the top (text blocks 43 px / 20 px). */ select?: boolean; className?: string; children: ReactNode }) {
@@ -374,7 +374,7 @@ export function Toggle({ title, subTitle, checked, onChange }: { title: string; 
         className="relative h-5 w-9 shrink-0"
       >
         <span className={`absolute left-0 top-[3px] h-[14px] w-9 rounded-full transition-colors ${checked ? "bg-[#9fb0f1]" : "bg-[#dcdcdc]"}`} />
-        <span className={`absolute top-0 h-5 w-5 rounded-full shadow transition-all ${checked ? "left-[16px] bg-[#4f70e7]" : "left-0 bg-white"}`} />
+        <span className={`absolute top-0 h-5 w-5 rounded-full shadow transition-all ${checked ? "left-[16px] bg-[#1E4A9A]" : "left-0 bg-white"}`} />
       </button>
       <span>
         <span className="block text-[13px] font-semibold leading-[16px] text-[#333]">{title}</span>
@@ -440,7 +440,7 @@ export function ImageField({ value, pending, onChange, error, className = "mt-[2
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") input.current?.click() }}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => { event.preventDefault(); void pick(event.dataTransfer.files?.[0]) }}
-        className="relative mx-auto flex h-[200px] w-full max-w-[200px] cursor-pointer items-center justify-center overflow-hidden border-2 border-dashed border-[#efefef] text-[#333] hover:border-[#4f70e7]"
+        className="relative mx-auto flex h-[200px] w-full max-w-[200px] cursor-pointer items-center justify-center overflow-hidden border-2 border-dashed border-[#efefef] text-[#333] hover:border-[#1E4A9A]"
       >
         {busy ? (
           <Loader2 className="h-7 w-7 animate-spin" />
@@ -558,7 +558,7 @@ export function DictionaryDeleteDialog({
         <div className="relative min-h-[210px] px-[30px] text-[13px] text-[#333]">
           {busy && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80">
-              <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
+              <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
             </div>
           )}
           <p className="py-5 leading-4">{t("Вы уверены что хотите удалить эти данные?")}</p>

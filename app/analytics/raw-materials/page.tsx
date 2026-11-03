@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getServerT()
   const report = getAnalyticsReport("raw-materials")
-  return { title: `${t(report?.label ?? "raw-materials")} — Linko` }
+  return { title: `${t(report?.label ?? "raw-materials")} — Mezon` }
 }
 
 export default function Page() {

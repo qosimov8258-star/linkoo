@@ -53,7 +53,7 @@ export function ReportListView() {
               <tbody>
                 {rows.map(({ label, description, category, href, author }) => (
                   <tr key={label} className="h-[37px] border-t border-[#eee] font-semibold text-[#555]">
-                    <td className="px-[10px]"><button onClick={() => router.push(href)} className="text-left hover:text-[#4f71dc]">{t(label)}</button></td>
+                    <td className="px-[10px]"><button onClick={() => router.push(href)} className="text-left hover:text-[#1E4A9A]">{t(label)}</button></td>
                     <td className="px-[10px]">{t(description)}</td>
                     <td className="px-[10px]">{category && <span className="rounded-full bg-[#e0e0e0] px-[8px] py-[2px] text-[12px]">{t(category)}</span>}</td>
                     <td className="px-[10px]">{t(author)}</td>

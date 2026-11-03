@@ -49,7 +49,7 @@ function InfoModal({ title, onClose }: { title: string; onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          className="mt-5 w-full rounded-md bg-[#4f71dc] py-2.5 text-sm font-semibold text-white hover:opacity-90"
+          className="mt-5 w-full rounded-md bg-[#1E4A9A] py-2.5 text-sm font-semibold text-white hover:opacity-90"
         >
           {t("Понятно")}
         </button>
@@ -59,7 +59,7 @@ function InfoModal({ title, onClose }: { title: string; onClose: () => void }) {
 }
 
 const INPUT_CLASS =
-  "h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#444CE7] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
+  "h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#1E4A9A] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
 
 /** Shown right after signing in with a password that must be replaced (set by
  * an administrator, the first seeded password, or one weaker than the policy). */
@@ -135,7 +135,7 @@ function ChangePasswordForm({ currentPassword: knownCurrent, username, target }:
       <button
         type="submit"
         disabled={submitting}
-        className="flex h-12 w-full items-center justify-center rounded-[5px] bg-[#4243FF] px-5 text-base font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
+        className="flex h-12 w-full items-center justify-center rounded-[5px] bg-[#0D2350] px-5 text-base font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {submitting ? t("Сохранение...") : t("Сменить пароль")}
       </button>
@@ -284,7 +284,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
             onChange={(event) => setServer(event.target.value)}
             placeholder={t("Введите")}
             required
-            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#444CE7] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
+            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#1E4A9A] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
             autoComplete="off"
           />
         </label>
@@ -299,7 +299,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
             onChange={(event) => setLogin(event.target.value)}
             placeholder={t("Введите")}
             required
-            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#444CE7] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
+            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#1E4A9A] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
             autoComplete="username"
           />
         </label>
@@ -314,7 +314,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
             onChange={(event) => setPassword(event.target.value)}
             placeholder={t("Введите")}
             required
-            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#444CE7] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
+            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#1E4A9A] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
             autoComplete="current-password"
           />
         </label>
@@ -332,7 +332,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
           <button
             type="button"
             onClick={() => setInfoModal(t("Восстановление пароля"))}
-            className="text-[13px] font-semibold text-[#3538CD] hover:underline"
+            className="text-[13px] font-semibold text-[#1E4A9A] hover:underline"
           >
             {t("Забыли пароль?")}
           </button>
@@ -343,7 +343,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
         <button
           type="submit"
           disabled={submitting}
-          className="mt-[30px] flex h-12 w-full items-center justify-center rounded-[5px] bg-[#4243FF] px-5 text-base font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
+          className="mt-[30px] flex h-12 w-full items-center justify-center rounded-[5px] bg-[#0D2350] px-5 text-base font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {submitting ? t("Вход...") : t("Войти")}
         </button>
@@ -352,7 +352,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
       <div className="mt-[25px] text-center text-[13px]">
         <p className="text-[#475467]">
           {t("У вас нет доступа?")}{" "}
-          <button type="button" onClick={() => setInfoModal(t("Регистрация"))} className="font-semibold text-[#3538CD] hover:underline">
+          <button type="button" onClick={() => setInfoModal(t("Регистрация"))} className="font-semibold text-[#1E4A9A] hover:underline">
             {t("Регистрация")}
           </button>
         </p>
@@ -371,7 +371,7 @@ export function LoginScreen(props: LoginScreenProps) {
         <div className="flex flex-1 flex-col px-6 pb-12 pt-[93px] sm:px-12 lg:px-0">
           <div className="mx-auto w-full max-w-[500px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/login/logo.png" alt="linko" width={99} height={50} className="block h-[50px] w-[99px]" />
+            <img src="/brand/mezon-login.png" alt="Mezon" width={222} height={50} className="block h-[50px] w-[222px]" />
 
             <h1 className="mb-3 mt-[63px] text-[36px] font-bold leading-[44px] text-[#333333]">{t("Войти в систему")}</h1>
             <p className="text-base leading-5 text-[#475467]">
@@ -403,9 +403,13 @@ export function LoginScreen(props: LoginScreenProps) {
         </footer>
       </div>
 
-      <div className="relative hidden lg:block lg:w-1/2">
+      <div className="relative hidden flex-col items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_30%_20%,#1E4A9A_0%,#0D2350_55%,#08162F_100%)] lg:flex lg:w-1/2">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full border-[40px] border-[#C9962B]/15" />
+        <div className="pointer-events-none absolute -bottom-32 -left-20 h-96 w-96 rounded-full border-[56px] border-white/5" />
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/login/hero.png" alt="" className="absolute inset-0 h-full w-full object-fill" />
+        <img src="/brand/mezon-logo-white.png" alt="Mezon" className="relative w-[46%] max-w-[360px]" />
+        <p className="relative mt-8 max-w-[380px] text-center text-[17px] font-medium leading-7 text-white/80">{t("Панель управления дистрибуцией")}</p>
+        <div className="relative mt-5 h-[3px] w-16 rounded-full bg-[#C9962B]" />
       </div>
     </main>
   )

@@ -167,7 +167,7 @@ export function SurveyPlanView() {
     <RefPage>
       <RefHeader title={t("План опроса")}>
         <input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={handleImport} className="hidden" />
-        <button type="button" onClick={() => fileInputRef.current?.click()} className="mr-[15px] flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="mr-[15px] flex h-[30px] items-center gap-2 rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">
           <RefreshCw className="h-4 w-4" />
           {t("Установить с EXCEL")}
         </button>
@@ -213,13 +213,13 @@ export function SurveyPlanView() {
           pageCount={1}
           onPage={() => {}}
           icons={
-            <button type="button" onClick={() => setGrouped((value) => !value)} aria-pressed={grouped} aria-label="Группировать по опросу" className={`flex h-[30px] w-[30px] items-center justify-center rounded ${grouped ? "bg-[#4f71dc] text-white" : "text-[#5d6474]"}`}>
+            <button type="button" onClick={() => setGrouped((value) => !value)} aria-pressed={grouped} aria-label="Группировать по опросу" className={`flex h-[30px] w-[30px] items-center justify-center rounded ${grouped ? "bg-[#1E4A9A] text-white" : "text-[#5d6474]"}`}>
               <ListChecks className="h-6 w-6" />
             </button>
           }
           extra={
             <>
-              <button type="button" onClick={openEdit} className="inline-flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-[18px] text-[13px] font-semibold text-white hover:brightness-95">
+              <button type="button" onClick={openEdit} className="inline-flex h-[30px] items-center gap-2 rounded-[5px] bg-[#1E4A9A] px-[18px] text-[13px] font-semibold text-white hover:brightness-95">
                 <Pencil className="h-4 w-4" />
                 Изменить планы
               </button>
@@ -263,7 +263,7 @@ export function SurveyPlanView() {
               <span className="mt-[2px]">По вашему запросу ничего не найдено</span>
             </div>
           }
-          render={(row) => [row.employee, <span key="s" className="text-[#4f71dc]">{row.survey}</span>]}
+          render={(row) => [row.employee, <span key="s" className="text-[#1E4A9A]">{row.survey}</span>]}
         />
       </RefCard>
 
@@ -296,7 +296,7 @@ export function SurveyPlanView() {
                   </button>
                 </div>
               ))}
-              <button type="button" onClick={addDraftRow} className="flex items-center gap-2 text-[#4f71dc] hover:underline">
+              <button type="button" onClick={addDraftRow} className="flex items-center gap-2 text-[#1E4A9A] hover:underline">
                 <PlusCircle className="h-5 w-5" />
                 {t("Добавить сотрудника")}
               </button>

@@ -160,7 +160,7 @@ export function ProductionBatchesView() {
   return (
     <RefPage>
       <RefHeader title={t("Партии")}>
-        <button type="button" onClick={() => setCreateOpen(true)} title={t("Добавление партии")} aria-label={t("Добавление партии")} className="flex h-10 w-10 items-center justify-center rounded-[3px] bg-[#4f71dc] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <button type="button" onClick={() => setCreateOpen(true)} title={t("Добавление партии")} aria-label={t("Добавление партии")} className="flex h-10 w-10 items-center justify-center rounded-[3px] bg-[#1E4A9A] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
           <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
         </button>
       </RefHeader>
@@ -187,7 +187,7 @@ export function ProductionBatchesView() {
                 setDraft({ ...filters, createdFrom: filters.createdFrom || month.from, createdTo: filters.createdTo || month.to, finishedFrom: filters.finishedFrom || month.from, finishedTo: filters.finishedTo || month.to })
                 setFilterOpen((value) => !value)
               }}
-              className="text-[13px] text-[#4f71dc]"
+              className="text-[13px] text-[#1E4A9A]"
             >
               {filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")} ⌄
             </button>

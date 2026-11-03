@@ -145,7 +145,7 @@ function DialogShell({
         </div>
         {onSubmit && (
           <footer className="flex justify-end border-t border-[#efefef] px-8 py-4">
-            <button type="submit" disabled={saving} className="text-[13px] font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50">
+            <button type="submit" disabled={saving} className="text-[13px] font-bold uppercase tracking-wide text-[#1E4A9A] disabled:opacity-50">
               {saving ? t("Сохранение...") : t(submitLabel)}
             </button>
           </footer>
@@ -571,7 +571,7 @@ export function MultiSelectField({ label, options, value, onChange }: { label: s
           {!all.length && <p className="px-3 py-2 text-sm text-[#9aa3b6]">{t("Ничего не найдено")}</p>}
           {all.map((name) => (
             <button key={name} type="button" onClick={() => toggle(name)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8]">
-              <span className={`flex h-4 w-4 items-center justify-center rounded border ${value.includes(name) ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#c4cbd6]"}`}>
+              <span className={`flex h-4 w-4 items-center justify-center rounded border ${value.includes(name) ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#c4cbd6]"}`}>
                 {value.includes(name) && <Check className="h-3 w-3" />}
               </span>
               {name}

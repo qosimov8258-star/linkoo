@@ -77,7 +77,7 @@ function Dialog({ title, onClose, onSubmit, children, footer, wide }: { title: s
   )
 }
 
-const fieldClass = "mt-2 block w-full border-b border-slate-200 bg-white pb-1 outline-none focus:border-[#4f70e7]"
+const fieldClass = "mt-2 block w-full border-b border-slate-200 bg-white pb-1 outline-none focus:border-[#1E4A9A]"
 
 /** "Добавить расход": an additional cost of the supply (delivery, customs…),
  * spread over the lines' net cost. */
@@ -331,7 +331,7 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
               </select>
             </label>
           </div>
-          <button type="button" onClick={calculate} className="w-full rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={calculate} className="w-full rounded bg-[#1E4A9A] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
             {t("Расчитать")}
           </button>
           <div className="rounded bg-slate-50 p-3 text-xs text-slate-500">

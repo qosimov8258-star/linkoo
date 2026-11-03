@@ -29,7 +29,7 @@ export function Spinner({ className = "" }: { className?: string }) {
     <svg viewBox="0 0 48 48" className={`h-12 w-12 animate-spin ${className}`} style={{ animationDuration: "1.2s" }} aria-hidden>
       {Array.from({ length: 10 }, (_, index) => {
         const angle = (index / 10) * Math.PI * 2
-        return <circle key={index} cx={24 + 16 * Math.sin(angle)} cy={24 - 16 * Math.cos(angle)} r={1.2 + index * 0.18} fill="#4f71dc" />
+        return <circle key={index} cx={24 + 16 * Math.sin(angle)} cy={24 - 16 * Math.cos(angle)} r={1.2 + index * 0.18} fill="#1E4A9A" />
       })}
     </svg>
   )

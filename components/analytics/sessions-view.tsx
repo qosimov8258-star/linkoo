@@ -40,7 +40,7 @@ function InfoIcon({ text }: { text: string }) {
   return (
     <RefTip text={text} side="left" gap={12}>
       <span className="flex h-6 w-6 items-center justify-center">
-        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" /></svg>
+        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#1E4A9A]"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" /></svg>
       </span>
     </RefTip>
   )
@@ -195,7 +195,7 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
           <span>{formatDateText(log.createdAt, language, { withTime: true, utc: true })}</span>
           <span className="py-[7px] leading-[16px]">
             {log.user.name}
-            {log.ip && <><br /><span className="text-[#4f71dc]">{log.ip}</span></>}
+            {log.ip && <><br /><span className="text-[#1E4A9A]">{log.ip}</span></>}
           </span>
           {!active && <span>{log.lastResponseAt ? formatDateText(log.lastResponseAt, language, { withTime: true, utc: true }) : t("Не указано")}</span>}
           {/* Status and button follow the row itself (toggle() sends !log.isActive), not the tab. */}
@@ -206,7 +206,7 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
                 type="button"
                 disabled={busyId === log.id}
                 onClick={() => void toggle(log)}
-                className={`h-[30px] rounded-[3px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60 ${log.isActive ? "bg-[#71ce87] px-[14px]" : "bg-[#4f71dc] px-[16px]"}`}
+                className={`h-[30px] rounded-[3px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60 ${log.isActive ? "bg-[#71ce87] px-[14px]" : "bg-[#1E4A9A] px-[16px]"}`}
               >
                 {log.isActive ? t("Завершить") : t("Восстановить")}
               </button>

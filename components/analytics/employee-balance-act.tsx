@@ -61,7 +61,7 @@ export function EmployeeActDialog({
       label: "Тип",
       render: (row) =>
         row.href ? (
-          <Link href={row.href} className="whitespace-nowrap text-[#4f70e7] hover:underline">
+          <Link href={row.href} className="whitespace-nowrap text-[#1E4A9A] hover:underline">
             {t(row.title)}
           </Link>
         ) : (
@@ -134,12 +134,12 @@ export function EmployeeActDialog({
 
       {!data && statement.loading ? (
         <div className="flex h-[300px] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
         </div>
       ) : !data ? (
         <div className="px-7 py-16 text-center">
           <p className="text-[#e57373]">{statement.error ? t(statement.error) : t("Не удалось загрузить данные")}</p>
-          <button type="button" onClick={statement.reload} className="mt-3 font-semibold text-[#4f70e7] underline">
+          <button type="button" onClick={statement.reload} className="mt-3 font-semibold text-[#1E4A9A] underline">
             {t("Повторить")}
           </button>
         </div>

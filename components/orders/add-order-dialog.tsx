@@ -587,7 +587,7 @@ export function AddOrderDialog({
               <p className="text-[16px] font-semibold leading-[20px]">
                 {t("Цены товаров будут изменены на")} {pendingPricing.priceList} ({pendingPricing.currency}, {t(pendingPricing.paymentType).toLowerCase()})
               </p>
-              <div className="mt-[22px] flex gap-[67px] text-[13px] font-bold text-[#4f71dc]">
+              <div className="mt-[22px] flex gap-[67px] text-[13px] font-bold text-[#1E4A9A]">
                 <button type="button" onClick={() => setPendingPricing(null)} className="uppercase">{t("Нет")}</button>
                 <button type="button" onClick={applyPendingPricing} className="uppercase">{t("Да")}</button>
               </div>

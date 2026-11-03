@@ -313,7 +313,7 @@ function CreateDialog({ noBase, baseCode, onClose, onSaved }: { noBase: boolean;
 function Tabs({ tab, onTab }: { tab: "general" | "individual"; onTab: (tab: "general" | "individual") => void }) {
   const { t } = useLanguage()
   const base = "h-[28px] px-[16px] text-[13px] font-medium uppercase"
-  const on = "bg-[#4f71dc] text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]"
+  const on = "bg-[#1E4A9A] text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]"
   const off = "bg-[#e0e0e0] text-[#bdbdbd] hover:text-[#9e9e9e]"
   return (
     <span className="ml-[22px] flex items-center">
@@ -515,8 +515,8 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
             {tab === "individual" && <span className="ml-[18px] pt-[3px]"><AddLinkInline onClick={() => setIndividualDialog({ item: null })}>{t("добавить")}</AddLinkInline></span>}
             {tab === "general" && (
               <span className="ml-[18px] flex items-center gap-[18px] pt-[3px]">
-                <button type="button" onClick={() => setCreating(true)} className="text-[13px] text-[#4f71dc] hover:underline">{t("+ добавить валюту")}</button>
-                <button type="button" onClick={() => setImportOpen(true)} className="text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>
+                <button type="button" onClick={() => setCreating(true)} className="text-[13px] text-[#1E4A9A] hover:underline">{t("+ добавить валюту")}</button>
+                <button type="button" onClick={() => setImportOpen(true)} className="text-[13px] text-[#1E4A9A] hover:underline">{t("Импорт с Excel")}</button>
               </span>
             )}
             <Tabs tab={tab} onTab={switchTab} />
@@ -617,5 +617,5 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
 }
 
 function AddLinkInline({ children, onClick }: { children: string; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="text-[13px] text-[#4f71dc] hover:underline">+ {children}</button>
+  return <button type="button" onClick={onClick} className="text-[13px] text-[#1E4A9A] hover:underline">+ {children}</button>
 }

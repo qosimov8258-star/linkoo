@@ -194,7 +194,7 @@ export function ContractsView() {
       <span className="inline-flex max-w-[320px] items-center gap-2" title={row.clients.map((client) => client.name).join("\n")}>
         <Info className="h-4 w-4 shrink-0 text-[rgb(79,113,220)]" />
         <span className="truncate">{first}</span>
-        <span className="shrink-0 rounded-full bg-[#eef1fb] px-1.5 text-[12px] text-[#4f70e7]">+{row.clients.length - 1}</span>
+        <span className="shrink-0 rounded-full bg-[#eef1fb] px-1.5 text-[12px] text-[#1E4A9A]">+{row.clients.length - 1}</span>
       </span>
     )
   }
@@ -237,7 +237,7 @@ export function ContractsView() {
           </div>
         )}
         {canEdit && (
-          <button type="button" onClick={() => setForm(null)} title={t("Создать договор")} aria-label={t("Создать договор")} className="flex h-10 w-10 items-center justify-center rounded-[3px] bg-[#4f71dc] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] hover:brightness-95">
+          <button type="button" onClick={() => setForm(null)} title={t("Создать договор")} aria-label={t("Создать договор")} className="flex h-10 w-10 items-center justify-center rounded-[3px] bg-[#1E4A9A] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] hover:brightness-95">
             <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
           </button>
         )}
@@ -302,7 +302,7 @@ export function ContractsView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

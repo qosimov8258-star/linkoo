@@ -317,7 +317,7 @@ export function SupplierDebtsView() {
       {row.key === "none" ? (
         <span className="text-[#586174]">{delivererName(row)}</span>
       ) : (
-        <Link href={clientBalanceByDeliverer(row)} className="text-[#333] hover:font-semibold hover:text-[#4f70e7]">
+        <Link href={clientBalanceByDeliverer(row)} className="text-[#333] hover:font-semibold hover:text-[#1E4A9A]">
           {delivererName(row)}
         </Link>
       )}
@@ -350,7 +350,7 @@ export function SupplierDebtsView() {
     row.key === "none" ? (
       <span className="text-[#586174]">{t("Не указано")}</span>
     ) : (
-      <Link href={clientBalanceByAgent(row)} className="text-[#333] hover:font-semibold hover:text-[#4f70e7]">
+      <Link href={clientBalanceByAgent(row)} className="text-[#333] hover:font-semibold hover:text-[#1E4A9A]">
         {row.name}
       </Link>
     )
@@ -366,13 +366,13 @@ export function SupplierDebtsView() {
   const actRow = state.openClient ? rows.find((row) => row.key === state.openClient) : undefined
 
   const toggleButton = (active: boolean) =>
-    `h-[32px] px-4 text-[13px] font-normal uppercase transition-colors ${active ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:0_1px_3px_rgba(0,0,0,0.2)] hover:bg-[#f2f5f8]"}`
+    `h-[32px] px-4 text-[13px] font-normal uppercase transition-colors ${active ? "bg-[#1E4A9A] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:0_1px_3px_rgba(0,0,0,0.2)] hover:bg-[#f2f5f8]"}`
 
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t("Долги доставщиков")}</span>
         </div>
@@ -387,7 +387,7 @@ export function SupplierDebtsView() {
           ))}
         </div>
         {state.typeCash === "ownDate" && (
-          <span className="flex items-center gap-2 text-[13px] font-bold text-[#4f70e7]">
+          <span className="flex items-center gap-2 text-[13px] font-bold text-[#1E4A9A]">
             <input
               type="date"
               value={state.own.from}
@@ -438,7 +438,7 @@ export function SupplierDebtsView() {
           <BalanceSummaryCards compact neutral gapped digits={3} boxes={isAgents ? AGENT_BOXES : DELIVERER_BOXES} totals={data.totals} currencies={codes} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center pb-6">
-            {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
+            {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#1E4A9A]" />}
           </div>
         )}
       </div>

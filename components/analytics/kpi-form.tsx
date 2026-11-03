@@ -314,14 +314,14 @@ export function KpiFormDialog({ editing, duplicate, onClose, onSave }: { editing
             </div>
             <div className="relative mt-[23px]">
               <RefSelect clearable className="w-[384px]" label={t("Валюта")} value={currency} onChange={setCurrency} options={currencyNames} />
-              <svg viewBox="0 0 24 24" className="absolute left-[385.5px] top-0 h-6 w-6 fill-[#4f71dc]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
+              <svg viewBox="0 0 24 24" className="absolute left-[385.5px] top-0 h-6 w-6 fill-[#1E4A9A]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
             </div>
             <RefSelect clearable className="mt-[26px]" label={t("Организация")} value={organization} onChange={setOrganization} options={organizationNames} />
             <p className="mb-[10px] mt-[3px] font-bold leading-[16.3px] text-[#333]">{t("Правила отбора")}</p>
             {KPI_PLANS.map((item) => (
               <Radio key={item.code} checked={plan === item.code} label={t(item.label)} onSelect={() => setPlan(item.code)} />
             ))}
-            {rule?.desc && <div className="-mt-[5px] mb-[10px] bg-[#f1f5f8] px-[5px] text-[13px] font-semibold leading-[18px] text-[#4f71dc]">{t(rule.desc)}</div>}
+            {rule?.desc && <div className="-mt-[5px] mb-[10px] bg-[#f1f5f8] px-[5px] text-[13px] font-semibold leading-[18px] text-[#1E4A9A]">{t(rule.desc)}</div>}
             <p className={`mb-[10px] font-bold leading-[16.3px] text-[#333] ${rule?.desc ? "" : "mt-[5px]"}`}>{t("Действует для клиентов:")}</p>
             <Check checked={clientOn.choosen} label={t(CLIENT_FILTERS[0].label)} onToggle={() => setClientOn((state) => ({ ...state, choosen: !state.choosen }))} />
             <Check checked={clientOn.border} label={t(CLIENT_FILTERS[1].label)} onToggle={() => setClientOn((state) => ({ ...state, border: !state.border }))} />
@@ -404,7 +404,7 @@ export function KpiFormDialog({ editing, duplicate, onClose, onSave }: { editing
             )}
             {showMml && (
               <button type="button" onClick={() => setMml((current) => !current)} className="ml-[30px] flex h-[24px] items-center font-semibold text-[#333]">
-                <span className="relative block h-[24px] w-[44px]"><span className={`absolute left-0 top-[5px] h-[14px] w-[36px] rounded-full ${mml ? "bg-[#9fb3ef]" : "bg-[#b9bcc1]"}`} /><span className={`absolute top-[2px] h-[20px] w-[20px] rounded-full shadow ${mml ? "left-[16px] bg-[#4f71dc]" : "left-0 bg-white"}`} /></span>
+                <span className="relative block h-[24px] w-[44px]"><span className={`absolute left-0 top-[5px] h-[14px] w-[36px] rounded-full ${mml ? "bg-[#9fb3ef]" : "bg-[#b9bcc1]"}`} /><span className={`absolute top-[2px] h-[20px] w-[20px] rounded-full shadow ${mml ? "left-[16px] bg-[#1E4A9A]" : "left-0 bg-white"}`} /></span>
                 <span className="relative top-[0.6px]">{t("Учитывать только ММЛ продукты")}</span>
               </button>
             )}
@@ -416,7 +416,7 @@ export function KpiFormDialog({ editing, duplicate, onClose, onSave }: { editing
               <label className="relative mt-[31.3px] block h-[45px] w-[152.2px] shrink-0"><span className={`pointer-events-none absolute left-0 font-semibold text-black transition-all ${draftBonus ? "top-[1px] text-[10px]" : "top-[12px] text-[13px]"}`}>{t("Бонус")}</span><input value={draftBonus} onChange={(event) => setDraftBonus(event.target.value.replace(/[^\d.]/g, ""))} className="absolute inset-x-0 top-0 h-[36px] border-b border-[#e0e0e0] bg-transparent pt-[10px] text-[13px] font-semibold text-black outline-none focus:border-[#5d6474]" /></label>
               <RefSelect clearable className="ml-[15.9px] mt-[31.3px] w-[236.3px] shrink-0" label={t("Тип расчета")} value={draftCalc} onChange={setDraftCalc} options={Object.values(CALC_LABELS).map((label) => t(label))} />
               <Check className="ml-[16px] mt-[25.3px] w-[236.3px] shrink-0 !items-center" labelClass="w-[176.3px]" checked={draftExclude} label={t("Обнулить предыдущие уровни")} onToggle={() => setDraftExclude((current) => !current)} />
-              <button type="button" onClick={addLevel} aria-label={t("Добавить уровень")} className="absolute right-[19px] top-[27.3px] flex h-[48px] w-[48px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg></button>
+              <button type="button" onClick={addLevel} aria-label={t("Добавить уровень")} className="absolute right-[19px] top-[27.3px] flex h-[48px] w-[48px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#1E4A9A]"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg></button>
             </div>
             {error && <p className="ml-[30px] mt-[12px] text-[12px] text-[#e53935]">{error}</p>}
             {levels.length > 0 && (

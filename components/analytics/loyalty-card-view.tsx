@@ -182,7 +182,7 @@ export function LoyaltyCardView() {
     <main className="min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] flex-wrap items-center gap-4 px-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t("Накопительная карта")}</span>
         </div>
@@ -221,7 +221,7 @@ export function LoyaltyCardView() {
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={t("Поиск")}
               aria-label={t("Поиск")}
-              className="h-10 w-full max-w-[256px] border-b border-[#e0e0e0] bg-transparent px-0 pt-[6px] text-[13px] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#4f70e7]"
+              className="h-10 w-full max-w-[256px] border-b border-[#e0e0e0] bg-transparent px-0 pt-[6px] text-[13px] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#1E4A9A]"
             />
             <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#ccc]">
               <Search className="h-5 w-5" />
@@ -238,7 +238,7 @@ export function LoyaltyCardView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(error)}
             </span>
-            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

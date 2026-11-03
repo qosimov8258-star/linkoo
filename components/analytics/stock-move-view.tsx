@@ -195,7 +195,7 @@ function StockMoveContent() {
       <div className="-mx-7 -mb-7 min-h-[calc(100vh-111px)] border-t border-[#e8eaee] bg-white px-[30px] pb-[30px] pt-[20px]">
         <section className="flex h-[34px] items-center justify-between">
           <div className="flex h-[34px] items-center">
-            <button type="button" onClick={openFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
               <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden>
                 <path d={RI.filter} />
               </svg>
@@ -204,7 +204,7 @@ function StockMoveContent() {
                 {filterCount > 0 ? ` / ${filterCount}` : ""}
               </span>
             </button>
-            <span className="ml-[14px] whitespace-nowrap text-[13px] font-semibold text-[#4f71dc]">{scope.length ? scope.join(", ") : t("Во всей организации")}</span>
+            <span className="ml-[14px] whitespace-nowrap text-[13px] font-semibold text-[#1E4A9A]">{scope.length ? scope.join(", ") : t("Во всей организации")}</span>
           </div>
           <BalanceDownloadMenu
             disabled={downloading}
@@ -237,7 +237,7 @@ function StockMoveContent() {
                   type="button"
                   onClick={() => setToggle(toggle.id)}
                   style={{ minWidth: [66, 90.7, 146.7][index] }}
-                  className={`h-[32px] px-[16px] text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.toggle === toggle.id ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
+                  className={`h-[32px] px-[16px] text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.toggle === toggle.id ? "bg-[#1E4A9A] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
                 >
                   {t(toggle.label)}
                 </button>
@@ -332,7 +332,7 @@ function StockMoveContent() {
               <p>
                 {t("Не удалось выполнить запрос")}: {t(list.error)}
               </p>
-              <button type="button" onClick={list.reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+              <button type="button" onClick={list.reload} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
                 {t("Повторить")}
               </button>
             </div>

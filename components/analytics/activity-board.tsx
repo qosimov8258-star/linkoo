@@ -93,7 +93,7 @@ function ClientLink({ card, actions }: { card: ActivityCard; actions: ActivityAc
         event.stopPropagation()
         actions.openClient(card)
       }}
-      className="block max-w-full break-words text-left leading-[18px] text-[#4f71dc] hover:underline"
+      className="block max-w-full break-words text-left leading-[18px] text-[#1E4A9A] hover:underline"
     >
       {card.clientName}
     </button>
@@ -171,7 +171,7 @@ function CardView({ card, actions }: { card: ActivityCard; actions: ActivityActi
       return (
         <CardShell card={card}>
           <ClientLink card={card} actions={actions} />
-          <button type="button" onClick={() => actions.openOrder(orderId)} className="mt-[4px] block text-left leading-[18px] hover:text-[#4f71dc] hover:underline">
+          <button type="button" onClick={() => actions.openOrder(orderId)} className="mt-[4px] block text-left leading-[18px] hover:text-[#1E4A9A] hover:underline">
             {fill(t("Доставили заказ №{no}"), { no: String(orderId) })}
           </button>
         </CardShell>
@@ -267,7 +267,7 @@ function ActivityColumnView({
   return (
     <section className="shrink-0" aria-label={t(HEADERS[column].label)}>
       <ColumnHeader column={column} total={total} baseCurrency={baseCurrency} />
-      <div className="h-[calc(100vh-215px)] min-h-[320px] w-[315px] overflow-y-auto pb-2 pl-[2px] pr-[13px] pt-[2px] [scrollbar-color:#4f71dc_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-[#4f71dc] [&::-webkit-scrollbar]:w-[4px]">
+      <div className="h-[calc(100vh-215px)] min-h-[320px] w-[315px] overflow-y-auto pb-2 pl-[2px] pr-[13px] pt-[2px] [scrollbar-color:#1E4A9A_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-[#1E4A9A] [&::-webkit-scrollbar]:w-[4px]">
         {rows.map((card) => (
           <CardView key={card.id} card={card} actions={actions} />
         ))}
@@ -310,7 +310,7 @@ export function ActivityColumns({
   actions: ActivityActions
 }) {
   return (
-    <div className="flex gap-[15px] overflow-x-auto px-[30px] pb-3 pt-5 [scrollbar-color:#4f71dc_transparent] [scrollbar-width:thin]">
+    <div className="flex gap-[15px] overflow-x-auto px-[30px] pb-3 pt-5 [scrollbar-color:#1E4A9A_transparent] [scrollbar-width:thin]">
       {order
         .filter((column) => columns[column].count > 0)
         .map((column) => (

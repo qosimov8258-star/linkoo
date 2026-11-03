@@ -73,7 +73,7 @@ export function ContractDetailPanel({
   if (detail.error && !data) return <ErrorBlock error={detail.error} onRetry={detail.reload} />
   if (!data) return null
 
-  const statusColor = data.status === "active" ? "#6ccd8b" : data.status === "completed" ? "#4f71dc" : "#e57373"
+  const statusColor = data.status === "active" ? "#6ccd8b" : data.status === "completed" ? "#1E4A9A" : "#e57373"
   return (
     <div className="bg-white text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
       <div className="relative flex h-[65px] items-center justify-between gap-3 border-b border-[#efefef] px-[30px]">

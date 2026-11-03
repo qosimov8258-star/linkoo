@@ -286,9 +286,9 @@ export function AccountDebtsView() {
         sortKey: "name",
         render: (row: BalanceRow) =>
           row.info.type ? (
-            <button type="button" onClick={() => drillIntoType(row)} className="flex items-center gap-2 text-left text-[#17233b] hover:text-[#4f70e7]">
+            <button type="button" onClick={() => drillIntoType(row)} className="flex items-center gap-2 text-left text-[#17233b] hover:text-[#1E4A9A]">
               {row.name}
-              <List className="h-4 w-4 shrink-0 text-[#4f70e7]" />
+              <List className="h-4 w-4 shrink-0 text-[#1E4A9A]" />
             </button>
           ) : (
             <span className="text-[#586174]">{t("Не указано")}</span>
@@ -301,7 +301,7 @@ export function AccountDebtsView() {
         sortKey: "name",
         render: (row: BalanceRow) => (
           <div className="min-w-0">
-            <button type="button" onClick={() => openAct(row)} className="text-left text-[#333] hover:text-[#4f71dc]">
+            <button type="button" onClick={() => openAct(row)} className="text-left text-[#333] hover:text-[#1E4A9A]">
               {row.name || "No"}
             </button>
             {(row.info.inn || Number(row.info.clients) > 1) && (
@@ -327,7 +327,7 @@ export function AccountDebtsView() {
     <main className="ref-white min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-4 pl-[30px] pr-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <h1 className="text-[18px] font-bold text-[#5d6474]">{t("Долги по счетам")}</h1>
         </div>
@@ -363,10 +363,10 @@ export function AccountDebtsView() {
             <button
               type="button"
               onClick={() => setGroupPaymentOpen(true)}
-              className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white"
+              className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#1E4A9A] pl-2 pr-4 text-[13px] font-semibold text-white"
             >
               <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
-              {selected.size > 0 && <span className="rounded-full bg-white px-2 text-[12px] text-[#4f71dc]">{selected.size}</span>}
+              {selected.size > 0 && <span className="rounded-full bg-white px-2 text-[12px] text-[#1E4A9A]">{selected.size}</span>}
             </button>
           )}
           <BalanceDownloadMenu
@@ -395,7 +395,7 @@ export function AccountDebtsView() {
                   update({ toggle: value, search: "", filters: { ...filters, marketTypeParent: "" } })
                 }}
                 className={`px-5 py-2 text-[13px] font-bold uppercase tracking-wide ${
-                  toggle === value ? "bg-[#4f71dc] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12)]" : "bg-white text-[#4f71dc] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]"
+                  toggle === value ? "bg-[#1E4A9A] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12)]" : "bg-white text-[#1E4A9A] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]"
                 }`}
               >
                 {t(value === "marketExpanded" ? "Разбить по валютам" : "Показать по типам клиентов")}
@@ -407,7 +407,7 @@ export function AccountDebtsView() {
             <div className="flex items-center gap-2 whitespace-nowrap text-[14px]">
               <span className="text-[#586174]">{t("Отфильтровано по")}:</span>
               <span className="font-semibold">{filters.marketTypeParent}</span>
-              <button type="button" onClick={() => update({ filters: { ...filters, marketTypeParent: "" } })} className="font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={() => update({ filters: { ...filters, marketTypeParent: "" } })} className="font-semibold text-[#1E4A9A] hover:underline">
                 {t("Сбросить фильтр")}
               </button>
             </div>
@@ -451,7 +451,7 @@ export function AccountDebtsView() {
             <span>
               {t("Не удалось загрузить данные")}: {error}
             </span>
-            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

@@ -340,7 +340,7 @@ export function PromoForm({
                     <LineField label={t("Дополнительный процент")} value={c.extraPercent} onChange={(next) => setConfig({ extraPercent: next })} />
                   </div>
                 </div>
-                <svg viewBox="0 0 24 24" className="mb-[20px] mr-[33px] h-[22px] w-[22px] fill-[#4f71dc]" aria-hidden>
+                <svg viewBox="0 0 24 24" className="mb-[20px] mr-[33px] h-[22px] w-[22px] fill-[#1E4A9A]" aria-hidden>
                   <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
                 </svg>
               </div>

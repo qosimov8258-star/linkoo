@@ -349,7 +349,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 
       <section className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
-          <button type="button" onClick={saveReport} className="flex h-[36px] items-center rounded-[5px] bg-[#4f71dc] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+          <button type="button" onClick={saveReport} className="flex h-[36px] items-center rounded-[5px] bg-[#1E4A9A] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
             <Bookmark className="mr-[7px] h-[18px] w-[18px] fill-white" /> {t("Сохранить")}
           </button>
           <button type="button" onClick={() => setReportsOpen(true)} className="flex h-[36px] items-center rounded-[5px] bg-[#ff8a6f] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
@@ -359,12 +359,12 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
             <Download className="mr-[7px] h-[18px] w-[18px]" /> {t("Скачать")}
           </button>
           <div className="ml-auto flex flex-wrap items-center gap-[19px]">
-            <span className="relative text-[12px] font-bold text-[#4f71dc]">
+            <span className="relative text-[12px] font-bold text-[#1E4A9A]">
               {formatDateText(from, language, { withTime: false })} - {formatDateText(to, language, { withTime: false })}
               <input type="date" aria-label={t("Дата от")} value={from} max={to} onChange={(event) => event.target.value && setFrom(event.target.value)} className="absolute left-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
               <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && setTo(event.target.value)} className="absolute right-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
             </span>
-            <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
+            <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
               <span>{settingsVisible ? `${t("СКРЫТЬ НАСТРОЙКИ")} ▲` : `${t("ПОКАЗАТЬ НАСТРОЙКИ")} ▼`}</span>
             </button>
             <button type="button" disabled={invalid || running} onClick={() => void generate()} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95 disabled:opacity-50">
@@ -403,7 +403,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
                   <button type="button" onClick={() => setExtraFilters((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={t("Удалить фильтр")}><span className="text-xl">×</span></button>
                 </div>
               ))}
-              <button type="button" onClick={() => setExtraFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
+              <button type="button" onClick={() => setExtraFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium uppercase text-white hover:brightness-95">
                 <span>{t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР")}</span>
               </button>
             </div>

@@ -174,7 +174,7 @@ export function RepricingFormDialog({
               <input value={addPrice} disabled={!ready} inputMode="decimal" onChange={(event) => setAddPrice(event.target.value)} onKeyDown={(event) => event.key === "Enter" && add()} className={inputClass} />
             </FormField>
             <span className="pb-2.5 text-[13px] text-[#586174]">{addRow && valid(addPrice) ? formatSum((parseAmount(addPrice) - oldPrice(addRow)) * addRow.available, effectiveCurrency) : ""}</span>
-            <button type="button" onClick={add} title={t("Применить")} aria-label={t("Применить")} className="flex h-10 w-10 items-center justify-center text-[#4f71dc]">
+            <button type="button" onClick={add} title={t("Применить")} aria-label={t("Применить")} className="flex h-10 w-10 items-center justify-center text-[#1E4A9A]">
               <Check className="h-6 w-6" strokeWidth={2} />
             </button>
           </div>

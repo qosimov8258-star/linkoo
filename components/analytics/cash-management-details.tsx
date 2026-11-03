@@ -17,7 +17,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 export type DetailsPopup = { kind: "staff" | "children"; operation: CashOperation }
 
-const linkClass = "text-[#4f70e7] hover:underline"
+const linkClass = "text-[#1E4A9A] hover:underline"
 
 export const clientHref = (id: number | null, name: string) =>
   id ? `/analytics/client-balance?openClient=${id}&clientName=${encodeURIComponent(name)}` : "/analytics/client-balance"

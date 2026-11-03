@@ -1,0 +1,16 @@
+# Session cookies and generated output: never commit
+ref.json
+local.json
+*.log
+compare.json
+crawl.json
+localmenu.json
+menus-*.json
+routes.txt
+bal-*.json
+shots/
+pages/
+crud/
+node_modules
+package*.json
+refdata/

@@ -50,7 +50,7 @@ export function RefHeader({ title, children, left, titleTop }: { title: ReactNod
     <div className="flex h-[60px] items-center justify-between">
       <div className="flex items-center">
         <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           {titleTop ? <span style={{ position: "relative", top: titleTop }}>{heading}</span> : heading}
         </h1>
@@ -90,7 +90,7 @@ export function RefButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-[30px] items-center whitespace-nowrap rounded-[5px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60 ${icon ? "pl-3" : "px-4"} ${green ? "bg-[#71ce87]" : red ? "bg-[#fa8072]" : "bg-[#4f71dc]"}`}
+      className={`flex h-[30px] items-center whitespace-nowrap rounded-[5px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60 ${icon ? "pl-3" : "px-4"} ${green ? "bg-[#71ce87]" : red ? "bg-[#fa8072]" : "bg-[#1E4A9A]"}`}
     >
       {icon && (
         <svg viewBox="0 0 24 24" className={`${exact && !iconLow ? "mb-px" : "mb-1"} h-[18px] w-[18px] fill-white`} aria-hidden>
@@ -127,7 +127,7 @@ export function RefTabs({ labels, value, onChange, separate, stacked }: { labels
             </button>
           ))}
         </div>
-        <span className="absolute bottom-0 left-0 z-10 h-[3px] bg-[linear-gradient(to_bottom,#4e6ed8,#4a6ace)] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300" style={{ width: `${100 / labels.length}%`, transform: `translateX(${index * 100}%)`, clipPath: "inset(-20px 0 0 0)" }} />
+        <span className="absolute bottom-0 left-0 z-10 h-[3px] bg-[linear-gradient(to_bottom,#4e6ed8,#4a6ace)] shadow-[0_-3px_10px_0_#1E4A9A] transition-transform duration-300" style={{ width: `${100 / labels.length}%`, transform: `translateX(${index * 100}%)`, clipPath: "inset(-20px 0 0 0)" }} />
       </div>
     )
   }
@@ -139,7 +139,7 @@ export function RefTabs({ labels, value, onChange, separate, stacked }: { labels
         </button>
       ))}
       <span
-        className={`absolute left-0 z-10 h-[3px] bg-[#4f71dc] transition-transform duration-300 ${separate ? "bottom-0" : "-bottom-[2px] shadow-[0_-3px_10px_0_#5869f0]"}`}
+        className={`absolute left-0 z-10 h-[3px] bg-[#1E4A9A] transition-transform duration-300 ${separate ? "bottom-0" : "-bottom-[2px] shadow-[0_-3px_10px_0_#1E4A9A]"}`}
         style={{ width: `${100 / labels.length}%`, transform: `translateX(${index * 100}%)` }}
       />
     </div>
@@ -147,7 +147,7 @@ export function RefTabs({ labels, value, onChange, separate, stacked }: { labels
 }
 
 export function RefBand({ children, compact }: { children: ReactNode; compact?: boolean }) {
-  return <div className={`flex flex-wrap justify-between gap-x-6 border-b border-[#efefef] bg-[#5869f0] px-[5px] ${compact ? "py-[3px]" : "py-[9px]"} text-[13px] font-semibold text-white`}>{children}</div>
+  return <div className={`flex flex-wrap justify-between gap-x-6 border-b border-[#efefef] bg-[#1E4A9A] px-[5px] ${compact ? "py-[3px]" : "py-[9px]"} text-[13px] font-semibold text-white`}>{children}</div>
 }
 
 export const REF_SHADOW = "shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
@@ -227,20 +227,20 @@ export function RefToolbar({
         {leftSlot}
         {!leftSlot && !hideFilter && (
           linkFilter ? (
-            <button type="button" onClick={onToggleFilter} className={`${linkFilter === "flush" ? "flex h-[16.3px] w-fit items-center leading-[16.25px] " : "pl-[5px] "}text-[13px] text-[#4f71dc]`}>
+            <button type="button" onClick={onToggleFilter} className={`${linkFilter === "flush" ? "flex h-[16.3px] w-fit items-center leading-[16.25px] " : "pl-[5px] "}text-[13px] text-[#1E4A9A]`}>
               {filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}
               {linkFilter === "flush" ? (
                 thinChevron ? (
-                  <svg viewBox="0 0 24 24" className="ml-px h-5 w-[13px] translate-y-[1.9px] shrink fill-[#4f71dc]"><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
+                  <svg viewBox="0 0 24 24" className="ml-px h-5 w-[13px] translate-y-[1.9px] shrink fill-[#1E4A9A]"><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
                 ) : (
-                <svg viewBox="6 2 12 20" className="ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#4f71dc]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" /></svg>
+                <svg viewBox="6 2 12 20" className="ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#1E4A9A]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" /></svg>
                 )
               ) : (
                 " ⌄"
               )}
             </button>
           ) : (
-          <button type="button" onClick={onToggleFilter} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={onToggleFilter} className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white hover:brightness-95">
             <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={RI.filter} /></svg>
             <span className="pl-2 pr-4">{filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
           </button>
@@ -690,7 +690,7 @@ export function FilterSelect({
                     onChange(option)
                     setOpen(false)
                   }}
-                  className={`block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${option === value ? "text-[#4f71dc]" : ""}`}
+                  className={`block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${option === value ? "text-[#1E4A9A]" : ""}`}
                 >
                   {option}
                 </button>
@@ -803,7 +803,7 @@ export function FilterDays({ value, onChange }: { value: string[]; onChange: (va
               key={day}
               type="button"
               onClick={() => onChange(active ? value.filter((d) => d !== day) : [...value, day])}
-              className={`h-8 w-8 text-[13px] ${active ? "bg-[#4f71dc] text-white" : "bg-[#eceff1] text-[#888]"}`}
+              className={`h-8 w-8 text-[13px] ${active ? "bg-[#1E4A9A] text-white" : "bg-[#eceff1] text-[#888]"}`}
             >
               {t(day)}
             </button>
@@ -942,7 +942,7 @@ export function RefImportDialog({
         <div className={`pb-5 pr-[30px] pt-[30px] ${bigTitle ? "pl-[30px]" : "pl-[31px]"}`}>
           {top}
           <div className="h-[273px] border border-[#efefef] pt-[5px]">
-            <button type="button" onClick={onTemplate} className="block h-9 w-full pt-[3px] text-center text-[13px] uppercase text-black hover:text-[#4f71dc]">
+            <button type="button" onClick={onTemplate} className="block h-9 w-full pt-[3px] text-center text-[13px] uppercase text-black hover:text-[#1E4A9A]">
               1. {t("Скачать шаблон")}
             </button>
             <label className={`mt-[5px] flex h-[200px] w-[302px] cursor-pointer flex-col items-center justify-center gap-1 border-2 border-dashed border-[#efefef] text-[13px] text-[#333] ${bigTitle ? "ml-[20px] pt-[2px]" : "ml-[19px]"}`}>

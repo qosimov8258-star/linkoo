@@ -307,8 +307,8 @@ export function ReportChipField({
     <div className={`${FIELD} ${compact ? "w-[200px]" : ""}`}>
       <span className={`${FLOAT_LABEL} !top-[4px] left-px`}>{t(label)}</span>
       <span className="absolute left-px top-[24px] flex h-5 items-stretch overflow-hidden text-[13px] font-semibold leading-5 text-white">
-        <span className="border-r border-white/30 bg-[#5c6df3] px-[5px] text-[12px]">×</span>
-        <span data-no-translate className="bg-[#5c6df3] px-[5px]">{value}</span>
+        <span className="border-r border-white/30 bg-[#1E4A9A] px-[5px] text-[12px]">×</span>
+        <span data-no-translate className="bg-[#1E4A9A] px-[5px]">{value}</span>
       </span>
       <span className="absolute bottom-[4px] right-[28px] text-[18px] leading-none text-[#999]">×</span>
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999]" aria-hidden>
@@ -350,8 +350,8 @@ export function ReportMultiChipField({
       <span className="absolute left-0 top-[23px] z-10 flex items-center gap-[5px] text-[13px] font-semibold leading-5 text-white">
         {values.map((value) => (
           <span key={value} className="flex h-5 items-stretch overflow-hidden">
-            <button type="button" aria-label={t("Удалить")} onClick={() => onChange(values.filter((item) => item !== value))} className="border-r border-white/30 bg-[#5c6df3] px-[5px] text-[12px]">×</button>
-            <span className="bg-[#5c6df3] px-[5px]">{t(value)}</span>
+            <button type="button" aria-label={t("Удалить")} onClick={() => onChange(values.filter((item) => item !== value))} className="border-r border-white/30 bg-[#1E4A9A] px-[5px] text-[12px]">×</button>
+            <span className="bg-[#1E4A9A] px-[5px]">{t(value)}</span>
           </span>
         ))}
       </span>
@@ -488,11 +488,11 @@ export function ReportTopRow({
   const { t } = useLanguage()
   return (
     <div className="flex h-[34px] items-center pt-0">
-      <button type="button" onClick={onFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] text-[13px] font-semibold text-white hover:brightness-95">
+      <button type="button" onClick={onFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12.8px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.filter} /></svg>
         <span className="pl-[8px] pr-[16px]">{typeof filterLabel === "string" ? t(filterLabel) : filterLabel}</span>
       </button>
-      <span className="ml-[14px] text-[13px] font-semibold text-[#4f71dc]">{typeof scope === "string" ? t(scope) : scope}</span>
+      <span className="ml-[14px] text-[13px] font-semibold text-[#1E4A9A]">{typeof scope === "string" ? t(scope) : scope}</span>
       <button type="button" onClick={onDownload} className="ml-auto flex h-[34px] items-center rounded-[5px] bg-[#71ce87] pl-[12px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.chart} /></svg>
         <span className="pl-[12px] pr-[16px]">{t("Скачать")}</span>
@@ -683,7 +683,7 @@ export function ReportSegmentTabs({ labels, value, onChange }: { labels: string[
   return (
     <div className="grid h-8" style={{ gridTemplateColumns: `repeat(${labels.length}, 1fr)` }}>
       {labels.map((label, index) => (
-        <button key={label} type="button" onClick={() => onChange(index)} className={`text-[13px] transition-colors ${value === index ? "rounded-[3px] bg-[#4f71dc] text-white shadow-[0_2px_5px_rgba(0,0,0,0.25)]" : "border border-[#ececec] bg-white text-black"}`}>
+        <button key={label} type="button" onClick={() => onChange(index)} className={`text-[13px] transition-colors ${value === index ? "rounded-[3px] bg-[#1E4A9A] text-white shadow-[0_2px_5px_rgba(0,0,0,0.25)]" : "border border-[#ececec] bg-white text-black"}`}>
           {t(label)}
         </button>
       ))}
@@ -744,7 +744,7 @@ export function ReportModeButtons({ labels, value, onChange }: { labels: string[
           key={label}
           type="button"
           onClick={() => onChange(label)}
-          className={`h-[30px] border px-[16px] text-[13px] uppercase transition-colors ${index === 0 ? "rounded-l-[3px]" : ""} ${index === labels.length - 1 ? "rounded-r-[3px]" : ""} ${value === label ? "border-[#4f71dc] bg-[#4f71dc] text-white" : "border-[#e0e0e0] bg-white text-black hover:bg-[#f2f5f8]"}`}
+          className={`h-[30px] border px-[16px] text-[13px] uppercase transition-colors ${index === 0 ? "rounded-l-[3px]" : ""} ${index === labels.length - 1 ? "rounded-r-[3px]" : ""} ${value === label ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#e0e0e0] bg-white text-black hover:bg-[#f2f5f8]"}`}
         >
           {t(label)}
         </button>
@@ -975,7 +975,7 @@ export function ReportBalanceToolbar({
       {left ? (
         <div className="pl-[20px]">{left}</div>
       ) : filterAsButton ? (
-        <button type="button" onClick={onFilter} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 pr-4 text-[13px] font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={onFilter} className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 pr-4 text-[13px] font-semibold text-white hover:brightness-95">
           <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>{t(filterLabel)}
         </button>
       ) : (
@@ -1080,10 +1080,10 @@ export function WidgetUserCard({
       {origin && <span className="text-[12px] font-semibold leading-[15px] text-[#999]">{t("Сервер")}: ({origin})</span>}
       {showPeriods && (
         <>
-          {rangeSlot ?? <strong className="ml-auto mr-[15px] text-[13px] font-bold capitalize text-[#4f71dc]">{t(range ?? monthRangeLabel())}</strong>}
+          {rangeSlot ?? <strong className="ml-auto mr-[15px] text-[13px] font-bold capitalize text-[#1E4A9A]">{t(range ?? monthRangeLabel())}</strong>}
           <div className="flex">
             {PERIODS.map((item) => (
-              <button key={item} type="button" onClick={() => (onPeriod ? onPeriod(item) : setInner(item))} className={`h-8 min-w-[70px] rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${current === item ? "bg-[#4f71dc] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"}`}>{t(item)}</button>
+              <button key={item} type="button" onClick={() => (onPeriod ? onPeriod(item) : setInner(item))} className={`h-8 min-w-[70px] rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${current === item ? "bg-[#1E4A9A] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"}`}>{t(item)}</button>
             ))}
           </div>
         </>

@@ -166,7 +166,7 @@ export function CashBalanceDetail({
     <div className="fixed inset-0 z-[80] overflow-y-auto bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-2xl font-bold text-[#586174]">{t("Баланс кассы")}</span>
         </div>
@@ -175,7 +175,7 @@ export function CashBalanceDetail({
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
         <BalanceFilterButton count={filterCount} from={period.from} to={period.to} onOpen={openFilter} />
         <div className="ml-auto flex items-center gap-3">
-          <button type="button" onClick={onClose} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
+          <button type="button" onClick={onClose} className="flex h-11 items-center gap-2 rounded-md bg-[#1E4A9A] px-5 font-semibold text-white">
             <ArrowLeft className="h-4 w-4" /> {t("Вернуться")}
           </button>
           <BalanceDownloadMenu disabled={downloading || !statement} items={[{ label: "Скачать все", onClick: () => void downloadAll() }]} />
@@ -198,7 +198,7 @@ export function CashBalanceDetail({
           <p>
             {t("Не удалось выполнить запрос")}: {t(error)}
           </p>
-          <button type="button" onClick={reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+          <button type="button" onClick={reload} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
             {t("Повторить")}
           </button>
         </div>
@@ -232,7 +232,7 @@ export function CashBalanceDetail({
                   onChange={(event) => setSearchDraft(event.target.value)}
                   placeholder={t("Поиск")}
                   aria-label={t("Поиск")}
-                  className="h-9 w-64 border-b border-[#dbe0e8] bg-transparent outline-none focus:border-[#4f70e7]"
+                  className="h-9 w-64 border-b border-[#dbe0e8] bg-transparent outline-none focus:border-[#1E4A9A]"
                 />
               </form>
               <BalancePagination page={state.page} pageSize={state.pageSize} count={count} onChange={(next) => onChange(period, { ...state, ...next })} />
@@ -294,7 +294,7 @@ export function CashBalanceDetail({
               type="checkbox"
               checked={draft.notAccepted}
               onChange={(event) => setDraft((value) => ({ ...value, notAccepted: event.target.checked }))}
-              className="h-4 w-4 accent-[#4f70e7]"
+              className="h-4 w-4 accent-[#1E4A9A]"
             />
             <span>{t("Только не принятые переводы")}</span>
           </label>

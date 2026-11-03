@@ -167,16 +167,16 @@ export function EquipmentEfficiencyView() {
 
           <div className="mt-[15px] grid border border-[#e8e8e8] md:grid-cols-4">
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
-              <div><p className="text-[13px] text-[#555]">ОКВ / ОКВ с оборудованием</p><b className="text-[13px]">{fmt(total?.okb ?? 0)} / {fmt(total?.okb_gear ?? 0)} ({percent(total?.okb_gear ?? 0, total?.okb ?? 0)} %) <span className="text-[#4f71dc]">{total?.okb_gear_count ?? 0}</span></b></div>
-              <div><p className="text-[13px] text-[#555]">АКВ / АКВ с оборудованием</p><b className="text-[13px]">{fmt(total?.akb ?? 0)} / {fmt(total?.akb_gear ?? 0)} ({percent(total?.akb_gear ?? 0, total?.akb ?? 0)} %) <span className="text-[#4f71dc]">{total?.akb_gear_count ?? 0}</span></b></div>
+              <div><p className="text-[13px] text-[#555]">ОКВ / ОКВ с оборудованием</p><b className="text-[13px]">{fmt(total?.okb ?? 0)} / {fmt(total?.okb_gear ?? 0)} ({percent(total?.okb_gear ?? 0, total?.okb ?? 0)} %) <span className="text-[#1E4A9A]">{total?.okb_gear_count ?? 0}</span></b></div>
+              <div><p className="text-[13px] text-[#555]">АКВ / АКВ с оборудованием</p><b className="text-[13px]">{fmt(total?.akb ?? 0)} / {fmt(total?.akb_gear ?? 0)} ({percent(total?.akb_gear ?? 0, total?.akb ?? 0)} %) <span className="text-[#1E4A9A]">{total?.akb_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
               <div><p className="text-[13px] text-[#555]">Средний чек одного оборудования</p><b className="text-[13px]">{fmt(total?.avg_check ?? 0)} {total?.currency ?? "SUM"}</b></div>
-              <div><p className="text-[13px] text-[#555]">От 0 SUM до 1 500 000 SUM</p><b className="text-[13px]">{total?.first_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.first_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.first_gear_count ?? 0}</span></b></div>
+              <div><p className="text-[13px] text-[#555]">От 0 SUM до 1 500 000 SUM</p><b className="text-[13px]">{total?.first_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.first_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#1E4A9A]">{total?.first_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
-              <div><p className="flex items-center gap-3 text-[13px] text-[#555]">От 1 500 000 SUM до 3 000 000 SUM <Pencil className="h-4 w-4 text-[#555]" /></p><b className="text-[13px]">{total?.second_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.second_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.second_gear_count ?? 0}</span></b></div>
-              <div><p className="text-[13px] text-[#555]">Больше 3 000 000 SUM</p><b className="text-[13px]">{total?.third_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.third_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.third_gear_count ?? 0}</span></b></div>
+              <div><p className="flex items-center gap-3 text-[13px] text-[#555]">От 1 500 000 SUM до 3 000 000 SUM <Pencil className="h-4 w-4 text-[#555]" /></p><b className="text-[13px]">{total?.second_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.second_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#1E4A9A]">{total?.second_gear_count ?? 0}</span></b></div>
+              <div><p className="text-[13px] text-[#555]">Больше 3 000 000 SUM</p><b className="text-[13px]">{total?.third_amount ?? 0} <span data-no-translate>шт.</span> ({percent(total?.third_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#1E4A9A]">{total?.third_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] px-[15px] py-[11px] text-right">
               <div><p className="text-[13px] text-[#555]">Фактическая продажа</p><b className="text-[13px]">{fmt(total?.total_fact ?? 0)} {total?.currency ?? "SUM"}</b></div>

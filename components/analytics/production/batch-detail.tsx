@@ -119,10 +119,10 @@ export function BatchDetail({ partyId, stages, onChanged }: { partyId: number; s
         <div className="flex items-center gap-[10px]">
           {pending && (
             <>
-              <ActionButton color="bg-[#4f71dc]" icon="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" label="Автодобавление" onClick={() => setDialog("auto")} />
+              <ActionButton color="bg-[#1E4A9A]" icon="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" label="Автодобавление" onClick={() => setDialog("auto")} />
               <ActionButton color="bg-[#fa8072]" icon="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49A1.003 1.003 0 0 0 20 4H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" label="Добавить бракованный товар" onClick={() => setDialog("defect")} />
               <ActionButton color="bg-[#4db6ac]" icon="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z" label="Добавить сырье" onClick={() => setDialog("raw")} />
-              <ActionButton color="bg-[#4f71dc]" icon="M10 17l5-5-5-5v10zM19 3H5a2 2 0 0 0-2 2v4h2V5h14v14H5v-4H3v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" label="Добавить продукт" onClick={() => setDialog("made")} />
+              <ActionButton color="bg-[#1E4A9A]" icon="M10 17l5-5-5-5v10zM19 3H5a2 2 0 0 0-2 2v4h2V5h14v14H5v-4H3v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" label="Добавить продукт" onClick={() => setDialog("made")} />
             </>
           )}
           <button onClick={() => setDialog("edit")} aria-label={t("Изменить")} className="-ml-[10px] flex h-12 w-12 items-center justify-center">
@@ -153,7 +153,7 @@ export function BatchDetail({ partyId, stages, onChanged }: { partyId: number; s
                 {t(label)}
               </button>
             ))}
-            <span className="absolute bottom-0 h-[2px] bg-[#4f71dc] transition-transform duration-300" style={{ width: "25%", transform: `translateX(${TABS.findIndex(([value]) => value === tab) * 100}%)` }} />
+            <span className="absolute bottom-0 h-[2px] bg-[#1E4A9A] transition-transform duration-300" style={{ width: "25%", transform: `translateX(${TABS.findIndex(([value]) => value === tab) * 100}%)` }} />
           </nav>
           {tab === "summary" && (
             <>

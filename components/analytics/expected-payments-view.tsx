@@ -90,7 +90,7 @@ function TotalsCards({ totals, selected, loading }: { totals: ExpectedOrderTotal
             <div className="mt-2 border-t border-[#e1e5eb] pt-2 text-[13px] text-[#586174]">
               <p className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5">
-                  <Banknote className="h-4 w-4 text-[#4f70e7]" /> {t("Наличными")}
+                  <Banknote className="h-4 w-4 text-[#1E4A9A]" /> {t("Наличными")}
                 </span>
                 <span className="font-semibold text-[#17233b]">{formatMoney(cash, 3)}</span>
               </p>
@@ -195,7 +195,7 @@ export function ExpectedPaymentsView() {
 
   const cols = "123.3px 230.7px 230.7px 115.3px 231px 230px 231px"
   const heads = [
-    ...(state.showCheckboxes ? [<input key="all" type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#4f71dc]" />] : []),
+    ...(state.showCheckboxes ? [<input key="all" type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#1E4A9A]" />] : []),
     ...COLUMNS.map((column) => {
       const label = (
         <span className={column.align === "right" ? `block text-right ${column.id === "total_balance" ? "-mr-[30px]" : "-mr-[22px]"}` : undefined}>
@@ -270,7 +270,7 @@ export function ExpectedPaymentsView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>
@@ -286,18 +286,18 @@ export function ExpectedPaymentsView() {
           rowClass={(row) => (selected[row.key] ? "!bg-[#eaf0fd]" : "")}
           empty={list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
           render={(row) => [
-            ...(state.showCheckboxes ? [<span key="check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={Boolean(selected[row.key])} onChange={() => toggleRow(row)} aria-label={`№ ${row.orderId}`} className="h-4 w-4 accent-[#4f71dc]" /></span>] : []),
+            ...(state.showCheckboxes ? [<span key="check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={Boolean(selected[row.key])} onChange={() => toggleRow(row)} aria-label={`№ ${row.orderId}`} className="h-4 w-4 accent-[#1E4A9A]" /></span>] : []),
             row.orderId,
             <div key="client">
               <div>{row.client.name}</div>
-              {row.zone && <div className="text-[#4f71dc]">{row.zone}</div>}
+              {row.zone && <div className="text-[#1E4A9A]">{row.zone}</div>}
             </div>,
             created(row.createdAt),
             due(row.paymentDate),
             row.organization,
             <div key="total" className="flex items-center justify-end gap-[6px] whitespace-nowrap text-right">
               {formatMoney(row.total, 3)} {currencyLabel(row.currency)}
-              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#4f71dc]" aria-label={row.paymentType === "bank" ? t("банковский счет") : t("наличный")}>
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#1E4A9A]" aria-label={row.paymentType === "bank" ? t("банковский счет") : t("наличный")}>
                 <path d={row.paymentType === "bank" ? RI.card : "M3 5v14h18V5H3zm16 12H5V7h14v10zM12 8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"} />
               </svg>
             </div>,

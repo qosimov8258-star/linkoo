@@ -230,8 +230,8 @@ export function SalesByProductsView() {
           </div>
 
           <div className="-mx-[20px] flex items-end justify-between gap-4 py-[10px] pr-[20px]">
-            <p className="flex w-[660px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#4f71dc] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
+            <p className="flex w-[660px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#1E4A9A]">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#1E4A9A] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
               {t("Это оперативний отчеть для просмотра факта перейдите в другой раздел")}
             </p>
             <div className="flex items-end gap-[20px]">
@@ -310,7 +310,7 @@ function Group({ title }: { title: string }) {
   const { t } = useLanguage()
   return <th colSpan={2} className="border-l border-[#ececec] bg-[#f0f4f9] px-3 text-center font-semibold">{t(title)}</th>
 }
-function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`h-8 px-4 text-[13px] font-normal uppercase ${active ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] bg-white text-black"}`}>{children}</button> }
+function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`h-8 px-4 text-[13px] font-normal uppercase ${active ? "bg-[#1E4A9A] text-white" : "border border-[#e0e0e0] bg-white text-black"}`}>{children}</button> }
 function formatDate(value: string) { const [year, month, day] = value.split("-"); return `${day}.${month}.${year}` }
 
 const labels: Record<FilterKey, string> = { branch: "Филиалы", brand: "Бренд", organization: "Организация", productType: "Тип товара", status: "Статус", client: "Клиент", agent: "Агент", clientType: "Тип клиента", warehouse: "Склад" }

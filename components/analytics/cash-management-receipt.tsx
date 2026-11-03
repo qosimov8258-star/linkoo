@@ -38,7 +38,7 @@ export function CashReceiptPrint({ operationKey, onClose }: { operationKey: stri
     <div id="cash-receipt-print" className="fixed inset-0 z-[400] overflow-y-auto bg-white text-[#000]">
       <style>{PRINT_CSS}</style>
       <div className="no-print sticky top-0 flex justify-end gap-3 border-b border-[#e1e5eb] bg-white px-4 py-2">
-        <button type="button" disabled={!data} onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-md border border-[#4f70e7] px-3 py-1.5 text-[14px] font-semibold text-[#4f70e7] disabled:opacity-40">
+        <button type="button" disabled={!data} onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-md border border-[#1E4A9A] px-3 py-1.5 text-[14px] font-semibold text-[#1E4A9A] disabled:opacity-40">
           <Printer className="h-4 w-4" /> {t("Печать")}
         </button>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#586174]">

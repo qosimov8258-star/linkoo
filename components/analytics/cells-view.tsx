@@ -89,7 +89,7 @@ function CellsGrid() {
                   <td className="px-4 py-3">
                     {canEdit && (
                       <div className="flex items-center justify-end gap-3 text-slate-500 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                        <button type="button" onClick={() => setDialog({ kind: "update", id: cell.id })} title={t("Изменить")} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
+                        <button type="button" onClick={() => setDialog({ kind: "update", id: cell.id })} title={t("Изменить")} aria-label={t("Изменить")} className="hover:text-[#1E4A9A]">
                           <Pencil className="h-5 w-5" />
                         </button>
                         <button type="button" onClick={() => setDialog({ kind: "delete", id: cell.id, name: cell.name })} title={t("Удалить")} aria-label={t("Удалить")} className="hover:text-rose-600">

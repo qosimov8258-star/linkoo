@@ -103,7 +103,7 @@ export function MultiEditDialog({ onSave, onClose }: { clients: Client[]; onSave
                   </svg>
                   {t(label)}
                   {label === "Изменить срок блокировки за долг по заказу" && (
-                    <span className="absolute right-0 flex h-[22px] w-[22px] items-center justify-center rounded-full bg-[#4f71dc] text-[14px] font-bold leading-none text-white">i</span>
+                    <span className="absolute right-0 flex h-[22px] w-[22px] items-center justify-center rounded-full bg-[#1E4A9A] text-[14px] font-bold leading-none text-white">i</span>
                   )}
                 </button>
                 {checks[label] && label === "Изменить ответственного инкассатора" && <FilterSelect compact label={t("Инкассаторы")} value={values.collector} onChange={set("collector")} options={options.collectors} />}

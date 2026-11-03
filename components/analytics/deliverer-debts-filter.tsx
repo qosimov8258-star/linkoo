@@ -35,7 +35,7 @@ export function countDelivererDebtsFilters(filters: DelivererDebtsFilters): numb
   return [filters.division.length, filters.paymentType, filters.branch.length, filters.marketType.length, filters.releasedOrders].filter(Boolean).length
 }
 
-const fieldClass = "flex h-10 w-full items-center justify-between gap-2 border-b border-[#dbe0e8] bg-transparent text-left text-[13px] text-[#17233b] outline-none focus:border-[#4f70e7]"
+const fieldClass = "flex h-10 w-full items-center justify-between gap-2 border-b border-[#dbe0e8] bg-transparent text-left text-[13px] text-[#17233b] outline-none focus:border-[#1E4A9A]"
 
 function MultiSelect({ label, options, value, onChange }: { label: string; options: string[]; value: string[]; onChange: (next: string[]) => void }) {
   const { t } = useLanguage()
@@ -68,7 +68,7 @@ function MultiSelect({ label, options, value, onChange }: { label: string; optio
               className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] text-[#17233b] hover:bg-[#f2f5f8]"
             >
               <span className="truncate">{option}</span>
-              {value.includes(option) && <Check className="h-4 w-4 shrink-0 text-[#4f70e7]" />}
+              {value.includes(option) && <Check className="h-4 w-4 shrink-0 text-[#1E4A9A]" />}
             </button>
           ))}
         </div>
@@ -125,7 +125,7 @@ export function DelivererDebtsFilterPanel({
           {paymentType}
           <MultiSelect label="Тип клиента" options={options?.clientTypes ?? []} value={draft.marketType} onChange={(marketType) => set({ marketType })} />
           <label className="mt-4 flex cursor-pointer items-start gap-2 text-[13px] text-[#17233b]">
-            <input type="checkbox" checked={draft.releasedOrders} onChange={(event) => set({ releasedOrders: event.target.checked })} className="mt-0.5 h-4 w-4 accent-[#4f70e7]" />
+            <input type="checkbox" checked={draft.releasedOrders} onChange={(event) => set({ releasedOrders: event.target.checked })} className="mt-0.5 h-4 w-4 accent-[#1E4A9A]" />
             {t("Учитывать только реализованных заказов")}
           </label>
         </>
@@ -142,7 +142,7 @@ export function DelivererDebtsFilterPanel({
           onApply(isDebt ? draft : { ...draft, marketType: [], releasedOrders: false })
           onClose()
         }}
-        className="mt-4 h-9 rounded-sm bg-[#4f70e7] px-4 text-[13px] font-semibold uppercase text-white hover:bg-[#3f5fd6]"
+        className="mt-4 h-9 rounded-sm bg-[#1E4A9A] px-4 text-[13px] font-semibold uppercase text-white hover:bg-[#3f5fd6]"
       >
         {t("Применить")}
       </button>

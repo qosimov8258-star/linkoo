@@ -71,7 +71,7 @@ function PaymentTypeIcon({ paymentType }: { paymentType: string }) {
   const label = bank ? t("банковский счет") : t("наличные")
   return (
     <span title={label} aria-label={label} className="inline-flex shrink-0">
-      {bank ? <Landmark className="h-[18px] w-[18px] text-[#6261b0]" /> : <Wallet className="h-[18px] w-[18px] text-[#4f71dc]" />}
+      {bank ? <Landmark className="h-[18px] w-[18px] text-[#6261b0]" /> : <Wallet className="h-[18px] w-[18px] text-[#1E4A9A]" />}
     </span>
   )
 }
@@ -114,7 +114,7 @@ export function CashTransactionsTable({
                     <span key={part.label} className="mr-2.5 inline">
                       <strong>{t(part.label)}: </strong>
                       {part.href ? (
-                        <Link href={part.href} target="_blank" className="font-semibold text-[#4f70e7] hover:underline">
+                        <Link href={part.href} target="_blank" className="font-semibold text-[#1E4A9A] hover:underline">
                           {part.text}
                         </Link>
                       ) : (

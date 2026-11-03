@@ -342,6 +342,10 @@ export async function getPnlStats(first: PnlPeriod, second: PnlPeriod, filters: 
   }
 
   // Expenses: the cash journal's entries booked to an expense category, split by the category's "direct" flag.
+  // entry_date is a timestamp ("2026-10-31T12:00:00"): it is compared by its day, so the last day of a period counts.
+  // A payment of a supply's additional expense («Доп. расход», supply_expense_id) is left out: that cost is already
+  // in the goods' cost (lib/stock/sources.ts spreads it over the supply's lines) and reaches the P&L as their cost
+  // of goods when they are sold — booking the payment as well would count it twice.
   const categories = (await db.prepare("SELECT id, name, parent_id, direct, exclude_from_pnl, parameter FROM expense_categories").all()) as {
     id: number
     name: string
@@ -353,13 +357,13 @@ export async function getPnlStats(first: PnlPeriod, second: PnlPeriod, filters: 
   const entries = (await db
     .prepare(
       `SELECT expense_category_id, amount, internal_amount, currency, entry_date FROM cash_management_entries
-       WHERE is_deleted = 0 AND expense_category_id IS NOT NULL AND entry_date BETWEEN ? AND ?`,
+       WHERE is_deleted = 0 AND expense_category_id IS NOT NULL AND supply_expense_id IS NULL AND substr(entry_date, 1, 10) BETWEEN ? AND ?`,
     )
     .all(begin, end)) as { expense_category_id: number; amount: number; internal_amount: number | null; currency: string | null; entry_date: string }[]
   const spent = new Map<number, PnlPair>()
   for (const entry of entries) {
     const amount = Math.abs(entry.internal_amount ?? entry.amount * toBase(entry.currency, endOfDay(entry.entry_date)))
-    for (const slot of slotOf(entry.entry_date)) {
+    for (const slot of slotOf(entry.entry_date.slice(0, 10))) {
       const pair = spent.get(entry.expense_category_id) ?? { first: 0, second: 0 }
       pair[slot] += amount
       spent.set(entry.expense_category_id, pair)
@@ -392,9 +396,27 @@ export async function getPnlStats(first: PnlPeriod, second: PnlPeriod, filters: 
   const a = figures(sum("first"))
   const b = figures(sum("second"))
   const pair = (x: number, y: number): PnlPair => ({ first: x, second: y })
-  // Salary: no source of this company's accruals is wired in yet. (The reference account's figures that the removed
-  // demo scripts wrote into pnl_adjustments, together with its write-off / stocktaking / net corrections, are not read.)
+  // Salary (demo salary, by the periods' months): the accruals of «Зарплата и установка планов» — the salary and the
+  // KPI bonus that «Зачислить» credited to the employees (salary_credits, dated the last day of their month), in the
+  // base currency. Paying the money out later only settles the employee balance; a company that also books those
+  // payouts to an expense category marks it «Не учитывать в P&L», as in the reference.
   const salary = pair(0, 0)
+  const credits = (await db.prepare("SELECT to_regclass('salary_credits') IS NOT NULL AS ok").get()) as { ok: boolean }
+  if (credits.ok) {
+    const rows = (await db
+      .prepare(
+        `SELECT amount, currency, created_date FROM salary_credits
+         WHERE amount <> 0 AND type IN ('monthly', 'performance_bonus') AND substr(created_date, 1, 10) BETWEEN ? AND ?`,
+      )
+      .all(begin, end)) as { amount: number; currency: string | null; created_date: string }[]
+    for (const row of rows) {
+      const day = row.created_date.slice(0, 10)
+      const amount = Number(row.amount) * toBase(row.currency, endOfDay(day))
+      for (const slot of slotOf(day)) salary[slot] += amount
+    }
+    salary.first = round(salary.first, 2)
+    salary.second = round(salary.second, 2)
+  }
 
   // Other income: cash receipts booked to an income category flagged "other income".
   const otherIncome = pair(0, 0)
@@ -402,12 +424,12 @@ export async function getPnlStats(first: PnlPeriod, second: PnlPeriod, filters: 
     .prepare(
       `SELECT e.amount, e.internal_amount, e.currency, e.entry_date FROM cash_management_entries e
        JOIN income_categories c ON c.id = e.income_category_id
-       WHERE e.is_deleted = 0 AND c.other_income = 1 AND e.entry_date BETWEEN ? AND ?`,
+       WHERE e.is_deleted = 0 AND c.other_income = 1 AND substr(e.entry_date, 1, 10) BETWEEN ? AND ?`,
     )
     .all(begin, end)) as { amount: number; internal_amount: number | null; currency: string | null; entry_date: string }[]
   for (const row of incomeEntries) {
     const amount = Math.abs(row.internal_amount ?? row.amount * toBase(row.currency, endOfDay(row.entry_date)))
-    for (const slot of slotOf(row.entry_date)) otherIncome[slot] += amount
+    for (const slot of slotOf(row.entry_date.slice(0, 10))) otherIncome[slot] += amount
   }
   otherIncome.first = round(otherIncome.first, 2)
   otherIncome.second = round(otherIncome.second, 2)

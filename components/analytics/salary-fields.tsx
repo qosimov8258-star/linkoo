@@ -51,7 +51,7 @@ export function SalaryMonthSelect({ value, onChange, className = "", bare, rs }:
                 onChange(index)
                 setOpen(false)
               }}
-              className={`block h-9 w-full px-[10px] text-left text-[13px] hover:bg-[#f2f5f8] ${index === value ? "font-semibold text-[#4f71dc]" : "text-[#333]"}`}
+              className={`block h-9 w-full px-[10px] text-left text-[13px] hover:bg-[#f2f5f8] ${index === value ? "font-semibold text-[#1E4A9A]" : "text-[#333]"}`}
             >
               {t(name)}
             </button>

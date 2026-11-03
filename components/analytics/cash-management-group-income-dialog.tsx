@@ -425,7 +425,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
                 className={inputClass}
               />
             </FormField>
-            <button type="button" onClick={applyEntry} aria-label={t("Применить")} title={t("Применить")} className="flex h-[34px] w-9 items-center justify-center text-[#4f71dc] hover:brightness-90">
+            <button type="button" onClick={applyEntry} aria-label={t("Применить")} title={t("Применить")} className="flex h-[34px] w-9 items-center justify-center text-[#1E4A9A] hover:brightness-90">
               <Check className="h-6 w-6" strokeWidth={2} />
             </button>
             {entryError && <span className="col-span-5 text-[12px] text-[#f44336]">{entryError}</span>}
@@ -477,7 +477,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
                     )}
                     <td className="px-2 py-1.5">{row.comment || "—"}</td>
                     <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                      <button type="button" onClick={() => editRow(row)} aria-label={t("Изменить")} className="mr-2 text-[#4f70e7]">
+                      <button type="button" onClick={() => editRow(row)} aria-label={t("Изменить")} className="mr-2 text-[#1E4A9A]">
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button type="button" onClick={() => setRows((current) => current.filter((item) => item.key !== row.key))} aria-label={t("Удалить")} className="text-[#e57373]">
@@ -534,7 +534,7 @@ function NotFoundRow({ item, onChange, onAdd, onRemove }: { item: NotFound; onCh
       />
       <input type="number" min="0" step="any" value={item.amount} onChange={(event) => onChange({ ...item, amount: event.target.value })} className={inputClass} aria-label={t("Сумма")} />
       <span className="flex items-center gap-2">
-        <button type="button" disabled={!item.clientId || !(parseAmount(item.amount) > 0)} onClick={onAdd} className="rounded-md bg-[#4f71dc] px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40">
+        <button type="button" disabled={!item.clientId || !(parseAmount(item.amount) > 0)} onClick={onAdd} className="rounded-md bg-[#1E4A9A] px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40">
           {t("Добавить")}
         </button>
         <button type="button" onClick={onRemove} aria-label={t("Удалить")} className="text-[#e57373]">

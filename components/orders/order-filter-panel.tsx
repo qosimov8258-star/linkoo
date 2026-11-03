@@ -209,7 +209,7 @@ function RangeCalendar({ value, onChange }: { value: DateRange; onChange: (value
           const edge = date === value.from || date === value.to
           const between = value.from && value.to && date > value.from && date < value.to
           return (
-            <button key={date} type="button" onClick={() => pick(date)} className={`h-8 ${edge ? "rounded-full bg-[#4f71dc] text-white" : between ? "bg-[#e3e9fb]" : "hover:bg-[#f2f5f8]"}`}>
+            <button key={date} type="button" onClick={() => pick(date)} className={`h-8 ${edge ? "rounded-full bg-[#1E4A9A] text-white" : between ? "bg-[#e3e9fb]" : "hover:bg-[#f2f5f8]"}`}>
               {i + 1}
             </button>
           )
@@ -237,7 +237,7 @@ function DateField({ label, value, onChange }: { label: string; value: DateRange
             <RangeCalendar value={value} onChange={onChange} />
             <div className="mt-2 flex justify-between">
               <button type="button" onClick={() => onChange({ from: "", to: "" })} className="text-[13px] font-semibold text-[#5d6474]">{t("Очистить")}</button>
-              <button type="button" onClick={() => setOpen(false)} className="text-[13px] font-semibold text-[#4f71dc]">OK</button>
+              <button type="button" onClick={() => setOpen(false)} className="text-[13px] font-semibold text-[#1E4A9A]">OK</button>
             </div>
           </div>
         </>

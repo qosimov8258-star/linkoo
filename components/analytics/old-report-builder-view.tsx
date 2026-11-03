@@ -114,8 +114,8 @@ export function oldReportTable(inPeriod: BuilderOrder[], settings: OldReportSett
 }
 
 const CARD = "bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
-const LINK = "text-[13px] text-[#4f71dc]"
-const CHIP = "flex h-[32px] w-[114px] flex-col items-center justify-center rounded-[3px] bg-[#4f71dc] px-1 text-center text-[13px] font-semibold leading-[15px] text-white hover:brightness-95"
+const LINK = "text-[13px] text-[#1E4A9A]"
+const CHIP = "flex h-[32px] w-[114px] flex-col items-center justify-center rounded-[3px] bg-[#1E4A9A] px-1 text-center text-[13px] font-semibold leading-[15px] text-white hover:brightness-95"
 
 const VIEW_ICONS = [
   "M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z",
@@ -210,7 +210,7 @@ export function OldReportBuilderView() {
           <div className="w-[300px] pt-[2px]"><ReportRangeField label="Период" from={period.from} to={period.to} onFrom={(from) => setPeriod((current) => ({ from, to: current.to < from ? from : current.to }))} onTo={(to) => setPeriod((current) => ({ from: current.from > to ? to : current.from, to }))} /></div>
           <div className="ml-auto flex gap-[1px]">
             {VIEW_ICONS.map((path, index) => (
-              <button key={index} type="button" onClick={() => setView(index)} aria-label={`view-${index}`} className={`flex h-[26px] w-[48px] items-center justify-center rounded-[3px] ${view === index ? "bg-[#4f71dc]" : "bg-[#e0e0e0]"}`}>
+              <button key={index} type="button" onClick={() => setView(index)} aria-label={`view-${index}`} className={`flex h-[26px] w-[48px] items-center justify-center rounded-[3px] ${view === index ? "bg-[#1E4A9A]" : "bg-[#e0e0e0]"}`}>
                 <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d={path} /></svg>
               </button>
             ))}
@@ -219,7 +219,7 @@ export function OldReportBuilderView() {
         <div ref={toolbarRef} className="relative flex flex-wrap items-center gap-[14px] px-[30px] py-[8px]">
           <button onClick={() => openPanel("columns")} className={LINK}>{t("Колонки")} ⌄</button>
           <button onClick={download} className="ml-[60px] flex h-[32px] items-center rounded-[3px] bg-[#4db6ac] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Download className="mr-3 h-[16px] w-[16px]" />{t("Скачать")}</button>
-          <button onClick={() => void save()} className="flex h-[32px] items-center rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Bookmark className="mr-3 h-[16px] w-[16px] fill-white" />{saved ? t("Сохранено ✓") : t("Сохранить")}</button>
+          <button onClick={() => void save()} className="flex h-[32px] items-center rounded-[3px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Bookmark className="mr-3 h-[16px] w-[16px] fill-white" />{saved ? t("Сохранено ✓") : t("Сохранить")}</button>
           <button onClick={() => router.push("/analytics/report-list")} className="flex h-[32px] items-center rounded-[3px] bg-[#ff8a6f] px-4 text-[13px] font-semibold text-white hover:brightness-95"><FolderOpen className="mr-3 h-[16px] w-[16px] fill-white" />{t("Отчеты")}</button>
           <button onClick={() => router.push("/analytics/flexible-dashboard")} className="flex h-[32px] items-center rounded-[3px] bg-[#ff8a6f] px-4 text-[13px] font-semibold text-white hover:brightness-95"><FolderOpen className="mr-3 h-[16px] w-[16px] fill-white" />{t("Виджеты")}</button>
           <div className="ml-auto flex items-center gap-[14px]">
@@ -255,7 +255,7 @@ export function OldReportBuilderView() {
           )}
           {open === "filters" && (
             <Panel title={t("Фильтры")} onClose={() => setOpen(null)} onAccept={accept} className="right-[60px]">
-              <p className="pb-1 text-[13px] font-semibold uppercase text-[#4f71dc]">{t("Статус")}</p>
+              <p className="pb-1 text-[13px] font-semibold uppercase text-[#1E4A9A]">{t("Статус")}</p>
               {statuses.length === 0 && <p className="py-2 text-[13px] text-[#999]">{t("Нет данных")}</p>}
               {statuses.map((item) => <CheckRow key={item} checked={dStatusFilter.includes(item)} onChange={() => setDStatusFilter(toggleIn(dStatusFilter, item))}>{t(item)}</CheckRow>)}
             </Panel>

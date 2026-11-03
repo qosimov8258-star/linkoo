@@ -458,9 +458,6 @@ async function normalize(db: PgDb, input: TransferInput, index: CatalogIndex, cu
   const fromWarehouse = from.name
   const toWarehouse = to.name
   if (textKey(fromWarehouse) === textKey(toWarehouse)) return { error: "Склад отправитель и склад получатель должны отличаться", status: 400 }
-  const deliveredAt = input.deliveredAt.trim() ? (parseDocInput(input.deliveredAt)?.slice(0, 10) ?? null) : todayIso()
-  // A planned delivery day may be in the future, but its year must be within 2000..2100.
-  if (!deliveredAt || !docYearOk(deliveredAt)) return { error: "Неверная дата доставки", status: 400 }
   if (!input.items.length) return { error: "Добавьте товары", status: 400, field: "items" }
   let orphans: Set<string> | null = null
   const items: TransferItem[] = []
@@ -495,6 +492,10 @@ async function normalize(db: PgDb, input: TransferInput, index: CatalogIndex, cu
   }
   const createdAt = createdMoment(input.createdAt, current?.createdAt)
   if (isTransferError(createdAt)) return createdAt
+  // Delivery day: as typed, else the document's day (a transfer entered for an earlier day was delivered then).
+  const deliveredAt = input.deliveredAt.trim() ? (parseDocInput(input.deliveredAt)?.slice(0, 10) ?? null) : createdAt.slice(0, 10)
+  // A planned delivery day may be in the future, but its year must be within 2000..2100.
+  if (!deliveredAt || !docYearOk(deliveredAt)) return { error: "Неверная дата доставки", status: 400 }
   // Without a price list the lines are valued at the cost of goods (re-valued when given).
   const priced = input.priceList.trim()
     ? items
@@ -779,7 +780,10 @@ export async function createTransfer(input: TransferInput, userName: string): Pr
       .run({ ...row, status: initial, created_by: userName })
     let transfer = (await getTransfer(Number(result.lastInsertRowid), tx))!
     await addLog(tx, transfer, "created", userName)
-    for (const action of pathTo(input.status)) transfer = await applyAction(tx, transfer, action, {}, userName, index)
+    // Sent at once («Сразу передать»): the goods move on the document's own day, so a transfer
+    // entered for an earlier day leaves and reaches the warehouses that day, not today.
+    const date = checked.createdAt.slice(0, 10)
+    for (const action of pathTo(input.status)) transfer = await applyAction(tx, transfer, action, { date }, userName, index)
     return transfer
   })
   // Sent at once (in transit / accepted): goods moved, as by transferAction.

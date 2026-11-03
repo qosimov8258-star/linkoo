@@ -209,7 +209,7 @@ export function CashbackRequestDecisionDialog({
         {loadError ? (
           <p className="px-[30px] py-10 text-center text-[13px] text-[#e57373]">{t(loadError)}</p>
         ) : (
-          <div className="flex items-center justify-center py-10 text-[#4f70e7]">
+          <div className="flex items-center justify-center py-10 text-[#1E4A9A]">
             <Loader2 className="h-8 w-8 animate-spin" aria-label={t("Загрузка...")} />
           </div>
         )}

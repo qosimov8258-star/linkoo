@@ -264,7 +264,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-4 px-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t(title)}</span>
         </div>
@@ -289,7 +289,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
 
       {!refGrid && (
         <div className="px-6 pt-4 text-[14px] text-[#586174] md:px-9">
-          {t("Баланс на")} <strong className="text-[#4f70e7]">{formatStatementDate(asOf, language, false)}</strong>
+          {t("Баланс на")} <strong className="text-[#1E4A9A]">{formatStatementDate(asOf, language, false)}</strong>
         </div>
       )}
       <div className={refGrid ? "pt-1" : "pt-4"}>
@@ -324,7 +324,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={t("Поиск")}
               aria-label={t("Поиск")}
-              className="h-[36px] w-[256px] border-b border-[#dbe0e8] bg-transparent text-[13px] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#4f70e7]"
+              className="h-[36px] w-[256px] border-b border-[#dbe0e8] bg-transparent text-[13px] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#1E4A9A]"
             />
             <button type="submit" aria-label={t("Поиск")} className="absolute left-[calc(50%+138px)] p-1.5 text-[#ccc]">
               <Search className="h-5 w-5" />
@@ -353,7 +353,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
             <span>
               {t("Не удалось загрузить данные")}: {error}
             </span>
-            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

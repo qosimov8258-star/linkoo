@@ -89,7 +89,7 @@ export function StockMoveTable({
             return (
               <div key={row.key || "—"} style={template} className={`grid ${background}`}>
                 <div className={`${cell} flex items-center`}>
-                  <button type="button" onClick={() => onRowClick(row)} className="flex min-w-0 flex-col items-start text-left hover:text-[#4f71dc]">
+                  <button type="button" onClick={() => onRowClick(row)} className="flex min-w-0 flex-col items-start text-left hover:text-[#1E4A9A]">
                     <span className="break-words">{row.name || t("Не указано")}</span>
                     {groupBy === "product" && row.article && <span className="font-semibold text-[#71ce87]">{row.article}</span>}
                   </button>
@@ -150,7 +150,7 @@ export function StockMoveColumnPicker({ columns, hidden, onChange }: { columns: 
   }, [open])
   return (
     <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen((value) => !value)} className="flex h-9 items-center gap-2 rounded-md border border-[#dbe0e8] px-3 text-[#586174] hover:border-[#4f70e7] hover:text-[#4f70e7]">
+      <button type="button" onClick={() => setOpen((value) => !value)} className="flex h-9 items-center gap-2 rounded-md border border-[#dbe0e8] px-3 text-[#586174] hover:border-[#1E4A9A] hover:text-[#1E4A9A]">
         <Columns3 className="h-4 w-4" /> {t("Показать")} <ChevronDown className="h-4 w-4" />
       </button>
       {open && (
@@ -161,7 +161,7 @@ export function StockMoveColumnPicker({ columns, hidden, onChange }: { columns: 
                 type="checkbox"
                 checked={!hidden.includes(column.field)}
                 onChange={() => onChange(hidden.includes(column.field) ? hidden.filter((field) => field !== column.field) : [...hidden, column.field])}
-                className="h-4 w-4 accent-[#4f70e7]"
+                className="h-4 w-4 accent-[#1E4A9A]"
               />
               {t(column.label)}
             </label>

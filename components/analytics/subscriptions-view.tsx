@@ -60,7 +60,7 @@ function toOptions(list: NamedId[]): Option[] {
 function Badge({ value, red, empty }: { value: string | null; red: boolean; empty: string }) {
   const { language } = useLanguage()
   return (
-    <span className={`inline-block h-[28px] rounded-[14px] px-[10px] text-[13px] font-semibold leading-[28px] text-white ${red ? "bg-[#fa8072]" : "bg-[#4f71dc]"}`}>
+    <span className={`inline-block h-[28px] rounded-[14px] px-[10px] text-[13px] font-semibold leading-[28px] text-white ${red ? "bg-[#fa8072]" : "bg-[#1E4A9A]"}`}>
       {value ? formatDateText(value, language) : empty}
     </span>
   )
@@ -293,7 +293,7 @@ export function SubscriptionsView() {
                     <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d={checkboxes ? EYE_OFF : RI.checklist} /></svg>
                   </button>
                 </RefTip>
-                <button type="button" onClick={() => openAttach()} className="ml-[22px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">{t("Прикрепить")}</button>
+                <button type="button" onClick={() => openAttach()} className="ml-[22px] h-[30px] rounded-[3px] bg-[#1E4A9A] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">{t("Прикрепить")}</button>
                 {tab === "with" && selectMode && (
                   <RefTip text="Открепить все выделенные подписки" raw side="top" className="ml-[18px]">
                     <button type="button" onClick={() => requireSelection(() => setDialog("detach"))} className="h-[30px] rounded-[3px] bg-[#fa8072] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">{t("Открепить")}</button>
@@ -374,7 +374,7 @@ export function SubscriptionsView() {
             <div className="px-[20px] pb-[19px] pt-[11px] text-center">
               <div className="py-[6px] text-[24px] font-bold text-[#71ce87]">{meta ? money(meta.summary.balance) : ""}</div>
               <p className="mt-[9px] text-left text-[15px] font-semibold leading-[19px]">{t("Крайний срок оплаты")}: {meta?.summary.paymentDeadline ? formatDateText(meta.summary.paymentDeadline, language) : ""}</p>
-              <button type="button" onClick={() => setDialog("act")} className="mt-[8px] h-[30px] w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-semibold text-white hover:brightness-95">{t("АКТ сверки")}</button>
+              <button type="button" onClick={() => setDialog("act")} className="mt-[8px] h-[30px] w-full rounded-[3px] bg-[#1E4A9A] text-[13px] font-semibold text-white hover:brightness-95">{t("АКТ сверки")}</button>
               <button type="button" onClick={() => setShowPhone((open) => !open)} className="mt-[10px] h-[30px] w-full rounded-[3px] bg-[#71ce87] text-[13px] font-semibold text-white hover:brightness-95">{t("Пополнить баланс")}</button>
               {showPhone && meta && (
                 <div className="px-[10px] pt-[20px] text-[18px] leading-[22px]">

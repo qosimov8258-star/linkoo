@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { COMPANY_MONEY_PERMISSIONS } from "@/lib/company-money"
 import { getCurrentUser } from "@/lib/current-user"
 import { getDashboardSummary } from "@/lib/dashboard-summary-repo"
 import { fieldScopeOf, scopedEmployeeIds } from "@/lib/field-activity/actor"
@@ -21,7 +22,6 @@ function validDay(value: string): boolean {
 // (accountants, cashiers, report / dashboard staff); everyone else, the agents first of all (who
 // hold payments.manage for collecting money), sees only the orders, client payments and returns of
 // their own field scope (themselves and the agents they supervise), nothing without one.
-const COMPANY_MONEY_PERMISSIONS = ["finance.manage", "cash.manage", "reports.manage"]
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()

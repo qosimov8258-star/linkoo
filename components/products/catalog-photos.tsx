@@ -85,7 +85,7 @@ export function AddPhotoDialog({ kind, itemId, onClose, onSaved }: { kind: Catal
       <button
         type="button"
         onClick={() => input.current?.click()}
-        className="flex min-h-[160px] w-full flex-wrap items-center justify-center gap-2 rounded-md border-2 border-dashed border-[#dbe0e8] p-3 text-[#9aa3b6] hover:border-[#4f71dc]"
+        className="flex min-h-[160px] w-full flex-wrap items-center justify-center gap-2 rounded-md border-2 border-dashed border-[#dbe0e8] p-3 text-[#9aa3b6] hover:border-[#1E4A9A]"
       >
         {previews.length ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -170,7 +170,7 @@ export function SlideshowDialog({
         </span>
         <div className="flex items-center gap-2">
           {canEdit && !image.isPrimary && (
-            <button type="button" disabled={busy} onClick={() => void act("PUT")} className="rounded-sm bg-[#4f71dc] px-3 py-1.5 text-[13px] font-semibold disabled:opacity-50">
+            <button type="button" disabled={busy} onClick={() => void act("PUT")} className="rounded-sm bg-[#1E4A9A] px-3 py-1.5 text-[13px] font-semibold disabled:opacity-50">
               {t("Сделать основным")}
             </button>
           )}

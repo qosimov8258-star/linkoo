@@ -163,7 +163,7 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
           {(errors.isActive || errors.isDefaultForOrder) && <p className="-mt-2 text-[12px] text-[#e57373]">{errors.isActive || errors.isDefaultForOrder}</p>}
           {check(t("Связать прайс-лист"), draft.isConnected, (isConnected) => set({ isConnected }))}
           {draft.isConnected && (
-            <div className="flex flex-col gap-4 border-l-2 border-[#4f71dc]/30 pl-4">
+            <div className="flex flex-col gap-4 border-l-2 border-[#1E4A9A]/30 pl-4">
               <FormField label={t("Прайс лист")} error={errors.connectedPriceList}>
                 <SearchSelect value={draft.connectedId} options={listOptions} loading={lists.loading} invalid={Boolean(errors.connectedPriceList)} onChange={(connectedId) => set({ connectedId })} />
               </FormField>

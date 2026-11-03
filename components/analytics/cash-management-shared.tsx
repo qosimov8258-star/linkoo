@@ -316,7 +316,7 @@ export function ReadonlyField({ label, value }: { label: string; value: ReactNod
 }
 
 export function PrimaryButton({ children, onClick, disabled, busy, tone = "blue", type = "button" }: { children: ReactNode; onClick?: () => void; disabled?: boolean; busy?: boolean; tone?: "blue" | "green" | "red"; type?: "button" | "submit" }) {
-  const colors = { blue: "bg-[#4f71dc]", green: "bg-[#71ce87]", red: "bg-[#fa8072]" }[tone]
+  const colors = { blue: "bg-[#1E4A9A]", green: "bg-[#71ce87]", red: "bg-[#fa8072]" }[tone]
   return (
     <button type={type} onClick={onClick} disabled={disabled || busy} className={`inline-flex h-10 items-center justify-center gap-2 rounded-md px-6 font-semibold uppercase text-white hover:brightness-95 disabled:opacity-50 ${colors}`}>
       {busy && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -506,7 +506,7 @@ export function MultiPick({ label, options, value, onChange }: { label: string; 
             {!visible.length && <p className="px-3 py-2 text-[13px] text-[#9aa3b6]">{t("Ничего не найдено")}</p>}
             {visible.map((option, index) => (
               <button key={`${option.value}:${index}`} type="button" onClick={() => toggle(option.value)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8]">
-                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(option.value) ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#c4cbd6]"}`}>
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(option.value) ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#c4cbd6]"}`}>
                   {value.includes(option.value) && <Check className="h-3 w-3" />}
                 </span>
                 <span className="truncate">{option.label}</span>
@@ -655,7 +655,7 @@ export function ErrorBlock({ error, onRetry, className = "py-10" }: { error: str
         {t("Не удалось выполнить запрос")}: {t(error)}
       </p>
       {onRetry && (
-        <button type="button" onClick={onRetry} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+        <button type="button" onClick={onRetry} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
           {t("Повторить")}
         </button>
       )}
@@ -684,10 +684,10 @@ export function MiniPager({ page, pageSize, count, onPage }: { page: number; pag
       <span className="whitespace-nowrap">
         {start} - {end} {t("из")} {count}
       </span>
-      <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label={t("Назад")} className="rounded-full border border-[#4f70e7] px-2 text-[#4f70e7] disabled:border-[#dbe0e8] disabled:text-[#9aa3b6]">
+      <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label={t("Назад")} className="rounded-full border border-[#1E4A9A] px-2 text-[#1E4A9A] disabled:border-[#dbe0e8] disabled:text-[#9aa3b6]">
         ‹
       </button>
-      <button type="button" disabled={page >= last} onClick={() => onPage(page + 1)} aria-label={t("Вперед")} className="rounded-full border border-[#4f70e7] px-2 text-[#4f70e7] disabled:border-[#dbe0e8] disabled:text-[#9aa3b6]">
+      <button type="button" disabled={page >= last} onClick={() => onPage(page + 1)} aria-label={t("Вперед")} className="rounded-full border border-[#1E4A9A] px-2 text-[#1E4A9A] disabled:border-[#dbe0e8] disabled:text-[#9aa3b6]">
         ›
       </button>
     </div>

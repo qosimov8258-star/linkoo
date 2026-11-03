@@ -486,10 +486,10 @@ export function InvoiceImportDialog({ onClose, onDone }: { onClose: () => void; 
     >
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-4">
-          <button type="button" onClick={() => downloadInvoiceTemplate(t)} className="inline-flex items-center gap-2 font-semibold text-[#4f70e7] hover:underline">
+          <button type="button" onClick={() => downloadInvoiceTemplate(t)} className="inline-flex items-center gap-2 font-semibold text-[#1E4A9A] hover:underline">
             <Download className="h-4 w-4" /> {t("1. Скачать шаблон")}
           </button>
-          <button type="button" onClick={() => inputRef.current?.click()} className="inline-flex items-center gap-2 font-semibold text-[#4f70e7] hover:underline">
+          <button type="button" onClick={() => inputRef.current?.click()} className="inline-flex items-center gap-2 font-semibold text-[#1E4A9A] hover:underline">
             <FileSpreadsheet className="h-4 w-4" /> {file ? `${t("2. Загрузить файл")}: ${file.name}` : t("2. Загрузить файл")}
           </button>
           <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" onChange={(event) => void pick(event)} className="hidden" />
@@ -503,7 +503,7 @@ export function InvoiceImportDialog({ onClose, onDone }: { onClose: () => void; 
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+            className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#1E4A9A] hover:text-[#1E4A9A]"
           >
             <FileSpreadsheet className="h-8 w-8" />
             {t("Добавьте файл Excel или нажмите для выбора")}

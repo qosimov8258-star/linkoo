@@ -442,7 +442,7 @@ export function TopNav() {
   if (pathname === "/login" || pathname.startsWith("/login/")) return null
 
   return (
-    <header ref={headerRef} className="sticky top-0 z-40 bg-[#272780] text-white shadow-[0_5px_10px_2px_rgba(79,113,220,0.3)]">
+    <header ref={headerRef} className="sticky top-0 z-40 bg-[#0D2350] text-white shadow-[0_5px_10px_2px_rgba(13,35,80,0.35)]">
       <div className="flex h-[50px] items-center px-4 xl:pl-6 xl:pr-[29px]">
         <div ref={brandRef} className="relative mr-auto shrink-0 lg:mr-3">
           <button
@@ -451,12 +451,12 @@ export function TopNav() {
             aria-haspopup="menu"
             aria-expanded={brandMenuOpen}
             className="flex shrink-0 items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
-            aria-label={t("Меню Linko")}
+            aria-label={t("Меню Mezon")}
           >
             <span className="flex flex-col text-left leading-none">
               <span className="flex items-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/nav/logo.svg" alt="linko" className="h-7 w-[55px]" />
+                <img src="/brand/mezon-nav.png" alt="Mezon" className="h-7 w-auto" />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/nav/caret.svg" alt="" className="relative top-[5.8px] -mr-5 h-5 w-5" />
               </span>
@@ -517,8 +517,8 @@ export function TopNav() {
                 aria-expanded={isOpen}
                 className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
-                    ? "bg-[#5c6df3] hover:bg-[#5c6df3]"
-                    : "hover:bg-[#3a3897]"
+                    ? "bg-[#1E4A9A] shadow-[inset_0_-3px_0_#C9962B] hover:bg-[#1E4A9A]"
+                    : "hover:bg-[#17346B]"
                 } focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -646,7 +646,7 @@ export function TopNav() {
       {mobileOpen && (
         <nav
           id="mobile-navigation"
-          className="absolute left-0 right-0 top-full max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-white/10 bg-[#2d2a84] p-3 shadow-2xl lg:hidden"
+          className="absolute left-0 right-0 top-full max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-white/10 bg-[#102A5C] p-3 shadow-2xl lg:hidden"
         >
           {/* Phones and tablets have no hover menus: each tab expands into its
               own menu (the same links as on the desktop), so every page — Остаток,
@@ -661,7 +661,7 @@ export function TopNav() {
                     onClick={() => setMobileSection((current) => (current === label ? null : label))}
                     aria-expanded={expanded}
                     className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-semibold transition-colors ${
-                      activeItem?.label === label ? "bg-[#5c6df3]" : "hover:bg-white/10"
+                      activeItem?.label === label ? "bg-[#1E4A9A]" : "hover:bg-white/10"
                     } focus-visible:outline-2 focus-visible:outline-white`}
                   >
                     <Icon className="h-5 w-5" />
@@ -781,7 +781,7 @@ export function TopNav() {
                   setNewServerName("")
                   setCreateServerOpen(false)
                 }}
-                className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white"
+                className="rounded-md bg-[#1E4A9A] px-5 py-2.5 font-semibold text-white"
               >
                 {t("Создать")}
               </button>

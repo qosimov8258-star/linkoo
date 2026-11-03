@@ -588,7 +588,7 @@ function OperationForm({
           {kind === "expense" && (
             <div className="-mt-[3px] flex items-center justify-between text-[13px] font-semibold text-black">
               <span>{t("Выбор категории расходов")}</span>
-              <Link href="/analytics/expense-categories" target="_blank" className="font-normal text-[#4f70e7] hover:underline">
+              <Link href="/analytics/expense-categories" target="_blank" className="font-normal text-[#1E4A9A] hover:underline">
                 + {t("добавить")}
               </Link>
             </div>
@@ -868,7 +868,7 @@ export function RateBlock({
               debtRate: event.target.checked && !debtRate && currentDebt && debtForeign ? String(currentDebt) : debtRate,
             })
           }
-          className="h-4 w-4 accent-[#4f70e7]"
+          className="h-4 w-4 accent-[#1E4A9A]"
         />
         {t("Индивидуальный курс")}
       </label>
@@ -984,7 +984,7 @@ function ChildrenPanel({ rows, currency, error, onChange }: { rows: Array<{ name
           </button>
         </div>
       ))}
-      <button type="button" onClick={() => onChange([...rows, { name: "", amount: "" }])} className="inline-flex items-center gap-1 self-start text-[14px] font-semibold text-[#4f70e7] hover:underline">
+      <button type="button" onClick={() => onChange([...rows, { name: "", amount: "" }])} className="inline-flex items-center gap-1 self-start text-[14px] font-semibold text-[#1E4A9A] hover:underline">
         <Plus className="h-4 w-4" /> {t("Добавить")}
       </button>
       <p className="text-right font-semibold text-[#17233b]">

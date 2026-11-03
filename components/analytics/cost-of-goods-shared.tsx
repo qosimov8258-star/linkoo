@@ -44,7 +44,7 @@ export function DocumentLink({ docType, docId }: Pick<NetCostDocument, "docType"
   const page = NET_COST_DOC_LINKS[docType]
   if (!page) return <span>{label}</span>
   return (
-    <Link href={`${page}?id=${docId}`} className="font-semibold text-[#4f71dc] hover:underline">
+    <Link href={`${page}?id=${docId}`} className="font-semibold text-[#1E4A9A] hover:underline">
       {label}
     </Link>
   )

@@ -70,7 +70,7 @@ function DialogFrame({ title, width, onClose, children, z = "z-[100]" }: { title
 }
 
 const fieldLabel = "flex flex-col gap-1 text-sm text-[#586174]"
-const fieldInput = "h-10 w-full rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b] outline-none focus:border-[#4f70e7]"
+const fieldInput = "h-10 w-full rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b] outline-none focus:border-[#1E4A9A]"
 
 /** Demo number normalizer: digits with one decimal separator, grouped by spaces. */
 function normalizeAmount(value: string): string {
@@ -195,7 +195,7 @@ export function BranchTransactionDialog({
               rows={Math.min(6, Math.max(1, comment.split("\n").length))}
               onChange={(event) => setComment(event.target.value)}
               placeholder={t("Оставить комментарий...")}
-              className="w-full resize-none rounded-md border border-[#dbe0e8] px-3 py-2 text-[#17233b] outline-none focus:border-[#4f70e7]"
+              className="w-full resize-none rounded-md border border-[#dbe0e8] px-3 py-2 text-[#17233b] outline-none focus:border-[#1E4A9A]"
             />
             {error("comment")}
           </label>
@@ -340,7 +340,7 @@ export function BranchDetailDialog({ entityKey, name, onClose }: { entityKey: st
                   {error ? (
                     <span className="flex flex-col items-center gap-2 text-[#e57373]">
                       {t(error)}
-                      <button type="button" onClick={reload} className="text-[#4f70e7] hover:underline">
+                      <button type="button" onClick={reload} className="text-[#1E4A9A] hover:underline">
                         {t("Повторить")}
                       </button>
                     </span>

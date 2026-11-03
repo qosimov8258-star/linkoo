@@ -124,7 +124,7 @@ export function Switch({
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative h-[22px] w-10 shrink-0 rounded-full transition-colors ${checked ? "bg-[#4f71dc]" : "bg-[#c7ccd6]"}`}
+        className={`relative h-[22px] w-10 shrink-0 rounded-full transition-colors ${checked ? "bg-[#1E4A9A]" : "bg-[#c7ccd6]"}`}
       >
         <span className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-[21px]" : "translate-x-[3px]"}`} />
       </button>

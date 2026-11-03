@@ -279,7 +279,7 @@ export function TaskDrawer({
             <div className="mt-[24px] flex items-center justify-between">
               <h3 className="text-[14px] font-semibold text-[#5d6474]">{t("Планы")}</h3>
               {canManage && task.status !== "finished" && (
-                <button type="button" onClick={toggleAdd} className="h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+                <button type="button" onClick={toggleAdd} className="h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">
                   {t(addOpen ? "Закрыть" : "Добавить план")}
                 </button>
               )}
@@ -326,7 +326,7 @@ export function TaskDrawer({
                 <button
                   type="submit"
                   disabled={planSaving}
-                  className="mt-[14px] inline-flex h-[36px] w-full items-center justify-center gap-2 rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60"
+                  className="mt-[14px] inline-flex h-[36px] w-full items-center justify-center gap-2 rounded-[5px] bg-[#1E4A9A] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60"
                 >
                   {planSaving && <Loader2 className="h-4 w-4 animate-spin" />}
                   {t("Создать")}
@@ -345,7 +345,7 @@ export function TaskDrawer({
                       <p className="whitespace-pre-wrap break-words font-semibold text-[#333]">{plan.comment || "—"}</p>
                       <p className="mt-[2px] text-[12px] text-[#888]">{isTaskDate(plan.date) ? formatDateText(plan.date, language, { withTime: false }) : t("Не указано")}</p>
                       {plan.photoUrl && (
-                        <button type="button" onClick={() => setPhoto(plan.photoUrl)} className="mt-[4px] text-[12px] text-[#4f71dc] hover:underline">
+                        <button type="button" onClick={() => setPhoto(plan.photoUrl)} className="mt-[4px] text-[12px] text-[#1E4A9A] hover:underline">
                           {t("Просмотреть")}
                         </button>
                       )}

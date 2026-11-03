@@ -136,16 +136,16 @@ export function ActivityView() {
     <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] font-sans text-[13px] text-[#333]">
       <header className="flex flex-wrap items-center justify-between gap-3 px-[30px] py-[14px]">
         <div className="flex items-center gap-[10px] text-[17px] font-bold">
-          <FavoritesButton className="flex items-center gap-2 text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-2 text-[#1E4A9A]" />
           <span className="font-normal text-[#999]">|</span>
           <h1 className="text-[#555]">{t("Активность")}</h1>
         </div>
         <div className="relative flex flex-wrap items-center gap-4">
-          <strong className="text-[12px] text-[#4f71dc]">
+          <strong className="text-[12px] text-[#1E4A9A]">
             {headerDay(state.from, language)} - {headerDay(state.to, language)}
           </strong>
           {state.agentId !== null && (
-            <Link href={`/tracking?view=agents&agent=${state.agentId}&date=${state.to}`} className="flex items-center gap-1 text-[13px] font-semibold text-[#4f71dc] hover:underline">
+            <Link href={`/tracking?view=agents&agent=${state.agentId}&date=${state.to}`} className="flex items-center gap-1 text-[13px] font-semibold text-[#1E4A9A] hover:underline">
               <MapPin className="h-4 w-4" />
               {t("Показать на карте")}
             </Link>
@@ -154,7 +154,7 @@ export function ActivityView() {
             type="button"
             onClick={() => setFilterOpen((open) => !open)}
             aria-expanded={filterOpen}
-            className="inline-flex h-9 items-center gap-2 rounded-[4px] bg-[#5869f0] px-4 text-[13px] font-semibold text-white hover:brightness-95"
+            className="inline-flex h-9 items-center gap-2 rounded-[4px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"
           >
             <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden="true">
               <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />

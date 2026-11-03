@@ -206,21 +206,21 @@ export function EmployeesView() {
     <div className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <div className="relative flex h-[73px] items-center justify-between border-b border-[#efefef] pl-[20px] pr-[60px]">
         {access.manage ? (
-          <button type="button" onClick={() => setDialog({ employee: null })} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setDialog({ employee: null })} className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
             <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
             {t("Добавить пользователя")}
           </button>
         ) : <span />}
         <div className="flex items-center gap-[18px]">
           {access.manage && (
-            <button type="button" onClick={() => setDialogs("import")} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setDialogs("import")} className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
               <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d={RI.chart} /></svg>
               {t("Импортировать")}
             </button>
           )}
           <div className="flex h-[32px]">
-            <button type="button" onClick={() => switchTab("active")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "active" ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Активный")}</button>
-            <button type="button" onClick={() => switchTab("deleted")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "deleted" ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Удаленные")}</button>
+            <button type="button" onClick={() => switchTab("active")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "active" ? "bg-[#1E4A9A] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Активный")}</button>
+            <button type="button" onClick={() => switchTab("deleted")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "deleted" ? "bg-[#1E4A9A] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Удаленные")}</button>
           </div>
           {access.admin && (
             <button type="button" onClick={() => setDialogs("block")} aria-label={t("Ограничить доступ")} title={t("Ограничить доступ")} className="absolute right-[20px] top-[23.5px] flex h-[25px] w-[30px] items-start justify-center">
@@ -263,8 +263,8 @@ export function EmployeesView() {
           )}
           {hasSelection && (
             <>
-              <button type="button" onClick={() => setDialogs("update")} className="ml-[29px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">{t("Обновить с excel")}</button>
-              <button type="button" onClick={() => setDialogs("bulk")} className="ml-[9px] flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] pl-[14px] pr-[18px] text-[13px] font-semibold text-white hover:brightness-95">
+              <button type="button" onClick={() => setDialogs("update")} className="ml-[29px] h-[30px] rounded-[3px] bg-[#1E4A9A] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">{t("Обновить с excel")}</button>
+              <button type="button" onClick={() => setDialogs("bulk")} className="ml-[9px] flex h-[30px] items-center rounded-[3px] bg-[#1E4A9A] pl-[14px] pr-[18px] text-[13px] font-semibold text-white hover:brightness-95">
                 <svg viewBox="0 0 24 24" className="mr-[8px] h-[16px] w-[16px] fill-white"><path d={RI.edit} /></svg>
                 {t("Изменить")}
               </button>

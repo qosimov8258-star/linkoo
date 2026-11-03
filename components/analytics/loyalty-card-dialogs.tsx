@@ -303,7 +303,7 @@ export function LoyaltyFilterDialog({
   if (!open) return null
   const types = options?.clientTypes ?? []
   const choices = draft && !types.includes(draft) ? [draft, ...types] : types
-  const select = "mt-1 block h-9 w-full border-b border-[#dbe0e8] bg-transparent text-[13px] text-[#333] outline-none focus:border-[#4f70e7] disabled:text-[#bbb]"
+  const select = "mt-1 block h-9 w-full border-b border-[#dbe0e8] bg-transparent text-[13px] text-[#333] outline-none focus:border-[#1E4A9A] disabled:text-[#bbb]"
   return (
     <>
       <div className="fixed inset-0 z-[95]" onClick={onClose} />

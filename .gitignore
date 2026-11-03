@@ -18,6 +18,7 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 node_modules
 .next/
+.next-*/
 .DS_Store
 *.tsbuildinfo
 
@@ -36,3 +37,6 @@ diag-files.png
 /image copy*.png
 /public/image.png
 /public/image copy*.png
+
+# Factory simulation UI check output (scripts/factory/ui-check.cjs)
+/.ui-check/

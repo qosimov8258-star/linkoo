@@ -172,7 +172,7 @@ export function TransferDetailPanel({
                   )
                 }
               >
-                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#4f71dc]" aria-hidden><path d={ICON_CHECK_CIRCLE} /></svg>
+                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#1E4A9A]" aria-hidden><path d={ICON_CHECK_CIRCLE} /></svg>
               </button>
             </RefTip>
           )}
@@ -271,8 +271,8 @@ export function TransferDetailPanel({
                     <button type="button" onClick={() => toggleSort(key)} className="flex items-center gap-[4.9px] text-left">
                       {label}
                       <span className="relative block h-[20px] w-[15px]" aria-hidden>
-                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-0 h-[15px] w-[15px] ${sort?.key === key && !sort.desc ? "fill-[#4f71dc]" : "fill-[#9aa3b6]"}`}><path d="M7 14l5-5 5 5z" /></svg>
-                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-[5px] h-[15px] w-[15px] ${sort?.key === key && sort.desc ? "fill-[#4f71dc]" : "fill-[#9aa3b6]"}`}><path d="M7 10l5 5 5-5z" /></svg>
+                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-0 h-[15px] w-[15px] ${sort?.key === key && !sort.desc ? "fill-[#1E4A9A]" : "fill-[#9aa3b6]"}`}><path d="M7 14l5-5 5 5z" /></svg>
+                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-[5px] h-[15px] w-[15px] ${sort?.key === key && sort.desc ? "fill-[#1E4A9A]" : "fill-[#9aa3b6]"}`}><path d="M7 10l5 5 5-5z" /></svg>
                       </span>
                     </button>
                   </th>
@@ -286,7 +286,7 @@ export function TransferDetailPanel({
                   <td className={`${cell} pl-[18px]`}>
                     <div className="leading-[19.5px]">
                       {formatQty(item.quantity, item.unit ? t(item.unit) : "")}
-                      {item.boxLabel && <p className="h-[18px] text-[12px] leading-[18px] text-[#4f71dc]">{item.boxLabel}</p>}
+                      {item.boxLabel && <p className="h-[18px] text-[12px] leading-[18px] text-[#1E4A9A]">{item.boxLabel}</p>}
                     </div>
                   </td>
                   <td className={`${cell} pl-[18px]`}>{formatMoney(item.quantity * item.weight, 3)}</td>

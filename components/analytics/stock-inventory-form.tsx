@@ -354,7 +354,7 @@ export function InventoryFormDialog({
                   onClick={applyAddRow}
                   title={t("Применить")}
                   aria-label={t("Применить")}
-                  className="ml-[44px] mt-[29px] flex h-5 w-5 items-center justify-center text-[#4f71dc]"
+                  className="ml-[44px] mt-[29px] flex h-5 w-5 items-center justify-center text-[#1E4A9A]"
                 >
                   <Plus className="h-5 w-5" strokeWidth={1.6} />
                 </button>

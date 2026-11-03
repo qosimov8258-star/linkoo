@@ -23,7 +23,8 @@ import './globals.css'
 const PATH_HEADER = 'x-linko-path'
 const URL_HEADER = 'x-linko-url'
 
-const DEFAULT_TITLE = 'Linko — Дистрибуция'
+// Every tab title reads "<page> — Mezon"; a page without a title of its own is "Дистрибуция — Mezon".
+const BRAND = 'Mezon'
 
 // Titles are rendered on the server in the UI language: pages without metadata
 // of their own get their menu name (lib/route-titles.ts) instead of the generic
@@ -33,11 +34,12 @@ export async function generateMetadata(): Promise<Metadata> {
   const store = await headers()
   const key = routeTitle(store.get(PATH_HEADER) ?? '')
   return {
-    title: key ? `${translate(language, key)} — Linko` : translate(language, DEFAULT_TITLE),
-    description: translate(language, 'Панель управления дистрибуцией Linko'),
+    title: `${translate(language, key ?? 'Дистрибуция')} — ${BRAND}`,
+    description: translate(language, 'Панель управления дистрибуцией Mezon'),
     generator: 'v0.app',
     icons: {
-      icon: '/icon.svg',
+      icon: '/icon.png',
+      apple: '/apple-icon.png',
     },
   }
 }

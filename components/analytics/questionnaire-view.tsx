@@ -334,14 +334,14 @@ export function QuestionnaireView() {
                 <div className="flex w-full flex-wrap items-end gap-4 border-b border-slate-200 bg-white px-5 py-4 shadow">
                   <label className="text-sm font-medium text-slate-600">
                     {t("Организация")}
-                    <select value={organizationFilter} onChange={(event) => { setOrganizationFilter(event.target.value); paging.setPage(1) }} className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#4f71dc]">
+                    <select value={organizationFilter} onChange={(event) => { setOrganizationFilter(event.target.value); paging.setPage(1) }} className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#1E4A9A]">
                       <option value="">{t("Все организации")}</option>
                       {organizations.map((item) => (
                         <option key={item.id} value={String(item.id)}>{item.name}</option>
                       ))}
                     </select>
                   </label>
-                  <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#4f71dc] px-5 py-2.5 font-semibold uppercase text-white hover:brightness-95">
+                  <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#1E4A9A] px-5 py-2.5 font-semibold uppercase text-white hover:brightness-95">
                     {t("Применить")}
                   </button>
                 </div>
@@ -374,10 +374,10 @@ export function QuestionnaireView() {
                 № {survey.id} - {survey.name}
               </h2>
               <div className="flex items-center gap-[10px] text-[#5d6474]">
-                <button type="button" onClick={() => downloadSurvey(survey)} aria-label={t("Скачать")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-[#4f71dc]">
+                <button type="button" onClick={() => downloadSurvey(survey)} aria-label={t("Скачать")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-[#1E4A9A]">
                   <Download className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={() => openEdit(survey)} aria-label={t("Изменить")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-[#4f71dc]">
+                <button type="button" onClick={() => openEdit(survey)} aria-label={t("Изменить")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-[#1E4A9A]">
                   <Pencil className="h-5 w-5" />
                 </button>
                 <button type="button" onClick={() => remove(survey.id)} aria-label={t("Удалить")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-red-500">
@@ -421,14 +421,14 @@ export function QuestionnaireView() {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#1E4A9A] hover:underline">
                 {t("1. Скачать шаблон")}
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#1E4A9A] hover:text-[#1E4A9A]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}

@@ -151,7 +151,7 @@ export function BranchKpiBulkDialog({
           {indicators && !active.length && (
             <p className="rounded bg-[#f2f5f8] px-4 py-3 text-[#666]">
               {t("Нет KPI")}.{" "}
-              <Link href="/analytics/kpi-tasks" className="font-semibold text-[#4f71dc] hover:underline">
+              <Link href="/analytics/kpi-tasks" className="font-semibold text-[#1E4A9A] hover:underline">
                 {t("KPI задачи")}
               </Link>
             </p>
@@ -174,7 +174,7 @@ export function BranchKpiBulkDialog({
                     onChange={(event) => setKpiSearch(event.target.value)}
                     placeholder="KPI"
                     aria-label="KPI"
-                    className="h-9 w-full border-b border-[#e0e0e0] text-[13px] outline-none focus:border-[#4f71dc]"
+                    className="h-9 w-full border-b border-[#e0e0e0] text-[13px] outline-none focus:border-[#1E4A9A]"
                   />
                   <div className="mt-2 max-h-[260px] overflow-y-auto">
                     {filtered.map((item) => (
@@ -183,7 +183,7 @@ export function BranchKpiBulkDialog({
                           type="checkbox"
                           checked={chosen.includes(item.id)}
                           onChange={() => setChosen((current) => (current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id]))}
-                          className="h-4 w-4 accent-[#4f71dc]"
+                          className="h-4 w-4 accent-[#1E4A9A]"
                         />
                         <span className="font-semibold">{item.name}</span>
                         <span className="ml-auto truncate text-[12px] text-[#999]">{t(item.planType)}</span>
@@ -293,7 +293,7 @@ function BranchKpiPlanGrid({
                         inputMode="decimal"
                         className="peer h-[45px] w-full bg-transparent pb-[8px] pt-[8px] text-[13px] font-semibold leading-[18px] outline-none placeholder:font-semibold placeholder:text-black"
                       />
-                      <span className="pointer-events-none absolute inset-x-0 top-[36.5px] h-px bg-[#e0e0e0] peer-focus:bg-[#4f71dc]" />
+                      <span className="pointer-events-none absolute inset-x-0 top-[36.5px] h-px bg-[#e0e0e0] peer-focus:bg-[#1E4A9A]" />
                     </div>
                   </div>
                 )
@@ -386,7 +386,7 @@ export function BranchKpiDuplicateDialog({
           void save()
         }}
       >
-        <label className="relative block h-[58px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
+        <label className="relative block h-[58px] border-b border-[#e0e0e0] focus-within:border-[#1E4A9A]">
           <span className="absolute left-0 top-[10px] text-[10px] font-bold leading-3 text-black">{t("Месяц")}</span>
           <span className="absolute left-0 top-[36px] text-[13px] font-semibold leading-[18px] text-[#333]">{t(BRANCH_KPI_MONTHS[toMonth - 1] ?? "")}</span>
           <select value={toMonth} onChange={(event) => setToMonth(Number(event.target.value))} aria-label={t("Месяц")} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
@@ -399,7 +399,7 @@ export function BranchKpiDuplicateDialog({
           <span className="pointer-events-none absolute right-[28.7px] top-[36.9px] text-[18px] leading-[18px] text-[#999]">×</span>
           <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[8px] top-[43px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
         </label>
-        <label className="relative mt-[23px] block h-[49px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
+        <label className="relative mt-[23px] block h-[49px] border-b border-[#e0e0e0] focus-within:border-[#1E4A9A]">
           <span className="absolute left-0 top-[4.5px] text-[10px] font-bold leading-3 text-black">{t("Год")}</span>
           <input
             value={toYear}

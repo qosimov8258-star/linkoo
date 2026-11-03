@@ -263,7 +263,18 @@ const TX_DB = Symbol.for("linko.db.transaction")
 // bootstrap started meanwhile (new SCHEMA_VERSION after a hot reload) needs pool
 // connections itself — transactions holding all of them while waiting for it would
 // deadlock the pool.
-function makeDb(query: Query, ready: () => Promise<void>): PgDb {
+/** A lazy CREATE … IF NOT EXISTS that lost a race: two requests checked the catalog before
+ * either created the table / index / type, and the second one hit the catalog's unique key
+ * (23505 on pg_class / pg_type, or 42P07 / 42710). The object exists now. */
+function isDdlRace(error: unknown): boolean {
+  const { code, detail } = (error ?? {}) as { code?: string; detail?: string }
+  if (code === "42P07" || code === "42710") return true
+  return code === "23505" && /\((relname|typname|conname|proname), /.test(String(detail ?? ""))
+}
+
+/** `pooled`: statements run on a pool connection (not inside a transaction), so a lazy DDL that
+ * lost a race to a parallel request can simply run again (an aborted transaction could not). */
+function makeDb(query: Query, ready: () => Promise<void>, pooled = false): PgDb {
   return {
     prepare(sql: string) {
       return {
@@ -292,8 +303,18 @@ function makeDb(query: Query, ready: () => Promise<void>): PgDb {
       await ready()
       // Lazy-schema DDL that is already current is left out (lib/ddl-skip.ts): it would
       // lock its table anyway, and the first request after a restart could hang on it.
-      const text = await withoutCurrentDdl(translateDdl(sql), async (statement, values) => (await query(statement, values)).rows)
-      if (text !== null) await query(text)
+      const run = async () => {
+        const text = await withoutCurrentDdl(translateDdl(sql), async (statement, values) => (await query(statement, values)).rows)
+        if (text !== null) await query(text)
+      }
+      try {
+        await run()
+      } catch (error) {
+        // Two first requests at once on a fresh database: the second one runs again and now
+        // finds the objects the first one created (withoutCurrentDdl leaves them out).
+        if (!pooled || !isDdlRace(error)) throw error
+        await run()
+      }
     },
   }
 }
@@ -428,7 +449,7 @@ export function getDb(): PgDb {
   const tx = activeTx()
   if (tx) return tx.db
   const kind = currentPoolKind()
-  return (poolDbs[kind] ??= makeDb((text, values) => poolQuery(kind, text, values), ensureSchema))
+  return (poolDbs[kind] ??= makeDb((text, values) => poolQuery(kind, text, values), ensureSchema, true))
 }
 
 /** Runs `fn` so that a statement failing inside it — an error the caller catches and

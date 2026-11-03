@@ -301,7 +301,7 @@ export function TransferFormDialog({
               <TextField top={52} left={320} width={180} label={t("Кол-во")} value={addQty} onChange={setAddQty} />
               <TextField top={52} left={532} width={109} label={atCost ? t("Себестоимость") : t("Цена")} value={atCost ? String(rowMap.get(addKey)?.cost ?? "") : addPrice} onChange={atCost ? () => {} : setAddPrice} />
               <button type="button" onClick={addRow} disabled={!addKey || !validQty(addQty)} aria-label={t("Добавить")} className="absolute left-[686px] top-[27px] flex h-6 w-6 items-center justify-center disabled:opacity-100">
-                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]" aria-hidden><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#1E4A9A]" aria-hidden><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
               </button>
             </div>
           )}

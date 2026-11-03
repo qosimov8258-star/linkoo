@@ -262,7 +262,7 @@ function PickSelect({ placeholder, options, value, onChange, className = "" }: {
 
 function PlusButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[3px] bg-[#f0f2f5] text-[24px] font-light text-[#999] enabled:text-[#4f71dc] disabled:cursor-default">
+    <button type="button" disabled={disabled} onClick={onClick} className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[3px] bg-[#f0f2f5] text-[24px] font-light text-[#999] enabled:text-[#1E4A9A] disabled:cursor-default">
       +
     </button>
   )

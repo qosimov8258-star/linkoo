@@ -118,7 +118,7 @@ function LinesBlock({ title, lines, onChange }: { title: string; lines: ReceiptL
               type="button"
               onClick={() => onChange(last ? [...lines, { ...EMPTY_LINE }] : lines.filter((_, at) => at !== index))}
               aria-label={last ? t("Добавить") : t("Удалить")}
-              className="absolute right-0 top-[-21px] z-10 flex h-[40px] w-[40px] items-center justify-center rounded-[2px] bg-[#4f70e7] text-white shadow hover:brightness-95"
+              className="absolute right-0 top-[-21px] z-10 flex h-[40px] w-[40px] items-center justify-center rounded-[2px] bg-[#1E4A9A] text-white shadow hover:brightness-95"
             >
               {last ? <Plus className="h-6 w-6" /> : <Minus className="h-6 w-6" />}
             </button>

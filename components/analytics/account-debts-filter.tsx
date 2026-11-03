@@ -241,7 +241,7 @@ function MultiSelectField({ label, value, options, onChange }: { label: string; 
             <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="h-9 w-full border-b border-[#e1e5eb] px-3 outline-none" />
             {shown.map((item) => (
               <button key={item} type="button" onClick={() => toggle(item)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[#17233b] hover:bg-[#f2f5f8]">
-                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(item) ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#c5ccd8]"}`}>
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(item) ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#c5ccd8]"}`}>
                   {value.includes(item) && <Check className="h-3 w-3" />}
                 </span>
                 <span className="truncate">{item}</span>
@@ -272,7 +272,7 @@ function CheckField({ label, checked, onChange, disabled = false }: { label: str
   const { t } = useLanguage()
   return (
     <label className={`flex items-center gap-2 ${disabled ? "cursor-not-allowed text-[#9aa3b6]" : "text-[#17233b]"}`} title={disabled ? t("Нет данных") : undefined}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
       {t(label)}
     </label>
   )
@@ -369,7 +369,7 @@ export function AccountDebtFilterDialog({
         <CheckField label="Только доставленные заказы" checked={draft.isOnlyDelivered} onChange={(checked) => set("isOnlyDelivered", checked)} />
         <CheckField label="Только оплаты с счет фактурой" checked={false} onChange={() => undefined} disabled />
         <CheckField label="Исключить закрытие магазины" checked={draft.excludeClosedClients} onChange={(checked) => set("excludeClosedClients", checked)} />
-        <button type="button" onClick={() => setDraft({ ...EMPTY_ACCOUNT_DEBT_FILTERS })} className="self-start text-sm text-[#4f70e7] hover:underline">
+        <button type="button" onClick={() => setDraft({ ...EMPTY_ACCOUNT_DEBT_FILTERS })} className="self-start text-sm text-[#1E4A9A] hover:underline">
           {t("Сбросить фильтр")}
         </button>
       </div>

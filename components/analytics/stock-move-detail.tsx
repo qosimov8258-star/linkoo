@@ -100,7 +100,7 @@ export function StockMoveDetail({ url, kind, onKindChange, onClose }: { url: str
                       key={column.field}
                       type="button"
                       onClick={() => onKindChange(active ? "" : column.field)}
-                      className={`rounded-md border px-3 py-2 text-left ${active ? "border-[#4f70e7] bg-[#eef2fd]" : "border-[#e5e5e5] hover:bg-[#f7f7f7]"}`}
+                      className={`rounded-md border px-3 py-2 text-left ${active ? "border-[#1E4A9A] bg-[#eef2fd]" : "border-[#e5e5e5] hover:bg-[#f7f7f7]"}`}
                     >
                       {content}
                     </button>
@@ -152,7 +152,7 @@ export function StockMoveDetail({ url, kind, onKindChange, onClose }: { url: str
               <div className="mb-2 flex flex-wrap items-center gap-3">
                 <h3 className="font-semibold text-[#17233b]">{t("Документы за период")}</h3>
                 {kind && (
-                  <span className="flex items-center gap-2 rounded-full border border-[#4f70e7] px-3 py-0.5 text-[13px] text-[#4f70e7]">
+                  <span className="flex items-center gap-2 rounded-full border border-[#1E4A9A] px-3 py-0.5 text-[13px] text-[#1E4A9A]">
                     {t(MOVE_KIND_LABELS[kind as StockMoveKind] ?? kind)}
                     <button type="button" onClick={() => onKindChange("")} aria-label={t("Очистить")}>
                       <X className="h-3.5 w-3.5" />
@@ -181,7 +181,7 @@ export function StockMoveDetail({ url, kind, onKindChange, onClose }: { url: str
                           <td className="whitespace-nowrap px-3 py-2">{formatDotDate(document.day)}</td>
                           <td className="px-3 py-2">
                             {source ? (
-                              <Link href={source.href} className="text-[#4f71dc] hover:underline">
+                              <Link href={source.href} className="text-[#1E4A9A] hover:underline">
                                 {label}
                               </Link>
                             ) : (

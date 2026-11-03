@@ -93,9 +93,9 @@ export function TelegramUsersView() {
         <>
           <b className="font-semibold">{u.name}</b>
           <br />
-          <span className="font-semibold text-[#4f71dc]">{u.handle}</span>
+          <span className="font-semibold text-[#1E4A9A]">{u.handle}</span>
         </>,
-        u.client === WAITING ? t(WAITING) : <span key="c" className="font-semibold text-[#4f71dc]">{u.client}</span>,
+        u.client === WAITING ? t(WAITING) : <span key="c" className="font-semibold text-[#1E4A9A]">{u.client}</span>,
         u.phone,
         t(u.lang),
         formatDateText(refDateTime(u.first), language),

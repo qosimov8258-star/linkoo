@@ -165,7 +165,7 @@ export function DashboardContent() {
           begin={beginISO}
           end={endISO}
         />
-        {visibleWidgets.has("productCategory") && <RightPanel summary={summary} />}
+        {visibleWidgets.has("productCategory") && <RightPanel begin={beginISO} end={endISO} />}
       </div>
 
       {visibleWidgets.has("agentBranchVisits") && (

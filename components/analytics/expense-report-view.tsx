@@ -221,7 +221,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
     <main className="ref-white min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
         <div className="flex min-w-0 flex-wrap items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t(config.title)}</span>
         </div>
@@ -247,7 +247,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
       )}
 
       <section className="flex flex-wrap items-center justify-between gap-4 border-t border-[#e1e5eb] px-[30px] py-3">
-        <form onSubmit={submitSearch} className="relative w-full max-w-[350px] border-b border-[#dbe0e8] pb-1.5 focus-within:border-[#4f70e7]">
+        <form onSubmit={submitSearch} className="relative w-full max-w-[350px] border-b border-[#dbe0e8] pb-1.5 focus-within:border-[#1E4A9A]">
           <input
             value={searchDraft}
             onChange={(event) => setSearchDraft(event.target.value)}
@@ -255,7 +255,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
             aria-label={t("Поиск")}
             className="w-full bg-transparent pr-8 text-[13px] font-bold outline-none placeholder:font-bold placeholder:text-[#17233b]"
           />
-          <button type="submit" aria-label={t("Поиск")} className="absolute right-0 top-0 text-[#9aa3b6] hover:text-[#4f70e7]">
+          <button type="submit" aria-label={t("Поиск")} className="absolute right-0 top-0 text-[#9aa3b6] hover:text-[#1E4A9A]">
             <Search className="h-5 w-5" />
           </button>
         </form>
@@ -280,7 +280,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
           <p>
             {t("Не удалось выполнить запрос")}: {t(list.error)}
           </p>
-          <button type="button" onClick={list.reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+          <button type="button" onClick={list.reload} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
             {t("Повторить")}
           </button>
         </div>

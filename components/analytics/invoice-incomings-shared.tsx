@@ -99,7 +99,7 @@ export function CatalogSelect({
     <select
       value={value}
       onChange={(event) => onChange(options.find((option) => option.key === event.target.value) ?? null)}
-      className={`h-9 w-full min-w-0 rounded-md border bg-white px-2 text-[13px] outline-none focus:border-[#4f70e7] ${invalid ? "border-[#e57373]" : "border-[#dbe0e8]"} ${className}`}
+      className={`h-9 w-full min-w-0 rounded-md border bg-white px-2 text-[13px] outline-none focus:border-[#1E4A9A] ${invalid ? "border-[#e57373]" : "border-[#dbe0e8]"} ${className}`}
     >
       <option value="">{placeholder}</option>
       {products.length > 0 && (

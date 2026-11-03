@@ -222,9 +222,9 @@ export function ClientBalanceView() {
         width: 220,
         sortKey: "name",
         render: (row: BalanceRow) => (
-          <button type="button" onClick={() => drillIntoType(row)} className="flex w-full items-center justify-between gap-2 text-left text-[#333] hover:font-semibold hover:text-[#4f71dc]">
+          <button type="button" onClick={() => drillIntoType(row)} className="flex w-full items-center justify-between gap-2 text-left text-[#333] hover:font-semibold hover:text-[#1E4A9A]">
             <span>{row.name || t("Не указано")}</span>
-            <List className="h-4 w-4 shrink-0 text-[#4f71dc]" />
+            <List className="h-4 w-4 shrink-0 text-[#1E4A9A]" />
           </button>
         ),
       }
@@ -237,7 +237,7 @@ export function ClientBalanceView() {
           <button
             type="button"
             onClick={() => update({ openClient: { key: row.key, name: row.name } })}
-            className="text-left text-[#333] hover:font-semibold hover:text-[#4f71dc]"
+            className="text-left text-[#333] hover:font-semibold hover:text-[#1E4A9A]"
           >
             {row.name || "No"}
           </button>
@@ -252,7 +252,7 @@ export function ClientBalanceView() {
             type="button"
             disabled={moreLoading}
             onClick={loadMore}
-            className="flex h-[30px] items-center gap-1.5 rounded-full bg-[#f0f4f8] px-8 text-[#5869f0] disabled:opacity-60"
+            className="flex h-[30px] items-center gap-1.5 rounded-full bg-[#f0f4f8] px-8 text-[#1E4A9A] disabled:opacity-60"
           >
             {moreLoading ? t("Загрузка...") : t("Показать еще")}
             <ChevronDown className="h-4 w-4" />
@@ -266,7 +266,7 @@ export function ClientBalanceView() {
     <main className="ref-white min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-4 pl-[30px] pr-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс клиентов")}</span>
         </div>
@@ -277,7 +277,7 @@ export function ClientBalanceView() {
         <ClientBalanceFilterButton state={state} onOpen={openFilter} />
         <div className="flex items-center gap-5">
           {!isTypes && canGroupPay && (
-            <button type="button" onClick={() => setGroupOpen(true)} className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white">
+            <button type="button" onClick={() => setGroupOpen(true)} className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#1E4A9A] pl-2 pr-4 text-[13px] font-semibold text-white">
               <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
             </button>
           )}
@@ -299,7 +299,7 @@ export function ClientBalanceView() {
           {showDrilled && (
             <div className="whitespace-nowrap text-[14px]">
               {t("Отфильтровано по")}: <strong>{drilledType || t("Не указано")}</strong>
-              <button type="button" onClick={showTypes} className="block font-semibold text-[#4f71dc] hover:underline">
+              <button type="button" onClick={showTypes} className="block font-semibold text-[#1E4A9A] hover:underline">
                 {t("Сбросить фильтр")}
               </button>
             </div>
@@ -315,7 +315,7 @@ export function ClientBalanceView() {
                 key={toggle}
                 type="button"
                 onClick={onClick}
-                className={`h-8 px-4 text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.toggle === toggle ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
+                className={`h-8 px-4 text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.toggle === toggle ? "bg-[#1E4A9A] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
               >
                 {t(label)}
               </button>
@@ -334,7 +334,7 @@ export function ClientBalanceView() {
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={isTypes ? t("Тип клиента") : t("Клиент")}
               aria-label={isTypes ? t("Тип клиента") : t("Клиент")}
-              className="h-10 w-full max-w-[256px] border-b border-[#dbe0e8] bg-transparent text-[13px] font-bold outline-none placeholder:font-bold placeholder:text-[#17233b] focus:border-[#4f70e7]"
+              className="h-10 w-full max-w-[256px] border-b border-[#dbe0e8] bg-transparent text-[13px] font-bold outline-none placeholder:font-bold placeholder:text-[#17233b] focus:border-[#1E4A9A]"
             />
           </form>
 
@@ -352,7 +352,7 @@ export function ClientBalanceView() {
             <span>
               {t("Не удалось загрузить данные")}: {error}
             </span>
-            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>

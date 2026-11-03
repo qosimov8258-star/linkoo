@@ -376,7 +376,7 @@ export function FieldRecordDialog({ kind, id, onClose, onOpenClient }: { kind: "
       {data && (
         <>
           <Row label="Клиент">
-            <button type="button" onClick={() => onOpenClient(data.clientId)} className="font-semibold text-[#4f71dc] hover:underline">
+            <button type="button" onClick={() => onOpenClient(data.clientId)} className="font-semibold text-[#1E4A9A] hover:underline">
               {data.clientName}
             </button>
           </Row>
@@ -388,7 +388,7 @@ export function FieldRecordDialog({ kind, id, onClose, onOpenClient }: { kind: "
           {kind === "photo_report" && (
             <div className="mt-[16px] flex gap-[20px] border-b border-[#e8ebf0]">
               {(["photos", "shelf"] as const).map((value) => (
-                <button key={value} type="button" onClick={() => setTab(value)} className={`pb-[8px] font-semibold ${tab === value ? "border-b-2 border-[#4f71dc] text-[#4f71dc]" : "text-[#777]"}`}>
+                <button key={value} type="button" onClick={() => setTab(value)} className={`pb-[8px] font-semibold ${tab === value ? "border-b-2 border-[#1E4A9A] text-[#1E4A9A]" : "text-[#777]"}`}>
                   {t(value === "photos" ? "Фото" : "Товары на полке")}
                 </button>
               ))}
@@ -522,7 +522,7 @@ export function ClientDrawer({ clientId, onClose, onNavigate }: { clientId: numb
               <Row label="Ответственный доставщик">{data.deliverer || "—"}</Row>
               <Row label="Локация">
                 {located ? (
-                  <a href={`https://www.google.com/maps?q=${data.locationLat},${data.locationLng}`} target="_blank" rel="noopener noreferrer" className="text-[#4f71dc] hover:underline">
+                  <a href={`https://www.google.com/maps?q=${data.locationLat},${data.locationLng}`} target="_blank" rel="noopener noreferrer" className="text-[#1E4A9A] hover:underline">
                     {`${data.locationLat}, ${data.locationLng}`}
                   </a>
                 ) : (

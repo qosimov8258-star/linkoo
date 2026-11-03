@@ -265,7 +265,7 @@ export function CoverageAnalysisView() {
       <WidgetUserCard
         rangeSlot={
           <div className="relative ml-auto mr-[15px]">
-            <button type="button" onClick={() => setDateOpen((open) => !open)} className="text-[13px] font-bold capitalize text-[#4f71dc]">
+            <button type="button" onClick={() => setDateOpen((open) => !open)} className="text-[13px] font-bold capitalize text-[#1E4A9A]">
               {`${formatStatementDate(from, language, false)} - ${formatStatementDate(to, language, false)}`}
             </button>
             {dateOpen && (
@@ -288,13 +288,13 @@ export function CoverageAnalysisView() {
         onPeriod={(item) => (item === "СВОЯ" ? setPeriod("СВОЯ") : changePeriod(item))}
       >
         <button type="button" onClick={() => router.push("/clients/territory?openInfo=true")} className="ml-[11px] mr-[18px] h-[30px] rounded-[3px] bg-[#71ce87] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Изменить территории")}</button>
-        <button type="button" onClick={() => setDaysOpen(true)} className="mr-[9px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Изменить сроки")}</button>
+        <button type="button" onClick={() => setDaysOpen(true)} className="mr-[9px] h-[30px] rounded-[3px] bg-[#1E4A9A] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Изменить сроки")}</button>
       </WidgetUserCard>
 
       <div className="mx-[30px]">
       <form onSubmit={apply} className={`${card} mt-[20px] flex h-[77px] items-center gap-[10px] px-[30px] pb-[12px]`}>
         <div className="w-[250px]"><ReportSelectField label="Тип клиента" value={clientType} onChange={setClientType} options={clientTypes.filter((item) => item !== ALL_CLIENT_TYPES && item !== "Все типы клиентов")} /></div>
-        <button className="mt-[2px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Применить")}</button>
+        <button className="mt-[2px] h-[30px] rounded-[3px] bg-[#1E4A9A] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Применить")}</button>
       </form>
 
       <section className={`${card} mt-[10px] grid items-center rounded-t-[10px] lg:h-[178.7px] lg:grid-cols-[289px_1fr_227px]`}>
@@ -354,10 +354,10 @@ export function CoverageAnalysisView() {
         <button
           type="button"
           onClick={() => setTableVisible(!tableVisible)}
-          className="mx-[17.5px] my-[5px] flex h-[30px] w-[calc(100%-35px)] items-center justify-center gap-[6px] rounded-[100px] bg-[#f0f4f8] text-[13px] text-[#5869f0]"
+          className="mx-[17.5px] my-[5px] flex h-[30px] w-[calc(100%-35px)] items-center justify-center gap-[6px] rounded-[100px] bg-[#f0f4f8] text-[13px] text-[#1E4A9A]"
         >
           {tableVisible ? t("Скрыть") : t("Показать еще")}
-          <svg viewBox="0 0 24 24" className={`h-4 w-4 fill-[#5869f0] ${tableVisible ? "rotate-180" : ""}`} aria-hidden><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" /></svg>
+          <svg viewBox="0 0 24 24" className={`h-4 w-4 fill-[#1E4A9A] ${tableVisible ? "rotate-180" : ""}`} aria-hidden><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" /></svg>
         </button>
       </section>
 

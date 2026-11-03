@@ -26,7 +26,7 @@ export const MOVEMENT_ACTION_LABELS: Record<EmployeeMovementAction, string> = {
 
 type FieldErrors = Partial<Record<"user" | "currency" | "amount" | "date" | "form", string>>
 
-const fieldClass = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] font-semibold text-[#17233b] outline-none focus:border-[#4f70e7]"
+const fieldClass = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] font-semibold text-[#17233b] outline-none focus:border-[#1E4A9A]"
 
 /** Demo normalizeNumber: thousands separated by spaces, comma → dot, up to 3 decimals. */
 export function formatAmountInput(raw: string): string {
@@ -188,7 +188,7 @@ export function EmployeeMovementDialog({
       title={t(MOVEMENT_ACTION_LABELS[action])}
       onClose={onClose}
       footer={
-        <button type="button" onClick={save} disabled={saving} className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50">
+        <button type="button" onClick={save} disabled={saving} className="font-bold uppercase tracking-wide text-[#1E4A9A] disabled:opacity-50">
           {saving ? t("Сохранение...") : t("Сохранить")}
         </button>
       }
@@ -265,7 +265,7 @@ export function EmployeeMovementDialog({
           maxLength={2000}
           placeholder={t("Оставить комментарий...")}
           rows={Math.min(6, Math.max(1, comment.split("\n").length))}
-          className="block w-full resize-none border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] text-[#17233b] outline-none placeholder:text-[#586174] focus:border-[#4f70e7]"
+          className="block w-full resize-none border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] text-[#17233b] outline-none placeholder:text-[#586174] focus:border-[#1E4A9A]"
         />
         <FieldError text={errors.form} />
       </div>
@@ -310,7 +310,7 @@ export function EmployeeActPeriodDialog({
       width={400}
       onClose={onClose}
       footer={
-        <button type="button" onClick={download} disabled={busy} className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50">
+        <button type="button" onClick={download} disabled={busy} className="font-bold uppercase tracking-wide text-[#1E4A9A] disabled:opacity-50">
           {busy ? t("Загрузка...") : t("Скачать")}
         </button>
       }
@@ -376,7 +376,7 @@ export function EmployeeUsersSelect({ options, value, onChange }: { options: Emp
               const checked = selected.has(id)
               return (
                 <button key={id} type="button" onClick={() => toggle(id)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[14px] hover:bg-[#f2f5f8]">
-                  <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#9aa3b6]"}`}>
+                  <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#9aa3b6]"}`}>
                     {checked && <Check className="h-3 w-3" />}
                   </span>
                   {item.name}

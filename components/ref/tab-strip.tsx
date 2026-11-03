@@ -17,7 +17,7 @@ export function RefTabStrip<T extends string>({ tabs, value, onChange, weightCla
         </button>
       ))}
       <span
-        className="absolute bottom-0 left-0 z-10 h-[3px] bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+        className="absolute bottom-0 left-0 z-10 h-[3px] bg-[#1E4A9A] shadow-[0_-3px_10px_0_#1E4A9A] transition-transform duration-300"
         style={{ width: `${100 / tabs.length}%`, transform: `translateX(${index * 100}%)` }}
       />
     </div>

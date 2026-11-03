@@ -86,7 +86,7 @@ function ShowMore({ expanded, onClick }: { expanded: boolean; onClick: () => voi
     <button
       type="button"
       onClick={onClick}
-      className="mx-[18px] my-[10px] flex h-[30px] w-[calc(100%-36px)] items-center justify-center gap-1.5 rounded-full bg-[#f2f5f8] text-[13px] text-[#4f71dc]"
+      className="mx-[18px] my-[10px] flex h-[30px] w-[calc(100%-36px)] items-center justify-center gap-1.5 rounded-full bg-[#f2f5f8] text-[13px] text-[#1E4A9A]"
     >
       {expanded ? t("Свернуть") : t("Показать еще")}
       <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
@@ -222,9 +222,9 @@ function AxisChart({ values }: { values: number[] }) {
           <text x={58 + (index / Math.max(1, values.length - 1)) * 550} y="332" fontSize="11" fill="#333">{index + 1}</text>
         </g>
       ))}
-      <polyline points={points} fill="none" stroke="#4f71dc" strokeWidth="2" />
+      <polyline points={points} fill="none" stroke="#1E4A9A" strokeWidth="2" />
       {values.map((value, index) => (
-        <circle key={index} cx={62 + (index / Math.max(1, values.length - 1)) * 550} cy={310 - (value / top) * 280} r="3" fill="#4f71dc" />
+        <circle key={index} cx={62 + (index / Math.max(1, values.length - 1)) * 550} cy={310 - (value / top) * 280} r="3" fill="#1E4A9A" />
       ))}
     </svg>
   )
@@ -515,7 +515,7 @@ export function AgentBranchVisitsWidget({
             type="button"
             onClick={() => setFilterOpen((open) => !open)}
             aria-expanded={filterOpen}
-            className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
+            className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
           >
             <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white" aria-hidden>
               <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />
@@ -547,7 +547,7 @@ export function AgentBranchVisitsWidget({
           {byProduct.map(([name, count]) => (
             <div key={name} className="mb-3 flex items-center gap-3">
               <span className="w-[220px] shrink-0 truncate text-[13px]">{name}</span>
-              <span className="h-[18px] rounded-[3px] bg-[#4f71dc]" style={{ width: `${(count / byProduct[0][1]) * 70}%` }} />
+              <span className="h-[18px] rounded-[3px] bg-[#1E4A9A]" style={{ width: `${(count / byProduct[0][1]) * 70}%` }} />
               <span className="text-[13px] font-semibold">{count}</span>
             </div>
           ))}
@@ -588,7 +588,7 @@ export function AgentBranchVisitsWidget({
                 <tr key={person.id} className="h-[46px] border-b border-[#efefef]">
                   <td className="w-[140px] px-[17px]">{fullName(person)}</td>
                   <td className="border-l border-[#efefef] px-[10px]">
-                    {trends.get(fullName(person)) && <Sparkline values={trends.get(fullName(person))!.sales} color="#4f71dc" />}
+                    {trends.get(fullName(person)) && <Sparkline values={trends.get(fullName(person))!.sales} color="#1E4A9A" />}
                   </td>
                   <td className="border-l border-[#efefef] px-[10px]">
                     {trends.get(fullName(person)) && <Sparkline values={trends.get(fullName(person))!.clients.map((set) => set.size)} color="#81c784" />}

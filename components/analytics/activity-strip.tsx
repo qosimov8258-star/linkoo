@@ -50,12 +50,12 @@ export function ActivityStrip({
 
   return (
     <section className={`relative bg-white transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
-      <button type="button" onClick={() => scroll(-1)} aria-label={t("Назад")} title={t("Назад")} className="absolute left-0 top-0 z-[2] flex h-full w-6 items-center justify-center bg-white/90 text-[#4f71dc] hover:bg-white">
+      <button type="button" onClick={() => scroll(-1)} aria-label={t("Назад")} title={t("Назад")} className="absolute left-0 top-0 z-[2] flex h-full w-6 items-center justify-center bg-white/90 text-[#1E4A9A] hover:bg-white">
         <ChevronLeft className="h-4 w-4" />
       </button>
       <div
         ref={scroller}
-        className="mx-6 flex min-h-[64px] overflow-x-auto [scrollbar-color:#4f71dc_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-[#4f71dc] [&::-webkit-scrollbar]:h-[4px]"
+        className="mx-6 flex min-h-[64px] overflow-x-auto [scrollbar-color:#1E4A9A_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-[#1E4A9A] [&::-webkit-scrollbar]:h-[4px]"
       >
         <button type="button" onClick={() => onSelect(null)} aria-pressed={selected === null} className={`${card(selected === null)} min-w-[120px] flex-row gap-[10px]`}>
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#c4c4c4]">
@@ -85,7 +85,7 @@ export function ActivityStrip({
           </button>
         ))}
       </div>
-      <button type="button" onClick={() => scroll(1)} aria-label={t("Вперед")} title={t("Вперед")} className="absolute right-0 top-0 z-[2] flex h-full w-6 items-center justify-center bg-white/90 text-[#4f71dc] hover:bg-white">
+      <button type="button" onClick={() => scroll(1)} aria-label={t("Вперед")} title={t("Вперед")} className="absolute right-0 top-0 z-[2] flex h-full w-6 items-center justify-center bg-white/90 text-[#1E4A9A] hover:bg-white">
         <ChevronRight className="h-4 w-4" />
       </button>
     </section>

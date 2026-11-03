@@ -125,7 +125,7 @@ export function SettingsToolbar({
 }
 
 export function AddLink({ children, onClick }: { children: ReactNode; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="ml-[5px] flex h-[36px] items-center pl-[12px] pr-[12px] pt-[3px] text-[13px] leading-[36px] text-[#4f71dc] hover:underline"><svg viewBox="0 0 24 24" className="mr-[2px] h-[14px] w-[14px] fill-[#4f71dc]" aria-hidden><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>{children}</button>
+  return <button type="button" onClick={onClick} className="ml-[5px] flex h-[36px] items-center pl-[12px] pr-[12px] pt-[3px] text-[13px] leading-[36px] text-[#1E4A9A] hover:underline"><svg viewBox="0 0 24 24" className="mr-[2px] h-[14px] w-[14px] fill-[#1E4A9A]" aria-hidden><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>{children}</button>
 }
 
 /** Reference multi-column sort: keys are kept in click order, a second click flips the key to descending, a third drops it. */

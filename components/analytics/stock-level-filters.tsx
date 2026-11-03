@@ -20,13 +20,13 @@ export function StockFilterButton({ filters, onOpen }: { filters: StockLevelFilt
   const scope = [...filters.organization, ...filters.branch, ...filters.warehouse]
   return (
     <div className="flex h-[34px] items-center">
-      <button type="button" onClick={onOpen} className="flex h-[34px] w-[88px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] text-[13px] font-semibold text-white hover:brightness-95">
+      <button type="button" onClick={onOpen} className="flex h-[34px] w-[88px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12.8px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden>
           <path d={RI.filter} />
         </svg>
         <span className="pl-2">{t("Фильтр")}{countStockFilters(filters) > 0 ? ` / ${countStockFilters(filters)}` : ""}</span>
       </button>
-      <span className="ml-[14px] whitespace-nowrap text-[13px] font-semibold text-[#4f71dc]">{scope.length ? scope.join(", ") : t("Во всей организации")}</span>
+      <span className="ml-[14px] whitespace-nowrap text-[13px] font-semibold text-[#1E4A9A]">{scope.length ? scope.join(", ") : t("Во всей организации")}</span>
     </div>
   )
 }
@@ -70,7 +70,7 @@ export function StockFilterDialog({
       <ReportMultiChipField label="Организация" values={draft.organization} options={options?.organizations ?? []} onChange={(value) => set("organization", value)} />
       <ReportMultiChipField label="Тип товара" values={draft.type} options={options?.types ?? []} onChange={(value) => set("type", value)} />
       <label className="flex h-[54px] cursor-pointer items-center gap-[10px] pt-[8px] text-[13px] font-semibold text-black">
-        <input type="checkbox" checked={draft.onlyHas} onChange={(event) => set("onlyHas", event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" />
+        <input type="checkbox" checked={draft.onlyHas} onChange={(event) => set("onlyHas", event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
         {t("Только продукты в наличии")}
       </label>
     </ReportFilterPanel>

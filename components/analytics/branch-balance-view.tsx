@@ -279,7 +279,7 @@ export function BranchBalanceView() {
     <main className="ref-white min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
         <div className="flex items-center">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс филиалов")}</span>
         </div>
@@ -290,7 +290,7 @@ export function BranchBalanceView() {
           <span>
             {t("Не удалось загрузить баланс филиалов")}: {t(error)}
           </span>
-          <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+          <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
             {t("Повторить")}
           </button>
         </div>
@@ -335,7 +335,7 @@ export function BranchBalanceView() {
               sortKey: "name",
               render: (row) => (
                 <div className="flex items-center justify-between gap-2">
-                  <button type="button" onClick={() => setDetail({ key: row.key, name: row.name })} className="text-left font-medium text-[#17233b] hover:text-[#4f70e7] hover:underline">
+                  <button type="button" onClick={() => setDetail({ key: row.key, name: row.name })} className="text-left font-medium text-[#17233b] hover:text-[#1E4A9A] hover:underline">
                     {row.name}
                   </button>
                   {row.id !== null && (
@@ -379,7 +379,7 @@ export function BranchBalanceView() {
             <span className="flex items-center justify-between text-sm text-[#586174]">
               {t("Филиалы")}
               {draftBranchIds.length > 0 && (
-                <button type="button" onClick={() => setDraftBranchIds([])} className="flex items-center gap-1 text-[#4f70e7]">
+                <button type="button" onClick={() => setDraftBranchIds([])} className="flex items-center gap-1 text-[#1E4A9A]">
                   <X className="h-3.5 w-3.5" /> {t("Очистить")}
                 </button>
               )}
@@ -387,7 +387,7 @@ export function BranchBalanceView() {
             <div className="max-h-[240px] overflow-y-auto rounded-md border border-[#dbe0e8] p-2">
               {branchOptions.map((branch) => (
                 <label key={branch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-[#f2f5f8]">
-                  <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#4f70e7]" />
+                  <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#1E4A9A]" />
                   {branch.name}
                 </label>
               ))}
@@ -406,7 +406,7 @@ export function BranchBalanceView() {
                 <div className="mt-1 max-h-[200px] overflow-y-auto border border-[#e0e0e0] bg-white p-1">
                   {branchOptions.map((branch) => (
                     <label key={branch.id} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-[#f2f5f8]">
-                      <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#4f70e7]" />
+                      <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#1E4A9A]" />
                       {branch.name}
                     </label>
                   ))}

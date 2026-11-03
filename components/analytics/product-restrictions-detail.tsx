@@ -60,7 +60,7 @@ export function RestrictionDetailPanel({
   return (
     <div className="bg-white">
       <div className="flex h-[65px] items-center justify-between gap-3 border-b border-[#e8ebf0] px-4 sm:px-[30px]">
-        <button type="button" onClick={onBack} className="min-w-0 flex-1 truncate text-left text-[18px] font-semibold text-[#333] hover:text-[#4f71dc]">
+        <button type="button" onClick={onBack} className="min-w-0 flex-1 truncate text-left text-[18px] font-semibold text-[#333] hover:text-[#1E4A9A]">
           {detail?.name || (loading ? "" : `#${employeeId}`)}
           {detail && !detail.active && <span className="ml-3 align-middle text-[12px] font-normal text-[#9e9e9e]">{t("Неактивный")}</span>}
         </button>

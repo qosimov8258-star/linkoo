@@ -131,7 +131,7 @@ function OrganizationStrip({ organizations, compact = false }: { organizations: 
 
 type FieldErrors = Partial<Record<"currency" | "amount" | "date" | "form", string>>
 
-const fieldClass = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] font-semibold text-[#17233b] outline-none focus:border-[#4f70e7]"
+const fieldClass = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] font-semibold text-[#17233b] outline-none focus:border-[#1E4A9A]"
 
 function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
   const { t } = useLanguage()
@@ -281,11 +281,11 @@ export function DelivererCorrectionDialog({
             onChange={(event) => setComment(event.target.value)}
             rows={1}
             placeholder={`${t("Комментарий")}...`}
-            className="block max-h-[80px] w-full resize-y border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[14px] text-[#17233b] outline-none focus:border-[#4f70e7]"
+            className="block max-h-[80px] w-full resize-y border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[14px] text-[#17233b] outline-none focus:border-[#1E4A9A]"
           />
         </label>
         <label className="mt-4 flex items-center gap-2 text-[13px] text-[#17233b]">
-          <input type="radio" checked readOnly className="h-4 w-4 accent-[#4f70e7]" />
+          <input type="radio" checked readOnly className="h-4 w-4 accent-[#1E4A9A]" />
           {t("Прочие приходы")}
         </label>
         {errors.form && <p className="mt-3 text-[13px] font-medium text-[#e57373]">{t(errors.form)}</p>}
@@ -386,14 +386,14 @@ export function DelivererActDialog({
       <div className="border-b border-[#efefef]">
         {loading && !data ? (
           <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-[#4f70e7]" />
+            <Loader2 className="h-6 w-6 animate-spin text-[#1E4A9A]" />
           </div>
         ) : (
           data?.organizations && <OrganizationStrip organizations={data.organizations} />
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#efefef] px-7 py-2.5">
-        <span className="flex items-center gap-2 text-[13px] font-bold text-[#4f70e7]">
+        <span className="flex items-center gap-2 text-[13px] font-bold text-[#1E4A9A]">
           <input type="date" value={from} max={to} onChange={(event) => event.target.value && setFrom(event.target.value)} className="h-8 bg-transparent outline-none" />
           <span>—</span>
           <input type="date" value={to} min={from} onChange={(event) => event.target.value && setTo(event.target.value)} className="h-8 bg-transparent outline-none" />

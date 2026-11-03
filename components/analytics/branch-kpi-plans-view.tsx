@@ -286,7 +286,7 @@ export function BranchKpiPlansView() {
             <span>
               {t("Не удалось загрузить данные")}: {t(error)}
             </span>
-            <button type="button" onClick={reload} className="font-semibold text-[#4f71dc] hover:underline">
+            <button type="button" onClick={reload} className="font-semibold text-[#1E4A9A] hover:underline">
               {t("Повторить")}
             </button>
           </div>
@@ -329,7 +329,7 @@ export function BranchKpiPlansView() {
               <div key="kpi" className="flex flex-wrap items-center">
                 {row.performanceIndicators.map((item) => (
                   <div key={item.id} className="my-[4px] mr-2.5 inline-flex h-7 items-center rounded-sm bg-[#e9ecef] px-2.5 leading-none">
-                    {item.name}: <span className="ml-1 font-semibold text-[#4f71dc]">{kpiNumber(item.plan)}</span>
+                    {item.name}: <span className="ml-1 font-semibold text-[#1E4A9A]">{kpiNumber(item.plan)}</span>
                   </div>
                 ))}
               </div>,

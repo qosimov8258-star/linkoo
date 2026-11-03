@@ -2,10 +2,10 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { parseCashListQuery } from "@/lib/cash/api"
 import type { ExpenseReportFilters, ExpenseReportPaging } from "@/lib/cash/reports"
-import { notSignedInResponse, invalidFieldResponse } from "@/lib/validation"
+import { invalidFieldResponse } from "@/lib/validation"
 
 // Shared query parsing of the report routes ("Расходы по категориям",
 // "Расходы на персонал"): from to branch* organization* expenseCategory*
@@ -14,8 +14,8 @@ import { notSignedInResponse, invalidFieldResponse } from "@/lib/validation"
 export type ReportQuery = { filters: ExpenseReportFilters; paging: ExpenseReportPaging; params: URLSearchParams }
 
 export async function reportQuery(url: string): Promise<{ data: ReportQuery; error?: undefined } | { data?: undefined; error: NextResponse }> {
-  const user = await getCurrentUser()
-  if (!user) return { error: notSignedInResponse() }
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return { error: reader.error }
   const parsed = parseCashListQuery(url)
   if (parsed.error) return { error: parsed.error }
   const q = parsed.data

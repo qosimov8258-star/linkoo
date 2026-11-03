@@ -81,7 +81,7 @@ type Props = {
 }
 
 const GREEN = "#7bc67e"
-const BLUE = "#4f71dc"
+const BLUE = "#1E4A9A"
 
 /** Full-screen "Добавить / Изменить продукт" form of the original app. */
 export function ProductFormDialog(props: Props) {
@@ -211,7 +211,7 @@ export function ProductFormDialog(props: Props) {
                   </button>
                 )}
               </div>
-              <button type="button" onClick={() => setDraft((current) => ({ ...current, barcodes: current.barcodes.map((c, i) => (i === index ? String(Date.now()).slice(-13) : c)) }))} className="mt-[6px] block text-[13px] text-[#4f71dc] hover:underline">
+              <button type="button" onClick={() => setDraft((current) => ({ ...current, barcodes: current.barcodes.map((c, i) => (i === index ? String(Date.now()).slice(-13) : c)) }))} className="mt-[6px] block text-[13px] text-[#1E4A9A] hover:underline">
                 {t("Сгенерировать")}
               </button>
             </div>
@@ -378,7 +378,7 @@ function Toggle({ checked, onChange, label, sub, info }: { checked: boolean; onC
     <div className="flex items-center gap-[4px]">
       <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="relative h-[22px] w-[40px] shrink-0">
         <span className={`absolute left-[2px] top-[4px] h-[14px] w-[34px] rounded-full ${checked ? "bg-[#a7b8ed]" : "bg-[#bdbdbd]"}`} />
-        <span className={`absolute top-0 h-[22px] w-[22px] rounded-full shadow-[0_1px_4px_rgba(0,0,0,0.35)] transition-all ${checked ? "left-[18px] bg-[#4f71dc]" : "left-0 bg-white"}`} />
+        <span className={`absolute top-0 h-[22px] w-[22px] rounded-full shadow-[0_1px_4px_rgba(0,0,0,0.35)] transition-all ${checked ? "left-[18px] bg-[#1E4A9A]" : "left-0 bg-white"}`} />
       </button>
       <span className="leading-[16px]">
         <span className="font-semibold">{label}</span>
@@ -391,8 +391,8 @@ function Toggle({ checked, onChange, label, sub, info }: { checked: boolean; onC
 
 function BlueButton({ children, icon, onClick }: { children: ReactNode; icon: ReactNode; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#4f71dc] px-[10px] text-[13px] font-bold text-white hover:brightness-95">
-      <span className="flex h-[16px] w-[16px] items-center justify-center rounded-full bg-white text-[#4f71dc]">{icon}</span>
+    <button type="button" onClick={onClick} className="flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#1E4A9A] px-[10px] text-[13px] font-bold text-white hover:brightness-95">
+      <span className="flex h-[16px] w-[16px] items-center justify-center rounded-full bg-white text-[#1E4A9A]">{icon}</span>
       {children}
     </button>
   )

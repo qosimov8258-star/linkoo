@@ -46,9 +46,9 @@ export function ExcelImportLink({ onClick, className = "h-[36px] leading-[36px]"
       onClick={onClick}
       title={iconOnly ? label : undefined}
       aria-label={iconOnly ? label : undefined}
-      className={`flex shrink-0 items-center whitespace-nowrap text-[13px] text-[#4f71dc] hover:underline ${iconOnly ? "px-[8px]" : "px-[12px]"} ${className}`}
+      className={`flex shrink-0 items-center whitespace-nowrap text-[13px] text-[#1E4A9A] hover:underline ${iconOnly ? "px-[8px]" : "px-[12px]"} ${className}`}
     >
-      <svg viewBox="0 0 24 24" className={`h-[16px] w-[16px] shrink-0 fill-[#4f71dc] ${iconOnly ? "" : "mr-[4px]"}`} aria-hidden>
+      <svg viewBox="0 0 24 24" className={`h-[16px] w-[16px] shrink-0 fill-[#1E4A9A] ${iconOnly ? "" : "mr-[4px]"}`} aria-hidden>
         <path d={FILE_ICON} />
       </svg>
       {!iconOnly && label}
