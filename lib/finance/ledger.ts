@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
-import { loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
+import { loadCurrencyContext, toWork, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
 import { roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
 import { todayIso } from "@/lib/finance/dates"
 import { sortBalanceRows } from "@/lib/finance/rows"
@@ -182,6 +182,20 @@ async function aggregate(db: PgDb, kind: BalanceEntityKind, s: FinanceSchema, ba
     FROM (SELECT mv.*, mv.ts::date AS d FROM mv WHERE ${MOVEMENT_WHERE}) m
     GROUP BY m.ek, m.cur`
   return (await db.prepare(sql).all(movementParams(kind, base, f, { keys, cur: currency }))) as AggRow[]
+}
+
+/** With an app currency (Настройки → Валюта приложения) every entity works in it: the own currency of a
+ * cashbox / branch reads as the app currency (its balance is there: the movements are converted in
+ * lib/finance/sources.ts) and the supplier reserve is converted with the current rates. */
+function entitiesInAppCurrency(entities: EntityRecord[], cc: CurrencyContext): EntityRecord[] {
+  if (!cc.work) return entities
+  return entities.map((entity) => {
+    const info = "currency" in entity.info ? { ...entity.info, currency: cc.work } : entity.info
+    if (!entity.reserve) return { ...entity, info }
+    let reserve = 0
+    for (const [code, value] of Object.entries(entity.reserve)) reserve += toWork(cc, value, code) ?? 0
+    return { ...entity, info, reserve: reserve ? { [cc.work]: reserve } : {} }
+  })
 }
 
 function emptyBalance(columns: string[]): CurrencyBalance {
@@ -386,7 +400,7 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
   let cc: CurrencyContext = await loadCurrencyContext(db)
   const mode = modeOf(kind, params)
   const [entities, agg, contractNames] = await Promise.all([
-    loadEntities(kind, db, s),
+    loadEntities(kind, db, s).then((list) => entitiesInAppCurrency(list, cc)),
     aggregate(db, kind, s, cc.base, params),
     kind === "account" ? loadContractNames(db, s) : Promise.resolve(new Map<string, string>()),
   ])
@@ -475,7 +489,8 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
     from: params.from,
     to: params.to,
     mode,
-    baseCurrency: cc.base,
+    // The app currency when one is chosen: every amount of the result is in it.
+    baseCurrency: cc.work || cc.base,
     currencies: cc.currencies,
     visibleCurrencies: visibleCurrencyCodes(cc.currencies, totals),
     count: rows.length,
@@ -515,8 +530,8 @@ type StatementDbRow = {
   editable: boolean
 }
 
-async function resolveEntity(kind: BalanceEntityKind, key: string, db: PgDb, s: FinanceSchema) {
-  const entities = await loadEntities(kind, db, s)
+async function resolveEntity(kind: BalanceEntityKind, key: string, db: PgDb, s: FinanceSchema, cc: CurrencyContext) {
+  const entities = entitiesInAppCurrency(await loadEntities(kind, db, s), cc)
   if (kind === "account" && key.startsWith("inn:")) {
     const inn = key.slice(4)
     const members = entities.filter((entity) => innKey(entity.info.inn) === inn)
@@ -548,7 +563,7 @@ export async function getStatement(kind: BalanceEntityKind, params: StatementPar
   await syncTransferValues()
   const s = await ensureFinanceSchema(db)
   let cc = await loadCurrencyContext(db)
-  const entity = await resolveEntity(kind, params.key, db, s)
+  const entity = await resolveEntity(kind, params.key, db, s, cc)
   if (!entity) return null
   const mode = modeOf(kind, params)
   const currency = params.currency ?? ""
@@ -676,7 +691,8 @@ export async function getStatement(kind: BalanceEntityKind, params: StatementPar
     from: params.from,
     to: params.to,
     mode,
-    baseCurrency: cc.base,
+    // The app currency when one is chosen: every amount of the result is in it.
+    baseCurrency: cc.work || cc.base,
     currencies: cc.currencies,
     visibleCurrencies: visibleCurrencyCodes(cc.currencies, summary),
     summary,

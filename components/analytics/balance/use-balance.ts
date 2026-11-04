@@ -70,8 +70,8 @@ export function useManagementBalance(query: BalanceQuery): FetchState<Management
 }
 
 /** GET /api/balances/currencies — canonical currency list, base first. */
-export function useFinanceCurrencies(): FetchState<{ base: string; currencies: FinanceCurrency[] }> {
-  return useJson<{ base: string; currencies: FinanceCurrency[] }>("/api/balances/currencies")
+export function useFinanceCurrencies(): FetchState<{ base: string; currencies: FinanceCurrency[]; all?: FinanceCurrency[] }> {
+  return useJson<{ base: string; currencies: FinanceCurrency[]; all?: FinanceCurrency[] }>("/api/balances/currencies")
 }
 
 /** Generic GET of a JSON list (lookups such as /api/cashboxes); [] while loading or on error. */

@@ -5,6 +5,8 @@ import { useLayoutEffect } from "react"
 import { useLanguage } from "./language-context"
 import { usePathname } from "next/navigation"
 
+import { showCurrencyNames } from "@/lib/finance/currency"
+
 import { isUntranslated, translate } from "./translate"
 import type { LanguageCode } from "./types"
 
@@ -61,7 +63,9 @@ function reportMissing(language: LanguageCode, text: string) {
 /**
  * Safety net for screens that render Russian literals without calling t().
  * Walks the DOM, translates any text/attribute found in the dictionary and
- * remembers the original so switching back to Russian restores it.
+ * remembers the original so switching back to Russian restores it. In every
+ * language it also prints stored currency codes by their shown names
+ * (SUM → SOM, Euro/EUR → ЕВРО; lib/finance/currency.ts showCurrencyNames).
  */
 export function DomTranslator() {
   const { language } = useLanguage()
@@ -89,6 +93,7 @@ export function DomTranslator() {
 
     // Every text with a translation is translated on every page (the user's decision of 2026-10-30): the
     // reference's habit of printing some dictionary texts and dates in Russian on some pages is not copied.
+    const euroName = translate(language, "ЕВРО")
     const convert = (source: string) => {
       const lead = source.match(/^\s*/)?.[0] ?? ""
       const trail = source.match(/\s*$/)?.[0] ?? ""
@@ -102,16 +107,12 @@ export function DomTranslator() {
       // React rewrote the node: whatever is there now is the new original.
       if (written.get(node) !== current) originals.set(node, current)
       const original = originals.get(node) ?? current
-      if (language === "ru") {
-        if (current !== original) node.nodeValue = original
-        written.delete(node)
-        return
-      }
-      if (!CYRILLIC.test(original)) return
-      const next = convert(original)
+      const translating = language !== "ru" && CYRILLIC.test(original)
+      const next = showCurrencyNames(translating ? convert(original) : original, euroName)
+      if (translating) reportMissing(language, next)
       if (next !== current) node.nodeValue = next
-      written.set(node, next)
-      reportMissing(language, next)
+      if (next === original) written.delete(node)
+      else written.set(node, next)
     }
 
     const handleElement = (element: Element) => {
@@ -123,16 +124,12 @@ export function DomTranslator() {
         if (current === null) continue
         if (savedWritten[name] !== current) savedOriginals[name] = current
         const original = savedOriginals[name] ?? current
-        if (language === "ru") {
-          if (current !== original) element.setAttribute(name, original)
-          delete savedWritten[name]
-          continue
-        }
-        if (!CYRILLIC.test(original)) continue
-        const next = convert(original)
+        const translating = language !== "ru" && CYRILLIC.test(original)
+        const next = showCurrencyNames(translating ? convert(original) : original, euroName)
+        if (translating) reportMissing(language, next)
         if (next !== current) element.setAttribute(name, next)
-        savedWritten[name] = next
-        reportMissing(language, next)
+        if (next === original) delete savedWritten[name]
+        else savedWritten[name] = next
       }
       attrOriginals.set(element, savedOriginals)
       attrWritten.set(element, savedWritten)

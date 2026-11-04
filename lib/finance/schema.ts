@@ -1,5 +1,6 @@
 import "server-only"
 
+import { ensureAppSettingsSchema } from "@/lib/app-currency"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 
 // Database plumbing of the finance ledger:
@@ -442,7 +443,8 @@ async function backfillOrderClients(db: PgDb, map: Map<string, Set<string>>): Pr
  * extension columns and returns which ledger tables/columns exist. Call at
  * the start of every finance read or write. */
 export async function ensureFinanceSchema(db: PgDb = getDb()): Promise<FinanceSchema> {
-  await ensureFunctions()
+  // app_settings: the app currency the movement rows are converted into (lib/finance/sources.ts).
+  await Promise.all([ensureFunctions(), ensureAppSettingsSchema()])
   let map = await introspect(db, LEDGER_TABLES)
   if (await addMissingColumns(db, map)) map = await introspect(db, LEDGER_TABLES)
   await backfillOrderClients(db, map)

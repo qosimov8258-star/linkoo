@@ -15,7 +15,8 @@ import {
 } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
-import { formatMoney } from "@/lib/finance/currency"
+import { appCurrencyColumn, useAppCurrency } from "@/lib/app-currency-context"
+import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { downloadExcelTable } from "@/lib/excel-export"
@@ -290,7 +291,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     const name = t(column.endsWith(", SUM") ? column.slice(0, -", SUM".length) : column)
     // Columns in the document's own currency: each cell is in its row's / column's "Валюта".
     if (data.documentColumns?.includes(column)) return `${prefix}${name}, ${t("Валюта")}`
-    return `${prefix}${name}, ${data.currency}`
+    return `${prefix}${name}, ${currencyLabel(data.currency)}`
   }
 
   function cellText(data: BuilderResult, cell: string | number, index: number): string | number {
@@ -509,6 +510,9 @@ export const CHECKBOX =
 
 function OptionColumn({ title, placeholder, query, onQuery, items, selected, onToggle, info = false }: { title: string; placeholder: string; query: string; onQuery: (value: string) => void; items: string[]; selected: string[]; onToggle: (item: string) => void; info?: boolean }) {
   const { t } = useLanguage()
+  // "…, SUM" names a base-currency column: with an app currency (Настройки → Валюта приложения) its amounts are in that one.
+  const appCurrency = useAppCurrency()
+  const itemTitle = (item: string) => appCurrencyColumn(item, t, appCurrency)
   return (
     <div className="px-[20px] pb-[30px] pt-[18px]">
       <h2 className="text-[15px] font-semibold leading-[18.75px]">{t(title)}</h2>
@@ -520,7 +524,7 @@ function OptionColumn({ title, placeholder, query, onQuery, items, selected, onT
         {items.map((item) => (
           <label key={item} className={`flex ${info && INFO_ITEMS.has(item) ? "min-h-[34px]" : "min-h-[30px]"} cursor-pointer items-center gap-[9px] text-[13px] font-semibold`}>
             <input type="checkbox" checked={selected.includes(item)} onChange={() => onToggle(item)} className={`${CHECKBOX} ml-[3px]`} />
-            {t(item)}
+            {itemTitle(item)}
             {info && INFO_ITEMS.has(item) && <Info className="h-[18px] w-[18px] text-[#555]" />}
           </label>
         ))}

@@ -26,6 +26,11 @@ export default async function SettingsPage() {
               href: "/settings/notifications",
             },
             {
+              title: "Валюта приложения",
+              description: "Выберите валюту, в которой работает всё приложение: SOM, USD или ЕВРО.",
+              href: "/settings/currency",
+            },
+            {
               title: "Интеграции",
               description: "Управляйте подключениями к внешним сервисам и API.",
               href: "/settings/integrations",

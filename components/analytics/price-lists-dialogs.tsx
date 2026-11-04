@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, useCashRates } from "@/components/analytics/cash-management-shared"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
@@ -36,10 +37,12 @@ type Draft = {
   values: Record<string, string>
 }
 
-function draftOf(list: PriceList | null): Draft {
+/** `appCurrency`: with an app currency (Настройки → Валюта приложения) a list is shown in it (the server keeps the
+ * stored currency of an existing list when it is sent back). */
+function draftOf(list: PriceList | null, appCurrency = ""): Draft {
   return {
     name: list?.name ?? "",
-    currency: list?.currency ?? "",
+    currency: appCurrency || (list?.currency ?? ""),
     position: list ? String(list.position) : "",
     isActive: list?.isActive ?? true,
     isDefaultForOrder: list?.isDefaultForOrder ?? false,
@@ -53,9 +56,10 @@ function draftOf(list: PriceList | null): Draft {
 export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceListId: number | null; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
   const { codes } = useCashRates()
+  const appCurrency = useAppCurrency()
   const detail = useCashJson<PriceList>(priceListId ? `${PRICE_LISTS_API}/${priceListId}` : null)
   const lists = useCashJson<PriceList[]>(`${PRICE_LISTS_API}?active=all`)
-  const [draft, setDraft] = useState<Draft>(() => draftOf(null))
+  const [draft, setDraft] = useState<Draft>(() => draftOf(null, appCurrency))
   const [loaded, setLoaded] = useState(priceListId === null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [error, setError] = useState("")
@@ -63,9 +67,9 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
 
   useEffect(() => {
     if (!detail.data || loaded) return
-    setDraft(draftOf(detail.data))
+    setDraft(draftOf(detail.data, appCurrency))
     setLoaded(true)
-  }, [detail.data, loaded])
+  }, [detail.data, loaded, appCurrency])
 
   const method = calcMethodById(draft.methodId)
   const set = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }))

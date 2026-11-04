@@ -4,7 +4,7 @@ import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import type { CurrencyContext } from "@/lib/finance/context"
 import { roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
-import { cashboxCashier, CashError, currencyContext, isoDayOrEmpty, loadCashbox, localDateTime, MAX_MONEY, pickRate, resolveOrganization } from "@/lib/cash/common"
+import { cashboxCashier, CashError, currencyContext, isoDayOrEmpty, loadCashboxForWrite, localDateTime, MAX_MONEY, pickRate, resolveOrganization } from "@/lib/cash/common"
 import { guardCashboxBalances } from "@/lib/cash/guard"
 import { resolveTransfer } from "@/lib/cash/rates"
 import { ensureCashSchema } from "@/lib/cash/schema"
@@ -37,8 +37,8 @@ export async function createTransfer(input: CashTransferInput, user: string): Pr
 }
 
 async function insertTransfer(tx: PgDb, input: CashTransferInput, user: string, cc: CurrencyContext): Promise<CashTransferResult> {
-  const from = await loadCashbox(tx, input.fromCashboxId, cc.base, "fromCashbox")
-  const to = await loadCashbox(tx, input.toCashboxId, cc.base, "toCashbox")
+  const from = await loadCashboxForWrite(tx, input.fromCashboxId, cc, "fromCashbox")
+  const to = await loadCashboxForWrite(tx, input.toCashboxId, cc, "toCashbox")
   const amountFrom = Number(input.amountFrom)
   if (!Number.isFinite(amountFrom) || amountFrom <= 0 || amountFrom > MAX_MONEY) throw new CashError("Укажите сумму", 400, "amountFrom")
   // A transfer never creates money (lib/cash/rates.ts resolveTransfer): same currency and type →

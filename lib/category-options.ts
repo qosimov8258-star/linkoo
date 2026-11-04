@@ -13,9 +13,10 @@ import { CATEGORY_OPTIONS, normalizeOptions, optionsOfParameter, type CategoryOp
 export type CategoryKind = "income" | "expense"
 
 /**
- * Options offered per kind, exactly the demo list (main/options/?use=income|expense, ids
- * descending). The cash core also understands staff_income and amortization, but the
- * demo offers neither, so the dialog does not either.
+ * Options offered per kind: the demo list (main/options/?use=income|expense, ids
+ * descending), plus "Приход от сотрудников" (staff_income) for income, which the user
+ * asked for on 2026-11-04 (the demo lacks it). The cash core also understands
+ * amortization, but the demo does not offer it, so the dialog does not either.
  */
 export const CATEGORY_KIND_OPTIONS: Record<CategoryKind, readonly CategoryOptionKey[]> = {
   expense: [
@@ -28,18 +29,19 @@ export const CATEGORY_KIND_OPTIONS: Record<CategoryKind, readonly CategoryOption
     "supply",
     "supply_expense",
   ],
-  income: ["transaction_child", "client", "provider", "order"],
+  income: ["transaction_child", "client", "provider", "order", "staff_income"],
 }
 
 /** Tooltip of an option chip (Russian i18n keys). The first four are the demo's
  * descriptions ("Может укзать клиента" with its typo fixed); the demo has none for
- * the others, so ours describe what the cash dialog then asks for. */
+ * the others (it prints client_card_out under its raw key), so ours describe what
+ * the cash dialog then asks for. */
 export const CATEGORY_OPTION_DESCRIPTIONS: Record<CategoryOptionKey, string> = {
   transaction_child: "Может добавить детализацию",
   client: "Может указать клиента",
   provider: "Может выбрать поставщика",
   supply: "Пользователь может выбрать поставку",
-  client_card_out: "client_card_out",
+  client_card_out: "Выдача денег с карты клиента",
   client_contract: "Выдача денег для Кэшбек",
   staff_expense: "Расход на сотрудников",
   supply_expense: "Доп. расход",
@@ -56,8 +58,7 @@ export function categoryOptionTitle(key: CategoryOptionKey): string {
 }
 
 export function categoryOptionItem(key: CategoryOptionKey): CategoryOptionItem {
-  // the demo lists this option under its raw key
-  return { key, title: key === "client_card_out" ? key : categoryOptionTitle(key), description: CATEGORY_OPTION_DESCRIPTIONS[key] ?? "" }
+  return { key, title: categoryOptionTitle(key), description: CATEGORY_OPTION_DESCRIPTIONS[key] ?? "" }
 }
 
 /** The radio list of the dialog. */

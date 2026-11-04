@@ -1,5 +1,6 @@
 import "server-only"
 
+import { getAppCurrency } from "@/lib/app-currency"
 import type { PgDb } from "@/lib/db"
 import { parseItemPrices } from "@/lib/item-prices"
 import { catalogDb } from "@/lib/products-schema"
@@ -70,6 +71,7 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
   }
 
   let baseCurrency = "SUM"
+  const appCurrency = tables.has("currencies") ? await getAppCurrency(db) : ""
   const currencies: string[] = []
   if (tables.has("currencies")) {
     const rows = (await db.prepare("SELECT code, name, is_base FROM currencies ORDER BY is_base DESC, id").all()) as Array<{ code: string; name: string; is_base: number }>
@@ -132,7 +134,9 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
 
   return {
     priceLists: priceLists.filter((entry) => entry.name),
-    currencies: allCurrencies.length ? allCurrencies : ["SUM"],
+    // With an app currency (Настройки → Валюта приложения) prices are entered only in it; `baseCurrency` stays the
+    // real one (the currency of a stored price without its own).
+    currencies: appCurrency ? [appCurrency] : allCurrencies.length ? allCurrencies : ["SUM"],
     baseCurrency,
     units: unique([...units, ...itemUnits]),
     types: [...types.values()]

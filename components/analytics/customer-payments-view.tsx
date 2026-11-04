@@ -40,6 +40,7 @@ import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, Re
 import { downloadExcelTable } from "@/lib/excel-export"
 import { CLIENT_CONFIRMATION_ICON_LABELS, type CustomerPaymentOptions, type CustomerPaymentRow, type CustomerPaymentsResult, type CustomerPaymentTab, type CustomerPaymentTotalsResult } from "@/lib/cash/customer-payments-types"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Оплаты от клиентов" (demo #/client-transaction?showCheckboxes=true, chunk 75
@@ -231,6 +232,9 @@ export function CustomerPaymentsView() {
   const options = optionsState.data
   const rows = useMemo(() => list.data?.rows ?? [], [list.data])
   const baseCurrency = list.data?.baseCurrency ?? options?.baseCurrency ?? "SUM"
+  // With an app currency (Настройки → Валюта приложения) every amount is shown in it: no base-currency sub-lines.
+  const appCurrency = useAppCurrency()
+  const withBase = !appCurrency
 
   // URL ⇄ state (demo keeps everything in the query).
   useEffect(() => {
@@ -428,13 +432,13 @@ export function CustomerPaymentsView() {
             <div className="flex items-center gap-1.5 whitespace-nowrap font-semibold" style={{ color: amountColor(row.amount) }}>
               {money(row.amount, row.currency)}
               <PaymentTypeIcon type={row.paymentType} />
-              {row.currency !== baseCurrency && (
+              {withBase && row.currency !== baseCurrency && (
                 <Tip text={`${t("Курс")}: ${row.debtRate ? formatMoney(row.debtRate, 5) : "—"}`}>
                   <Info className="h-3.5 w-3.5 text-[#9aa3b6]" />
                 </Tip>
               )}
             </div>
-            {row.currency !== baseCurrency && row.baseAmount !== null && (
+            {withBase && row.currency !== baseCurrency && row.baseAmount !== null && (
               <div className="whitespace-nowrap text-[11px] text-[#9aa3b6]">{money(row.baseAmount, baseCurrency)}</div>
             )}
           </>
@@ -444,13 +448,13 @@ export function CustomerPaymentsView() {
           <>
             <div className="flex items-center gap-1.5 whitespace-nowrap">
               {money(row.realAmount, row.realCurrency)}
-              {row.realCurrency !== baseCurrency && (
+              {withBase && row.realCurrency !== baseCurrency && (
                 <Tip text={`${t("Курс")}: ${row.cashRate ? formatMoney(row.cashRate, 5) : "—"}`}>
                   <Info className="h-3.5 w-3.5 text-[#9aa3b6]" />
                 </Tip>
               )}
             </div>
-            {row.realCurrency !== baseCurrency && row.cashRate && (
+            {withBase && row.realCurrency !== baseCurrency && row.cashRate && (
               <div className="whitespace-nowrap text-[11px] text-[#9aa3b6]">{money(row.realAmount * row.cashRate, baseCurrency)}</div>
             )}
           </>
@@ -639,7 +643,8 @@ export function CustomerPaymentsView() {
       {dialog === "accept" && (
         <AcceptCashboxDialog
           ids={state.select}
-          cashboxes={options?.cashboxes ?? []}
+          // Настройки → Валюта приложения: money is accepted only into cashboxes of the app currency.
+          cashboxes={(options?.cashboxes ?? []).filter((cashbox) => withBase || cashbox.currency === appCurrency)}
           onClose={() => setDialog(null)}
           onDone={() => {
             setDialog(null)

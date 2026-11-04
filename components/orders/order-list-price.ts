@@ -1,4 +1,4 @@
-import { normCurrency } from "@/lib/finance/currency"
+import { convertAmount, normCurrency, roundMoney } from "@/lib/finance/currency"
 
 // The price-list price a new order line starts with (order card "+ добавить товар"; meant for the
 // order form's priceOf too, so both paths agree).
@@ -10,7 +10,9 @@ import { normCurrency } from "@/lib/finance/currency"
 //   non-cash → entry.nonCashCurrency, else entry.currency, else the list's currency.
 // The price is offered only when that currency is known and equals the order currency. A price of
 // another currency, or of an unknown one, is never taken (a 9 900 SUM price is not 9 900 USD); the
-// user types the price instead. There is no hard-coded currency fallback.
+// user types the price instead. There is no hard-coded currency fallback. With an app currency (Настройки →
+// Валюта приложения, `rates` passed) every order is in it and a price of another currency is converted with the
+// current rates instead.
 
 export type OrderListPriceEntry = { name: string; cash?: number; nonCash?: number; currency?: string; nonCashCurrency?: string }
 export type OrderPriceList = { name: string; currency?: string | null }
@@ -36,7 +38,14 @@ function code(value: string | null | undefined): string {
  */
 export function orderListPrice(
   entries: OrderListPriceEntry[] | null | undefined,
-  options: { priceList: string | null | undefined; lists: OrderPriceList[] | null | undefined; orderCurrency: string | null | undefined; nonCash: boolean },
+  options: {
+    priceList: string | null | undefined
+    lists: OrderPriceList[] | null | undefined
+    orderCurrency: string | null | undefined
+    nonCash: boolean
+    /** Units of the base currency per unit (the app currency's rates): converts a price of another currency. */
+    rates?: Record<string, number | null>
+  },
 ): number | null {
   const key = priceListNameKey(options.priceList)
   const orderCurrency = code(options.orderCurrency)
@@ -45,7 +54,10 @@ export function orderListPrice(
   if (!entry) return null
   const listCurrency = code(options.lists?.find((list) => priceListNameKey(list.name) === key)?.currency)
   const entryCurrency = options.nonCash ? code(entry.nonCashCurrency) || code(entry.currency) || listCurrency : code(entry.currency) || listCurrency
-  if (!entryCurrency || entryCurrency !== orderCurrency) return null
+  if (!entryCurrency) return null
   const value = options.nonCash ? (entry.nonCash ?? entry.cash) : entry.cash
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null
+  if (!(typeof value === "number" && Number.isFinite(value) && value > 0)) return null
+  if (entryCurrency === orderCurrency) return value
+  const converted = options.rates ? convertAmount(value, entryCurrency, orderCurrency, options.rates) : null
+  return converted !== null && converted > 0 ? roundMoney(converted, 3) : null
 }

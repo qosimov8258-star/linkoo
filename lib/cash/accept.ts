@@ -9,7 +9,7 @@ import { nameKey } from "@/lib/finance/entities"
 import {
   CashError,
   currencyContext,
-  loadCashbox,
+  loadCashboxForWrite,
   loadEmployee,
   localDateTime,
   num,
@@ -261,7 +261,7 @@ export async function acceptCash(input: AcceptCashInput, user: string): Promise<
   await ensureCashSchema()
   const cc = await currencyContext(getDb())
   return withTransaction(async (tx) => {
-    const cashbox = await loadCashbox(tx, input.cashboxId, cc.base)
+    const cashbox = await loadCashboxForWrite(tx, input.cashboxId, cc)
     let payments: LockedPayment[]
     const select = `SELECT p.id, p.client_id, ${AGENT} AS agent, fin_place(p.organization) AS organization, fin_place(p.branch) AS branch, p.agent_cashbox_id,
         p.amount::float8 AS amount, p.currency, p.real_amount::float8 AS real_amount, p.real_currency, p.amount_sum_equivalent::float8 AS amount_sum_equivalent
@@ -416,7 +416,7 @@ export async function updateAcceptance(id: number, input: UpdateAcceptanceInput,
 }
 
 async function applyAcceptanceUpdate(tx: PgDb, id: number, header: Record<string, unknown>, input: UpdateAcceptanceInput, cc: CurrencyContext): Promise<void> {
-  const cashbox = await loadCashbox(tx, input.cashboxId ?? numOrNull(header.cashbox_id), cc.base)
+  const cashbox = await loadCashboxForWrite(tx, input.cashboxId ?? numOrNull(header.cashbox_id), cc)
   const rows = (await tx
     .prepare(
       `SELECT id, amount::float8 AS amount, currency, real_amount::float8 AS real_amount, real_currency, custom_rate, debt_rate

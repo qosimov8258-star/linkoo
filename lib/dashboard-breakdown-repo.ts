@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb } from "@/lib/db"
+import { loadCurrencyContext, workFactorSql } from "@/lib/finance/context"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { orderCountedSql, ownAgentSql } from "@/lib/finance/sources"
 import { ensureOrdersSchema } from "@/lib/orders-repo"
@@ -139,21 +140,26 @@ export async function getDashboardBreakdown(begin: string, end: string, group: B
   const orderWhere = `${orderCountedSql("o")} AND ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text) AND ${ownAgentSql("o.agent")}`
   const { sale, ret, distinctClients } = measureSql(measure)
   const money = UNITS[measure] === "money"
+  // With an app currency (Настройки → Валюта приложения) every line counts, converted into it.
+  const cc = await loadCurrencyContext(db)
+  const work = money && cc.work ? cc.work : ""
   // Money: base-currency lines only (the donut and its total are in the base currency, like the "Продажи" card's first figure).
-  const saleCurrency = money ? " AND COALESCE(fin_cur(oi.currency), @base::text) = @base::text" : ""
+  const saleCurrency = money && !work ? " AND COALESCE(fin_cur(oi.currency), @base::text) = @base::text" : ""
+  const saleFactor = work ? ` * ${workFactorSql(cc, "COALESCE(fin_cur(oi.currency), @base::text)")}` : ""
   const parts: string[] = []
   if (distinctClients) {
     parts.push(`SELECT ${orderLabel(group)} AS label, COALESCE(o.client_id::text, 'name:' || fin_key(o.client)) AS client, 0::float8 AS value
       FROM orders o JOIN order_items oi ON oi.order_id = o.id LEFT JOIN products p ON p.id = oi.product_id WHERE ${orderWhere}`)
   }
   if (sale) {
-    parts.push(`SELECT ${orderLabel(group)} AS label, NULL::text AS client, (${sale}) AS value
+    parts.push(`SELECT ${orderLabel(group)} AS label, NULL::text AS client, (${sale})${saleFactor} AS value
       FROM orders o JOIN order_items oi ON oi.order_id = o.id LEFT JOIN products p ON p.id = oi.product_id WHERE ${orderWhere}${saleCurrency}`)
   }
   const returnsExist = ((await db.prepare("SELECT to_regclass('client_return_items') IS NOT NULL AS ok").get()) as { ok: boolean }).ok
   if (ret && returnsExist) {
-    const returnCurrency = money ? " AND COALESCE(NULLIF(r.currency, ''), @base::text) = @base::text" : ""
-    parts.push(`SELECT ${returnLabel(group)} AS label, NULL::text AS client, (${ret}) AS value
+    const returnCurrency = money && !work ? " AND COALESCE(NULLIF(r.currency, ''), @base::text) = @base::text" : ""
+    const returnFactor = work ? ` * ${workFactorSql(cc, "COALESCE(fin_cur(NULLIF(r.currency, '')), @base::text)")}` : ""
+    parts.push(`SELECT ${returnLabel(group)} AS label, NULL::text AS client, (${ret})${returnFactor} AS value
       FROM client_returns r JOIN client_return_items ri ON ri.return_id = r.id LEFT JOIN products p ON p.id = ri.product_id
       LEFT JOIN clients c ON c.id = r.client_id LEFT JOIN orders ro ON ro.id = r.order_id
       WHERE r.status = 'accepted' AND ${RETURN_DAY} BETWEEN @from::date AND @to::date
@@ -177,5 +183,5 @@ export async function getDashboardBreakdown(begin: string, end: string, group: B
       .get(params)) as { n: number } | undefined
     total = akb?.n ?? 0
   }
-  return { group, measure, currency: base, unit: UNITS[measure], rows, total: round(total, 3) }
+  return { group, measure, currency: work || base, unit: UNITS[measure], rows, total: round(total, 3) }
 }

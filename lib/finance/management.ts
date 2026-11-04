@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
-import { loadCurrencyContext, withSeenCodes } from "@/lib/finance/context"
+import { loadCurrencyContext, toWork, withSeenCodes } from "@/lib/finance/context"
 import { roundMoney } from "@/lib/finance/currency"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
@@ -206,6 +206,9 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
   ])
   const cc = withSeenCodes(cc0, [cashboxes, clients, suppliers, employees, branchRows].flatMap((list) => list.currencies.map((currency) => currency.code)))
   const base = cc.base
+  // App currency (Настройки → Валюта приложения): every line, the stock and the totals are in it.
+  const shown = cc.work || base
+  const missingRates = new Set<string>()
 
   // Branch registry: branches table first (by id), then names only seen on entities.
   const cards = new Map<string, Card>()
@@ -220,8 +223,21 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
     if (!item) cards.set(key, (item = { id: null, name: name || NO_BRANCH_LABEL, amounts: new Map() }))
     return item
   }
-  const add = (branch: unknown, spec: LineSpec, currency: string, begin: number, end: number) => {
-    if (!begin && !end) return
+  const add = (branch: unknown, spec: LineSpec, stored: string, begin0: number, end0: number) => {
+    if (!begin0 && !end0) return
+    let currency = stored
+    let begin = begin0
+    let end = end0
+    if (cc.work && stored !== cc.work) {
+      const factor = toWork(cc, 1, stored)
+      if (factor === null) {
+        missingRates.add(stored)
+        return
+      }
+      currency = cc.work
+      begin *= factor
+      end *= factor
+    }
     const target = card(branch)
     const id = `${spec.section}|${spec.label}|${currency}`
     const current = target.amounts.get(id) ?? { begin: 0, end: 0 }
@@ -294,8 +310,8 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
   }
 
   // Sections per card.
-  const missingRates = new Set<string>()
   const toBase = (amount: number, currency: string) => {
+    if (cc.work) return amount
     const rate = cc.rates[currency]
     if (!rate) {
       if (amount) missingRates.add(currency)
@@ -303,7 +319,8 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
     }
     return amount * rate
   }
-  const usdRate = base !== "USD" ? cc.rates.USD : null
+  // The "Курс" card (USD in base units) only without an app currency: with one every amount is already in it.
+  const usdRate = !cc.work && base !== "USD" ? cc.rates.USD : null
   const query = `fromDate=${params.from}&toDate=${params.to}`
   const wanted = new Set((params.branches ?? []).map(nameKey).filter(Boolean))
 
@@ -317,10 +334,10 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
       // cent rounding of a foreign-currency line does not move them.
       const exact: Array<{ begin: number; end: number; currency: string }> = []
       for (const line of LINES.filter((candidate) => candidate.section === section)) {
-        const codes = line.perCurrency ? cc.currencies.map((currency) => currency.code) : [base]
+        const codes = line.perCurrency ? cc.currencies.map((currency) => currency.code) : [shown]
         for (const code of codes) {
           const amount = item.amounts.get(`${section}|${line.label}|${code}`)
-          const always = line.key === "stock" || (line.key === "cashbox" && code === base)
+          const always = line.key === "stock" || (line.key === "cashbox" && code === shown)
           if (!amount && !always) continue
           const begin = roundMoney(amount?.begin ?? 0)
           const end = roundMoney(amount?.end ?? 0)
@@ -358,5 +375,5 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
     return rank(a) - rank(b) || (a.id ?? 0) - (b.id ?? 0) || a.name.localeCompare(b.name, "ru")
   })
 
-  return { from: params.from, to: params.to, baseCurrency: base, currencies: cc.currencies, missingRates: [...missingRates].sort(), branches }
+  return { from: params.from, to: params.to, baseCurrency: shown, currencies: cc.currencies, missingRates: [...missingRates].sort(), branches }
 }

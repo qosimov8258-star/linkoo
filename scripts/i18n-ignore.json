@@ -121,6 +121,7 @@
     "components/analytics/supplier-categories-data.ts",
     "components/analytics/suppliers-data.ts",
     "components/orders/marketing-data.ts",
-    "lib/db.ts"
+    "lib/db.ts",
+    "lib/app-currency-text.ts"
   ]
 }

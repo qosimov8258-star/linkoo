@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { currencyFilter, type CurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { isIsoDay } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
@@ -165,7 +166,8 @@ const WHERE = `p.is_deleted = 0
   AND (@status::text = '' OR p.client_confirmation = @status::text)
   AND (@currency::text = '' OR ${DEBT_CUR} = @currency::text)`
 
-function whereParams(query: CustomerPaymentsQuery, base: string) {
+function whereParams(query: CustomerPaymentsQuery, cc: CurrencyContext) {
+  const base = cc.base
   const search = nameKey(query.search)
   const tab: CustomerPaymentTab = query.tab && CUSTOMER_PAYMENT_TABS.includes(query.tab) ? query.tab : "all"
   return {
@@ -194,7 +196,7 @@ function whereParams(query: CustomerPaymentsQuery, base: string) {
     agents: keys(query.responsibleAgents),
     deliverers: keys(query.responsibleDeliverers),
     status: query.status ?? "",
-    currency: query.currency ? normCurrency(query.currency, base) : "",
+    currency: currencyFilter(cc, query.currency),
   }
 }
 
@@ -327,7 +329,7 @@ export async function listCustomerPayments(query: CustomerPaymentsQuery): Promis
   const db = getDb()
   await ensureSchema(db)
   const cc = await currencyContext(db)
-  const params = whereParams(query, cc.base)
+  const params = whereParams(query, cc)
   const { page, pageSize, limit, offset } = paging(query.page, query.pageSize)
   const [count, rows] = await Promise.all([
     db.prepare(`SELECT COUNT(*)::int AS n ${FROM} WHERE ${WHERE}`).get(params) as Promise<{ n: number }>,
@@ -347,7 +349,7 @@ export async function customerPaymentTotals(query: CustomerPaymentsQuery): Promi
               SUM(p.amount)::float8 AS total, COUNT(*)::int AS n
        ${FROM} WHERE ${WHERE} GROUP BY 1, 2, 3, 4, 5, 6`,
     )
-    .all(whereParams(query, cc.base))) as Array<{ cur: string; acc: boolean; cb_id: number | null; cb_name: string | null; acb_id: number | null; acb_name: string | null; total: number; n: number }>
+    .all(whereParams(query, cc))) as Array<{ cur: string; acc: boolean; cb_id: number | null; cb_name: string | null; acb_id: number | null; acb_name: string | null; total: number; n: number }>
   const byCurrency = new Map<string, CustomerPaymentTotal>()
   const bump = (list: CustomerPaymentTotal["cashboxes"], id: number, name: string, total: number, count: number) => {
     const item = list.find((entry) => entry.id === id)
@@ -648,6 +650,8 @@ export async function customerPaymentOptions(): Promise<CustomerPaymentOptions> 
   return {
     baseCurrency: cc.base,
     currencies: cc.currencies.map((currency) => ({ code: currency.code, label: currency.label, rate: currency.rate })),
+    // Rates of every currency (a payment or order may be stored in another one than the app currency).
+    rates: cc.rates,
     branches: base.branches,
     organizations: base.organizations,
     zones: base.zones,

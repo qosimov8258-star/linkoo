@@ -89,7 +89,7 @@ export const CATEGORY_OPTIONS: Record<CategoryOptionKey, CategoryOptionInfo> = {
   order: { key: "order", title: "Заказ", income: true, expense: false, requires: "order" },
   supply_expense: { key: "supply_expense", title: "Доп. расход", income: false, expense: true, requires: "supply_expense" },
   staff_expense: { key: "staff_expense", title: "Расход на сотрудников", income: false, expense: true, requires: "staff" },
-  staff_income: { key: "staff_income", title: "Возврат от сотрудников", income: true, expense: false, requires: "staff" },
+  staff_income: { key: "staff_income", title: "Приход от сотрудников", income: true, expense: false, requires: "staff" },
   transaction_child: { key: "transaction_child", title: "Детализация", income: true, expense: true, requires: "children" },
   amortization: { key: "amortization", title: "Амортизация", income: true, expense: true, requires: null },
 }
@@ -109,6 +109,7 @@ export const PARAMETER_OPTIONS: Record<string, CategoryOptionKey[]> = {
   "выдача денег для кэшбек": ["client_contract"],
   "кэшбек": ["client_contract"],
   "амортизация": ["amortization"],
+  "приход от сотрудников": ["staff_income"],
   "возврат от сотрудников": ["staff_income"],
 }
 
@@ -162,7 +163,10 @@ export type CashboxWithBalance = {
   name: string
   /** 'cash' (наличные) | 'bank' (банковский счет). */
   type: CashPaymentType
+  /** Currency of `balance`: the app currency when one is chosen (Настройки → Валюта приложения), else ownCurrency. */
   currency: string
+  /** The cashbox's own currency (its operations are in it); new money only when it is the app currency. */
+  ownCurrency: string
   cashier: string
   branch: string
   vansell: boolean

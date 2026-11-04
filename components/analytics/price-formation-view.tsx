@@ -8,6 +8,7 @@ import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { FilterCheck, FilterSelect, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar, REF_SHADOW, usePaging } from "@/components/ref/list-kit"
 import { ReportMultiChipField } from "@/components/ref/report-kit"
 import { formatStatementDate, parseAnyDay } from "@/lib/finance/dates"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const PRICE_IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -63,6 +64,8 @@ type AddStage = "pick" | "currency" | "amount" | null
 
 export function PriceFormationView({ embedded = false }: { embedded?: boolean }) {
   const { t, language } = useLanguage()
+  // Настройки → Валюта приложения: prices are entered only in the app currency.
+  const appCurrency = useAppCurrency()
   const [rows, setRows] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -648,7 +651,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
               <div className="relative mt-[19px] h-[62px]">
                 <ReportMultiChipField label={`${t("Выберите прайс-лист")} *`} values={selectedPriceLists} options={priceListNames} onChange={setSelectedPriceLists} />
               </div>
-              <FilterSelect label={`${t("Выберите валюту для наличных")} *`} value={selectedCurrency} onChange={setSelectedCurrency} options={currencies} />
+              <FilterSelect label={`${t("Выберите валюту для наличных")} *`} value={selectedCurrency} onChange={setSelectedCurrency} options={appCurrency ? [appCurrency] : currencies} />
               <div className="-mt-[3px]">
                 {(["manual", "excel"] as const).map((mode) => (
                   <button key={mode} type="button" onClick={() => setImportMode(mode)} className="flex h-[34px] items-center gap-4 text-left">

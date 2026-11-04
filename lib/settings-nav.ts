@@ -19,6 +19,7 @@ export const settingsNavGroups: SettingsNavGroup[] = [
   {
     title: "Финансы",
     items: [
+      { label: "Валюта приложения", href: "/settings/currency" },
       { label: "Валюты", href: "/analytics/currencies" },
       { label: "Кассы", href: "/analytics/cashboxes" },
       { label: "Категории приходов", href: "/analytics/income-categories" },

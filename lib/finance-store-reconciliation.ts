@@ -5,7 +5,7 @@ import { z } from "zod"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import type { ParsedQuery } from "@/lib/finance/api"
 import { loadCurrencyContext } from "@/lib/finance/context"
-import { convertAmount, roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
+import { convertAmount, currencyLabel, roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
@@ -527,14 +527,15 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
     latestStatuses(db, variant),
     latestDeadlines(db, variant),
   ])
-  const split = await clientBalanceSplit(db, s, list.baseCurrency, { to: asOf, mode: params.mode, organizations: params.organizations, orderStatuses })
+  // The SQL default of rows without a currency is the real base currency (the list's is the app currency when one is chosen).
+  const split = await clientBalanceSplit(db, s, (await loadCurrencyContext(db)).base, { to: asOf, mode: params.mode, organizations: params.organizations, orderStatuses })
   const seen = new Set(list.currencies.map((currency) => currency.code))
   const currencies = [...list.currencies]
   for (const entry of split.values()) {
     for (const code of entry.currencies.keys()) {
       if (!seen.has(code)) {
         seen.add(code)
-        currencies.push({ code, label: code, name: code, rate: null, isBase: false, id: null })
+        currencies.push({ code, label: currencyLabel(code), name: code, rate: null, isBase: false, id: null })
       }
     }
   }
@@ -697,5 +698,6 @@ export async function getStoreReconciliationOptions(db: PgDb = getDb()): Promise
     const name = placeName(row.name)
     if (name && !names.has(nameKey(name))) names.set(nameKey(name), name)
   }
-  return { ...base, users: [...names.values()], currencies: demoOrder(context.currencies), baseCurrency: context.base }
+  // The dialogs' default currency: the app currency when one is chosen (Настройки → Валюта приложения).
+  return { ...base, users: [...names.values()], currencies: demoOrder(context.currencies), baseCurrency: context.work || context.base }
 }

@@ -185,6 +185,8 @@ export type CustomerPaymentBulkUpdateInput = {
 export type CustomerPaymentOptions = {
   baseCurrency: string
   currencies: Array<{ code: string; label: string; rate: number | null }>
+  /** Units of the base currency per unit of every currency of Валюты (base = 1). */
+  rates?: Record<string, number | null>
   branches: string[]
   organizations: string[]
   zones: string[]

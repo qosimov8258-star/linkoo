@@ -133,7 +133,7 @@ export const MOVEMENT_LABELS: { [K in BalanceEntityKind]: Record<MovementColumn<
 export type FinanceCurrency = {
   /** Canonical code: SUM | USD | EUR | any other upper-case code. */
   code: string
-  /** Label the demo shows next to amounts: "SUM", "USD", "Euro". */
+  /** Label shown next to amounts: "SOM", "USD", "ЕВРО" (lib/finance/currency.ts currencyLabel). */
   label: string
   /** currencies.name when the currency exists in the currencies table. */
   name: string

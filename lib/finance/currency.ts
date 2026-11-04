@@ -30,10 +30,27 @@ export function normCurrency(value: string | null | undefined, fallback = "SUM")
   return ALIASES[code] ?? code
 }
 
-/** Label the demo prints next to amounts: SUM, USD, Euro. */
+/** Shown names of the canonical codes (the user's decision of 2026-11-04: SOM, USD, ЕВРО
+ * instead of the demo's SUM / Euro). Stored codes stay SUM / EUR; both names are aliases above. */
+const LABELS: Record<string, string> = { SUM: "SOM", EUR: "ЕВРО" }
+
+/** Label printed next to amounts and in currency selects: SOM, USD, ЕВРО. */
 export function currencyLabel(code: string): string {
   const canonical = normCurrency(code)
-  return canonical === "EUR" ? "Euro" : canonical
+  return LABELS[canonical] ?? canonical
+}
+
+// Stored codes printed as they are (amount strings like "1 000 SUM", "Сумма (SUM)" literals,
+// option texts), and the shown "ЕВРО" itself. Whole words only and case-sensitive, so "SUMMARY"
+// or "sum" are untouched.
+const STORED_NAMES = /(?<![\p{L}\p{N}_])(SUM|EURO|EUR|Euro|ЕВРО)(?![\p{L}\p{N}_])/gu
+
+/** Text with the stored currency names replaced by the shown ones ("100 SUM" → "100 SOM", "Euro" → "ЕВРО").
+ * `euro` is the euro's name in the UI language (the dictionary's "ЕВРО": EVRO, EURO …). Used by the DOM
+ * pass of lib/i18n/dom-translator.tsx for every screen and by the Excel export. */
+export function showCurrencyNames(text: string, euro = "ЕВРО"): string {
+  if (!/SUM|EUR|Euro|ЕВРО/.test(text)) return text
+  return text.replace(STORED_NAMES, (name) => (normCurrency(name) === "EUR" ? euro : currencyLabel(name)))
 }
 
 /** Lower-case code used by the older *_balance_transactions ledgers (sum/usd/eur). */

@@ -12,6 +12,7 @@ import { downloadExcelTable } from "@/lib/excel-export"
 import { currencyLabel } from "@/lib/finance/currency"
 import { formatStatementDate, monthEndIso, monthStartIso, nowLocalIso } from "@/lib/finance/dates"
 import type { StatementResult, StatementRow } from "@/lib/finance/types"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Dialogs of the "Баланс филиалов" page (demo van-sell clones 3904 / 3905 / 3906):
@@ -101,6 +102,7 @@ export function BranchTransactionDialog({
 }) {
   const { t } = useLanguage()
   const { data: currencyInfo } = useFinanceCurrencies()
+  const appCurrency = useAppCurrency()
   const currencies = currencyInfo?.currencies ?? []
   const [branch, setBranch] = useState(String(branchId))
   const [currency, setCurrency] = useState("")
@@ -109,7 +111,8 @@ export function BranchTransactionDialog({
   const [comment, setComment] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  const selectedCurrency = currency || currencyInfo?.base || "SUM"
+  // The app currency when one is chosen (Настройки → Валюта приложения), else the base one.
+  const selectedCurrency = currency || appCurrency || currencyInfo?.base || "SUM"
 
   const submit = async () => {
     const value = parseAmount(amount)
@@ -171,7 +174,7 @@ export function BranchTransactionDialog({
           <label className={fieldLabel}>
             {t("Валюта")}
             <select value={selectedCurrency} onChange={(event) => setCurrency(event.target.value)} className={fieldInput}>
-              {(currencies.length ? currencies : [{ code: "SUM", label: "SUM" }]).map((item) => (
+              {(currencies.length ? currencies : [{ code: "SUM", label: currencyLabel("SUM") }]).map((item) => (
                 <option key={item.code} value={item.code}>
                   {item.label}
                 </option>

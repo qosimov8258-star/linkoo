@@ -440,9 +440,11 @@ export async function getDebtTemplate(params: DebtTemplateParams, db: PgDb = get
   const list = { ...result, rows: result.rows.flatMap((row) => (row.id === null ? [] : [{ ...row, id: row.id }])) }
   const s = await ensureFinanceSchema(db)
   const organizations = params.organizations.length ? params.organizations : [""]
+  // The real base currency (list.baseCurrency is the app currency when one is chosen).
+  const { base } = await loadCurrencyContext(db)
   const splits = await Promise.all(
     organizations.map((organization) =>
-      clientBalanceSplit(db, s, list.baseCurrency, {
+      clientBalanceSplit(db, s, base, {
         to: params.debtDate,
         mode: params.filters.mode,
         organizations: organization ? [organization] : [],

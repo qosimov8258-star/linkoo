@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportEmpty, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
 import { csvText } from "@/lib/csv"
+import { linesInAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
+import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 import { useDirectoryNames } from "@/components/clients/use-directory"
@@ -118,6 +120,10 @@ export function SalesByAgentsView() {
   const [, setFilterVersion] = useState(0)
 
   const [items, setItems] = useState<OrderItemWithOrder[]>([])
+  // With an app currency (Настройки → Валюта приложения) every line is converted into it before it is summed.
+  const app = useAppCurrencyInfo()
+  const shownItems = useMemo(() => linesInAppCurrency(app, items), [app, items])
+  const moneyLabel = currencyLabel(app.code || "SUM")
   const [itemsLoading, setItemsLoading] = useState(true)
   const [itemsError, setItemsError] = useState("")
 
@@ -146,13 +152,13 @@ export function SalesByAgentsView() {
   }, [])
 
   const rows = useMemo(() => {
-    const dateFiltered = mode === "created" ? items.filter((item) => isWithinRange(item.orderCreated, from, to)) : items
+    const dateFiltered = mode === "created" ? shownItems.filter((item) => isWithinRange(item.orderCreated, from, to)) : shownItems
     // Filters the order lines carry (client, status) apply to the loaded rows.
     const same = (value: string, wanted: string) => !wanted || value.trim().toLowerCase() === wanted.trim().toLowerCase()
     return buildAgentRows(dateFiltered.filter((item) => same(item.orderClient, client) && same(item.orderStatus, status)))
       .filter((row) => agent === "" || row.agent === agent)
       .filter((row) => row.agent.toLowerCase().includes(query.toLowerCase()))
-  }, [items, agent, client, status, query, mode, from, to])
+  }, [shownItems, agent, client, status, query, mode, from, to])
 
   const totals = useMemo(
     () =>
@@ -202,9 +208,9 @@ export function SalesByAgentsView() {
         />
         {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">{t("Закрыть")}</button>}
         <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
-          <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty} {t("шт")})</small></ReportSummaryCard>
-          <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.returnQty} {t("шт")})</small></ReportSummaryCard>
-          <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty - totals.returnQty} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.saleQty} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.returnQty} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.saleQty - totals.returnQty} {t("шт")})</small></ReportSummaryCard>
         </div>
         <div className="mt-[5px]">
           <ReportSearchBar

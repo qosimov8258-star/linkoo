@@ -153,7 +153,8 @@ export function useCashRates(): { base: string; rates: RateMap; codes: string[] 
   return useMemo(() => {
     const base = data?.base ?? "SUM"
     const rates: RateMap = {}
-    for (const currency of data?.currencies ?? []) rates[currency.code] = currency.rate
+    // Rates of every currency (stored documents may be in another one than the app currency).
+    for (const currency of data?.all ?? data?.currencies ?? []) rates[currency.code] = currency.rate
     const codes = (data?.currencies ?? []).map((currency) => currency.code)
     return { base, rates, codes: codes.length ? codes : [base] }
   }, [data])

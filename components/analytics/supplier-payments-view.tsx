@@ -20,6 +20,7 @@ import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar } 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { formatStatementDate, isIsoDay } from "@/lib/finance/dates"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Оплаты поставщикам" (demo #/provider-transaction, chunk 76): read-only list
@@ -153,6 +154,8 @@ export function SupplierPaymentsView() {
   const { data: options } = useCashJson<SupplierPaymentsOptions>("/api/cash/supplier-payments/options")
   const rows = data?.rows ?? []
   const base = data?.baseCurrency ?? options?.baseCurrency ?? "SUM"
+  // With an app currency (Настройки → Валюта приложения) every amount is shown in it: no base-currency sub-lines.
+  const withBase = !useAppCurrency()
   const visibleColumns = COLUMNS.filter((column) => !hidden.includes(column.id))
   const totalWidth = visibleColumns.reduce((sum, column) => sum + column.width, 0) || 1
 
@@ -289,9 +292,9 @@ export function SupplierPaymentsView() {
               <span title={payment} aria-label={payment} className="inline-flex">
                 {row.paymentType === "bank" ? <Landmark className="h-4 w-4 text-[#6261b0]" /> : <Banknote className="h-4 w-4 text-[rgb(79,113,220)]" />}
               </span>
-              {row.currency !== base && <RateHint rate={row.rate} label={t("Курс")} />}
+              {withBase && row.currency !== base && <RateHint rate={row.rate} label={t("Курс")} />}
             </div>
-            {row.currency !== base && row.baseAmount !== null && <div className="whitespace-nowrap text-[11px] text-[#666]">{money(row.baseAmount, base)}</div>}
+            {withBase && row.currency !== base && row.baseAmount !== null && <div className="whitespace-nowrap text-[11px] text-[#666]">{money(row.baseAmount, base)}</div>}
           </div>
         )
       }
@@ -301,9 +304,9 @@ export function SupplierPaymentsView() {
           <div>
             <div className="flex items-center gap-1.5">
               <span className="whitespace-nowrap">{money(row.cash.amount, row.cash.currency)}</span>
-              {row.cash.currency !== base && <RateHint rate={row.cash.rate} label={t("Курс")} />}
+              {withBase && row.cash.currency !== base && <RateHint rate={row.cash.rate} label={t("Курс")} />}
             </div>
-            {row.cash.currency !== base && row.cash.baseAmount !== null && <div className="whitespace-nowrap text-[11px] text-[#666]">{money(row.cash.baseAmount, base)}</div>}
+            {withBase && row.cash.currency !== base && row.cash.baseAmount !== null && <div className="whitespace-nowrap text-[11px] text-[#666]">{money(row.cash.baseAmount, base)}</div>}
           </div>
         )
       case "cashbox":

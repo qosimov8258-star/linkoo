@@ -201,7 +201,7 @@ export function EditPaymentDialog({
 }) {
   const { t } = useLanguage()
   const base = options?.baseCurrency ?? "SUM"
-  const rates: RateMap = useMemo(() => Object.fromEntries((options?.currencies ?? []).map((currency) => [currency.code, currency.rate])), [options])
+  const rates: RateMap = useMemo(() => options?.rates ?? Object.fromEntries((options?.currencies ?? []).map((currency) => [currency.code, currency.rate])), [options])
   const currencies = options?.currencies ?? [{ code: base, label: currencyLabel(base), rate: 1 }]
   const inCashbox = Boolean(row.cashbox)
   const [amount, setAmount] = useState(String(row.realAmount))

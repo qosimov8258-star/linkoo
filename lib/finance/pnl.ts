@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
-import { loadCurrencyContext } from "@/lib/finance/context"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { roundMoney } from "@/lib/finance/currency"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { ensureFinanceSchema, type FinanceSchema } from "@/lib/finance/schema"
@@ -225,6 +225,8 @@ export async function loadSalesLines(
     if (!entry) costCache.set(day, (entry = ledger ? costsFromLedger(ledger, day) : new Map()))
     return entry
   }
+  // Base amounts (and costs) are shown in the app currency when one is chosen.
+  const shown = baseReportCurrency(cc)
   const lines: SalesLine[] = []
   for (const row of raw) {
     if (!row.day) continue
@@ -250,11 +252,11 @@ export async function loadSalesLines(
       product: String(row.product ?? "").trim(),
       itemKey: row.item_key,
       quantity,
-      amount: amount * rate,
-      cost: quantity * unitCost,
+      amount: amount * rate * shown.factor,
+      cost: quantity * unitCost * shown.factor,
     })
   }
-  return { base: cc.base, lines, missingRates: [...missing].sort() }
+  return { base: shown.code, lines, missingRates: [...missing].sort() }
 }
 
 function addLine(totals: PnlTotals, line: SalesLine) {

@@ -12,5 +12,7 @@ export async function GET() {
   if (!user) return notSignedInResponse()
 
   const context = await loadCurrencyContext(getDb())
-  return NextResponse.json({ base: context.base, currencies: context.currencies })
+  // `currencies`: the ones the app works in (only the app currency when one is chosen in Настройки → Валюта
+  // приложения); `all`: every currency of Валюты with its rate, for documents stored in another one.
+  return NextResponse.json({ base: context.base, currencies: context.currencies, all: context.all })
 }

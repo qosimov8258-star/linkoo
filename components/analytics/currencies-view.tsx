@@ -344,7 +344,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
 
   const load = useCallback(async () => {
     try {
-      const [currencyResponse, individualResponse] = await Promise.all([fetch("/api/currencies", { cache: "no-store" }), fetch("/api/individual-rates", { cache: "no-store" })])
+      const [currencyResponse, individualResponse] = await Promise.all([fetch("/api/currencies?all=1", { cache: "no-store" }), fetch("/api/individual-rates", { cache: "no-store" })])
       setCurrencies(currencyResponse.ok ? ((await currencyResponse.json()) as Currency[]) : [])
       setLoadError(currencyResponse.ok ? "" : "Не удалось загрузить валюты с сервера")
       setIndividual(individualResponse.ok ? ((await individualResponse.json()) as IndividualRate[]) : [])
@@ -489,7 +489,8 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
   }
 
   const body = (
-    <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+    // data-keep-currency: rates ("1 USD = 12 500 SOM") stay as they are under an app currency (components/ref/app-currency-dom.tsx).
+    <section data-keep-currency className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <p className="h-[70px] pl-[30px] pt-[30px]">
         <span className="font-medium">{t("Основная валюта")}:</span> <b>{baseName}</b> <i className="text-[#777]">({t("используется при формировании стоимости продукта / заказа")})</i>
       </p>

@@ -163,6 +163,8 @@ export const ROUTE_PERMISSIONS: ReadonlyArray<{ prefix: string; code: string }> 
   ),
   // Валюты → "Индивидуальный" tab (individual rates, lib/currency-rates-repo.ts): part of the currencies setting.
   { prefix: "/api/individual-rates", code: "settings.manage" },
+  // Настройки → Валюта приложения (lib/app-currency.ts): the one currency the whole app works in.
+  { prefix: "/api/settings", code: "settings.manage" },
   // Смены (work shifts of the attendance settings) and Шаблоны уведомлений (templates and their subscribers): staff settings.
   ...["work-shifts", "notification-templates"].map((r) => ({ prefix: `/api/${r}`, code: "settings.manage" })),
   // Print / export settings and integrations: Шаблоны документов, Шаблоны чеков, the order Excel

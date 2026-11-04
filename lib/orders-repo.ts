@@ -1,5 +1,6 @@
 import "server-only"
 
+import { getAppCurrency } from "@/lib/app-currency"
 import { CashError, currencyContext, resolveOrganization } from "@/lib/cash/common"
 import { allocatedOrderDues, type AllocatedOrderDue } from "@/lib/cash/orders"
 import { ensureCashSchema } from "@/lib/cash/schema"
@@ -624,6 +625,9 @@ async function currencyCodes(db: PgDb): Promise<{ base: string; codes: Map<strin
   if (!codes.size) codes.set(base.toUpperCase(), base)
   return { base, codes }
 }
+
+/** A new document in another currency than the app one (Настройки → Валюта приложения). */
+export const APP_CURRENCY_MISMATCH = "Валюта документа должна совпадать с валютой приложения"
 
 export async function resolveCurrency(db: PgDb, code: string): Promise<string> {
   const { codes } = await currencyCodes(db)
@@ -1474,6 +1478,10 @@ export async function createOrder(input: OrderCreateInput, user: { displayName: 
     }
     const lineCurrency = lines.find((line) => line.currency?.trim())?.currency
     if (!currency && lineCurrency) currency = await resolveCurrency(tx, lineCurrency)
+    // Настройки → Валюта приложения: a new order is in the app currency when one is chosen.
+    const work = await getAppCurrency(tx)
+    if (work && currency && normCurrency(currency) !== work) throw new OrderError(APP_CURRENCY_MISMATCH, 400, { field: "currency" })
+    if (work && !currency) currency = await resolveCurrency(tx, work)
     currency ??= await baseCurrency(tx)
     // Reserving / shipping stock: the warehouse's stock lock, before its name is resolved, so a
     // rename of that warehouse either finished before (the new name resolves) or waits for this order.

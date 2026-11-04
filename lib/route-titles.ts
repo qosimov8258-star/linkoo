@@ -50,6 +50,7 @@ const ROUTE_TITLES: Record<string, string> = {
   "/settings/integrations": "Интеграция",
   "/settings/notifications": "Настройки уведомлений",
   "/settings/profile": "Профиль",
+  "/settings/currency": "Валюта приложения",
   "/tracking": "Отслеживание",
 }
 

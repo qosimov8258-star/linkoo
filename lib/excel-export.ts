@@ -1,5 +1,8 @@
 import * as XLSX from "xlsx"
 
+import { appCurrencyText } from "@/lib/app-currency-text"
+import { showCurrencyNames } from "@/lib/finance/currency"
+
 type ExcelCell = string | number | null | undefined | { formula: string; value: number }
 
 type ExcelOptions = {
@@ -9,9 +12,11 @@ type ExcelOptions = {
   widths?: number[]
 }
 
-/** Downloads a genuine .xlsx workbook (no server round-trip required). */
+/** Downloads a genuine .xlsx workbook (no server round-trip required). Texts print currencies
+ * by their shown names (SOM, USD, ЕВРО), like the screen, and their amounts in the app currency
+ * when one is chosen (Настройки → Валюта приложения, lib/app-currency-text.ts). */
 export function downloadExcelTable(fileName: string, rows: ExcelCell[][], options: ExcelOptions = {}) {
-  const data = rows.map((row) => row.map((cell) => (cell !== null && typeof cell === "object" ? cell.value : (cell ?? ""))))
+  const data = rows.map((row) => row.map((cell) => (cell !== null && typeof cell === "object" ? cell.value : typeof cell === "string" ? appCurrencyText(showCurrencyNames(cell)) : (cell ?? ""))))
   const worksheet = XLSX.utils.aoa_to_sheet(data)
   rows.forEach((row, r) =>
     row.forEach((cell, c) => {

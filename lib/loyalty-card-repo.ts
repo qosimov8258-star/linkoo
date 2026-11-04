@@ -4,7 +4,7 @@ import { z } from "zod"
 
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { clientCashbackBalance, lockClientCashback, loyaltyCurrency, MAX_MONEY } from "@/lib/cash/common"
-import { loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
+import { loadCurrencyContext, toWork, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
 import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { parseAnyDate } from "@/lib/finance/dates"
 import { nameKey } from "@/lib/finance/entities"
@@ -174,7 +174,14 @@ async function balanceRows(db: PgDb, base: string, clientId?: number): Promise<B
        GROUP BY 1, 2`,
     )
     .all(clientId ? { base, clientId } : { base })) as BalanceRow[]
-  return rows.map((row) => ({ ...row, client_id: Number(row.client_id), amount: Number(row.amount ?? 0) }))
+  // With an app currency (Настройки → Валюта приложения) every balance is in it (current rates).
+  const cc = await loadCurrencyContext(db)
+  return rows.map((row) => ({
+    ...row,
+    client_id: Number(row.client_id),
+    cur: cc.work || row.cur,
+    amount: cc.work ? (toWork(cc, Number(row.amount ?? 0), row.cur) ?? 0) : Number(row.amount ?? 0),
+  }))
 }
 
 async function currencyContext(db: PgDb, balances: BalanceRow[]): Promise<CurrencyContext> {
@@ -313,7 +320,8 @@ export async function loyaltyCardOptions(): Promise<LoyaltyCardOptions> {
   return {
     clientTypes: [...names.values()].sort((a, b) => a.localeCompare(b, "ru")),
     currencies: currencyColumns(cc),
-    baseCurrency: cc.base,
+    // The dialogs' default currency: the app currency when one is chosen (Настройки → Валюта приложения).
+    baseCurrency: cc.work || cc.base,
   }
 }
 

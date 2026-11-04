@@ -1,5 +1,6 @@
 import "server-only"
 
+import { APP_CURRENCY_SQL } from "@/lib/app-currency"
 import type { FinanceSchema } from "@/lib/finance/schema"
 import { MOVEMENT_COLUMNS, ORDER_EXCLUDED_STATUSES, ORDER_RELEASED_STATUSES, type BalanceDateMode, type BalanceEntityKind } from "@/lib/finance/types"
 
@@ -1296,6 +1297,19 @@ export function movementCte(kind: BalanceEntityKind, s: FinanceSchema, options: 
   const parts = BUILDERS[kind](ctx)
   const union = parts.length ? parts.join("\nUNION ALL\n") : select(ctx, {}, "WHERE false")
   const ctes = [...ctx.ctes.entries()].map(([name, sql]) => `${name} AS (${sql})`)
-  ctes.push(`mv AS (${union})`)
+  if (!s.has("currencies")) {
+    ctes.push(`mv AS (${union})`)
+    return `WITH ${ctes.join(",\n")}`
+  }
+  // App currency (Настройки → Валюта приложения, lib/app-currency.ts): every movement is
+  // converted into it with the current rates of Валюты (units of base per unit, base = 1),
+  // so balances, statements and totals are in that one currency. Without one, rows pass as they are.
+  const names = options.lean ? (options.withSource ? [...LEAN_FIELDS, "src" as const, "src_id" as const] : LEAN_FIELDS) : ALL_FIELDS
+  const passed = names.map((name) => (name === "cur" ? "COALESCE(fx.work, mr.cur) AS cur" : name === "amt" ? "(CASE WHEN fx.work IS NULL OR mr.cur = fx.work THEN mr.amt ELSE mr.amt * fr.r / fx.wr END)::double precision AS amt" : `mr.${name}`))
+  ctes.push(`mv_raw AS (${union})`)
+  ctes.push(`fx_rates AS (SELECT DISTINCT ON (fin_cur(code)) fin_cur(code) AS c, (CASE WHEN is_base = 1 THEN 1 ELSE NULLIF(rate, 0) END)::double precision AS r
+    FROM currencies ORDER BY fin_cur(code), is_base DESC, id)`)
+  ctes.push(`fx AS (SELECT w.c AS work, w.r AS wr FROM fx_rates w WHERE w.c = ${APP_CURRENCY_SQL} AND w.r IS NOT NULL)`)
+  ctes.push(`mv AS (SELECT ${passed.join(", ")} FROM mv_raw mr LEFT JOIN fx ON true LEFT JOIN fx_rates fr ON fr.c = mr.cur)`)
   return `WITH ${ctes.join(",\n")}`
 }

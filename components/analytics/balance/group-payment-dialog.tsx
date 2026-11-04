@@ -8,6 +8,7 @@ import { useFinanceCurrencies, useLookup } from "@/components/analytics/balance/
 import { currencyLabel, formatMoney, normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
 import type { BalanceRow } from "@/lib/finance/types"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Групповой приход" (demo module 2345), shared by Баланс клиентов and Долги
@@ -45,7 +46,10 @@ export function GroupPaymentDialog({
   onSaved: () => void
 }) {
   const { t } = useLanguage()
-  const cashboxes = useLookup<Cashbox>(open ? "/api/cashboxes" : null)
+  const allCashboxes = useLookup<Cashbox>(open ? "/api/cashboxes" : null)
+  // Настройки → Валюта приложения: payments go only into cashboxes of the app currency.
+  const appCurrency = useAppCurrency()
+  const cashboxes = useMemo(() => (appCurrency ? allCashboxes.filter((item) => normCurrency(item.currency) === appCurrency) : allCashboxes), [allCashboxes, appCurrency])
   const branches = useLookup<Named>(open ? "/api/branches" : null)
   // A client payment: only the income categories meant for clients (parameter "Клиент").
   const allCategories = useLookup<IncomeCategory>(open ? "/api/income-categories" : null)

@@ -12,6 +12,8 @@ import {
 } from "@/components/products/catalog-form-parts"
 import { CheckField, CreateLink, FormColumn, FormShell, InfoHint, SaveButton, SelectField, TextField, Toggle } from "@/components/products/catalog-form-ui"
 import { KIND_TEXT, catalogMutate, errorText } from "@/components/products/catalog-shared"
+import { inAppCurrency, useAppCurrencyInfo, type AppCurrencyInfo } from "@/lib/app-currency-context"
+import { roundMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CATALOG_API, quantityInput, type CatalogDetail, type CatalogKind, type CatalogOptions } from "@/lib/products-types"
 import { strictNumber } from "@/lib/strict-number"
@@ -85,8 +87,14 @@ const vatNumber = (vat: string) => vat.match(/\d+(?:[.,]\d+)?/)?.[0] ?? ""
 /** A stored price keeps "0" so saving the form does not drop the entry. */
 const priceStr = (value: number) => String(value).replace(".", ",")
 
-function draftOf(item: CatalogDetail | null, options: CatalogOptions | null): Draft {
+/** `app`: with an app currency (Настройки → Валюта приложения) the prices are shown in it (converted with the
+ * current rates) and saved in it. */
+function draftOf(item: CatalogDetail | null, options: CatalogOptions | null, app: AppCurrencyInfo = { code: "", rates: {} }): Draft {
   const currency = options?.baseCurrency ?? "SUM"
+  const shownCurrency = app.code || currency
+  /** A stored price of `from` as the form shows it. */
+  const shownPrice = (value: number, from: string) => priceStr(app.code && value ? roundMoney(inAppCurrency(app, value, from) ?? value, 3) : value)
+  const shownNumber = (value: number, from: string) => str(app.code && value ? roundMoney(inAppCurrency(app, value, from) ?? value, 3) : value)
   if (!item) {
     return {
       name: "",
@@ -128,7 +136,7 @@ function draftOf(item: CatalogDetail | null, options: CatalogOptions | null): Dr
       limitPrice: false,
       saleMinPrice: "",
       saleMaxPrice: "",
-      salePriceCurrency: currency,
+      salePriceCurrency: shownCurrency,
       salePoints: "",
       boxSizes: [],
       prices: [emptyPrice("", "")],
@@ -147,22 +155,26 @@ function draftOf(item: CatalogDetail | null, options: CatalogOptions | null): Dr
     volume: str(item.volume),
     expirationDays: item.expirationDays === null ? "" : String(item.expirationDays),
     notifyExpireDays: item.notifyExpireDays === null ? "" : String(item.notifyExpireDays),
-    saleMinPrice: str(item.saleMinPrice),
-    saleMaxPrice: str(item.saleMaxPrice),
-    salePriceCurrency: item.salePriceCurrency || currency,
+    saleMinPrice: shownNumber(item.saleMinPrice, item.salePriceCurrency || currency),
+    saleMaxPrice: shownNumber(item.saleMaxPrice, item.salePriceCurrency || currency),
+    salePriceCurrency: app.code || item.salePriceCurrency || currency,
     salePoints: str(item.salePoints),
     boxSizes: item.boxSizes.map((size) => ({ unit: size.unit, height: str(size.height), width: str(size.width), length: str(size.length) })),
     prices: item.priceLists.length
-      ? item.priceLists.map((entry) => ({
-          name: entry.name,
-          cash: priceStr(entry.cash),
-          currency: entry.currency || currency,
-          nonCash: priceStr(entry.nonCash),
-          nonCashCurrency: entry.nonCashCurrency || entry.currency || currency,
-          minMax: entry.min > 0 || entry.max > 0,
-          min: str(entry.min),
-          max: str(entry.max),
-        }))
+      ? item.priceLists.map((entry) => {
+          const cashCurrency = entry.currency || currency
+          const nonCashCurrency = entry.nonCashCurrency || entry.currency || currency
+          return {
+            name: entry.name,
+            cash: shownPrice(entry.cash, cashCurrency),
+            currency: app.code || cashCurrency,
+            nonCash: shownPrice(entry.nonCash, nonCashCurrency),
+            nonCashCurrency: app.code || nonCashCurrency,
+            minMax: entry.min > 0 || entry.max > 0,
+            min: shownNumber(entry.min, cashCurrency),
+            max: shownNumber(entry.max, cashCurrency),
+          }
+        })
       : [emptyPrice("", "")],
   }
 }
@@ -244,7 +256,8 @@ export function CatalogFormDialog({
   onSaved: (id: number, created: boolean) => void
 }) {
   const { t } = useLanguage()
-  const [draft, setDraft] = useState<Draft>(() => draftOf(item, options))
+  const app = useAppCurrencyInfo()
+  const [draft, setDraft] = useState<Draft>(() => draftOf(item, options, app))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -263,7 +276,8 @@ export function CatalogFormDialog({
     if (!draft.unit.trim()) local.unit = "Это поле обязательно к заполнению"
     if (!draft.type.trim()) local.type = "Это поле обязательно к заполнению"
     // Without loaded options the server resolves the base currency itself (an empty currency is left out).
-    const body = bodyOf(draft, options?.baseCurrency ?? "")
+    // A new price row without a chosen currency is in the app currency when one is set.
+    const body = bodyOf(draft, app.code || (options?.baseCurrency ?? ""))
     if (draft.markedProduct) {
       if (!body.barcodes.length) local.barcodes = "Это поле обязательно для работы маркировки"
       if (!draft.ikpu.trim()) local.ikpu = "Это поле обязательно для работы маркировки"

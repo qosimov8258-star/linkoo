@@ -9,6 +9,7 @@ import { useCashJson } from "@/components/analytics/cash/use-cash"
 import type { ExpenseDetailRow, ExpenseReportDetail } from "@/lib/cash/reports"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { formatStatementDate } from "@/lib/finance/dates"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Drill-down of "Расходы по категориям" / "Расходы на персонал" (demo module
@@ -147,6 +148,8 @@ export function ExpenseDrilldownDialog({
 
 function DetailRow({ row, base, language, rowLink }: { row: ExpenseDetailRow; base: string; language: string; rowLink: boolean }) {
   const { t } = useLanguage()
+  // With an app currency (Настройки → Валюта приложения) every amount is shown in it: no base-currency sub-line.
+  const withBase = !useAppCurrency()
   const href = cashOperationHref(row.docNo)
   const open = () => {
     if (href) window.open(href, "_blank", "noopener")
@@ -201,7 +204,7 @@ function DetailRow({ row, base, language, rowLink }: { row: ExpenseDetailRow; ba
       </div>
       <div className="col-span-2 text-right md:col-span-3">
         <BalanceAmount value={row.amount} currency={currencyLabel(row.currency)} />
-        {row.currency !== base && row.baseAmount !== null && (
+        {withBase && row.currency !== base && row.baseAmount !== null && (
           <p className="whitespace-nowrap text-[13px] text-[#586174]">
             {formatMoney(row.baseAmount)} {currencyLabel(base)}
             {row.rate ? <span className="ml-1 text-[12px] text-[#9aa3b6]">({formatMoney(row.rate, 5)})</span> : null}

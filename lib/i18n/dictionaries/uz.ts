@@ -6379,4 +6379,19 @@ export const uz: Record<string, string> = {
   "Статья": "Modda",
   // Mezon rebrand 2026-11-03: login brand panel
   "Панель управления дистрибуцией": "Distributsiyani boshqarish paneli",
+  // 2026-11-04: category options "Приход от сотрудников" (income) and client_card_out (expense)
+  "Приход от сотрудников": "Xodimlardan kirim",
+  "Выдача денег с карты клиента": "Mijoz kartasidan pul berish",
+  // 2026-11-04: Настройки → Валюта приложения (lib/app-currency.ts)
+  "Валюта приложения": "Ilova valyutasi",
+  "Выберите валюту, в которой работает всё приложение: SOM, USD или ЕВРО.": "Butun ilova ishlaydigan valyutani tanlang: SOM, USD yoki EVRO.",
+  "Выберите валюту, в которой работает всё приложение. Суммы, списки, формы, отчёты и фильтры показываются только в этой валюте; суммы, сохранённые в других валютах, пересчитываются по текущему курсу.": "Butun ilova ishlaydigan valyutani tanlang. Summalar, ro'yxatlar, formalar, hisobotlar va filtrlar faqat shu valyutada ko'rsatiladi; boshqa valyutalarda saqlangan summalar joriy kurs bo'yicha qayta hisoblanadi.",
+  "Каждая сумма в своей валюте": "Har bir summa o'z valyutasida",
+  "Курс не задан": "Kurs belgilanmagan",
+  "Курсы задаются в разделе": "Kurslar quyidagi bo'limda belgilanadi:",
+  "Сохранённые документы не меняются: при выборе «Все валюты» они снова показываются в своей валюте.": "Saqlangan hujjatlar o'zgarmaydi: «Barcha valyutalar» tanlansa, ular yana o'z valyutasida ko'rsatiladi.",
+  "Текущая": "Joriy",
+  "Это валюта приложения: сначала выберите другую в разделе «Валюта приложения»": "Bu ilova valyutasi: avval «Ilova valyutasi» bo'limida boshqasini tanlang",
+  "Валюта кассы не совпадает с валютой приложения": "Kassa valyutasi ilova valyutasi bilan bir xil emas",
+  "Валюта документа должна совпадать с валютой приложения": "Hujjat valyutasi ilova valyutasi bilan bir xil bo'lishi kerak",
 }

@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
-import { loadCurrencyContext } from "@/lib/finance/context"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { currencyLabel } from "@/lib/finance/currency"
 import { ensureNetCostSchema } from "@/lib/net-cost-schema"
 import { loadLedgerInputs, runLedgers, syncNetCost } from "@/lib/net-cost-sync"
@@ -141,8 +141,19 @@ function toRecord(row: RecordRow): NetCostRecord {
   }
 }
 
-async function baseCurrency(db: PgDb): Promise<string> {
-  return currencyLabel((await loadCurrencyContext(db)).base)
+/** The currency the costs are shown in (Настройки → Валюта приложения, else the base one) and the factor a
+ * base cost is multiplied by. */
+async function shownCurrency(db: PgDb): Promise<{ label: string; factor: number }> {
+  const shown = baseReportCurrency(await loadCurrencyContext(db))
+  return { label: currencyLabel(shown.code), factor: shown.factor }
+}
+
+/** A record with its money in the shown currency (quantities and balances stay). */
+function inShown<T extends NetCostRecord>(record: T, factor: number): T {
+  if (factor === 1) return record
+  const money = (value: number) => value * factor
+  const maybe = (value: number | null) => (value === null ? null : value * factor)
+  return { ...record, realCost: money(record.realCost), cost: money(record.cost), prevCost: maybe(record.prevCost), revaluation: maybe(record.revaluation), totalRevaluation: maybe(record.totalRevaluation) }
 }
 
 /** Brings the cache in step with the documents (call before reading it). */
@@ -210,7 +221,8 @@ export async function listNetCost(query: NetCostListQuery): Promise<NetCostListR
   const page = pageSize ? Math.min(Math.max(1, query.page), Math.max(1, Math.ceil(count / pageSize))) : 1
   const limit = pageSize ? `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}` : ""
   const rows = (await stmt(db, `SELECT * FROM net_cost_records ${where} ORDER BY ${order} ${limit}`, params).all()) as RecordRow[]
-  return { count, page, pageSize, results: rows.map(toRecord), currency: await baseCurrency(db) }
+  const shown = await shownCurrency(db)
+  return { count, page, pageSize, results: rows.map((row) => inShown(toRecord(row), shown.factor)), currency: shown.label }
 }
 
 export async function getNetCostTotals(): Promise<NetCostTotals> {
@@ -223,7 +235,13 @@ export async function getNetCostTotals(): Promise<NetCostTotals> {
   } catch {
     rows = []
   }
-  return { currency: await baseCurrency(db), rows, builtAt: state?.built_at ?? "" }
+  const shown = await shownCurrency(db)
+  const money = (value: number) => value * shown.factor
+  return {
+    currency: shown.label,
+    rows: shown.factor === 1 ? rows : rows.map((row) => ({ ...row, cumulativeCost: money(row.cumulativeCost), lastCost: money(row.lastCost), fault: money(row.fault), totalRevaluation: money(row.totalRevaluation) })),
+    builtAt: state?.built_at ?? "",
+  }
 }
 
 export async function getNetCostRecordRow(db: PgDb, id: number): Promise<RecordRow | null> {
@@ -232,8 +250,9 @@ export async function getNetCostRecordRow(db: PgDb, id: number): Promise<RecordR
 
 export async function getNetCostRecord(id: number): Promise<NetCostRecord | null> {
   await ensureNetCostFresh()
-  const row = await getNetCostRecordRow(getDb(), id)
-  return row ? toRecord(row) : null
+  const db = getDb()
+  const row = await getNetCostRecordRow(db, id)
+  return row ? inShown(toRecord(row), (await shownCurrency(db)).factor) : null
 }
 
 /** The record with its documents (the item's ledger is run again to bind them). */
@@ -257,7 +276,9 @@ export async function getNetCostDetail(id: number): Promise<NetCostDetail | null
     const entry = (await db.prepare("SELECT comment FROM net_cost_entries WHERE id = @id").get({ id: row.entry_id })) as { comment: string } | undefined
     comment = entry?.comment ?? ""
   }
-  return { ...toRecord(row), balanceAfter: Number(row.balance_after), nextDate: row.next_day, comment, documents: record?.docs ?? [], negativeTransactions: negatives }
+  const { factor } = await shownCurrency(db)
+  const documents = (record?.docs ?? []).map((doc) => (factor === 1 ? doc : { ...doc, cost: doc.cost * factor }))
+  return { ...inShown(toRecord(row), factor), balanceAfter: Number(row.balance_after), nextDate: row.next_day, comment, documents, negativeTransactions: negatives }
 }
 
 export async function getNetCostOptions(): Promise<NetCostOptions> {
@@ -271,7 +292,7 @@ export async function getNetCostOptions(): Promise<NetCostOptions> {
   return {
     items: catalog.map((item) => ({ key: item.key, name: item.name, kind: item.kind })),
     warehouses: warehouses.map((row) => row.name).sort((a, b) => a.localeCompare(b, "ru")),
-    currency: await baseCurrency(db),
+    currency: (await shownCurrency(db)).label,
     faultTypes: NET_COST_CHECKS.map((check) => ({ key: check.key, name: check.name })),
   }
 }

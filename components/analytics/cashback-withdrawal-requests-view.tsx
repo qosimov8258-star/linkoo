@@ -17,6 +17,7 @@ import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-
 import { ListBTable } from "@/components/analytics/list-b-table"
 import { RefCard, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { cashbackRequestStatusLabel, type CashbackRequestListResult, type CashbackRequestRow } from "@/lib/cashback-requests-types"
+import { inAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -109,6 +110,7 @@ function useRequestList(url: string) {
 
 export function CashbackWithdrawalRequestsView() {
   const { t } = useLanguage()
+  const app = useAppCurrencyInfo()
   const searchParams = useSearchParams()
   const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams))
   const [searchDraft, setSearchDraft] = useState(state.search)
@@ -267,8 +269,9 @@ export function CashbackWithdrawalRequestsView() {
                 <span key="client" className="block truncate" title={row.comment || undefined}>
                   {row.client.exists ? row.client.name : <span className="italic text-[#999]">{row.client.name || t("Не указано")}</span>}
                 </span>,
-                <span key="amount" className="whitespace-nowrap">{requestAmount(row.amount)}</span>,
-                currencyLabel(row.currency),
+                // With an app currency (Настройки → Валюта приложения) the request is shown converted into it.
+                <span key="amount" className="whitespace-nowrap">{requestAmount(app.code ? (inAppCurrency(app, row.amount, row.currency) ?? row.amount) : row.amount)}</span>,
+                currencyLabel(app.code || row.currency),
                 statusCell(row),
               ]
               if (!withActions) return base

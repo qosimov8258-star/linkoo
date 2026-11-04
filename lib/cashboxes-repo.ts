@@ -335,7 +335,9 @@ async function resolveInput(db: PgDb, body: CashboxInputBody, current: CashboxRo
   const context = await loadCurrencyContext(db)
   const code = normCurrency(body.currency)
   let currency: string
-  if (current && normCurrency(current.currency) === code) currency = current.currency
+  // With an app currency (Настройки → Валюта приложения) the form offers only it: sending it back for a cashbox of
+  // another currency keeps the stored one (its operations are in it).
+  if (current && (normCurrency(current.currency) === code || (context.work && code === context.work))) currency = current.currency
   else if (context.currencies.some((item) => item.code === code)) currency = code
   else throw new CashboxError("Неизвестная валюта", 400, "currency")
 

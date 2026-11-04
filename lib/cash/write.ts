@@ -16,6 +16,7 @@ import {
   isoDayOrEmpty,
   defaultExpenseCategory,
   loadCashbox,
+  loadCashboxForWrite,
   loadCategory,
   loadClient,
   loadContract,
@@ -382,7 +383,7 @@ function assertCashboxOfBranch(cashbox: CashboxInfo, branch: string, existing: O
 
 async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc: CurrencyContext, existing: OwnerRow | null, opts: PlanOptions = {}): Promise<Plan> {
   const kind = input.kind
-  const cashbox = await loadCashbox(db, input.cashboxId, cc.base)
+  const cashbox = await loadCashboxForWrite(db, input.cashboxId, cc)
   let category = input.categoryId ? await loadCategory(db, kind, input.categoryId) : null
   // A category is required, except when paying a money request or an order (no "Заказ" income category yet).
   if (!category && !(kind === "expense" && input.moneyRequestId) && !(kind === "income" && (input.orderId || opts.forceClient))) {
@@ -845,7 +846,7 @@ async function notifyExpense(tx: PgDb, result: CashWriteResult, cc: CurrencyCont
     | { amount: number | null; cashbox_id: number | null; expense_category_id: number | null }
     | undefined
   if (!row?.cashbox_id) return
-  const cashbox = await loadCashbox(tx, Number(row.cashbox_id), cc.base)
+  const cashbox = await loadCashbox(tx, Number(row.cashbox_id), cc)
   const category = row.expense_category_id
     ? ((await tx.prepare("SELECT name FROM expense_categories WHERE id = @id").get({ id: row.expense_category_id })) as { name: string } | undefined)
     : undefined

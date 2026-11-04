@@ -1,5 +1,6 @@
 import "server-only"
 
+import { getAppCurrency } from "@/lib/app-currency"
 import { isUniqueViolation } from "@/lib/auth-request"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { withEmployeeLinks } from "@/lib/employees-usage"
@@ -136,7 +137,8 @@ function toCurrency(value: string | null): BranchCurrency {
   return normCurrency(value)
 }
 
-function rowToBranch(row: Row): BranchRecord {
+/** `work`: the app currency (Настройки → Валюта приложения), which every branch works in when it is set. */
+function rowToBranch(row: Row, work = ""): BranchRecord {
   return {
     id: row.id,
     name: row.name,
@@ -144,7 +146,7 @@ function rowToBranch(row: Row): BranchRecord {
     debtTracking: row.debt_tracking === 1,
     isMain: row.is_main === 1,
     priceList: row.price_list,
-    currency: toCurrency(row.currency),
+    currency: work || toCurrency(row.currency),
     locationLat: row.location_lat ?? null,
     locationLng: row.location_lng ?? null,
   }
@@ -183,14 +185,15 @@ export async function listBranches(options: { byCreation?: boolean } = {}): Prom
   const rows = (await db.prepare("SELECT * FROM branches").all()) as Row[]
   if (options.byCreation) rows.sort((a, b) => a.id - b.id)
   else rows.sort((a, b) => nameCollator.compare(a.name, b.name) || a.name.length - b.name.length || a.id - b.id)
-  return rows.map(rowToBranch)
+  const work = await getAppCurrency(db)
+  return rows.map((row) => rowToBranch(row, work))
 }
 
 export async function getBranch(id: number): Promise<BranchRecord | null> {
   const db = getDb()
   await ensureSchema()
   const row = (await db.prepare("SELECT * FROM branches WHERE id = ?").get(id)) as Row | undefined
-  return row ? rowToBranch(row) : null
+  return row ? rowToBranch(row, await getAppCurrency(db)) : null
 }
 
 /** Where the branch is used (warehouses, cashboxes, employees, suppliers, clients, balance entries …).
@@ -229,7 +232,9 @@ async function resolveCurrency(db: PgDb, value: string | undefined, current?: Ro
   const text = (value ?? "").trim()
   if (current && (!text || normCurrency(text) === normCurrency(current.currency))) return current.currency
   const context = await loadCurrencyContext(db)
-  if (!text) return context.base
+  // With an app currency a branch is shown (and works) in it: sending it back keeps the stored currency.
+  if (current && context.work && normCurrency(text) === context.work) return current.currency
+  if (!text) return context.work || context.base
   const code = normCurrency(text)
   if (context.currencies.some((currency) => currency.code === code)) return code
   if (code === context.base) {

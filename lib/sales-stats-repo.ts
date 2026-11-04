@@ -3,6 +3,7 @@ import "server-only"
 import { countRefusalsByDay } from "@/lib/agent-visits-repo"
 import { loadRateBook } from "@/lib/currency-rates-repo"
 import { getDb } from "@/lib/db"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { ensureOrdersSchema, parseMoneyText } from "@/lib/orders-repo"
@@ -92,6 +93,8 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
   await ensureFinanceSchema(db) // fin_ts
   const branch = await selectedBranchName()
   const book = await loadRateBook(db)
+  // Base amounts are shown in the app currency when one is chosen (Настройки → Валюта приложения).
+  const shown = baseReportCurrency(await loadCurrencyContext(db))
 
   const orders = (await db
     .prepare(
@@ -129,7 +132,7 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
       if (fact) missing.add(currency)
       return 0
     }
-    return fact * rate
+    return fact * rate * shown.factor
   }
   const clientRows = (await db.prepare("SELECT zone, agent, type FROM clients WHERE tab <> 'closing'").all()) as {
     zone: string
@@ -285,7 +288,7 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
     day: series(rawDay, dmyOfIso),
     week: sortedWeeks.map(([label, total]) => ({ label, total: round(total, 2) })),
     month: series(rawMonth, (key) => key),
-    currency: book.base,
+    currency: shown.code,
     missingRates: [...missing].sort(),
   }
 

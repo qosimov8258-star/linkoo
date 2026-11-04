@@ -2,6 +2,7 @@ import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
 import { listCashOperations } from "@/lib/cash/list"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import type { CashOperation } from "@/lib/cash/types"
 import type { CashFlowResult, CashFlowRow, CashFlowSection } from "@/lib/cash/flow-types"
 
@@ -55,12 +56,15 @@ export async function getCashFlow(query: CashFlowQuery, db: PgDb = getDb()): Pro
     listCashOperations({ ...filters, to: dayBefore(query.from), page: 1, pageSize: 0 }, db),
   ])
   const months = monthsOf(query.from, query.to)
+  // Base amounts are shown in the app currency when one is chosen (Настройки → Валюта приложения).
+  const shown = baseReportCurrency(await loadCurrencyContext(db))
+  const valueOf = (row: CashOperation) => (Number(row.baseAmount) || 0) * shown.factor
   const live = (rows: CashOperation[]) => rows.filter((row) => !row.isDeleted && row.isVerified)
-  const opening = round(live(before.rows).reduce((sum, row) => sum + (Number(row.baseAmount) || 0), 0))
+  const opening = round(live(before.rows).reduce((sum, row) => sum + valueOf(row), 0))
 
   const sections: Record<CashFlowSection["key"], Map<string, CashFlowRow>> = { income: new Map(), expense: new Map(), transfer: new Map() }
   for (const operation of live(period.rows)) {
-    const amount = Number(operation.baseAmount) || 0
+    const amount = valueOf(operation)
     if (!amount) continue
     const transfer = operation.type === 1 || operation.type === 2
     const key: CashFlowSection["key"] = transfer ? "transfer" : amount > 0 ? "income" : "expense"
@@ -80,5 +84,5 @@ export async function getCashFlow(query: CashFlowQuery, db: PgDb = getDb()): Pro
   const result = [section("income", "Приход"), section("expense", "Расход"), section("transfer", "Переводы между кассами")]
   const net = Object.fromEntries(months.map((m) => [m, round(result.reduce((sum, s) => sum + (s.months[m] ?? 0), 0))]))
   const netTotal = round(result.reduce((sum, s) => sum + s.total, 0))
-  return { baseCurrency: period.baseCurrency, from: query.from, to: query.to, months, opening, sections: result, net, netTotal, closing: round(opening + netTotal) }
+  return { baseCurrency: shown.code, from: query.from, to: query.to, months, opening, sections: result, net, netTotal, closing: round(opening + netTotal) }
 }

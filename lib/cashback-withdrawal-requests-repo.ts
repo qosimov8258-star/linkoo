@@ -16,7 +16,7 @@ import {
   type CashbackRequestRow,
   type CashbackRequestStatus,
 } from "@/lib/cashback-requests-types"
-import { loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
+import { currencyFilter, loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
 import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
 import { ensureLoyaltySchema } from "@/lib/loyalty-card-repo"
@@ -266,7 +266,7 @@ export async function listCashbackRequests(query: CashbackRequestListQuery): Pro
   const params = {
     base: cc.base,
     status: query.status ?? "",
-    currency: query.currency ? normCurrency(query.currency, cc.base) : "",
+    currency: currencyFilter(cc, query.currency),
     search,
     searchId,
     limit: pageSize > 0 ? pageSize : null,

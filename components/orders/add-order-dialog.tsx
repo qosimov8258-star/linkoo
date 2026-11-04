@@ -12,6 +12,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 import { useAllowedProductIds, useAllowedRows } from "./allowed-products"
 import { orderListPrice, type OrderPriceList } from "./order-list-price"
+import { useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { orderApiErrorText, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
 
 type Option = { value: string; label: string }
@@ -84,6 +85,7 @@ export function AddOrderDialog({
   onSaved?: (patch: Partial<Order>) => void
 }) {
   const { t } = useLanguage()
+  const app = useAppCurrencyInfo()
   const today = useMemo(() => new Date(), [])
   const tomorrow = useMemo(() => new Date(today.getTime() + 24 * 60 * 60 * 1000), [today])
 
@@ -320,7 +322,7 @@ export function AddOrderDialog({
   // A price list price is used only in the order currency (a SUM price is not a USD price): the same rule as the
   // order card's "+ добавить товар" row (order-list-price.ts), so both paths agree; otherwise the user types it.
   function priceOf(product: ProductRow, list = priceList, type = paymentType, inCurrency = currency) {
-    return orderListPrice(product.priceLists, { priceList: list, lists: priceListCurrencies, orderCurrency: inCurrency, nonCash: type === "Перечисление" }) ?? 0
+    return orderListPrice(product.priceLists, { priceList: list, lists: priceListCurrencies, orderCurrency: inCurrency, nonCash: type === "Перечисление", rates: app.code ? app.rates : undefined }) ?? 0
   }
 
   function changePricing(next: { paymentType?: string; currency?: string; priceList?: string }) {

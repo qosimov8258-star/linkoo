@@ -18,6 +18,10 @@ import { selectedBranchName } from "@/lib/selected-branch"
 export async function listCashboxesWithBalances(db: PgDb = getDb()): Promise<CashboxListResult> {
   await ensureCashSchema(db)
   const list = await getBalanceList("cashbox", { from: "1970-01-01", to: todayIso() }, db)
+  // A cashbox's own currency: with an app currency the ledger shows every cashbox in it (balance converted), while
+  // new money goes only into the cashboxes of that currency (lib/cash/common.ts loadCashboxForWrite).
+  const own = new Map(((await db.prepare("SELECT id, currency FROM cashboxes").all()) as Array<{ id: number; currency: string | null }>).map((row) => [Number(row.id), row.currency]))
+  const { base } = await currencyContext(db)
   const totals: Record<string, number> = {}
   // The branch picked in the account menu narrows the cashbox column like the other cashbox lists.
   const branch = await selectedBranchName()
@@ -30,6 +34,7 @@ export async function listCashboxesWithBalances(db: PgDb = getDb()): Promise<Cas
       name: row.name,
       type: row.info.type === "bank" ? ("bank" as const) : ("cash" as const),
       currency,
+      ownCurrency: normCurrency(own.get(Number(row.id)) ?? "", base),
       cashier: String(row.info.cashier ?? ""),
       branch: String(row.info.branch ?? ""),
       vansell: Boolean(row.info.vansell),
@@ -69,7 +74,7 @@ export async function convertCurrency(input: ConvertInput, db: PgDb = getDb()): 
   let from = input.from
   let to = input.to
   if (input.cashboxId) {
-    const cashbox = await loadCashbox(db, input.cashboxId, cc.base)
+    const cashbox = await loadCashbox(db, input.cashboxId, cc)
     from ||= cashbox.currency
     to ||= cashbox.currency
   }

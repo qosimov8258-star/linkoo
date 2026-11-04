@@ -14,6 +14,7 @@ import { buildBalanceQuery, useBalanceList, useLookup } from "@/components/analy
 import { BranchDetailDialog, BranchTransactionDialog, type BranchOption } from "@/components/analytics/branch-balance-dialogs"
 import { withRecordedBalances, type BranchRow, type ManualEntry } from "@/components/analytics/branch-tab-view"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { isIsoDay, monthEndIso, monthStartIso } from "@/lib/finance/dates"
 import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow, type CurrencyBalance } from "@/lib/finance/types"
@@ -133,6 +134,7 @@ function readUrlState(params: Pick<URLSearchParams, "get" | "getAll">): UrlState
 
 export function BranchBalanceView() {
   const { t } = useLanguage()
+  const app = useAppCurrencyInfo()
   const searchParams = useSearchParams()
   const [initial] = useState(() => readUrlState(searchParams))
 
@@ -177,8 +179,8 @@ export function BranchBalanceView() {
   const processed = useMemo(() => {
     const all = data?.rows ?? []
     const listed = ordering.length || branchIds.length || !entryOrder ? all : entryOrder.map((key) => all.find((row) => row.key === key)).filter((row): row is (typeof all)[number] => !!row)
-    return entries ? listed.map((row) => withRecordedBalances(row as unknown as BranchRow, entries, period.from, period.to) as unknown as (typeof all)[number]) : listed
-  }, [data, entries, entryOrder, ordering, branchIds, period])
+    return entries ? listed.map((row) => withRecordedBalances(row as unknown as BranchRow, entries, period.from, period.to, app) as unknown as (typeof all)[number]) : listed
+  }, [data, entries, entryOrder, ordering, branchIds, period, app])
   const count = processed.length
   const rows = processed.slice((paging.page - 1) * paging.pageSize, paging.page * paging.pageSize)
   const totals = useMemo(() => {

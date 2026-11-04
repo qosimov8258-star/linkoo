@@ -23,6 +23,7 @@ import {
   type OrderDebtOrderDetail,
   type OrderDebtOrderRow,
 } from "@/lib/finance-order-debts-types"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Dialogs of "Долги с заказов": "Настроить период" (demo a(3775)), the client
@@ -595,7 +596,9 @@ export function OrderGroupPaymentDialog({
   const [error, setError] = useState("")
 
   const base = options?.baseCurrency ?? "SUM"
-  const rates: RateMap = useMemo(() => Object.fromEntries((options?.currencies ?? []).map((item) => [item.code, item.rate])), [options])
+  // Настройки → Валюта приложения: payments go only into cashboxes of the app currency.
+  const appCurrency = useAppCurrency()
+  const rates: RateMap = useMemo(() => options?.rates ?? Object.fromEntries((options?.currencies ?? []).map((item) => [item.code, item.rate])), [options])
   const cashbox = options?.cashboxes.find((item) => String(item.id) === cashboxId) ?? null
   const categoryValue = categoryId ?? (orderCategories[0] ? String(orderCategories[0].id) : "")
   /** The order remainder in the cashbox currency (current rates). */
@@ -643,7 +646,7 @@ export function OrderGroupPaymentDialog({
           <Label text="Касса">
             <select value={cashboxId} onChange={(event) => setCashboxId(event.target.value)} className={fieldClass} required>
               <option value="">{t("Выберите кассу")}</option>
-              {(options?.cashboxes ?? []).map((item) => (
+              {(options?.cashboxes ?? []).filter((item) => !appCurrency || item.currency === appCurrency).map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name} ({currencyLabel(item.currency)})
                 </option>

@@ -164,8 +164,17 @@ export function KpiFormDialog({ editing, duplicate, onClose, onSave }: { editing
   useEffect(() => {
     fetch("/api/kpi-tasks/options")
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: Options | null) => data && setOptions({ ...EMPTY_OPTIONS, ...data }))
+      .then((data: Options | null) => {
+        if (!data) return
+        const next = { ...EMPTY_OPTIONS, ...data }
+        setOptions(next)
+        // A stored currency is shown by its current name in Валюты (renamed SUM → SOM keeps its id).
+        const stored = old.currency as { id?: unknown; name?: string } | null
+        const current = stored ? next.currencies.find((item) => item.id === Number(stored.id)) : undefined
+        if (current) setCurrency((value) => (value === (stored?.name ?? "") ? current.name : value))
+      })
       .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, for the dialog's initial record
   }, [])
 
   const rule = plan ? KPI_PLAN_RULES[plan] : null

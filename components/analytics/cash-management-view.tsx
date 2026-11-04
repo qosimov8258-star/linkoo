@@ -39,6 +39,7 @@ import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { currencyLabel } from "@/lib/finance/currency"
 import type { CashboxWithBalance, CashListResult, CashOperation, MoneyRequest } from "@/lib/cash/types"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Управления кассой" (demo #/transaction, "Kassani boshqarish"): cashboxes
@@ -114,6 +115,9 @@ function CashManagementContent() {
   const canWrite = useCanWrite()
   const cashboxesState = useCashboxes()
   const cashboxes = useMemo(() => cashboxesState.data?.cashboxes ?? [], [cashboxesState.data])
+  // Настройки → Валюта приложения: new money goes only into cashboxes of the app currency (the others are shown, converted).
+  const appCurrency = useAppCurrency()
+  const writable = useMemo(() => (appCurrency ? cashboxes.filter((box) => box.ownCurrency === appCurrency) : cashboxes), [cashboxes, appCurrency])
   const selected = cashboxes.find((box) => box.id === selectedId) ?? null
   const baseQuery = useMemo(() => ({ ...filtersToQuery(filters), cashbox: selectedId ? [selectedId] : filters.cashbox, search: search || filters.transaction }), [filters, selectedId, search])
   const list = useCashOperations({ ...baseQuery, ordering, page, pageSize })
@@ -303,7 +307,7 @@ function CashManagementContent() {
           <div className="mb-[10px] flex flex-wrap items-center gap-3">
             <h2 className="mr-auto min-w-0 truncate text-[13px] font-bold leading-[22px] text-[#333]">{title}</h2>
             {canWrite && (
-              <button type="button" disabled={cashboxes.length < 2} onClick={() => setDialog({ kind: "transfer" })} className="inline-flex h-[24px] items-center gap-1.5 border border-[#1E4A9A] px-[11px] text-[13px] text-[#1E4A9A] hover:bg-[#f2f5f8] disabled:opacity-40">
+              <button type="button" disabled={writable.length < 2} onClick={() => setDialog({ kind: "transfer" })} className="inline-flex h-[24px] items-center gap-1.5 border border-[#1E4A9A] px-[11px] text-[13px] text-[#1E4A9A] hover:bg-[#f2f5f8] disabled:opacity-40">
                 {t("Перевод")}
               </button>
             )}
@@ -435,7 +439,7 @@ function CashManagementContent() {
       </div>
 
       {/* --- panels (can open a dialog on top) --- */}
-      {panel === "accept" && <CashAcceptDialog cashboxes={cashboxes} canWrite={canWrite} onClose={() => setPanel(null)} onSaved={(message) => {
+      {panel === "accept" && <CashAcceptDialog cashboxes={writable} canWrite={canWrite} onClose={() => setPanel(null)} onSaved={(message) => {
             reloadAll()
             notify(message)
           }} />}
@@ -466,7 +470,7 @@ function CashManagementContent() {
         <CashOperationDialog
           key={`${dialog.state.mode}-${dialog.state.kind}-${dialog.state.operationKey ?? dialog.state.request?.id ?? ""}`}
           state={dialog.state}
-          cashboxes={cashboxes}
+          cashboxes={writable}
           onClose={() => setDialog(null)}
           onSaved={() => {
             setDialog(null)
@@ -477,8 +481,8 @@ function CashManagementContent() {
       )}
       {dialog?.kind === "transfer" && (
         <CashTransferDialog
-          fromCashbox={selected}
-          cashboxes={cashboxes}
+          fromCashbox={selected && writable.includes(selected) ? selected : null}
+          cashboxes={writable}
           onClose={() => setDialog(null)}
           onSaved={() => {
             setDialog(null)
@@ -489,7 +493,7 @@ function CashManagementContent() {
       )}
       {dialog?.kind === "group" && (
         <CashGroupIncomeDialog
-          cashboxes={cashboxes}
+          cashboxes={writable}
           onClose={() => setDialog(null)}
           onSaved={() => {
             setDialog(null)
@@ -505,7 +509,7 @@ function CashManagementContent() {
       {dialog?.kind === "acceptanceEdit" && (
         <CashAcceptanceEditDialog
           id={dialog.id}
-          cashboxes={cashboxes}
+          cashboxes={writable}
           onClose={() => setDialog(null)}
           onSaved={() => {
             setDialog(null)

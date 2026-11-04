@@ -17,6 +17,10 @@ import { TableSorter } from '@/components/ref/table-sorter'
 import { TitleTooltips } from '@/components/ref/title-tooltips'
 import { DomTranslator } from '@/lib/i18n/dom-translator'
 import { LanguageProvider } from '@/lib/i18n/language-context'
+import { AppCurrencyProvider, type AppCurrencyInfo } from '@/lib/app-currency-context'
+import { AppCurrencyDom } from '@/components/ref/app-currency-dom'
+import { getDb } from '@/lib/db'
+import { loadCurrencyContext } from '@/lib/finance/context'
 import './globals.css'
 
 // Set (and overwritten) by proxy.ts on every request it handles.
@@ -67,6 +71,16 @@ async function redirectStaleSession() {
   redirect(`/login?reason=session&from=${encodeURIComponent(from)}`)
 }
 
+async function readAppCurrency(): Promise<AppCurrencyInfo> {
+  if (!(await getCurrentUser())) return { code: '', rates: {} }
+  try {
+    const context = await loadCurrencyContext(getDb())
+    return { code: context.work, rates: context.rates }
+  } catch {
+    return { code: '', rates: {} }
+  }
+}
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -74,6 +88,8 @@ export default async function RootLayout({
 }>) {
   const language = await getServerLanguage()
   await redirectStaleSession()
+  // Настройки → Валюта приложения: the currency selects and amounts of every page follow it.
+  const appCurrency = await readAppCurrency()
 
   return (
     <html lang={language} className="bg-background">
@@ -87,18 +103,21 @@ export default async function RootLayout({
       </head>
       <body className="font-sans">
         <LanguageProvider initialLanguage={language}>
-          <div className="min-h-screen bg-[#f2f5f8]">
-            <TopNav />
-            {children}
-            <BrandCornerLogo />
-          </div>
-          <SessionGuard />
-          <DomTranslator />
-          <TableSorter />
-          <TableFitter />
-          <TitleTooltips />
-          <ConfirmHost />
-          <AlertHost />
+          <AppCurrencyProvider value={appCurrency}>
+            <div className="min-h-screen bg-[#f2f5f8]">
+              <TopNav />
+              {children}
+              <BrandCornerLogo />
+            </div>
+            <SessionGuard />
+            <DomTranslator />
+            <AppCurrencyDom />
+            <TableSorter />
+            <TableFitter />
+            <TitleTooltips />
+            <ConfirmHost />
+            <AlertHost />
+          </AppCurrencyProvider>
         </LanguageProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

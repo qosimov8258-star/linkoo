@@ -106,7 +106,7 @@ export function numOrNull(value: unknown): number | null {
 
 export type CashboxInfo = { id: number; name: string; currency: string; type: CashPaymentType; branch: string; vansell: boolean }
 
-export async function loadCashbox(db: PgDb, id: number | null | undefined, base: string, field = "cashbox"): Promise<CashboxInfo> {
+export async function loadCashbox(db: PgDb, id: number | null | undefined, cc: Pick<CurrencyContext, "base">, field = "cashbox"): Promise<CashboxInfo> {
   const row = id
     ? ((await db.prepare("SELECT id, name, currency, payment_type, branch, vansell FROM cashboxes WHERE id = @id").get({ id })) as
         | { id: number; name: string; currency: string; payment_type: string; branch: string; vansell: number }
@@ -116,11 +116,23 @@ export async function loadCashbox(db: PgDb, id: number | null | undefined, base:
   return {
     id: row.id,
     name: row.name,
-    currency: normCurrency(row.currency, base),
+    currency: normCurrency(row.currency, cc.base),
     type: paymentKind(row.payment_type),
     branch: placeName(row.branch),
     vansell: Boolean(row.vansell),
   }
+}
+
+/** Настройки → Валюта приложения: money is entered only in cashboxes of the app currency. A cashbox keeps its own
+ * currency (its operations are stored in it; the ledger shows them converted), so a cashbox of another currency
+ * takes no new operation, transfer or acceptance while an app currency is chosen. */
+export const CASHBOX_NOT_IN_APP_CURRENCY = "Валюта кассы не совпадает с валютой приложения"
+
+/** loadCashbox for a write: refused for a cashbox of another currency than the app one. */
+export async function loadCashboxForWrite(db: PgDb, id: number | null | undefined, cc: Pick<CurrencyContext, "base" | "work">, field = "cashbox"): Promise<CashboxInfo> {
+  const cashbox = await loadCashbox(db, id, cc, field)
+  if (cc.work && cashbox.currency !== cc.work) throw new CashError(CASHBOX_NOT_IN_APP_CURRENCY, 400, field)
+  return cashbox
 }
 
 /** The cashier of a cashbox as notification participants (lib/user-notifications-repo.ts):

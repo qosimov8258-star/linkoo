@@ -6,6 +6,7 @@ import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { supplierPaymentTitle, type SupplyPaymentsResult } from "@/components/analytics/supplier-payments-data"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { formatStatementDate } from "@/lib/finance/dates"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Supply card «Оплачено» link → "Список оплат по поставке №N" (demo main.js
@@ -18,6 +19,8 @@ export function SupplyPaymentsDialog({ supplyId, onClose }: { supplyId: number; 
   const { data, loading, error, reload } = useCashJson<SupplyPaymentsResult>(`/api/supplier-incomings/${supplyId}/payments`)
   const rows = data?.rows ?? []
   const base = data?.baseCurrency ?? "SUM"
+  // With an app currency (Настройки → Валюта приложения) every amount is shown in it: no base-currency sub-lines.
+  const withBase = !useAppCurrency()
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/40 px-2 py-6 md:py-10" onClick={onClose}>
       <div role="dialog" aria-modal="true" className="w-full max-w-[960px] rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
@@ -79,7 +82,7 @@ export function SupplyPaymentsDialog({ supplyId, onClose }: { supplyId: number; 
                       <div className="whitespace-nowrap font-semibold">
                         {formatMoney(row.amount, 3)} {currencyLabel(row.currency)}
                       </div>
-                      {row.currency !== base && row.baseAmount !== null && (
+                      {withBase && row.currency !== base && row.baseAmount !== null && (
                         <div className="whitespace-nowrap text-[11px] text-[#666]">
                           {formatMoney(row.baseAmount, 3)} {currencyLabel(base)}
                           {row.rate ? ` (${formatMoney(row.rate, 5)})` : ""}

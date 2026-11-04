@@ -2,6 +2,7 @@ import "server-only"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { DOC_DATE_FUTURE, docDateError } from "@/lib/document-dates"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { getNetCostRecord, getNetCostRecordRow } from "@/lib/net-cost-repo"
 import { ensureNetCostSchema } from "@/lib/net-cost-schema"
@@ -127,6 +128,12 @@ async function validate(db: PgDb, input: NetCostEntryInput, exceptId: number, fi
   return { item, warehouse }
 }
 
+/** A cost typed in the shown currency (Настройки → Валюта приложения) as the base-currency cost the ledger keeps. */
+async function baseCostOf(db: PgDb, cost: number): Promise<number> {
+  const { factor } = baseReportCurrency(await loadCurrencyContext(db))
+  return factor === 1 ? cost : cost / factor
+}
+
 export async function createNetCostEntry(input: NetCostEntryInput, userName: string): Promise<NetCostRecord | EntryError> {
   await ensureNetCostSchema()
   const created = await withTransaction(async (tx) => {
@@ -138,7 +145,7 @@ export async function createNetCostEntry(input: NetCostEntryInput, userName: str
         `INSERT INTO net_cost_entries (product_id, raw_material_id, item_label, cost, entry_date, warehouse, comment, source, created_by, entered_at)
          VALUES (@pid, @rid, @label, @cost, @day, @warehouse, @comment, 'manual', @user, @at)`,
       )
-      .run({ pid: checked.item.productId, rid: checked.item.rawId, label: checked.item.label, cost: input.cost, day: input.date, warehouse: checked.warehouse, comment: input.comment, user: userName, at: nowLocalMoment() })
+      .run({ pid: checked.item.productId, rid: checked.item.rawId, label: checked.item.label, cost: await baseCostOf(tx, input.cost), day: input.date, warehouse: checked.warehouse, comment: input.comment, user: userName, at: nowLocalMoment() })
     return { id: Number(result.lastInsertRowid), key: checked.item.key }
   })
   if (isEntryError(created)) return created
@@ -172,7 +179,7 @@ export async function updateNetCostEntry(recordId: number, input: NetCostEntryIn
            cost = @cost, entry_date = @day, warehouse = @warehouse, comment = @comment, updated_at = datetime('now')
          WHERE id = @id`,
       )
-      .run({ id: found.entryId, cost: input.cost, day: input.date, warehouse: checked.warehouse, comment: input.comment, at: nowLocalMoment() })
+      .run({ id: found.entryId, cost: await baseCostOf(tx, input.cost), day: input.date, warehouse: checked.warehouse, comment: input.comment, at: nowLocalMoment() })
     return result.changes ? null : ({ error: "Себестоимость не найдена", status: 404 } as EntryError)
   })
   if (updated) return updated
@@ -282,9 +289,11 @@ export async function importNetCostEntries(rows: string[][], userName: string): 
       seen.add(unique)
       keys.add(item.key)
       const existing = await duplicateOf(tx, item, day, warehouse, 0)
+      // The file's costs are in the shown currency, like the page (Настройки → Валюта приложения).
+      const baseCost = await baseCostOf(tx, cost)
       if (existing) {
         // The same item, day and warehouse: a new cost corrects the entry where it was entered.
-        await tx.prepare("UPDATE net_cost_entries SET cost = @cost, updated_at = datetime('now') WHERE id = @id").run({ id: existing, cost })
+        await tx.prepare("UPDATE net_cost_entries SET cost = @cost, updated_at = datetime('now') WHERE id = @id").run({ id: existing, cost: baseCost })
         updated += 1
       } else {
         await tx
@@ -292,7 +301,7 @@ export async function importNetCostEntries(rows: string[][], userName: string): 
             `INSERT INTO net_cost_entries (product_id, raw_material_id, item_label, cost, entry_date, warehouse, source, created_by, entered_at)
              VALUES (@pid, @rid, @label, @cost, @day, @warehouse, 'excel', @user, @at)`,
           )
-          .run({ pid: item.productId, rid: item.rawId, label: item.label, cost, day, warehouse, user: userName, at })
+          .run({ pid: item.productId, rid: item.rawId, label: item.label, cost: baseCost, day, warehouse, user: userName, at })
         created += 1
       }
     }

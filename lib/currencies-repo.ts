@@ -1,8 +1,10 @@
 import "server-only"
 
+import { storedAppCurrency } from "@/lib/app-currency"
 import { isUniqueViolation } from "@/lib/auth-request"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { ensureRatesSchema } from "@/lib/currency-rates-repo"
+import { normCurrency } from "@/lib/finance/currency"
 import { withEmployeeLinks } from "@/lib/employees-usage"
 import { discoverReferences, usageOf, type Usage } from "@/lib/platform-refs"
 import type { Currency } from "@/components/analytics/currencies-data"
@@ -94,6 +96,14 @@ async function assertCodeFree(db: PgDb, code: string, exceptId: number) {
   if (twin) throw new CurrencyError(DUPLICATE, 409)
 }
 
+/** The app currency (Настройки → Валюта приложения) keeps its code and stays while it is chosen. */
+async function assertNotAppCurrency(db: PgDb, currency: { code: string }) {
+  const work = await storedAppCurrency(db)
+  if (work && normCurrency(currency.code) === work) throw new CurrencyError(APP_CURRENCY_IN_USE, 409)
+}
+
+export const APP_CURRENCY_IN_USE = "Это валюта приложения: сначала выберите другую в разделе «Валюта приложения»"
+
 function duplicateGuard(error: unknown): never {
   if (isUniqueViolation(error)) throw new CurrencyError(DUPLICATE, 409)
   throw error
@@ -139,6 +149,7 @@ export async function updateCurrency(id: number, input: CurrencyInput): Promise<
       if (!current) return false
       const codeChanged = current.code.trim().toUpperCase() !== input.code
       if (codeChanged) {
+        await assertNotAppCurrency(db, current)
         await assertCodeFree(db, input.code, id)
         const usage = await currencyUsage(db, current)
         if (usage.length) throw new CurrencyError("Нельзя изменить код валюты, которая используется", 409, usage)
@@ -173,6 +184,7 @@ export async function deleteCurrency(id: number): Promise<DeleteResult> {
     const current = (await db.prepare("SELECT * FROM currencies WHERE id = ? FOR UPDATE").get(id)) as CurrencyRow | undefined
     if (!current) return "not_found"
     if (current.is_base === 1) return "is_base"
+    await assertNotAppCurrency(db, current)
     const usage = await withEmployeeLinks(db, "currencies", { id: current.id }, await currencyUsage(db, current))
     if (usage.length) throw new CurrencyError("Удаление невозможно из-за связи с другими данными", 409, usage)
     // Its rate history goes with it (nothing else reads a rate of a currency that is gone).

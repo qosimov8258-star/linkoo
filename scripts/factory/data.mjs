@@ -27,7 +27,7 @@ export const COMPANY = {
 }
 
 export const CURRENCIES = [
-  { name: "SUM", code: "SUM", isBase: true },
+  { name: "SOM", code: "SUM", isBase: true },
   { name: "USD", code: "USD", rate: 12850 },
 ]
 

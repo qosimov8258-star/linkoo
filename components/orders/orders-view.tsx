@@ -10,6 +10,7 @@ import { csvCell } from "@/lib/csv"
 import { readExcelRows } from "@/lib/excel-import"
 import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { inAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { parseAnyDate, parseAnyDay } from "@/lib/finance/dates"
 
@@ -24,6 +25,7 @@ import { ORDER_STATUS_REF_LABEL, orderApiErrorText, orderOrganization, type Agen
 export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {}) {
   const router = useRouter()
   const { t } = useLanguage()
+  const app = useAppCurrencyInfo()
   const [orders, setOrders] = useState<ListedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -59,9 +61,9 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     () =>
       orders
         .filter((row) => `${row.id} ${row.client} ${row.marketName ?? ""} ${row.agent}`.toLowerCase().includes(query.toLowerCase()))
-        .filter((row) => matchesOrderFilters(row, filters))
+        .filter((row) => matchesOrderFilters(row, filters, app.code))
         .filter((row) => !onlyIds || onlyIds.includes(row.id)),
-    [orders, query, filters, onlyIds],
+    [orders, query, filters, onlyIds, app.code],
   )
   const [sort, setSort] = useState<{ head: string; desc: boolean } | null>(null)
   const sortedRows = useMemo(() => {
@@ -109,15 +111,18 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     const counted = (selecting ? selectedRows : filtered).filter((row) => row.status !== "Отменен" && row.status !== "Не подтвержден")
     const orderTotals = new Map<string, number>()
     const returnTotals = new Map<string, number>()
+    // With an app currency (Настройки → Валюта приложения) every amount is added up in it.
+    const add = (totals: Map<string, number>, currency: string, value: number) =>
+      app.code ? addTotal(totals, app.code, inAppCurrency(app, value, currency) ?? 0) : addTotal(totals, currency, value)
     for (const row of counted) {
       const amount = parseAmount(row.amount)
-      if (amount) addTotal(orderTotals, amount.currency, amount.number)
-      for (const entry of returnsByOrder.get(row.id) ?? []) addTotal(returnTotals, entry.currency, entry.amount)
+      if (amount) add(orderTotals, amount.currency, amount.number)
+      for (const entry of returnsByOrder.get(row.id) ?? []) add(returnTotals, entry.currency, entry.amount)
     }
     const fact = new Map(orderTotals)
     for (const [currency, amount] of returnTotals) addTotal(fact, currency, -amount)
     return { orders: renderTotals(orderTotals), returns: renderTotals(returnTotals), fact: renderTotals(fact) }
-  }, [filtered, returnsByOrder, selectedRows, selecting])
+  }, [filtered, returnsByOrder, selectedRows, selecting, app])
   const unconfirmedCount = orders.filter((row) => row.status === "Не подтвержден").length
   const requestedCount = orders.filter((row) => row.status === "В процессе").length
   const readyCount = orders.filter((row) => row.status === "Есть на складе").length
@@ -1060,7 +1065,7 @@ function parseAmount(value: string) {
   return Number.isFinite(number) ? { number, currency: match[2] } : null
 }
 
-const CURRENCY_ORDER = ["SUM", "Euro", "USD"]
+const CURRENCY_ORDER = ["SUM", "USD", "Euro"]
 
 /** The order's deliverer, else the client's ("Ответственный доставщик"). */
 /** An order as /api/orders sends it (payableRest: what the cash desk still accepts, lib/orders-repo.ts withLedgerDues). */

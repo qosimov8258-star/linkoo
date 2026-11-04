@@ -31,6 +31,7 @@ import { downloadExcelTable } from "@/lib/excel-export"
 import { formatDotDate } from "@/lib/finance/dates"
 import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow } from "@/lib/finance/types"
 import { NO_CLIENT_TYPE, type ClientBalanceOptions } from "@/lib/finance-client-balance-types"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Баланс клиентов" (demo #/statistics/market): per client and currency the
@@ -94,6 +95,7 @@ function useClientBalanceList(url: string) {
 
 export function ClientBalanceView() {
   const { t } = useLanguage()
+  const appCurrency = useAppCurrency()
   const searchParams = useSearchParams()
   const [state, setState] = useState<ClientBalanceState>(() => stateFromParams(searchParams))
   const [filterOpen, setFilterOpen] = useState(false)
@@ -194,7 +196,8 @@ export function ClientBalanceView() {
   // Like the demo, the selection survives paging but the dialog lists only the selected rows that are loaded.
   const selectedRows = useMemo(() => rows.filter((row) => selected.has(row.key)), [rows, selected])
 
-  const groupCurrencies = data ? GROUP_PAYMENT_CURRENCIES.filter((code) => data.currencies.some((currency) => currency.code === code)) : GROUP_PAYMENT_CURRENCIES
+  // Настройки → Валюта приложения: a group payment is entered only in the app currency.
+  const groupCurrencies = appCurrency ? [appCurrency] : data ? GROUP_PAYMENT_CURRENCIES.filter((code) => data.currencies.some((currency) => currency.code === code)) : GROUP_PAYMENT_CURRENCIES
   const visible = data?.visibleCurrencies ?? []
   const period = `${formatDotDate(state.filters.from)} - ${formatDotDate(state.filters.to)}`
 

@@ -7,6 +7,7 @@ import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { incomingPaymentTypes, supplyCostLines, type Incoming } from "./supplier-incomings-data"
 import { notify } from "@/lib/notify"
+import { currencyLabel } from "@/lib/finance/currency"
 
 export const LOG_LABELS: Record<string, string> = {
   created: "Поставка создана",
@@ -141,7 +142,7 @@ export function IncomingExpenseDialog({ incoming, onClose, onSaved }: { incoming
         <label className="block text-sm font-medium">
           {t("Валюта")}
           <select value={currency} onChange={(event) => setCurrency(event.target.value)} className={fieldClass}>
-            {currencyChoices(currencies.codes, currencies.base, currency).map((code) => <option key={code} value={code}>{code}</option>)}
+            {currencyChoices(currencies.codes, currencies.base, currency).map((code) => <option key={code} value={code}>{currencyLabel(code)}</option>)}
           </select>
         </label>
       </div>
@@ -301,7 +302,7 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
             <label className="block text-sm font-medium">
               {t("Валюта")}
               <select value={currency} onChange={(event) => setCurrency(event.target.value)} className={fieldClass}>
-                {currencyChoices(currencies.codes, currencies.base, currency).map((code) => <option key={code} value={code}>{code}</option>)}
+                {currencyChoices(currencies.codes, currencies.base, currency).map((code) => <option key={code} value={code}>{currencyLabel(code)}</option>)}
               </select>
             </label>
             <label className="block text-sm font-medium">

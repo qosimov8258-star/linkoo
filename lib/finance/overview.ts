@@ -4,7 +4,7 @@ import { getDb, type PgDb } from "@/lib/db"
 import { loadCategories } from "@/lib/cash/common"
 import { expensesByCategory } from "@/lib/cash/reports"
 import { CASH_OP, CASH_OP_TYPES, type CashOpType, type CategoryOptionKey } from "@/lib/cash/types"
-import { loadCurrencyContext } from "@/lib/finance/context"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { roundMoney } from "@/lib/finance/currency"
 import { nameKey } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
@@ -107,6 +107,10 @@ export async function getBalanceOverview(params: { from: string; to: string; org
     }
   })
 
+  // Base amounts (stock, expenses) are shown in the app currency when one is chosen; the ledger, management
+  // and P&L parts already are.
+  const shown = baseReportCurrency(cc)
+
   // Stock value per warehouse (base currency), begin = end of the day before `from`.
   const beginDay = dayBefore(params.from)
   const stock = await stockValuesAsOf(db, s, cc, [beginDay, params.to])
@@ -114,7 +118,11 @@ export async function getBalanceOverview(params: { from: string; to: string; org
   const byKey = new Map(warehouseNames.map((row) => [nameKey(row.name), row.name]))
   const keys = new Set([...(stock.get(beginDay)?.keys() ?? []), ...(stock.get(params.to)?.keys() ?? []), ...byKey.keys()])
   const warehouses = [...keys]
-    .map((key) => ({ name: byKey.get(key) ?? key, begin: roundMoney(stock.get(beginDay)?.get(key) ?? 0), end: roundMoney(stock.get(params.to)?.get(key) ?? 0) }))
+    .map((key) => ({
+      name: byKey.get(key) ?? key,
+      begin: roundMoney((stock.get(beginDay)?.get(key) ?? 0) * shown.factor),
+      end: roundMoney((stock.get(params.to)?.get(key) ?? 0) * shown.factor),
+    }))
     .filter((row) => row.begin || row.end || byKey.has(nameKey(row.name)))
 
   // Client debts by client type and supplier obligations: what is owed, as a positive amount.
@@ -142,7 +150,7 @@ export async function getBalanceOverview(params: { from: string; to: string; org
     if (info?.exclude) continue
     const group = info?.direct ? expenseGroups.direct : expenseGroups.indirect
     const name = row.name || "Не указано"
-    group.set(name, (group.get(name) ?? 0) - row.baseAmount)
+    group.set(name, (group.get(name) ?? 0) - row.baseAmount * shown.factor)
   }
   const expenseRows = (map: Map<string, number>) =>
     [...map.entries()].map(([name, amount]) => ({ name, amount: roundMoney(amount) })).filter((row) => row.amount).sort((a, b) => b.amount - a.amount)
@@ -153,7 +161,7 @@ export async function getBalanceOverview(params: { from: string; to: string; org
   return {
     from: params.from,
     to: params.to,
-    baseCurrency: cc.base,
+    baseCurrency: shown.code,
     currencies: management.currencies,
     missingRates: [...new Set([...management.missingRates, ...pnl.missingRates])].sort(),
     lines: [...lines.values()].map((line) => ({ ...line, begin: roundMoney(line.begin), end: roundMoney(line.end) })),

@@ -252,7 +252,8 @@ export async function loadRateBook(db: PgDb = getDb()): Promise<RateBook> {
     history.set(Number(row.currency_id), list)
   }
   for (const list of history.values()) list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
-  const byCode = new Map(context.currencies.map((currency) => [currency.code, currency]))
+  // Every currency (also with an app currency: stored documents keep theirs).
+  const byCode = new Map(context.all.map((currency) => [currency.code, currency]))
   return {
     base: context.base,
     rateAt(code, stamp) {

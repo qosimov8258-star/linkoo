@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDb, withTransaction } from "@/lib/db"
-import { loadCurrencyContext } from "@/lib/finance/context"
+import { baseReportCurrency, loadCurrencyContext, toWork } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import {
   INVALID_PRICE,
@@ -113,6 +113,11 @@ export async function priceGrid(query: PriceGridQuery): Promise<PriceGridResult>
   const pageRows = query.pageSize > 0 ? matched.slice((query.page - 1) * query.pageSize, query.page * query.pageSize) : matched
   // The one cost of goods (moving average of "Себестоимость", base currency, today).
   const costs = query.withCost ? await getItemCosts({}, db) : new Map<string, number>()
+  // With an app currency (Настройки → Валюта приложения) every price is shown in it (converted with the current
+  // rates); a price saved from the grid is then stored in it.
+  const cc = await loadCurrencyContext(db)
+  const shown = baseReportCurrency(cc)
+  const inWork = (value: number, currency: string) => (cc.work && value ? (toWork(cc, value, currency) ?? value) : value)
   const results = pageRows.map((row): PriceGridRow => {
     const key = `${row.kind}:${row.id}`
     const entries = itemEntries(row)
@@ -120,13 +125,15 @@ export async function priceGrid(query: PriceGridQuery): Promise<PriceGridResult>
     for (const list of priceLists) {
       const entry = findItemPrice(entries, list.name)
       if (!entry) continue
+      const currency = normCurrency(entry.currency, list.currency)
+      const nonCashCurrency = normCurrency(entry.nonCashCurrency ?? entry.currency, list.currency)
       prices[String(list.id)] = {
-        cash: entry.cash,
-        nonCash: entry.nonCash,
-        min: entry.min,
-        max: entry.max,
-        currency: normCurrency(entry.currency, list.currency),
-        nonCashCurrency: normCurrency(entry.nonCashCurrency ?? entry.currency, list.currency),
+        cash: inWork(entry.cash, currency),
+        nonCash: inWork(entry.nonCash, nonCashCurrency),
+        min: inWork(entry.min, currency),
+        max: inWork(entry.max, currency),
+        currency: cc.work || currency,
+        nonCashCurrency: cc.work || nonCashCurrency,
       }
     }
     return {
@@ -139,14 +146,14 @@ export async function priceGrid(query: PriceGridQuery): Promise<PriceGridResult>
       type: clean(row.type),
       brand: clean(row.brand),
       unit: row.unit ?? "",
-      cost: costs.get(key) ?? 0,
+      cost: (costs.get(key) ?? 0) * shown.factor,
       prices,
     }
   })
   return {
     count: matched.length,
     results,
-    priceLists: priceLists.map((list) => ({ id: list.id, name: list.name, currency: list.currency })),
+    priceLists: priceLists.map((list) => ({ id: list.id, name: list.name, currency: cc.work || list.currency })),
     types: [...types].sort((a, b) => a.localeCompare(b, "ru")),
     brands: [...brands].sort((a, b) => a.localeCompare(b, "ru")),
   }

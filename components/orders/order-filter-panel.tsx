@@ -3,6 +3,7 @@
 import { CalendarDays, X } from "lucide-react"
 import { useEffect, useState } from "react"
 
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { ORDER_STATUS_REF_LABEL, ORDER_STATUS_REF_OPTIONS, type Order } from "./orders-data"
@@ -72,7 +73,7 @@ const STATIC_OPTIONS: Record<string, string[]> = {
   status: ORDER_STATUS_REF_OPTIONS,
   paymentType: ["Наличные", "Перечисление"],
   paymentStatus: ["Не оплачен", "Оплачен"],
-  currency: ["Euro", "SUM", "USD"],
+  currency: ["SUM", "USD", "Euro"],
   printStatus: ["Напечатано", "Не напечатано"],
   marked: ["Да", "Нет"],
   invoiceType: ["Активные счет фактуры", "Не активные счет фактуры"],
@@ -157,13 +158,16 @@ function inRange(date: string, range: DateRange) {
   return (!range.from || date >= range.from) && (!range.to || date <= range.to)
 }
 
-export function matchesOrderFilters(row: Order, filters: OrderFilters) {
+/** `appCurrency`: with an app currency (Настройки → Валюта приложения) every order is shown in it, so the
+ * "Валюта" filter (hidden then) keeps every row. */
+export function matchesOrderFilters(row: Order, filters: OrderFilters, appCurrency = "") {
   const deliveryDate = parseRuDate(row.delivery)
   const year = deliveryDate.slice(0, 4)
   if (!inRange(parseRuDate(row.created, year), filters.created)) return false
   if (!inRange(deliveryDate, filters.delivery)) return false
   for (const field of ALL_SELECTS) {
     const chosen = filters.select[field.key]
+    if (appCurrency && field.key === "currency") continue
     if (chosen?.length && field.value && !chosen.includes(field.value(row))) return false
   }
   if (row.status === "Отменен" && !filters.checks.cancelled && !filters.select.status?.includes("Отменен")) return false
@@ -315,6 +319,7 @@ function TextBox({ label, value, onChange }: { label: string; value: string; onC
 
 export function OrderFilterPanel({ orders, filters, onChange, onApply, onClose }: { orders: Order[]; filters: OrderFilters; onChange: (filters: OrderFilters) => void; onApply: () => void; onClose: () => void }) {
   const { t } = useLanguage()
+  const appCurrency = useAppCurrency()
   const [reference, setReference] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
@@ -373,7 +378,7 @@ export function OrderFilterPanel({ orders, filters, onChange, onApply, onClose }
         {SELECT_FIELDS.map(renderSelect)}
         <TextBox label="Долг клиента больше" value={filters.debtMin} onChange={(value) => onChange({ ...filters, debtMin: value.replace(/[^\d]/g, "") })} />
         <TextBox label={t("Номер счет фактура")} value={filters.invoiceNumber} onChange={(value) => onChange({ ...filters, invoiceNumber: value })} />
-        {SELECT_FIELDS_AFTER_DEBT.map(renderSelect)}
+        {SELECT_FIELDS_AFTER_DEBT.filter((field) => !(appCurrency && field.key === "currency")).map(renderSelect)}
       </div>
 
       <h4 className="mt-6 border-b-2 border-[#9fa8da] pb-1 text-[12px] font-bold text-[#7986cb]">{t("Дополнительно")}</h4>

@@ -11,6 +11,7 @@ import { strictNumber } from "@/lib/strict-number"
 import { AddOrderDialog, FlatInput, OrganizationMoveHint } from "./add-order-dialog"
 import { useAllowedProductIds, useAllowedRows } from "./allowed-products"
 import { orderListPrice, type OrderPriceList } from "./order-list-price"
+import { useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { RefCheck, RefDate, RefSelect, RefText } from "./order-ref-fields"
 import { OrderPaymentsDialog } from "./order-returns-tab"
 import { EDITABLE_STATUSES, FINAL_STATUSES, ORDER_STATUSES, canChangeStatus, orderApiErrorText, orderOrganization, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
@@ -1415,6 +1416,7 @@ function InlineAddLine({ order, onAdded }: { order: Order; onAdded: () => void }
 
 function InlineAddForm({ order, onClose, onAdded }: { order: Order; onClose: () => void; onAdded: () => void }) {
   const { t } = useLanguage()
+  const app = useAppCurrencyInfo()
   const [products, setProducts] = useState<SellableProduct[] | null>(null)
   // The price lists (with their currency): a product entry without its own currency is in its list's currency.
   const [priceLists, setPriceLists] = useState<OrderPriceList[] | null>(null)
@@ -1451,7 +1453,7 @@ function InlineAddForm({ order, onClose, onAdded }: { order: Order; onClose: () 
    * its list's currency; a price of another or an unknown currency is never taken (order-list-price.ts).
    */
   const listPrice = (product: SellableProduct): string => {
-    const value = orderListPrice(product.priceLists, { priceList: order.priceList, lists: priceLists, orderCurrency: currency, nonCash })
+    const value = orderListPrice(product.priceLists, { priceList: order.priceList, lists: priceLists, orderCurrency: currency, nonCash, rates: app.code ? app.rates : undefined })
     return value === null || value > MAX_LINE_PRICE ? "" : String(value)
   }
 

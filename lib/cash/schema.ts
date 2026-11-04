@@ -32,7 +32,7 @@ import { CASH_DOC_SEQUENCE, ensureFinanceSchema, ensureLedgerExtensions, type Fi
 //     the cashbox cashier's single organization). Best effort: a failure only
 //     logs a warning and never blocks the schema.
 
-const CASH_SCHEMA_VERSION = 5
+const CASH_SCHEMA_VERSION = 6
 
 const DDL = `
 CREATE SEQUENCE IF NOT EXISTS ${CASH_DOC_SEQUENCE};
@@ -149,6 +149,7 @@ CREATE OR REPLACE FUNCTION cash_param_options(p text) RETURNS text LANGUAGE sql 
     WHEN 'выдача денег для кэшбек' THEN '["client_contract"]'
     WHEN 'кэшбек' THEN '["client_contract"]'
     WHEN 'амортизация' THEN '["amortization"]'
+    WHEN 'приход от сотрудников' THEN '["staff_income"]'
     WHEN 'возврат от сотрудников' THEN '["staff_income"]'
     WHEN 'supply_expanse' THEN '["supply_expense"]'
     ELSE CASE WHEN fin_key(p) IN ('client', 'client_card_out', 'client_contract', 'provider', 'supply', 'order', 'supply_expense',

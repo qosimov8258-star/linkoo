@@ -34,6 +34,7 @@ import {
   type InvoiceInput,
   type InvoiceMatchKind,
 } from "@/lib/invoice-incomings-types"
+import { currencyLabel } from "@/lib/finance/currency"
 
 // Create / edit dialog of an incoming e-invoice: header (номер и дата, договор,
 // поставщик по документу + наш справочник, покупатель + организация, валюта) and
@@ -238,7 +239,7 @@ export function InvoiceFormDialog({ invoice, onClose, onSaved }: { invoice: Invo
             <select value={draft.currency} onChange={(event) => patch({ currency: event.target.value })} className={inputClass}>
               {currencyCodes.map((code) => (
                 <option key={code} value={code}>
-                  {code}
+                  {currencyLabel(code)}
                 </option>
               ))}
             </select>

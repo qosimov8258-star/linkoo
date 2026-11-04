@@ -10,6 +10,7 @@ import type { CustomerPaymentOptions, ExpectedOrderDetail } from "@/lib/cash/cus
 import type { CashWriteResult, CategoryOptionKey } from "@/lib/cash/types"
 import type { ContractOption } from "@/lib/contracts-types"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Pay dialog of "Ожидаемые оплаты" = the shared "Приход" dialog in order mode
@@ -53,7 +54,8 @@ export function ExpectedPaymentPayDialog({
   const part = order?.currencies.find((item) => item.currency === currency) ?? order?.currencies[0]
   const orderCurrency = part?.currency ?? currency
   const base = options?.baseCurrency ?? "SUM"
-  const rates: RateMap = useMemo(() => Object.fromEntries((options?.currencies ?? []).map((item) => [item.code, item.rate])), [options])
+  const appCurrency = useAppCurrency()
+  const rates: RateMap = useMemo(() => options?.rates ?? Object.fromEntries((options?.currencies ?? []).map((item) => [item.code, item.rate])), [options])
   const orderCategories = useMemo(() => (categories.data?.categories ?? []).filter((category) => category.options.includes("order")), [categories.data])
 
   const [date, setDate] = useState<string | null>(null)
@@ -159,7 +161,10 @@ export function ExpectedPaymentPayDialog({
 
   const pick = (items: Array<{ value: string; label: string }>, value: string) => items.filter((item) => item.value === value)
   const branchItems = (options?.branches ?? []).map((item) => ({ value: item, label: item }))
-  const cashboxItems = (options?.cashboxes ?? []).map((item) => ({ value: String(item.id), label: `${item.name} (${currencyLabel(item.currency)})` }))
+  // Настройки → Валюта приложения: payments go only into cashboxes of the app currency.
+  const cashboxItems = (options?.cashboxes ?? [])
+    .filter((item) => !appCurrency || item.currency === appCurrency)
+    .map((item) => ({ value: String(item.id), label: `${item.name} (${currencyLabel(item.currency)})` }))
   const categoryItems = orderCategories.map((category) => ({ value: String(category.id), label: category.name }))
   const contractItems = contracts.map((contract) => ({ value: String(contract.id), label: `№ ${contract.fullNumber}${contract.hint ? ` · ${contract.hint}` : ""}` }))
   const staffItems = (options?.employees ?? []).map((employee) => ({ value: String(employee.id), label: employee.name }))

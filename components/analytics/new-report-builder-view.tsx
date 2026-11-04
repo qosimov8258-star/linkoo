@@ -7,6 +7,7 @@ import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
 import { CHECKBOX, INFO_ITEMS } from "./visit-builder-view"
 import { monthRangeLabel } from "@/lib/finance/dates"
+import { appCurrencyColumn, useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { NewReportBuilderSave } from "@/lib/new-report-builder-repo"
 
@@ -20,6 +21,7 @@ const dateRangePresets = ["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕС
 
 function List({ title, items, selected, setSelected }: { title: string; items: string[]; selected: string[]; setSelected: (items: string[]) => void }) {
   const { t } = useLanguage()
+  const appCurrency = useAppCurrency()
   const [query, setQuery] = useState("")
   const visible = items.filter((item) => item.toLowerCase().includes(query.toLowerCase()))
   const toggle = (item: string) => setSelected(selected.includes(item) ? selected.filter((value) => value !== item) : [...selected, item])
@@ -34,7 +36,7 @@ function List({ title, items, selected, setSelected }: { title: string; items: s
         {visible.map((item) => (
           <label key={item} className={`flex ${INFO_ITEMS.has(item) ? "min-h-[34px]" : "min-h-[30px]"} cursor-pointer items-center gap-[9px] text-[13px] font-semibold`}>
             <input type="checkbox" checked={selected.includes(item)} onChange={() => toggle(item)} className={`${CHECKBOX} ml-[3px]`} />
-            {t(item)}
+            {appCurrencyColumn(item, t, appCurrency)}
             {INFO_ITEMS.has(item) && <Info className="h-[18px] w-[18px] text-[#555]" />}
           </label>
         ))}
@@ -46,6 +48,7 @@ function List({ title, items, selected, setSelected }: { title: string; items: s
 
 export function NewReportBuilderView() {
   const { t } = useLanguage()
+  const appCurrency = useAppCurrency()
   const [type, setType] = useState(reportTypes[0])
   const [othersOpen, setOthersOpen] = useState(false)
   const othersRef = useRef<HTMLDivElement>(null)
@@ -211,7 +214,7 @@ export function NewReportBuilderView() {
         </div>
       )}
     </section>
-    {generated && <section className="mx-7 mt-3 overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"><header className="flex items-center gap-2 border-b px-6 py-4 font-semibold"><FileText className="h-5 w-5 text-[#1E4A9A]" />{t(type)}</header><table className="min-w-full border-collapse"><thead className="bg-slate-100"><tr>{displayGroups.map((item) => <th key={item} className="border px-4 py-3 text-left">{t(item)}</th>)}{displayColumns.map((item) => <th key={item} className="border px-4 py-3 text-right">{t(item)}</th>)}</tr></thead><tbody>{resultRows.map((row) => <tr key={row.name}><td className="border px-4 py-3">{row.name}</td>{row.values.map((value, index) => <td key={index} className="border px-4 py-3 text-right">{value.toLocaleString("ru-RU")}</td>)}</tr>)}{showTotals && <tr className="bg-slate-100 font-bold"><td className="border px-4 py-3">{t("Итого")}</td>{displayColumns.map((_, index) => <td key={index} className="border px-4 py-3 text-right">{resultRows.reduce((sum, row) => sum + row.values[index], 0).toLocaleString("ru-RU")}</td>)}</tr>}</tbody></table></section>}
+    {generated && <section className="mx-7 mt-3 overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"><header className="flex items-center gap-2 border-b px-6 py-4 font-semibold"><FileText className="h-5 w-5 text-[#1E4A9A]" />{t(type)}</header><table className="min-w-full border-collapse"><thead className="bg-slate-100"><tr>{displayGroups.map((item) => <th key={item} className="border px-4 py-3 text-left">{t(item)}</th>)}{displayColumns.map((item) => <th key={item} className="border px-4 py-3 text-right">{appCurrencyColumn(item, t, appCurrency)}</th>)}</tr></thead><tbody>{resultRows.map((row) => <tr key={row.name}><td className="border px-4 py-3">{row.name}</td>{row.values.map((value, index) => <td key={index} className="border px-4 py-3 text-right">{value.toLocaleString("ru-RU")}</td>)}</tr>)}{showTotals && <tr className="bg-slate-100 font-bold"><td className="border px-4 py-3">{t("Итого")}</td>{displayColumns.map((_, index) => <td key={index} className="border px-4 py-3 text-right">{resultRows.reduce((sum, row) => sum + row.values[index], 0).toLocaleString("ru-RU")}</td>)}</tr>}</tbody></table></section>}
 
     {saveModalOpen && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" onMouseDown={() => setSaveModalOpen(false)}>

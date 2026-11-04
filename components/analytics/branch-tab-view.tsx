@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react"
 import { CashOverview, useBalanceOverview, WarehouseOverview } from "@/components/analytics/balance-sections"
 import { MoreButton, SortArrows, ToggleButtons, formatAmount, signedColor, useWidgetPeriod } from "@/components/analytics/widget-table-kit"
 import { ReportPage, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
+import { inAppCurrency, useAppCurrencyInfo, type AppCurrencyInfo } from "@/lib/app-currency-context"
 import type { PeriodKey } from "@/lib/dashboard-date-range"
+import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type Amounts = Record<string, number>
@@ -32,8 +34,16 @@ const CARD_SHADOW = "shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.1
 // opening and closing balance (by their date) and are not "other income / expense" of the period; rows entered by a user are.
 const CURRENCY_CODE: Record<string, string> = { sum: "SUM", usd: "USD", eur: "EUR", euro: "EUR" }
 
-export function withRecordedBalances(row: BranchRow, entries: ManualEntry[], begin: string, end: string): BranchRow {
-  const own = entries.filter((entry) => String(entry.branchId) === row.key)
+/** `app`: with an app currency (Настройки → Валюта приложения) the manual entries are converted into it,
+ * like the ledger rows of `row` already are. */
+export function withRecordedBalances(row: BranchRow, entries: ManualEntry[], begin: string, end: string, app?: AppCurrencyInfo): BranchRow {
+  const own = entries
+    .filter((entry) => String(entry.branchId) === row.key)
+    .map((entry) => {
+      if (!app?.code) return entry
+      const code = CURRENCY_CODE[entry.currency.toLowerCase()] ?? entry.currency.toUpperCase()
+      return { ...entry, currency: app.code, amount: inAppCurrency(app, entry.amount, code) ?? 0 }
+    })
   const carriedOver = entries.filter((entry) => !entry.createdBy).map((entry) => entry.date)
   const openedOn = carriedOver.length ? carriedOver.reduce((a, b) => (a > b ? a : b)) : ""
   const currencies: Record<string, Amounts> = {}
@@ -60,6 +70,10 @@ export function withRecordedBalances(row: BranchRow, entries: ManualEntry[], beg
 
 export function BranchTabView() {
   const { t } = useLanguage()
+  const app = useAppCurrencyInfo()
+  // One column per group with an app currency (it is the only currency of the ledger then).
+  const tableCurrencies: readonly string[] = app.code ? [app.code] : TABLE_CURRENCIES
+  const columnWidths = app.code ? [COLUMN_WIDTHS[0], ...GROUPS.map((_, index) => COLUMN_WIDTHS[1 + index * 2] + COLUMN_WIDTHS[2 + index * 2])] : COLUMN_WIDTHS
   const { period, setPeriod, beginIso, endIso, label } = useWidgetPeriod()
   const [report, setReport] = useState<BranchReport | null>(null)
   // The warehouse and cash sections follow the same period (GET /api/balances/overview).
@@ -96,11 +110,11 @@ export function BranchTabView() {
   const rows = useMemo(() => {
     const all = report?.rows ?? []
     const listed = entryOrder ? entryOrder.map((key) => all.find((row) => row.key === key)).filter((row): row is BranchRow => !!row) : all
-    const list = entries ? listed.map((row) => withRecordedBalances(row, entries, beginIso, endIso)) : listed
+    const list = entries ? listed.map((row) => withRecordedBalances(row, entries, beginIso, endIso, app)) : listed
     if (!sort) return list
     const value = (row: BranchRow) => row.currencies[sort.currency]?.[sort.field] ?? 0
     return [...list].sort((a, b) => (sort.dir === "asc" ? value(a) - value(b) : value(b) - value(a)))
-  }, [report, sort, entryOrder, entries, beginIso, endIso])
+  }, [report, sort, entryOrder, entries, beginIso, endIso, app])
 
   // The summary strip adds up the listed branches only (the reference does not count the others).
   const totals = useMemo(() => {
@@ -154,18 +168,18 @@ export function BranchTabView() {
         </div>
         <table className="w-full table-fixed border-collapse text-[13px] text-[#333]">
           <colgroup>
-            {COLUMN_WIDTHS.map((width, index) => <col key={index} style={{ width: `${(width / 1440) * 100}%` }} />)}
+            {columnWidths.map((width, index) => <col key={index} style={{ width: `${(width / 1440) * 100}%` }} />)}
           </colgroup>
           <thead className="bg-[#f0f4f9] text-left font-semibold text-[#374557]">
             <tr className="h-[35.1px]">
               <th rowSpan={2} className="px-[17.5px] align-middle font-semibold">{t("Филиал")}</th>
-              {GROUPS.map((group) => <th key={group.field} colSpan={2} className="border-l border-white px-[17.5px] font-semibold">{t(group.head)}</th>)}
+              {GROUPS.map((group) => <th key={group.field} colSpan={tableCurrencies.length} className="border-l border-white px-[17.5px] font-semibold">{t(group.head)}</th>)}
             </tr>
             <tr className="h-[35.6px]">
               {GROUPS.flatMap((group) =>
-                TABLE_CURRENCIES.map((currency) => (
+                tableCurrencies.map((currency) => (
                   <th key={`${group.field}-${currency}`} onClick={() => toggleSort(group.field, currency)} className="cursor-pointer select-none border-l border-white px-[17.5px] font-semibold">
-                    {currency}
+                    {currencyLabel(currency)}
                     <SortArrows />
                   </th>
                 )),
@@ -177,7 +191,7 @@ export function BranchTabView() {
               <tr key={row.key} className="h-[41.6px] border-b border-[#eee]">
                 <td className="border-r border-[#eee] px-[17.5px]">{row.name}</td>
                 {GROUPS.flatMap((group) =>
-                  TABLE_CURRENCIES.map((currency) => {
+                  tableCurrencies.map((currency) => {
                     const value = row.currencies[currency]?.[group.field] ?? 0
                     return <td key={`${group.field}-${currency}`} className={`px-[17.5px] ${signedColor(value)}`}>{formatAmount(value)}</td>
                   }),

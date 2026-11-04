@@ -8,6 +8,7 @@ import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/an
 import { ExcelImportLink, ExcelRowImportDialog } from "@/components/analytics/excel-row-import"
 import { EmptyRows, RowActions, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CASHBOXES_API, CASHBOX_TYPE_LABELS, CASH_MANAGEMENT_URL, type CashboxErrorBody, type CashboxListResult } from "./cashboxes-data"
@@ -107,6 +108,7 @@ const COLUMNS = "139fr 203fr 202fr 203fr 202fr 101fr 101fr 124fr"
 
 function CashboxesGrid() {
   const { t } = useLanguage()
+  const appCurrency = useAppCurrency()
   const searchParams = useSearchParams()
   const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams))
   const [dialog, setDialog] = useState<DialogState>(() => dialogFromParams(searchParams))
@@ -201,7 +203,12 @@ function CashboxesGrid() {
             <div key={cashbox.id} className={kitRow} style={{ gridTemplateColumns: COLUMNS }}>
               <span className="pl-[30px]">{cashbox.id}</span>
               <span className="py-[10px] pr-[16px]">{cashbox.name}</span>
-              <span>{cashbox.currency ? currencyLabel(normCurrency(cashbox.currency)) : t("Не указано")}</span>
+              {/* Настройки → Валюта приложения: a cashbox of another currency keeps it but takes no new money (greyed, with the reason). */}
+              {cashbox.currency && appCurrency && normCurrency(cashbox.currency) !== appCurrency ? (
+                <span className="text-[#b5b5b5]" title={t("Валюта кассы не совпадает с валютой приложения")}>{currencyLabel(normCurrency(cashbox.currency))}</span>
+              ) : (
+                <span>{cashbox.currency ? currencyLabel(normCurrency(cashbox.currency)) : t("Не указано")}</span>
+              )}
               <span className="py-[10px] pr-[16px]">{cashbox.cashier || t("Не указано")}</span>
               <span>{t(CASHBOX_TYPE_LABELS[cashbox.type])}</span>
               <span>

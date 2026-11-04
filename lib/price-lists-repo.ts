@@ -335,6 +335,9 @@ async function resolveListCurrency(db: PgDb, wanted: string | undefined, stored:
   }
   const code = normCurrency(wanted)
   if (stored && normCurrency(stored) === code) return code
+  // With an app currency (Настройки → Валюта приложения) the list is shown in it: sending it back keeps the stored
+  // currency, which the prices of its entries without a currency of their own are in.
+  if (stored && context.work && code === context.work) return normCurrency(stored)
   if (!context.currencies.some((currency) => currency.code === code)) throw new PriceListError(CURRENCY_NOT_FOUND, 400, { currency: CURRENCY_NOT_FOUND })
   return code
 }

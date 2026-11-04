@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
+import { currencyFilter } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { isIsoDay } from "@/lib/finance/dates"
 import { nameKey } from "@/lib/finance/entities"
@@ -220,7 +221,7 @@ export async function listSupplierPaymentsPage(query: SupplierPaymentsQuery, db:
     orgs: names(query.organizations),
     branches: names(query.branches),
     suppliers: ids(query.supplierIds),
-    currency: query.currency ? normCurrency(query.currency, base) : "",
+    currency: currencyFilter(cc, query.currency),
     q: search,
     qnum: /^\d{1,15}$/.test(search) ? Number(search) : -1,
   }
@@ -268,7 +269,10 @@ export async function supplierPaymentsOptions(db: PgDb = getDb()): Promise<Suppl
   const suppliers = (await has("suppliers"))
     ? ((await db.prepare("SELECT id, name FROM suppliers WHERE btrim(name) <> '' ORDER BY lower(name), id").all()) as Array<{ id: number; name: string }>)
     : []
-  const currencies = [...new Set([cc.base, ...cc.currencies.map((currency) => currency.code), ...used.map((row) => (row.cur ? normCurrency(row.cur, cc.base) : "")).filter(Boolean)])]
+  // With an app currency (Настройки → Валюта приложения) every payment is shown in it: the filter offers only it.
+  const currencies = cc.work
+    ? [cc.work]
+    : [...new Set([cc.base, ...cc.currencies.map((currency) => currency.code), ...used.map((row) => (row.cur ? normCurrency(row.cur, cc.base) : "")).filter(Boolean)])]
   return {
     baseCurrency: cc.base,
     organizations: collect([...orgRows.map((row) => row.name), ...used.map((row) => row.organization)]),

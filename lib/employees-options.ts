@@ -1,9 +1,11 @@
 import "server-only"
 
 import type { EmployeeOptions, NamedId } from "@/components/analytics/employees-data"
+import { getAppCurrency } from "@/lib/app-currency"
 import { ensureUserEmployeeLink } from "@/lib/auth-employee"
 import { getDb } from "@/lib/db"
 import { ensureEmployeesSchema } from "@/lib/employees-schema"
+import { normCurrency } from "@/lib/finance/currency"
 import { getLicenseGroups } from "@/lib/subscriptions-repo"
 
 const byName = (a: NamedId, b: NamedId) => {
@@ -57,7 +59,7 @@ export async function getEmployeeOptions(): Promise<EmployeeOptions> {
     names("organizations", "SELECT id, name FROM organizations"),
     names("warehouses", "SELECT id, name FROM warehouses WHERE active = 1"),
     names("price_lists", "SELECT id, name FROM price_lists ORDER BY position ASC, id ASC"),
-    names("currencies", "SELECT id, name FROM currencies"),
+    rowsOf<NamedId & { code: string }>("currencies", "SELECT id, name, code FROM currencies"),
     names("start_locations", "SELECT id, name FROM start_locations ORDER BY id ASC"),
     rowsOf<EmployeeOptions["employees"][number]>(
       "employees",
@@ -72,6 +74,7 @@ export async function getEmployeeOptions(): Promise<EmployeeOptions> {
     names("client_zones", "SELECT id, name FROM client_zones ORDER BY id ASC"),
     getLicenseGroups(),
   ])
+  const appCurrency = tables.has("currencies") ? await getAppCurrency() : ""
   const capabilityNames = new Map((await names("capabilities", "SELECT id, name FROM capabilities")).map((row) => [row.id, row.name]))
   const accessRights = accessRows.map((row) => {
     let ids: number[] = []
@@ -89,7 +92,11 @@ export async function getEmployeeOptions(): Promise<EmployeeOptions> {
     organizations: organizations.sort(byOrgName),
     warehouses: warehouses.sort(byName),
     priceLists,
-    currencies: currencies.sort(byName),
+    // With an app currency (Настройки → Валюта приложения) only that one is offered.
+    currencies: currencies
+      .filter((currency) => !appCurrency || normCurrency(currency.code) === appCurrency)
+      .map(({ id, name }) => ({ id, name }))
+      .sort(byName),
     startLocations,
     employees,
     cashboxes,

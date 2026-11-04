@@ -10,6 +10,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import { Checkbox, DateField, SelectField, toInputDate } from "./add-order-dialog"
 import { RELEASED_STATUSES, type Order } from "./orders-data"
 import type { ClientReturnRow } from "./returns-view"
+import { currencyLabel } from "@/lib/finance/currency"
 
 type Mode = "order" | "client"
 type ClientRow = { id: number; name: string; deliverer?: string; agent?: string }
@@ -117,7 +118,7 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
     orders: clientOrders.map((row) => ({ value: String(row.id), label: `№${row.id} — ${row.amount} (${t(row.status)})` })),
     warehouses: warehouses.map((name) => ({ value: name, label: name })),
     people: people.map((name) => ({ value: name, label: name })),
-    currencies: currencies.map((code) => ({ value: code, label: code })),
+    currencies: currencies.map((code) => ({ value: code, label: currencyLabel(code) })),
     products: products.map((row) => ({ value: String(row.id), label: row.name })),
   }
 

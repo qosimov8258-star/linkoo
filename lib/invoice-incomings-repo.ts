@@ -1,5 +1,6 @@
 import "server-only"
 
+import { getAppCurrency } from "@/lib/app-currency"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { docYearOk, parseDocInput } from "@/lib/document-dates"
 import { loadCurrencyContext, type CurrencyContext } from "@/lib/finance/context"
@@ -248,8 +249,11 @@ function listWhere(query: InvoiceListQuery, withTab: boolean): { sql: string; pa
   return { sql: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params }
 }
 
-export async function listInvoices(query: InvoiceListQuery): Promise<InvoiceListResult> {
+export async function listInvoices(query0: InvoiceListQuery): Promise<InvoiceListResult> {
   const db = await invoiceDb()
+  // With an app currency every invoice is shown in it: its "Валюта" filter keeps every row.
+  const work = await getAppCurrency(db)
+  const query = work ? { ...query0, currencies: query0.currencies.filter((code) => normCurrency(code) !== work) } : query0
   const where = listWhere(query, true)
   const paging = query.pageSize > 0 ? ` LIMIT ${query.pageSize} OFFSET ${(query.page - 1) * query.pageSize}` : ""
   const rows = (await db.prepare(`${SELECT_SQL} ${where.sql} ORDER BY i.date DESC, i.id DESC${paging}`).all(...where.params)) as HeaderRow[]

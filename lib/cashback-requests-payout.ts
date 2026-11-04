@@ -4,7 +4,7 @@ import type { PgDb } from "@/lib/db"
 import type { CurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
-import { CashError, defaultExpenseCategory, loadCashbox, loadClient, localDateTime, loyaltyCurrency, pickRate, resolveOrganization, type CashboxInfo } from "@/lib/cash/common"
+import { CashError, defaultExpenseCategory, loadCashboxForWrite, loadClient, localDateTime, loyaltyCurrency, pickRate, resolveOrganization, type CashboxInfo } from "@/lib/cash/common"
 import { CASH_OP, CASH_OP_LABELS } from "@/lib/cash/types"
 
 // Cashback payout of a confirmed "Запрос на снятие кэшбэка", written INSIDE the
@@ -43,7 +43,7 @@ export type CashbackPayoutInput = {
 export type CashbackPayoutResult = { entryId: number; docNo: number; cashbox: CashboxInfo }
 
 export async function insertCashbackPayout(tx: PgDb, input: CashbackPayoutInput, cc: CurrencyContext): Promise<CashbackPayoutResult> {
-  const cashbox = await loadCashbox(tx, input.cashboxId, cc.base)
+  const cashbox = await loadCashboxForWrite(tx, input.cashboxId, cc)
   if (cashbox.currency !== normCurrency(input.currency, cc.base)) {
     throw new CashError("Валюта кассы не совпадает с валютой запроса", 400, "cashbox")
   }

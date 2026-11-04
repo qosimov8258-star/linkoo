@@ -6396,4 +6396,19 @@ export const tk: Record<string, string> = {
   "Статья": "Madda",
   // Mezon rebrand 2026-11-03: login brand panel
   "Панель управления дистрибуцией": "Distribusiýany dolandyryş paneli",
+  // 2026-11-04: category options "Приход от сотрудников" (income) and client_card_out (expense)
+  "Приход от сотрудников": "Işgärlerden giriş",
+  "Выдача денег с карты клиента": "Müşderiniň kartasyndan pul bermek",
+  // 2026-11-04: Настройки → Валюта приложения (lib/app-currency.ts)
+  "Валюта приложения": "Programmanyň walýutasy",
+  "Выберите валюту, в которой работает всё приложение: SOM, USD или ЕВРО.": "Tutuş programmanyň işleýän walýutasyny saýlaň: SOM, USD ýa-da ÝEWRO.",
+  "Выберите валюту, в которой работает всё приложение. Суммы, списки, формы, отчёты и фильтры показываются только в этой валюте; суммы, сохранённые в других валютах, пересчитываются по текущему курсу.": "Tutuş programmanyň işleýän walýutasyny saýlaň. Möçberler, sanawlar, formalar, hasabatlar we süzgüçler diňe şu walýutada görkezilýär; beýleki walýutalarda saklanan möçberler häzirki kurs boýunça täzeden hasaplanýar.",
+  "Каждая сумма в своей валюте": "Her möçber öz walýutasynda",
+  "Курс не задан": "Kurs bellenmedik",
+  "Курсы задаются в разделе": "Kurslar şu bölümde bellenýär:",
+  "Сохранённые документы не меняются: при выборе «Все валюты» они снова показываются в своей валюте.": "Saklanan resminamalar üýtgemeýär: «Ähli walýutalar» saýlansa, olar ýene öz walýutasynda görkezilýär.",
+  "Текущая": "Häzirki",
+  "Это валюта приложения: сначала выберите другую в разделе «Валюта приложения»": "Bu programmanyň walýutasy: ilki «Programmanyň walýutasy» bölüminde başgasyny saýlaň",
+  "Валюта кассы не совпадает с валютой приложения": "Kassanyň walýutasy programmanyň walýutasy bilen gabat gelmeýär",
+  "Валюта документа должна совпадать с валютой приложения": "Resminamanyň walýutasy programmanyň walýutasy bilen gabat gelmeli",
 }

@@ -8,6 +8,7 @@ import { EmptyRows, ROW_ICONS, RowActions, RowIcon, SettingsToolbar, kitHead, ki
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { currencyLabel } from "@/lib/finance/currency"
 import { formatStatementDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -87,6 +88,8 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
 
 function PriceListsGrid() {
   const { t, language } = useLanguage()
+  // With an app currency (Настройки → Валюта приложения) every list is shown (and priced) in it.
+  const appCurrency = useAppCurrency()
   const searchParams = useSearchParams()
   const router = useRouter()
   const canEdit = useCanWrite()
@@ -200,7 +203,7 @@ function PriceListsGrid() {
             <div key={row.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
               <span className="pr-4">{row.id}</span>
               <span className="min-w-0 break-words pr-4">{row.name}</span>
-              <span className="pr-4">{row.currency ? currencyLabel(row.currency) : notSet}</span>
+              <span className="pr-4">{appCurrency ? currencyLabel(appCurrency) : row.currency ? currencyLabel(row.currency) : notSet}</span>
               <span className="whitespace-nowrap pr-4">{created(row)}</span>
               <span className="min-w-0 break-words pr-4">{row.connectedPriceList?.name ?? (row.linkedList !== "Не указано" ? row.linkedList : notSet)}</span>
               <span className="pr-4">{t(row.calcMethod)}</span>
@@ -213,7 +216,7 @@ function PriceListsGrid() {
                       path={ROW_ICONS.dollar}
                       label="Установить цену"
                       raw
-                      onClick={() => router.push(`/analytics/repricing?openCreateDialog=true&priceListId=${row.id}&currency=${encodeURIComponent(row.currency)}`)}
+                      onClick={() => router.push(`/analytics/repricing?openCreateDialog=true&priceListId=${row.id}&currency=${encodeURIComponent(appCurrency || row.currency)}`)}
                     />
                   }
                   onEdit={() => setDialog({ kind: "update", id: row.id })}

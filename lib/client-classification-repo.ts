@@ -2,6 +2,7 @@ import "server-only"
 
 import { loadRateBook } from "@/lib/currency-rates-repo"
 import { getDb, outsideTransaction, withTransaction } from "@/lib/db"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { ensureOrdersSchema } from "@/lib/orders-repo"
@@ -152,7 +153,9 @@ export async function getClassification(params: ClassificationParams): Promise<C
 
   // Rates of Валюты (by id, with their history); the base currency is 1. A currency without a rate counts 0.
   const book = await loadRateBook(db)
-  const rateAt = (code: string, createdAt: string) => book.rateAt(normCurrency(code, book.base), createdAt) ?? 0
+  // The class limits are typed in the app currency when one is chosen (Настройки → Валюта приложения): sums are in it.
+  const shown = baseReportCurrency(await loadCurrencyContext(db))
+  const rateAt = (code: string, createdAt: string) => (book.rateAt(normCurrency(code, book.base), createdAt) ?? 0) * shown.factor
 
   const dateOf = (order: OrderRow) =>
     params.dateType === "created_date" ? order.created_day : params.dateType === "accepted_time" ? russianDate(order.accepted_date) : russianDate(order.delivery)

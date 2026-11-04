@@ -4,6 +4,7 @@ import { getFieldSummary, type FieldSummary } from "@/lib/agent-visits-repo"
 import { customerPaymentTotals } from "@/lib/cash/customer-payments"
 import { acceptedReturnTotals } from "@/lib/client-returns-repo"
 import { getDb } from "@/lib/db"
+import { foldToWork, loadCurrencyContext } from "@/lib/finance/context"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { orderCountedSql, ownAgentSql } from "@/lib/finance/sources"
 import { ensureOrdersSchema } from "@/lib/orders-repo"
@@ -126,12 +127,15 @@ export async function getDashboardSummary(begin: string, end: string, fieldEmplo
   const count = (status: string) => statusRows.find((row) => row.status === status)?.n ?? 0
   const inTransit = count("В пути")
   const delivered = count("Доставлено")
+  // With an app currency (Настройки → Валюта приложения) each card is one amount in it.
+  const cc = await loadCurrencyContext(db)
+  const inWork = (list: CurrencyAmount[]) => foldToWork(cc, list, (item) => item.value, (currency, value) => ({ currency, value: round(value) }))
   return {
     begin,
     end,
-    sales: salesRows.map((row) => ({ currency: row.cur, value: round(row.amount) })).filter((row) => row.value !== 0),
-    payments: payments.totals.map((row) => ({ currency: row.currency, value: round(row.total) })).filter((row) => row.value !== 0),
-    returns: returns.totals.map((row) => ({ currency: row.currency, value: row.amount })),
+    sales: inWork(salesRows.map((row) => ({ currency: row.cur, value: round(row.amount) })).filter((row) => row.value !== 0)),
+    payments: inWork(payments.totals.map((row) => ({ currency: row.currency, value: round(row.total) })).filter((row) => row.value !== 0)),
+    returns: inWork(returns.totals.map((row) => ({ currency: row.currency, value: row.amount }))),
     akb: akbRow?.n ?? 0,
     field: await getFieldSummary(begin, end, fieldEmployeeIds),
     units: {

@@ -3,6 +3,8 @@
 import { X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
+import { useAppCurrency } from "@/lib/app-currency-context"
+import { normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import type { Order } from "./orders-data"
@@ -38,6 +40,7 @@ const dueOf = (order: Order) => Math.max(0, order.payableRest ?? order.orderBala
  */
 export function OrderGroupPayment({ orders, onClose, onSaved }: { orders: Order[]; onClose: () => void; onSaved: (payments: number) => void }) {
   const { t } = useLanguage()
+  const appCurrency = useAppCurrency()
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [branches, setBranches] = useState<Named[]>([])
   const [employees, setEmployees] = useState<Named[]>([])
@@ -56,7 +59,8 @@ export function OrderGroupPayment({ orders, onClose, onSaved }: { orders: Order[
         .then(async (response) => (response.ok ? ((await response.json()) as T[]) : []))
         .then(set)
         .catch(() => set([]))
-    load<Cashbox>("/api/cashboxes?sort=created", setCashboxes)
+    // Настройки → Валюта приложения: payments go only into cashboxes of the app currency.
+    load<Cashbox>("/api/cashboxes?sort=created", (rows) => setCashboxes(appCurrency ? rows.filter((row) => normCurrency(row.currency) === appCurrency) : rows))
     load<Named>("/api/branches?sort=created", (all) => {
       const rows = all.filter((row, index) => all.findIndex((other) => other.name === row.name) === index)
       setBranches(rows)
@@ -66,7 +70,7 @@ export function OrderGroupPayment({ orders, onClose, onSaved }: { orders: Order[
     load<{ id: number; name?: string; firstName?: string; lastName?: string }>("/api/employees", (rows) =>
       setEmployees(rows.map((row) => ({ id: row.id, name: row.name || `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() }))),
     )
-  }, [])
+  }, [appCurrency])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()

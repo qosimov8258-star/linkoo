@@ -4,6 +4,7 @@ import { clientDays } from "@/lib/agent-visits-repo"
 import { loadRateBook } from "@/lib/currency-rates-repo"
 import { getDb } from "@/lib/db"
 import { listFieldEmployees } from "@/lib/field-activity/employees"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { orderRealizationTs } from "@/lib/finance/sources"
@@ -188,6 +189,11 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
   const s = await ensureFinanceSchema(db)
   const branch = await selectedBranchName()
   const book = await loadRateBook(db)
+  // With an app currency (Настройки → Валюта приложения) every amount is shown in it: base amounts × factor,
+  // and the documents' own amounts too (the "Валюта" grouping then has the app currency only).
+  const cc = await loadCurrencyContext(db)
+  const shown = baseReportCurrency(cc)
+  const appCurrency = cc.work
   // The business day of the order: its creation moment ("… ПО ДАТЕ СОЗДАНИЯ"), else its realization
   // moment as the finance core dates it (shipped_at, a legacy planned delivery day, the creation).
   const byCreation = /СОЗДАН/.test(input.tab ?? "")
@@ -202,7 +208,7 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
           AND (${dayTs})::date BETWEEN @from::date AND @to::date`,
     )
     .all({ branch, from: input.from, to: input.to })) as SalesOrderRow[]
-  if (!orders.length) return { records: [], base: book.base, missingRates: [] }
+  if (!orders.length) return { records: [], base: shown.code, missingRates: [] }
   // No line of this app is a bonus line (like lib/order-summary-repo.ts). The legacy order_item_bonus table
   // (the reference account's flags, filled only by a removed backfill script) stays in place, unread.
   const items = (await db
@@ -248,7 +254,9 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
     )
     const rate = book.rateAt(currency, order.created_at)
     if (rate === null && price !== 0) missing.add(currency)
-    const toBase = rate ?? 0
+    const toBase = (rate ?? 0) * shown.factor
+    // The document's own amounts: in the app currency when one is chosen.
+    const toDoc = appCurrency ? toBase : 1
     const day = order.day
     const [first = "", ...rest] = String(order.agent ?? "").split(" ")
     const box = num(item.box_amount)
@@ -257,7 +265,7 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
     const productKey = item.product_id !== null && item.product_id !== undefined ? `product:${Number(item.product_id)}` : ""
     const ledgerUnit = productKey && moved ? (documentLineUnit(moved, "orders", Number(order.id), productKey) ?? costOn(productKey, day)) : undefined
     // Lines the ledger does not know (no product link): their own cost price, in the order's currency.
-    const unitCost = ledgerUnit ?? num(item.cost_price) * toBase
+    const unitCost = ledgerUnit !== undefined ? ledgerUnit * shown.factor : num(item.cost_price) * toBase
     records.push({
       group: {
         "~Дата по дням": day,
@@ -266,7 +274,7 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
         "Дата по дням": dmy(day),
         "Дата по неделям": weekLabel(day),
         "Дата по месяцам": monthLabel(day),
-        "Валюта": currency,
+        "Валюта": appCurrency || currency,
         "Документ №": String(order.id),
         "Документ Тип": "Заказ",
         "Документ Отв.агент": String(order.agent ?? ""),
@@ -297,7 +305,7 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
         "Тип оплаты": String(order.pay_type_name ?? ""),
         "Тип сделки": String(order.deal_type ?? ""),
         "Филиал": String(order.branch_name ?? ""),
-        "Цена": String(round(num(item.unit_price), 2)),
+        "Цена": String(round(num(item.unit_price) * toDoc, 2)),
         "Себестоимость": String(round(unitCost, 2)),
       },
       orderId: Number(order.id),
@@ -306,11 +314,11 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
       valued: qty * price > 0,
       qty,
       retQty,
-      currency,
+      currency: appCurrency || currency,
       ordAmount: qty * price * toBase,
       retAmount: retQty * price * toBase,
-      docAmount: qty * price,
-      docRetAmount: retQty * price,
+      docAmount: qty * price * toDoc,
+      docRetAmount: retQty * price * toDoc,
       ordCost: qty * unitCost,
       retCost: retQty * unitCost,
       blockQty: box > 0 ? qty / box : 0,
@@ -319,7 +327,7 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
       weight: qty * weight,
     })
   }
-  return { records, base: book.base, missingRates: [...missing].sort() }
+  return { records, base: shown.code, missingRates: [...missing].sort() }
 }
 
 const SALES_FILTER_FIELD: Record<string, string> = {

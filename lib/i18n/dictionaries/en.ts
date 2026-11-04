@@ -6397,4 +6397,19 @@ export const en: Record<string, string> = {
   "Статья": "Item",
   // Mezon rebrand 2026-11-03: login brand panel
   "Панель управления дистрибуцией": "Distribution management panel",
+  // 2026-11-04: category options "Приход от сотрудников" (income) and client_card_out (expense)
+  "Приход от сотрудников": "Income from employees",
+  "Выдача денег с карты клиента": "Payout from the client's card",
+  // 2026-11-04: Настройки → Валюта приложения (lib/app-currency.ts)
+  "Валюта приложения": "App currency",
+  "Выберите валюту, в которой работает всё приложение: SOM, USD или ЕВРО.": "Choose the currency the whole app works in: SOM, USD or EURO.",
+  "Выберите валюту, в которой работает всё приложение. Суммы, списки, формы, отчёты и фильтры показываются только в этой валюте; суммы, сохранённые в других валютах, пересчитываются по текущему курсу.": "Choose the currency the whole app works in. Amounts, lists, forms, reports and filters show only this currency; amounts saved in other currencies are recalculated at the current rate.",
+  "Каждая сумма в своей валюте": "Each amount in its own currency",
+  "Курс не задан": "Rate not set",
+  "Курсы задаются в разделе": "Rates are set in",
+  "Сохранённые документы не меняются: при выборе «Все валюты» они снова показываются в своей валюте.": "Saved documents do not change: with “All currencies” they are shown in their own currency again.",
+  "Текущая": "Current",
+  "Это валюта приложения: сначала выберите другую в разделе «Валюта приложения»": "This is the app currency: first choose another one in “App currency”",
+  "Валюта кассы не совпадает с валютой приложения": "The cashbox currency does not match the app currency",
+  "Валюта документа должна совпадать с валютой приложения": "The document currency must match the app currency",
 }

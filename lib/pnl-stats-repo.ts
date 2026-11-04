@@ -4,6 +4,7 @@ import { ensureCashSchema } from "@/lib/cash/schema"
 import { ensureClientReturnsSchema } from "@/lib/client-returns-repo"
 import { loadRateBook } from "@/lib/currency-rates-repo"
 import { getDb } from "@/lib/db"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { REVALUATION_KIND } from "@/lib/net-cost-ledger"
 import { ensureOrdersSchema, parseMoneyText } from "@/lib/orders-repo"
@@ -457,7 +458,7 @@ export async function getPnlStats(first: PnlPeriod, second: PnlPeriod, filters: 
   const netFirst = net(a, "first")
   const netSecond = net(b, "second")
 
-  return {
+  return inShownCurrency(baseReportCurrency(await loadCurrencyContext(db)), {
     currency: book.base,
     missingRates: [...missing].sort(),
     summary: {
@@ -483,6 +484,41 @@ export async function getPnlStats(first: PnlPeriod, second: PnlPeriod, filters: 
     products: group((line) => line.productName),
     brands: group((line) => line.brand),
     zones: group((line) => line.zone),
+  })
+}
+
+/** The report in the currency it is shown in (Настройки → Валюта приложения): the base amounts × factor; the
+ * rentability percentages stay. */
+function inShownCurrency(shown: { code: string; factor: number }, stats: PnlStats): PnlStats {
+  if (shown.factor === 1 && shown.code === stats.currency) return stats
+  const money = (value: number) => round(value * shown.factor, 2)
+  const pairOf = (value: PnlPair): PnlPair => ({ first: money(value.first), second: money(value.second) })
+  const figuresOf = (value: PnlFigures): PnlFigures => ({
+    ...value,
+    sales: money(value.sales),
+    returns: money(value.returns),
+    factSales: money(value.factSales),
+    netCost: money(value.netCost),
+    profit: money(value.profit),
+  })
+  const rows = (list: PnlRow[]) => list.map((row) => ({ ...row, first: figuresOf(row.first), second: figuresOf(row.second) }))
+  const expenses = (list: PnlExpense[]): PnlExpense[] =>
+    list.map((item) => ({ ...item, first: money(item.first), second: money(item.second), children: item.children.map((child) => ({ ...child, first: money(child.first), second: money(child.second) })) }))
+  const summary = Object.fromEntries(
+    Object.entries(stats.summary).map(([key, value]) => [key, key.endsWith("Rentability") ? value : pairOf(value)]),
+  ) as PnlStats["summary"]
+  return {
+    ...stats,
+    currency: shown.code,
+    summary,
+    indirectExpenses: expenses(stats.indirectExpenses),
+    directExpenses: expenses(stats.directExpenses),
+    branches: rows(stats.branches),
+    agents: rows(stats.agents),
+    productTypes: rows(stats.productTypes),
+    products: rows(stats.products),
+    brands: rows(stats.brands),
+    zones: rows(stats.zones),
   }
 }
 
