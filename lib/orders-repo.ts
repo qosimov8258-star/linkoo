@@ -174,16 +174,29 @@ BEGIN
     ALTER TABLE order_items ADD CONSTRAINT order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE NOT VALID;
   END IF;
 END $$;
+-- The order card's Логи (lib/order-logs-repo.ts, the reference's columns): one table for both modules. A table an
+-- older version created with kind / amount gets the reference columns (and keeps the old ones, unused).
 CREATE TABLE IF NOT EXISTS order_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ref_id INTEGER UNIQUE,
   order_id INTEGER NOT NULL,
-  kind TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL DEFAULT 'updated',
   status TEXT NOT NULL DEFAULT '',
   comment TEXT NOT NULL DEFAULT '',
-  amount TEXT NOT NULL DEFAULT '',
+  total_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'SUM',
+  pay_type_name TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT '',
+  market_name TEXT NOT NULL DEFAULT '',
+  snapshot TEXT NOT NULL DEFAULT '[]'
 );
+ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS action TEXT NOT NULL DEFAULT 'updated';
+ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS total_price DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'SUM';
+ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS pay_type_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS market_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS snapshot TEXT NOT NULL DEFAULT '[]';
 CREATE INDEX IF NOT EXISTS order_logs_order_idx ON order_logs (order_id);
 `
 
@@ -1060,26 +1073,29 @@ async function assertProductsAllowed(db: PgDb, agent: string, productIds: Array<
 // Logs
 // ---------------------------------------------------------------------------
 
-export type OrderLogEntry = { id: number; kind: string; status: string; comment: string; amount: string; createdBy: string; createdAt: string }
+/** The reference's status codes of a log entry (components/orders/order-detail.tsx LOG_STATUS). */
+const LOG_STATUS_CODE: Record<string, string> = { "В процессе": "0", "Есть на складе": "1", "В пути": "2", "Доставлено": "3", "Отменен": "4", "Не подтвержден": "5" }
 
-async function addLog(db: PgDb, orderId: number, entry: { kind: "Создан" | "Обновленный"; status: string; comment?: string; amount: string; user: string }) {
+/** An entry of the order card's Логи (read by lib/order-logs-repo.ts): created / updated with the order's
+ * status, total and currency at that moment. */
+async function addLog(db: PgDb, orderId: number, entry: { action: "created" | "updated"; status: string; comment?: string; amount: string; user: string }) {
+  const money = parseMoneyText(entry.amount)
   await db
-    .prepare("INSERT INTO order_logs (order_id, kind, status, comment, amount, created_by) VALUES (@orderId, @kind, @status, @comment, @amount, @user)")
-    .run({ orderId, kind: entry.kind, status: entry.status, comment: entry.comment ?? "", amount: entry.amount, user: entry.user })
-}
-
-export async function listOrderLogs(orderId: number): Promise<OrderLogEntry[]> {
-  await ensureOrdersSchema()
-  const rows = (await getDb().prepare("SELECT * FROM order_logs WHERE order_id = ? ORDER BY id DESC").all(orderId)) as Array<{
-    id: number
-    kind: string
-    status: string
-    comment: string
-    amount: string
-    created_by: string
-    created_at: string
-  }>
-  return rows.map((row) => ({ id: row.id, kind: row.kind, status: row.status, comment: row.comment, amount: row.amount, createdBy: row.created_by, createdAt: row.created_at }))
+    .prepare(
+      `INSERT INTO order_logs (order_id, action, status, comment, total_price, currency, pay_type_name, created_by, created_at, market_name)
+       SELECT @orderId, @action, @status, @comment, @total, @currency, COALESCE(o.pay_type_name, ''), @user,
+              to_char((now() AT TIME ZONE 'Asia/Tashkent'), 'YYYY-MM-DD"T"HH24:MI:SS'), COALESCE(NULLIF(o.market_name, ''), o.client, '')
+         FROM orders o WHERE o.id = @orderId`,
+    )
+    .run({
+      orderId,
+      action: entry.action,
+      status: LOG_STATUS_CODE[entry.status] ?? "",
+      comment: entry.comment ?? "",
+      total: money?.value ?? 0,
+      currency: money?.currency ?? "SUM",
+      user: entry.user,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1558,7 +1574,7 @@ export async function createOrder(input: OrderCreateInput, user: { displayName: 
       .run({ id: orderId, branch: branch || (await clientBranch(tx, client.id)), payMethod: input.paymentType === "bank" ? "bank" : "cash" })
     for (const line of resolved) await insertLine(tx, orderId, line, currency)
     await syncOrderWeight(tx, orderId)
-    await addLog(tx, orderId, { kind: "Создан", status, amount, user: user.displayName })
+    await addLog(tx, orderId, { action: "created", status, amount, user: user.displayName })
     return orderId
   })
   return (await getOrder(id))!
@@ -1890,7 +1906,7 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
           ? `Изменен статус: ${from} - ${target}`
           : `Изменено: ${changedColumns.join(", ")}`
       const amountRow = (await tx.prepare("SELECT amount FROM orders WHERE id = ?").get(id)) as { amount: string }
-      await addLog(tx, id, { kind: "Обновленный", status: target, comment, amount: amountRow.amount, user: user.displayName })
+      await addLog(tx, id, { action: "updated", status: target, comment, amount: amountRow.amount, user: user.displayName })
       if (target === "Доставлено" && from !== "Доставлено") {
         // Настройки → Уведомления "order_delivered": the administrators, the subscribers and the order's agent
         // (in this transaction: a rolled-back change notifies nobody; a failed notification never undoes it).
@@ -2041,7 +2057,7 @@ export async function writeOrderLine(orderId: number, op: LineOp, user: { displa
     if (!order.currency) await tx.prepare("UPDATE orders SET currency = @currency WHERE id = @id").run({ id: orderId, currency })
     await syncSummary(tx, { ...order, currency })
     const amountRow = (await tx.prepare("SELECT amount FROM orders WHERE id = ?").get(orderId)) as { amount: string }
-    await addLog(tx, orderId, { kind: "Обновленный", status: order.status, comment, amount: amountRow.amount, user: user.displayName })
+    await addLog(tx, orderId, { action: "updated", status: order.status, comment, amount: amountRow.amount, user: user.displayName })
     return lineId
   })
 }

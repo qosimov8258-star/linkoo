@@ -40,3 +40,7 @@ diag-files.png
 
 # Factory simulation UI check output (scripts/factory/ui-check.cjs)
 /.ui-check/
+
+# Database backups and data packages (scripts/migrate/load-data.sh): business data, never committed
+backups/
+*.dump

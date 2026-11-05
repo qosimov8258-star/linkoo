@@ -56,6 +56,13 @@ function ensureSchema(): Promise<void> {
          market_name TEXT NOT NULL DEFAULT '',
          snapshot TEXT NOT NULL DEFAULT '[]'
        );
+       -- A table an older version of lib/orders-repo.ts created (kind / amount) gets these columns too.
+       ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS action TEXT NOT NULL DEFAULT 'updated';
+       ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS total_price DOUBLE PRECISION NOT NULL DEFAULT 0;
+       ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'SUM';
+       ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS pay_type_name TEXT NOT NULL DEFAULT '';
+       ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS market_name TEXT NOT NULL DEFAULT '';
+       ALTER TABLE order_logs ADD COLUMN IF NOT EXISTS snapshot TEXT NOT NULL DEFAULT '[]';
        CREATE INDEX IF NOT EXISTS order_logs_order_idx ON order_logs (order_id);`,
     )
     .catch((error: unknown) => {

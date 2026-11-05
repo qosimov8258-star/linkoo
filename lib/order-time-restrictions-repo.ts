@@ -47,7 +47,7 @@ export class OrderTimeRestrictionError extends Error {
   }
 }
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const CODES = Object.keys(ORDER_TIME_CODES) as OrderTimeCode[]
 const TIME_RE = String.raw`'^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$'`
 
@@ -77,6 +77,28 @@ function ensureSchema(): Promise<void> {
         await tx.exec("ALTER TABLE order_time_restrictions ADD COLUMN IF NOT EXISTS code TEXT")
         await tx.exec("ALTER TABLE order_time_restrictions ADD COLUMN IF NOT EXISTS status SMALLINT NOT NULL DEFAULT 1")
         await tx.exec("ALTER TABLE order_time_restrictions ADD COLUMN IF NOT EXISTS is_all BOOLEAN NOT NULL DEFAULT TRUE")
+        // An older draft (and databases copied from it) kept status as TEXT ('1'…'4') and is_all as INTEGER:
+        // the types the checks below and the queries compare with.
+        await tx.exec(`
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = current_schema() AND table_name = 'order_time_restrictions'
+                          AND column_name = 'status' AND data_type <> 'smallint') THEN
+              ALTER TABLE order_time_restrictions ALTER COLUMN status DROP DEFAULT;
+              ALTER TABLE order_time_restrictions
+                ALTER COLUMN status TYPE SMALLINT USING (CASE WHEN btrim(status::text) ~ '^[1-4]$' THEN btrim(status::text)::smallint ELSE 1 END);
+              ALTER TABLE order_time_restrictions ALTER COLUMN status SET DEFAULT 1;
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = current_schema() AND table_name = 'order_time_restrictions'
+                          AND column_name = 'is_all' AND data_type <> 'boolean') THEN
+              ALTER TABLE order_time_restrictions ALTER COLUMN is_all DROP DEFAULT;
+              ALTER TABLE order_time_restrictions ALTER COLUMN is_all TYPE BOOLEAN USING (COALESCE(is_all::text, '1') NOT IN ('0', 'false', 'f'));
+              ALTER TABLE order_time_restrictions ALTER COLUMN is_all SET DEFAULT TRUE;
+            END IF;
+          END $$;
+        `)
         // The first draft stored TEXT times ('00:00' / '23:59', NOT NULL) and a full_day flag:
         // adopt its rows named like the system rows, then turn the times into TIME (NULL for
         // statuses 1 / 2 and for anything that is not a valid clock time).
