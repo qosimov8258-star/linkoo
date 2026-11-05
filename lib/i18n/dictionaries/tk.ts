@@ -6411,4 +6411,12 @@ export const tk: Record<string, string> = {
   "Это валюта приложения: сначала выберите другую в разделе «Валюта приложения»": "Bu programmanyň walýutasy: ilki «Programmanyň walýutasy» bölüminde başgasyny saýlaň",
   "Валюта кассы не совпадает с валютой приложения": "Kassanyň walýutasy programmanyň walýutasy bilen gabat gelmeýär",
   "Валюта документа должна совпадать с валютой приложения": "Resminamanyň walýutasy programmanyň walýutasy bilen gabat gelmeli",
+  // 2026-11-05: the default roles of a new company (lib/default-roles.ts)
+  "Доставщик | Функции": "Eltip beriji | Funksiýalar",
+  "Доступ админ": "Admin rugsady",
+  "Зав.Склад | Функции": "Ammar müdiri | Funksiýalar",
+  "Инкассатор | Функции": "Inkassator | Funksiýalar",
+  "Кассир | Функции": "Kassir | Funksiýalar",
+  "Мерчендайзер | Функции": "Merçendaýzer | Funksiýalar",
+  "Супервайзер | Функции": "Gözegçi | Funksiýalar",
 }

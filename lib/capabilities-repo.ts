@@ -2,6 +2,7 @@ import "server-only"
 
 import { isUniqueViolation } from "@/lib/auth-request"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { ensureDefaultRoles } from "@/lib/default-roles"
 import type { Capability } from "@/components/analytics/access-rights-data"
 
 type Row = { id: number; name: string; permission_ids: string }
@@ -32,6 +33,8 @@ export class CapabilityError extends Error {
 }
 
 export async function listCapabilities(): Promise<Capability[]> {
+  // A new company starts with the default roles (lib/default-roles.ts).
+  await ensureDefaultRoles()
   const db = getDb()
   return ((await db.prepare("SELECT id, name, permission_ids FROM capabilities ORDER BY id ASC").all()) as Row[]).map(rowToCapability)
 }

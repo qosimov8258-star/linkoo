@@ -2,6 +2,7 @@ import "server-only"
 
 import { isUniqueViolation } from "@/lib/auth-request"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { ensureDefaultRoles } from "@/lib/default-roles"
 import { refreshEmployeePositions, withEmployeeLinks } from "@/lib/employees-usage"
 import type { AccessRight } from "@/components/analytics/access-rights-data"
 
@@ -34,6 +35,8 @@ export class AccessRightError extends Error {
 }
 
 export async function listAccessRights(): Promise<AccessRight[]> {
+  // A new company starts with the default roles (lib/default-roles.ts).
+  await ensureDefaultRoles()
   const db = getDb()
   return ((await db.prepare("SELECT id, name, capability_ids FROM access_rights ORDER BY id ASC").all()) as Row[]).map(rowToAccessRight)
 }

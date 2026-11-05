@@ -4,8 +4,10 @@ import type { EmployeeOptions, NamedId } from "@/components/analytics/employees-
 import { getAppCurrency } from "@/lib/app-currency"
 import { ensureUserEmployeeLink } from "@/lib/auth-employee"
 import { getDb } from "@/lib/db"
+import { ensureDefaultRoles } from "@/lib/default-roles"
 import { ensureEmployeesSchema } from "@/lib/employees-schema"
 import { normCurrency } from "@/lib/finance/currency"
+import { ensureJobPositionsSchema } from "@/lib/job-positions-repo"
 import { getLicenseGroups } from "@/lib/subscriptions-repo"
 
 const byName = (a: NamedId, b: NamedId) => {
@@ -48,6 +50,8 @@ async function existingTables(): Promise<Set<string>> {
 export async function getEmployeeOptions(): Promise<EmployeeOptions> {
   await ensureUserEmployeeLink()
   await ensureEmployeesSchema()
+  // A new company starts with the default positions and roles (Должность and Права доступа are required).
+  await Promise.all([ensureJobPositionsSchema(), ensureDefaultRoles()])
   const tables = await existingTables()
   const rowsOf = async <T,>(table: (typeof TABLES)[number], sql: string): Promise<T[]> =>
     tables.has(table) ? ((await getDb().prepare(sql).all()) as T[]) : []

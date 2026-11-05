@@ -1,6 +1,6 @@
 import "server-only"
 
-import { ensureAppSettingsSchema } from "@/lib/app-currency"
+import { ensureAppSettingsSchema } from "@/lib/app-settings"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 
 // Database plumbing of the finance ledger:

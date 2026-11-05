@@ -6412,4 +6412,12 @@ export const en: Record<string, string> = {
   "Это валюта приложения: сначала выберите другую в разделе «Валюта приложения»": "This is the app currency: first choose another one in “App currency”",
   "Валюта кассы не совпадает с валютой приложения": "The cashbox currency does not match the app currency",
   "Валюта документа должна совпадать с валютой приложения": "The document currency must match the app currency",
+  // 2026-11-05: the default roles of a new company (lib/default-roles.ts)
+  "Доставщик | Функции": "Deliveryman | Functions",
+  "Доступ админ": "Admin access",
+  "Зав.Склад | Функции": "Warehouse manager | Functions",
+  "Инкассатор | Функции": "Collector | Functions",
+  "Кассир | Функции": "Cashier | Functions",
+  "Мерчендайзер | Функции": "Merchandiser | Functions",
+  "Супервайзер | Функции": "Supervisor | Functions",
 }

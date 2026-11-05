@@ -1,5 +1,6 @@
 import "server-only"
 
+import { readSetting, writeSetting } from "@/lib/app-settings"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { isUniqueViolation } from "@/lib/auth-request"
 import { refreshEmployeePositions, withEmployeeLinks } from "@/lib/employees-usage"
@@ -12,7 +13,24 @@ type Row = { id: number; name: string; created_at: string }
 
 let schemaReady: Promise<void> | null = null
 
-async function ensureSchema() {
+// Должности a new company starts with, as a new Linko account has them (the first positions of the reference account).
+// Written once, only into an empty table (the app_settings mark keeps deleted ones from coming back).
+const DEFAULT_POSITIONS = ["Менеджер", "Агент", "Доставщик", "Инкассатор", "Оператор", "Супервайзер", "Мерчендайзер", "Админ", "Кассир", "Бухгалтер", "Зав. склад"]
+const SEED_KEY = "seed:default_job_positions"
+
+async function seedDefaultPositions(): Promise<void> {
+  if (await readSetting(getDb(), SEED_KEY)) return
+  await withTransaction(async (tx) => {
+    await tx.prepare("SELECT pg_advisory_xact_lock(hashtext('linko:default-job-positions')) AS ok").get()
+    if (await readSetting(tx, SEED_KEY)) return
+    const count = (await tx.prepare("SELECT COUNT(*)::int AS n FROM job_positions").get()) as { n: number }
+    if (!count.n) for (const name of DEFAULT_POSITIONS) await tx.prepare("INSERT INTO job_positions (name) VALUES (?)").run(name)
+    await writeSetting(tx, SEED_KEY, count.n ? "skipped: the company has its own positions" : "written")
+  })
+}
+
+/** The table (and the default positions of a new company). */
+export async function ensureJobPositionsSchema() {
   if (!schemaReady) {
     schemaReady = outsideTransaction(async () => {
       const db = getDb()
@@ -37,6 +55,7 @@ async function ensureSchema() {
           END IF;
         END $$;
       `)
+      await seedDefaultPositions()
     }).catch((error) => {
       schemaReady = null
       throw error
@@ -72,13 +91,13 @@ const REFERENCES = [
 
 export async function listJobPositions(): Promise<JobPosition[]> {
   const db = getDb()
-  await ensureSchema()
+  await ensureJobPositionsSchema()
   return ((await db.prepare("SELECT * FROM job_positions ORDER BY id DESC").all()) as Row[]).map(rowToPosition)
 }
 
 export async function getJobPosition(id: number): Promise<JobPosition | null> {
   const db = getDb()
-  await ensureSchema()
+  await ensureJobPositionsSchema()
   const row = (await db.prepare("SELECT * FROM job_positions WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToPosition(row) : null
 }
@@ -94,7 +113,7 @@ function duplicateGuard(error: unknown): never {
 }
 
 export async function createJobPosition(input: JobPositionInput): Promise<JobPosition> {
-  await ensureSchema()
+  await ensureJobPositionsSchema()
   try {
     const id = await withTransaction(async (tx) => {
       await tx.prepare("LOCK TABLE job_positions IN SHARE ROW EXCLUSIVE MODE").run()
@@ -110,7 +129,7 @@ export async function createJobPosition(input: JobPositionInput): Promise<JobPos
 
 /** Renames the position; employees holding the old name follow in the same transaction. */
 export async function updateJobPosition(id: number, input: JobPositionInput): Promise<JobPosition | null> {
-  await ensureSchema()
+  await ensureJobPositionsSchema()
   try {
     const found = await withTransaction(async (tx) => {
       await tx.prepare("LOCK TABLE job_positions IN SHARE ROW EXCLUSIVE MODE").run()
@@ -131,7 +150,7 @@ export async function updateJobPosition(id: number, input: JobPositionInput): Pr
 
 /** Refused (409 with the usage list) while employees hold the position. */
 export async function deleteJobPosition(id: number): Promise<boolean> {
-  await ensureSchema()
+  await ensureJobPositionsSchema()
   return withTransaction(async (tx) => {
     const current = (await tx.prepare("SELECT * FROM job_positions WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
     if (!current) return false

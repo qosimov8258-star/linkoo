@@ -1683,7 +1683,7 @@ export const uz: Record<string, string> = {
   "Удалить кассу?": "Kassani o'chirasizmi?",
   "Не удалось удалить кассу": "Kassani o'chirib bo'lmadi",
   "Не удалось сохранить кассу": "Kassani saqlab bo'lmadi",
-  "Кассир": "Hisobchi",
+  "Кассир": "Kassir",
   "Удалить запись?": "Yozuvni o'chirasizmi?",
   "Филиал": "Filial",
   "Перевод из": "Ko'chirish manbasi:",
@@ -6394,4 +6394,12 @@ export const uz: Record<string, string> = {
   "Это валюта приложения: сначала выберите другую в разделе «Валюта приложения»": "Bu ilova valyutasi: avval «Ilova valyutasi» bo'limida boshqasini tanlang",
   "Валюта кассы не совпадает с валютой приложения": "Kassa valyutasi ilova valyutasi bilan bir xil emas",
   "Валюта документа должна совпадать с валютой приложения": "Hujjat valyutasi ilova valyutasi bilan bir xil bo'lishi kerak",
+  // 2026-11-05: the default roles of a new company (lib/default-roles.ts)
+  "Доставщик | Функции": "Eltuvchi | Funksiyalar",
+  "Доступ админ": "Admin ruxsati",
+  "Зав.Склад | Функции": "Omborxona mudiri | Funksiyalar",
+  "Инкассатор | Функции": "Inkassator | Funksiyalar",
+  "Кассир | Функции": "Kassir | Funksiyalar",
+  "Мерчендайзер | Функции": "Merchendayzer | Funksiyalar",
+  "Супервайзер | Функции": "Supervayzer | Funksiyalar",
 }

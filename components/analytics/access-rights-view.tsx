@@ -262,13 +262,20 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
         fetch("/api/access-rights", { cache: "no-store" }),
         fetch("/api/capabilities", { cache: "no-store" }),
       ])
-      if (!rolesResponse.ok || !capabilitiesResponse.ok) throw new Error("load")
+      if (!rolesResponse.ok || !capabilitiesResponse.ok) {
+        const failed = rolesResponse.ok ? capabilitiesResponse : rolesResponse
+        const body = (await failed.json().catch(() => ({}))) as { error?: string }
+        throw new Error(body.error || "Не удалось загрузить данные с сервера")
+      }
       setRoles((await rolesResponse.json()) as AccessRight[])
       setCapabilities((await capabilitiesResponse.json()) as Capability[])
-    } catch {
+    } catch (error) {
+      // A failed load says so instead of passing for an empty list.
       setRoles([])
+      // fetch itself fails with a TypeError when the server cannot be reached.
+      notify(t(error instanceof Error && !(error instanceof TypeError) ? error.message : "Сервер недоступен, попробуйте ещё раз"))
     }
-  }, [])
+  }, [t])
   useEffect(() => { void load() }, [load])
 
   // Permission catalogue is only needed by the capability dialog; load it on first use.
