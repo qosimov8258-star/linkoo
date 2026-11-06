@@ -202,9 +202,11 @@ export type ClientInput = Omit<Client, "id" | "balance" | "balanceLines" | "curr
 // Reads
 // ---------------------------------------------------------------------------
 
-async function attachLedger(clients: Client[]): Promise<Client[]> {
+/** `byAccount`: the client list shows a shop of a financial account with the account's balance (the reference's list
+ * does); one client's card keeps the shop's own balance (as the reference's card). */
+async function attachLedger(clients: Client[], byAccount = false): Promise<Client[]> {
   if (!clients.length) return clients
-  const balances = await clientLedgerBalances(clients.length <= 50 ? { keys: clients.map((client) => String(client.id)) } : {})
+  const balances = await clientLedgerBalances({ ...(clients.length <= 50 ? { keys: clients.map((client) => String(client.id)) } : {}), byAccount })
   if (!balances.size) return clients
   for (const client of clients) {
     const ledger = balances.get(client.id)
@@ -228,7 +230,7 @@ export async function listClients(search?: string, options: { withBalances?: boo
         .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`, branch })) as ClientRow[])
     : ((await db.prepare(`${SELECT_CLIENT} WHERE (@branch::text = '' OR c.branch = @branch) ORDER BY c.id DESC`).all({ branch })) as ClientRow[])
   const clients = rows.map(rowToClient)
-  return options.withBalances === false ? clients : attachLedger(clients)
+  return options.withBalances === false ? clients : attachLedger(clients, true)
 }
 
 export async function getClient(id: number, options: { withBalances?: boolean } = {}): Promise<Client | null> {

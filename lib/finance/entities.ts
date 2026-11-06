@@ -94,23 +94,26 @@ async function clients(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
       created: String(row.created ?? ""),
       account_id: accounts.get(Number(row.id))?.id ?? null,
       account_name: accounts.get(Number(row.id))?.name ?? "",
+      // A deleted account still holds its shops' money (Linko shows it in the client list); the account listings
+      // leave it out (lib/finance/ledger.ts).
+      account_deleted: accounts.get(Number(row.id))?.deleted ? 1 : 0,
     },
   }))
 }
 
-/** shop id → its financial account (financial_account_markets, else clients.financial_account_id), when those tables exist. */
-async function financialAccountsOf(db: PgDb): Promise<Map<number, { id: number; name: string }>> {
+/** shop id → its financial account (financial_account_markets), deleted accounts included (flagged), when those tables exist. */
+async function financialAccountsOf(db: PgDb): Promise<Map<number, { id: number; name: string; deleted: boolean }>> {
   const present = (await db
     .prepare("SELECT to_regclass('financial_accounts') IS NOT NULL AS a, to_regclass('financial_account_markets') IS NOT NULL AS m")
     .get()) as { a: boolean; m: boolean } | undefined
   if (!present?.a || !present.m) return new Map()
   const rows = (await db
     .prepare(
-      `SELECT m.client_id, a.id, a.name FROM financial_account_markets m JOIN financial_accounts a ON a.id = m.financial_account_id
-        WHERE COALESCE(a.deleted, 0) = 0`,
+      `SELECT m.client_id, a.id, a.name, COALESCE(a.deleted, 0) AS deleted
+         FROM financial_account_markets m JOIN financial_accounts a ON a.id = m.financial_account_id`,
     )
-    .all()) as Array<{ client_id: number; id: number; name: string }>
-  return new Map(rows.map((row) => [Number(row.client_id), { id: Number(row.id), name: row.name }]))
+    .all()) as Array<{ client_id: number; id: number; name: string; deleted: number }>
+  return new Map(rows.map((row) => [Number(row.client_id), { id: Number(row.id), name: row.name, deleted: Number(row.deleted) === 1 }]))
 }
 
 async function suppliers(db: PgDb): Promise<EntityRecord[]> {
@@ -248,7 +251,12 @@ export function personKey(name: unknown, employees: Map<string, EntityRecord>): 
 
 async function branches(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
   if (!s.has("branches")) return []
-  const rows = (await db.prepare("SELECT id, name, currency, is_main FROM branches ORDER BY id").all()) as Array<{ id: number; name: string; currency: string; is_main: number }>
+  // Баланс филиалов lists the branches that keep a debt balance ("Учет долга"), not the main one — as Linko does
+  // (show_balance and not is_main); branches copied from Linko carry Linko's own answer (branches.in_balance).
+  const listed = s.col("branches", "debt_tracking")
+    ? `WHERE ${s.col("branches", "in_balance") ? "COALESCE(in_balance, " : "("}CASE WHEN debt_tracking = 1 AND is_main = 0 THEN 1 ELSE 0 END) = 1`
+    : ""
+  const rows = (await db.prepare(`SELECT id, name, currency, is_main FROM branches ${listed} ORDER BY id`).all()) as Array<{ id: number; name: string; currency: string; is_main: number }>
   return rows.map((row) => ({ key: String(row.id), id: row.id, name: row.name, info: { currency: normCurrency(row.currency), is_main: row.is_main ? 1 : 0, branch: row.name } }))
 }
 

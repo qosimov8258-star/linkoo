@@ -9,7 +9,9 @@ import { useDirectoryNames } from "@/components/clients/use-directory"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
 
-type PlanEntry = { employee: string; survey: string }
+/** One survey of an employee's monthly plan and how many of it (null = saved before plans had a number). */
+type PlanEntry = { employee: string; survey: string; plan: number | null }
+type PlanItem = { name: string; plan: number | null }
 
 const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
 const years = ["2024", "2025", "2026", "2027"]
@@ -28,14 +30,45 @@ function currentYear() {
   return String(new Date().getFullYear())
 }
 
+/** A planned number typed or imported (non-negative), else null. */
+function planValue(value: unknown): number | null {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value.trim().replace(",", ".")) : NaN
+  return Number.isFinite(number) && number >= 0 ? number : null
+}
+
+/** Excel rows: employee, survey, planned number. */
 function parseImportedRows(rows: string[][]) {
   const entries: PlanEntry[] = []
-  rows.forEach(([employee, survey], index) => {
+  rows.forEach(([employee, survey, plan], index) => {
     if (!employee || !survey) return
     if (index === 0 && /сотрудник/i.test(employee)) return
-    entries.push({ employee, survey })
+    entries.push({ employee, survey, plan: planValue(plan) })
   })
   return entries
+}
+
+/** Groups plan entries by one field, keeping the order the groups first appear in. */
+function groupBy(entries: PlanEntry[], by: "employee" | "survey"): { key: string; items: PlanItem[] }[] {
+  const map = new Map<string, PlanItem[]>()
+  for (const entry of entries) {
+    const key = entry[by]
+    map.set(key, [...(map.get(key) ?? []), { name: by === "employee" ? entry.survey : entry.employee, plan: entry.plan }])
+  }
+  return Array.from(map, ([key, items]) => ({ key, items }))
+}
+
+/** "so'rovnoma 1: 1" chip of the reference (the name, then the planned number in blue). */
+function PlanChip({ item }: { item: PlanItem }) {
+  return (
+    <span className="mb-[4px] mr-[10px] inline-block rounded-[2px] bg-[#e9ebef] px-[10px] py-[3px] text-[13px] text-[#333]">
+      {item.name}
+      {item.plan !== null && (
+        <>
+          : <b className="font-semibold text-[#1E4A9A]">{item.plan}</b>
+        </>
+      )}
+    </span>
+  )
 }
 
 export function SurveyPlanView() {
@@ -71,11 +104,11 @@ export function SurveyPlanView() {
 
   useEffect(() => {
     fetch("/api/survey-plans")
-      .then((response) => (response.ok ? (response.json() as Promise<{ period: string; employee: string; survey: string }[]>) : Promise.reject()))
+      .then((response) => (response.ok ? (response.json() as Promise<{ period: string; employee: string; survey: string; plan?: number | null }[]>) : Promise.reject()))
       .then((entries) => {
         const grouped: Record<string, PlanEntry[]> = {}
         for (const entry of entries) {
-          grouped[entry.period] = [...(grouped[entry.period] ?? []), { employee: entry.employee, survey: entry.survey }]
+          grouped[entry.period] = [...(grouped[entry.period] ?? []), { employee: entry.employee, survey: entry.survey, plan: planValue(entry.plan) }]
         }
         setPlans(grouped)
       })
@@ -103,18 +136,9 @@ export function SurveyPlanView() {
   const key = periodKey(month, year)
   const rows = useMemo(() => (plans[key] ?? []).filter((row) => row.employee.toLowerCase().includes(query.toLowerCase()) || row.survey.toLowerCase().includes(query.toLowerCase())), [plans, key, query])
 
-  const grouping = useMemo(() => {
-    if (!grouped) return null
-    const map = new Map<string, string[]>()
-    rows.forEach((row) => {
-      map.set(row.survey, [...(map.get(row.survey) ?? []), row.employee])
-    })
-    return Array.from(map.entries())
-  }, [rows, grouped])
-  const tableRows = useMemo(
-    () => (grouped ? (grouping ?? []).map(([survey, names]) => ({ key: survey, employee: names.join(", "), survey })) : rows.map((row, index) => ({ key: `${row.employee}-${index}`, employee: row.employee, survey: row.survey }))),
-    [grouped, grouping, rows],
-  )
+  // One row per employee with the surveys of the plan ("so'rovnoma 1: 1"), as the reference shows it; grouped by survey,
+  // one row per survey with the employees who have it.
+  const tableRows = useMemo(() => groupBy(rows, grouped ? "survey" : "employee"), [rows, grouped])
 
   function openEdit() {
     setDraft(plans[key] ?? [])
@@ -130,7 +154,7 @@ export function SurveyPlanView() {
   }
 
   function addDraftRow() {
-    setDraft((rows) => [...rows, { employee: employees[0] ?? "", survey: surveyOptions[0] ?? "" }])
+    setDraft((rows) => [...rows, { employee: employees[0] ?? "", survey: surveyOptions[0] ?? "", plan: 1 }])
   }
 
   function updateDraftRow(index: number, patch: Partial<PlanEntry>) {
@@ -206,9 +230,9 @@ export function SurveyPlanView() {
           onQuery={setQuery}
           pageSize={25}
           onPageSize={() => {}}
-          from={rows.length ? 1 : 0}
-          to={rows.length}
-          total={rows.length}
+          from={tableRows.length ? 1 : 0}
+          to={tableRows.length}
+          total={tableRows.length}
           page={1}
           pageCount={1}
           onPage={() => {}}
@@ -253,7 +277,7 @@ export function SurveyPlanView() {
         />
         <RefTable
           cols="700px minmax(0,1fr)"
-          heads={["Сотрудник", "Опрос"]}
+          heads={grouped ? ["Опрос", "Сотрудник"] : ["Сотрудник", "Опрос"]}
           rows={tableRows}
           rowKey={(row) => row.key}
           empty={
@@ -263,7 +287,14 @@ export function SurveyPlanView() {
               <span className="mt-[2px]">По вашему запросу ничего не найдено</span>
             </div>
           }
-          render={(row) => [row.employee, <span key="s" className="text-[#1E4A9A]">{row.survey}</span>]}
+          render={(row) => [
+            row.key,
+            <div key="items" className="py-[6px]">
+              {row.items.map((item, index) => (
+                <PlanChip key={`${item.name}-${index}`} item={item} />
+              ))}
+            </div>,
+          ]}
         />
       </RefCard>
 
@@ -291,6 +322,15 @@ export function SurveyPlanView() {
                       <option key={item}>{item}</option>
                     ))}
                   </select>
+                  <input
+                    type="number"
+                    min={0}
+                    value={row.plan ?? ""}
+                    onChange={(event) => updateDraftRow(index, { plan: planValue(event.target.value) })}
+                    aria-label={t("План")}
+                    placeholder={t("План")}
+                    className="w-20 border-b border-slate-300 bg-white py-2 text-right outline-none"
+                  />
                   <button type="button" onClick={() => removeDraftRow(index)} aria-label={t("Удалить строку")} className="text-slate-400 hover:text-red-500">
                     <Trash2 className="h-5 w-5" />
                   </button>

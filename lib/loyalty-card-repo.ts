@@ -188,7 +188,7 @@ async function currencyContext(db: PgDb, balances: BalanceRow[]): Promise<Curren
   return withSeenCodes(await loadCurrencyContext(db), balances.map((row) => row.cur))
 }
 
-type Entry = { row: LoyaltyCardRow; type: string; search: string }
+type Entry = { row: LoyaltyCardRow; type: string; types?: string[]; search: string }
 
 function sortEntries(entries: Entry[], ordering: string | undefined): void {
   const token = (ordering ?? "").split(",")[0]?.trim() ?? ""
@@ -229,9 +229,25 @@ export async function listLoyaltyCards(query: LoyaltyListQuery): Promise<Loyalty
   const base0 = (await loadCurrencyContext(db)).base
   const balances = await balanceRows(db, base0)
   const cc = await currencyContext(db, balances)
-  const clients = s.has("clients")
-    ? ((await db.prepare("SELECT id, name, type, phone, inn, code FROM clients").all()) as ClientRow[])
+  // Linko keeps the cashback per financial account (its list is the accounts, keyed by the account id): with the
+  // accounts table filled, the rows are the live accounts — type and search from their shops; else the clients.
+  const hasAccountTable = Boolean(
+    ((await db.prepare("SELECT to_regclass('financial_accounts') IS NOT NULL AND to_regclass('financial_account_markets') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined)?.ok,
+  )
+  const accountRows = hasAccountTable && s.has("clients")
+    ? ((await db
+        .prepare(
+          `SELECT a.id, a.name, string_agg(DISTINCT c.type, '\n') AS type, string_agg(concat_ws('\n', c.name, c.phone, c.inn, c.code), '\n') AS search
+             FROM financial_accounts a LEFT JOIN financial_account_markets m ON m.financial_account_id = a.id LEFT JOIN clients c ON c.id = m.client_id
+            WHERE COALESCE(a.deleted, 0) = 0 GROUP BY a.id, a.name`,
+        )
+        .all()) as Array<{ id: number; name: string | null; type: string | null; search: string | null }>)
     : []
+  const clients = accountRows.length
+    ? []
+    : s.has("clients")
+      ? ((await db.prepare("SELECT id, name, type, phone, inn, code FROM clients").all()) as ClientRow[])
+      : []
 
   const byClient = new Map<number, { balances: Record<string, number>; last: string | null }>()
   for (const row of balances) {
@@ -243,6 +259,18 @@ export async function listLoyaltyCards(query: LoyaltyListQuery): Promise<Loyalty
 
   const entries: Entry[] = []
   const known = new Set<number>()
+  for (const account of accountRows) {
+    const id = Number(account.id)
+    known.add(id)
+    const item = byClient.get(id)
+    const types = String(account.type ?? "").split("\n").map((type) => nameKey(type))
+    entries.push({
+      row: { id, name: String(account.name ?? ""), exists: true, lastCreated: item?.last ?? null, balances: item?.balances ?? {} },
+      type: types[0] ?? "",
+      types,
+      search: [account.name, account.search].map((value) => nameKey(value)).join("\n"),
+    })
+  }
   for (const client of clients) {
     const id = Number(client.id)
     known.add(id)
@@ -272,7 +300,7 @@ export async function listLoyaltyCards(query: LoyaltyListQuery): Promise<Loyalty
 
   let filtered = entries
   const wantedType = nameKey(query.clientType)
-  if (wantedType) filtered = filtered.filter((entry) => entry.type === wantedType)
+  if (wantedType) filtered = filtered.filter((entry) => (entry.types ?? [entry.type]).includes(wantedType))
   const needle = nameKey(query.search)
   if (needle) filtered = filtered.filter((entry) => entry.search.includes(needle) || String(entry.row.id) === needle)
   sortEntries(filtered, query.ordering)
@@ -337,6 +365,12 @@ export async function loyaltyCardOptions(): Promise<LoyaltyCardOptions> {
 }
 
 async function loadClientName(db: PgDb, hasClients: boolean, id: number): Promise<{ id: number; name: string } | null> {
+  // The card belongs to a financial account (as in Linko) when the accounts table has it, else to a client.
+  const accounts = Boolean(((await db.prepare("SELECT to_regclass('financial_accounts') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined)?.ok)
+  const account = accounts
+    ? ((await db.prepare("SELECT id, name FROM financial_accounts WHERE id = @id AND COALESCE(deleted, 0) = 0").get({ id })) as { id: number; name: string | null } | undefined)
+    : undefined
+  if (account) return { id: Number(account.id), name: String(account.name ?? "") }
   if (!hasClients) return null
   const row = (await db.prepare("SELECT id, name FROM clients WHERE id = @id").get({ id })) as { id: number; name: string | null } | undefined
   return row ? { id: Number(row.id), name: String(row.name ?? "") } : null

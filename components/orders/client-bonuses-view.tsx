@@ -97,13 +97,17 @@ export function ClientBonusesView() {
 
   useEffect(() => {
     let cancelled = false;
-    // Every real client is listed; the points saved in the bonus store are laid over it by client id.
+    // Like the reference (sales/client_promotion), one row per financial account (Клиенты → Финансовые счета) that is
+    // not deleted; a database without accounts lists its clients. The points saved in the bonus store are laid over it
+    // by id.
     const list = <T,>(url: string) =>
       fetch(url, { cache: "no-store" })
         .then((response) => (response.ok ? response.json() : []))
         .then((data: unknown) => (Array.isArray(data) ? (data as T[]) : []))
         .catch(() => [] as T[]);
-    Promise.all([list<{ id: number; name: string }>("/api/clients?balances=0"), list<StoredBonus>("/api/ref-records/bonus")]).then(([rows, bonuses]) => {
+    const accounts = list<{ id: number; name: string; deleted?: boolean }>("/api/financial-accounts").then((rows) => rows.filter((row) => !row.deleted));
+    const rowsOf = accounts.then((rows) => (rows.length ? rows : list<{ id: number; name: string }>("/api/clients?balances=0")));
+    Promise.all([rowsOf, list<StoredBonus>("/api/ref-records/bonus")]).then(([rows, bonuses]) => {
       if (cancelled) return;
       const stored = new Map(bonuses.map((bonus) => [String(bonus.id), bonus]));
       setClients(

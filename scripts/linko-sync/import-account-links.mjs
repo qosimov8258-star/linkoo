@@ -23,8 +23,9 @@ try {
       continue
     }
     if (!haveAccounts.has(accountId)) {
-      const account = accounts.get(accountId) ?? { name: market.client?.name ?? "" }
-      await client.query("INSERT INTO financial_accounts (id, name, address, created_at) VALUES ($1, $2, $3, $4)", [accountId, account.name ?? "", account.address ?? "", String(account.created_date ?? "").replace("T", " ").slice(0, 19)])
+      // An account Linko deleted (its list leaves it out) that a shop still names: kept, as deleted.
+      const account = accounts.get(accountId) ?? { name: market.client?.name ?? "", deleted: true }
+      await client.query("INSERT INTO financial_accounts (id, name, address, created_at, deleted) VALUES ($1, $2, $3, $4, $5)", [accountId, account.name ?? "", account.address ?? "", String(account.created_date ?? "").replace("T", " ").slice(0, 19), account.deleted ? 1 : 0])
       await register(client, run, "financial_accounts", accountId, "insert")
       haveAccounts.add(accountId)
       stats.accountsAdded++
@@ -39,6 +40,14 @@ try {
       await register(client, run, "financial_account_markets", market.id, "update", current)
       stats.relinked++
     } else stats.same++
+  }
+  // Accounts this database has that Linko's list leaves out (deleted there): deleted here too.
+  const live = [...accounts.keys()]
+  const gone = (await client.query("SELECT id FROM financial_accounts WHERE COALESCE(deleted, 0) = 0 AND NOT (id = ANY($1::int[]))", [live])).rows
+  for (const row of gone) {
+    await client.query("UPDATE financial_accounts SET deleted = 1 WHERE id = $1", [row.id])
+    await register(client, run, "financial_accounts", row.id, "update", { deleted: 0 })
+    stats.accountsDeleted = (stats.accountsDeleted ?? 0) + 1
   }
   await client.query("COMMIT")
 } catch (error) {

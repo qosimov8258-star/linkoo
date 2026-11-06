@@ -55,11 +55,15 @@ const FIELD_TYPES = {
   cby: "text",
   href: "text",
   editable: "boolean",
+  // "acc:<id>": the financial account a client document was booked on when it is not the shop's current account
+  // (financial_account_id of orders / returns / payments / corrections / withdrawals); the account balances key the
+  // movement by it (movementCte, kind "account"). NULL = the shop's account.
+  acc: "text",
 } as const
 
 type Field = keyof typeof FIELD_TYPES
 
-const LEAN_FIELDS: Field[] = ["ek", "cur", "ts", "col", "amt", "pending", "org", "pt", "nm"]
+const LEAN_FIELDS: Field[] = ["ek", "cur", "ts", "col", "amt", "pending", "org", "pt", "nm", "acc"]
 const ALL_FIELDS = Object.keys(FIELD_TYPES) as Field[]
 
 const DEFAULTS: Record<Field, string> = {
@@ -85,6 +89,7 @@ const DEFAULTS: Record<Field, string> = {
   cby: "''",
   href: "''",
   editable: "false",
+  acc: "NULL",
 }
 
 export type SourceContext = {
@@ -102,6 +107,19 @@ function select(ctx: SourceContext, fields: Partial<Record<Field, string>>, from
 /** Column `alias.column` when it exists on `table`, else the SQL fallback. */
 function col(ctx: SourceContext, alias: string, table: string, column: string, fallback: string): string {
   return ctx.s.col(table, column) ? `${alias}.${column}` : fallback
+}
+
+/** " AND …" keeping a document movement of `ledger` ("branch" / "vansell") only after the moment its history was
+ * copied from Linko (linko_history; up to it the copied movements are the ledger). */
+function afterHistory(ctx: SourceContext, ledger: string, tsExpr: string): string {
+  return ctx.s.has("linko_history")
+    ? ` AND (${tsExpr}) > COALESCE((SELECT fin_ts(h.until) FROM linko_history h WHERE h.ledger = '${ledger}'), '-infinity'::timestamp)`
+    : ""
+}
+
+/** The `acc` field of a client document: "acc:<financial_account_id>" when the document names its account. */
+function bookedAccount(ctx: SourceContext, alias: string, table: string): string {
+  return ctx.s.col(table, "financial_account_id") ? `CASE WHEN ${alias}.financial_account_id IS NOT NULL THEN 'acc:' || ${alias}.financial_account_id END` : "NULL"
 }
 
 // Cash core (lib/cash) state columns: soft-deleted rows never count anywhere;
@@ -486,6 +504,7 @@ function clientSources(ctx: SourceContext): string[] {
     cp: "oc.name",
     cby: "o.agent",
     href: "'/orders'",
+    acc: bookedAccount(ctx, "o", "orders"),
   })
   const orderFrom = `FROM orders o ${orderClientJoin(ctx.s, "o", "oc", "client_keys")}`
   if (ctx.s.has("order_items")) {
@@ -526,38 +545,54 @@ function clientSources(ctx: SourceContext): string[] {
       ctx.s.col(CR, "return_date") ? "fin_ts(r.return_date::text)" : "",
       ctx.s.col(CR, "created_at") ? utcTs("r.created_at::text") : "",
     ].filter(Boolean)
+    const returnFields = (cur: string, amt: string): Partial<Record<Field, string>> => ({
+      ek: "rc.id",
+      cur,
+      ts: acceptedTs.length ? ts(...acceptedTs) : "NULL::timestamp",
+      col: "'order_return'",
+      amt,
+      // The return's own organization first (returns without an order carry one too).
+      org: ctx.s.col(CR, "organization")
+        ? returnOrder && ctx.s.col("orders", "organization")
+          ? "COALESCE(NULLIF(fin_place(r.organization), ''), fin_place(ro.organization))"
+          : "fin_place(r.organization)"
+        : returnOrder && ctx.s.col("orders", "organization")
+          ? "fin_place(ro.organization)"
+          : "''",
+      pt: ctx.s.col(CR, "payment_type")
+        ? returnOrder && ctx.s.col("orders", "payment_type")
+          ? "COALESCE(NULLIF(fin_pt(r.payment_type), ''), fin_pt(ro.payment_type))"
+          : "fin_pt(r.payment_type)"
+        : returnOrder && ctx.s.col("orders", "payment_type")
+          ? "fin_pt(ro.payment_type)"
+          : "''",
+      src: "'client_return'",
+      src_id: "r.id",
+      title: "'Возврат'",
+      doc: "r.id::text",
+      descr: col(ctx, "r", CR, "warehouse", "''"),
+      cmt: col(ctx, "r", CR, "comment", "''"),
+      cp: "rc.name",
+      cby: col(ctx, "r", CR, "accepted_by", "''"),
+      href: "'/analytics/returns'",
+      acc: bookedAccount(ctx, "r", CR),
+    })
+    const returnFrom = `FROM ${CR} r ${returnClient} ${returnOrder ? "LEFT JOIN orders ro ON ro.id = r.order_id" : ""}`
     out.push(
-      select(
-        ctx,
-        {
-          ek: "rc.id",
-          cur: `COALESCE(fin_cur(${col(ctx, "r", CR, "currency", "NULL")}), @base)`,
-          ts: acceptedTs.length ? ts(...acceptedTs) : "NULL::timestamp",
-          col: "'order_return'",
-          amt: creditAmount,
-          // The return's own organization first (returns without an order carry one too).
-          org: ctx.s.col(CR, "organization")
-            ? returnOrder && ctx.s.col("orders", "organization")
-              ? "COALESCE(NULLIF(fin_place(r.organization), ''), fin_place(ro.organization))"
-              : "fin_place(r.organization)"
-            : returnOrder && ctx.s.col("orders", "organization")
-              ? "fin_place(ro.organization)"
-              : "''",
-          pt: returnOrder && ctx.s.col("orders", "payment_type") ? "fin_pt(ro.payment_type)" : "''",
-          src: "'client_return'",
-          src_id: "r.id",
-          title: "'Возврат'",
-          doc: "r.id::text",
-          descr: col(ctx, "r", CR, "warehouse", "''"),
-          cmt: col(ctx, "r", CR, "comment", "''"),
-          cp: "rc.name",
-          cby: col(ctx, "r", CR, "accepted_by", "''"),
-          href: "'/analytics/returns'",
-        },
-        `FROM ${CR} r ${returnClient} ${returnOrder ? "LEFT JOIN orders ro ON ro.id = r.order_id" : ""}
-         WHERE ${credited} AND ${creditAmount} <> 0`,
-      ),
+      select(ctx, returnFields(`COALESCE(fin_cur(${col(ctx, "r", CR, "currency", "NULL")}), @base)`, creditAmount), `${returnFrom}
+         WHERE ${credited} AND ${creditAmount} <> 0`),
     )
+    // Credits Linko booked in another currency than the return's (client_credit_other {"USD": 0.0091}).
+    if (override && ctx.s.col(CR, "client_credit_other")) {
+      out.push(
+        select(
+          ctx,
+          returnFields("COALESCE(fin_cur(x.cur), @base)", "x.amt::double precision"),
+          `${returnFrom} CROSS JOIN LATERAL jsonb_each_text(CASE WHEN r.client_credit_other ~ '^\\s*\\{' THEN r.client_credit_other::jsonb ELSE '{}'::jsonb END) AS x(cur, amt)
+         WHERE r.client_credit IS NOT NULL AND x.amt ~ '^[-+0-9.eE]+$' AND x.amt::double precision <> 0`,
+        ),
+      )
+    }
   }
 
   if (ctx.s.has("client_payments")) {
@@ -638,6 +673,7 @@ function clientSources(ctx: SourceContext): string[] {
           cb: "cb.name",
           cby: col(ctx, "e", CME, "created_by", "''"),
           href: "'/analytics/cash-management'",
+          acc: bookedAccount(ctx, "e", CME),
         },
         `FROM cash_management_entries e LEFT JOIN client_keys ck ON ck.k = fin_key(e.client_name) JOIN cashboxes cb ON cb.id = e.cashbox_id
          WHERE NOT ${isTransfer(ctx)} AND ${clientKey} IS NOT NULL AND (${op} IS NULL OR ${op} = 7)
@@ -649,11 +685,18 @@ function clientSources(ctx: SourceContext): string[] {
   const hasClientId = ctx.s.col("customer_payments", "client_id")
   const paymentDate = col(ctx, "p", "customer_payments", "payment_date", "''")
   const createdTs = ts(`fin_ts(${paymentDate})`, "fin_ts(p.paid_at)", utcTs("p.created_at"))
+  // A payment Linko booked on a financial account without a shop (client_id NULL, financial_account_id set) belongs to
+  // that account alone: keyed "acc:<id>" (no shop balance has it; the account balances do), never matched by name.
+  const accountOnly = hasClientId && ctx.s.col("customer_payments", "financial_account_id") ? "(p.client_id IS NULL AND p.financial_account_id IS NOT NULL)" : ""
   out.push(
     select(
       ctx,
       {
-        ek: hasClientId ? "COALESCE(p.client_id, ck.id)" : "ck.id",
+        ek: accountOnly
+          ? `CASE WHEN ${accountOnly} THEN 'acc:' || p.financial_account_id ELSE COALESCE(p.client_id, ck.id)::text END`
+          : hasClientId
+            ? "COALESCE(p.client_id, ck.id)"
+            : "ck.id",
         cur: "COALESCE(fin_cur(p.currency), @base)",
         ts: realization ? `CASE WHEN p.accepted = 1 THEN ${ts("fin_ts(p.accepted_at)", createdTs)} ELSE ${createdTs} END` : createdTs,
         col: "'payment'",
@@ -670,10 +713,13 @@ function clientSources(ctx: SourceContext): string[] {
         cb: "p.kassa",
         cby: "p.created_by",
         href: "'/analytics/customer-payments'",
+        acc: bookedAccount(ctx, "p", "customer_payments"),
       },
-      (hasClientId
-        ? "FROM customer_payments p LEFT JOIN client_keys ck ON ck.k = fin_key(p.client) WHERE COALESCE(p.client_id, ck.id) IN (SELECT id FROM clients)"
-        : "FROM customer_payments p JOIN client_keys ck ON ck.k = fin_key(p.client) WHERE true") + ` AND ${alive(ctx, "p", "customer_payments")}`,
+      (accountOnly
+        ? `FROM customer_payments p LEFT JOIN client_keys ck ON NOT ${accountOnly} AND ck.k = fin_key(p.client) WHERE (COALESCE(p.client_id, ck.id) IN (SELECT id FROM clients) OR ${accountOnly})`
+        : hasClientId
+          ? "FROM customer_payments p LEFT JOIN client_keys ck ON ck.k = fin_key(p.client) WHERE COALESCE(p.client_id, ck.id) IN (SELECT id FROM clients)"
+          : "FROM customer_payments p JOIN client_keys ck ON ck.k = fin_key(p.client) WHERE true") + ` AND ${alive(ctx, "p", "customer_payments")}`,
     ),
   )
 
@@ -699,6 +745,7 @@ function clientSources(ctx: SourceContext): string[] {
           cp: "c.name",
           cby: "k.created_by",
           href: "'/analytics/store-reconciliation-bot'",
+          acc: bookedAccount(ctx, "k", "client_balance_corrections"),
         },
         "FROM client_balance_corrections k JOIN clients c ON c.id = k.client_id JOIN client_default_org d ON d.id = c.id WHERE COALESCE(k.is_deleted, 0) = 0",
       ),
@@ -859,10 +906,12 @@ function vansellSources(ctx: SourceContext): string[] {
           amt: "v.amount",
           src: "'vansell_manual'",
           src_id: "v.id",
-          title: "'Нет типа'",
+          // Movements copied from Linko carry their own column (stock transfer, money handed in, return); only the
+          // manual ones ("Нет типа") can be edited.
+          title: `CASE ${type} WHEN 'stock_transfer_minus' THEN 'Передача склада' WHEN 'stock_transfer_plus' THEN 'Передача склада' WHEN 'cash_transfer_plus' THEN 'Оплата на кассу' WHEN 'bank_transfer_plus' THEN 'Оплата на кассу' WHEN 'order_return_plus' THEN 'Возврат' ELSE 'Нет типа' END`,
           cmt: col(ctx, "v", t, "comment", "''"),
           cby: col(ctx, "v", t, "created_by", "''"),
-          editable: "true",
+          editable: `${type} IN ('none_type', 'none_type_plus', 'none_type_minus')`,
         },
         `FROM ${t} v WHERE ${alive(ctx, "v", t)}`,
       ),
@@ -897,7 +946,7 @@ function vansellSources(ctx: SourceContext): string[] {
         },
         `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) JOIN emp_keys ek ON ek.k = w.manager_k
          LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse) ${currency.join}
-         WHERE ${leg.where} AND w.manager_k <> '' AND w2.manager_k IS DISTINCT FROM w.manager_k`,
+         WHERE ${leg.where} AND w.manager_k <> '' AND w2.manager_k IS DISTINCT FROM w.manager_k${afterHistory(ctx, "vansell", leg.ts)}`,
       ),
     )
   }
@@ -926,7 +975,7 @@ function vansellSources(ctx: SourceContext): string[] {
           href: "'/analytics/cash-management'",
         },
         `FROM cash_management_entries e JOIN cashboxes cb ON cb.id = e.cashbox_id JOIN emp_keys ek ON ek.k = fin_key(cb.cashier)
-         WHERE ${isTransfer(ctx)} AND cb.vansell = 1 AND ${entryCounts(ctx)}`,
+         WHERE ${isTransfer(ctx)} AND cb.vansell = 1 AND ${entryCounts(ctx)}${afterHistory(ctx, "vansell", ts("fin_ts(e.entry_date)", utcTs("e.created_at")))}`,
       ),
     )
   }
@@ -948,14 +997,15 @@ function branchSources(ctx: SourceContext): string[] {
           ek: "b.id",
           cur: "COALESCE(fin_cur(t.currency), @base)",
           ts: ts("fin_ts(t.date)", utcTs("t.created_at")),
-          col: "CASE t.kind WHEN 'expense' THEN 'none_type_minus' WHEN 'payments' THEN 'payments' ELSE 'none_type_plus' END",
-          amt: "CASE WHEN t.kind = 'expense' THEN -abs(t.amount) ELSE abs(t.amount) END",
+          // Movements copied from Linko: stock transfers and money between branches keep their sign and column.
+          col: "CASE t.kind WHEN 'expense' THEN 'none_type_minus' WHEN 'payments' THEN 'payments' WHEN 'transfer_payments' THEN 'payments' WHEN 'stock_transfer_minus' THEN 'stock_transfer_minus' WHEN 'stock_transfer_plus' THEN 'stock_transfer_plus' ELSE 'none_type_plus' END",
+          amt: "CASE WHEN t.kind = 'expense' THEN -abs(t.amount) WHEN t.kind IN ('transfer_payments', 'stock_transfer_minus', 'stock_transfer_plus') THEN t.amount ELSE abs(t.amount) END",
           src: "'branch_manual'",
           src_id: "t.id",
-          title: "CASE WHEN t.kind = 'payments' THEN 'Оплата' ELSE 'Нет типа' END",
+          title: "CASE WHEN t.kind IN ('payments', 'transfer_payments') THEN 'Оплата' WHEN t.kind IN ('stock_transfer_minus', 'stock_transfer_plus') THEN 'Передача склада' ELSE 'Нет типа' END",
           cmt: "t.comment",
           cby: col(ctx, "t", t, "created_by", "''"),
-          editable: "true",
+          editable: "t.kind IN ('add', 'expense', 'payments')",
         },
         `FROM ${t} t JOIN branches b ON b.id = t.branch_id`,
       ),
@@ -990,7 +1040,7 @@ function branchSources(ctx: SourceContext): string[] {
           href: "'/analytics/internal-transfers'",
         },
         `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse) ${currency.join}
-         WHERE ${leg.where} AND w.branch_id IS NOT NULL AND w2.branch_id IS DISTINCT FROM w.branch_id`,
+         WHERE ${leg.where} AND w.branch_id IS NOT NULL AND w2.branch_id IS DISTINCT FROM w.branch_id${afterHistory(ctx, "branch", leg.ts)}`,
       ),
     )
   }
@@ -1020,7 +1070,7 @@ function branchSources(ctx: SourceContext): string[] {
           },
           `FROM transfer_pairs p JOIN branch_keys bk ON bk.k = fin_key(p.${side}_branch)
            LEFT JOIN branch_keys ob ON ob.k = fin_key(p.${side === "from" ? "to" : "from"}_branch)
-           WHERE ob.id IS DISTINCT FROM bk.id`,
+           WHERE ob.id IS DISTINCT FROM bk.id${afterHistory(ctx, "branch", ts("fin_ts(p.entry_date)", utcTs("p.created_at")))}`,
         ),
       )
     }
@@ -1317,19 +1367,24 @@ export function movementCte(kind: BalanceEntityKind, s: FinanceSchema, options: 
   const parts = BUILDERS[kind](ctx)
   const union = parts.length ? parts.join("\nUNION ALL\n") : select(ctx, {}, "WHERE false")
   const ctes = [...ctx.ctes.entries()].map(([name, sql]) => `${name} AS (${sql})`)
-  if (!s.has("currencies")) {
-    ctes.push(`mv AS (${union})`)
-    return `WITH ${ctes.join(",\n")}`
-  }
-  // App currency (Настройки → Валюта приложения, lib/app-currency.ts): every movement is
-  // converted into it with the current rates of Валюты (units of base per unit, base = 1),
-  // so balances, statements and totals are in that one currency. Without one, rows pass as they are.
   const names = options.lean ? (options.withSource ? [...LEAN_FIELDS, "src" as const, "src_id" as const] : LEAN_FIELDS) : ALL_FIELDS
-  const passed = names.map((name) => (name === "cur" ? "COALESCE(fx.work, mr.cur) AS cur" : name === "amt" ? "(CASE WHEN fx.work IS NULL OR mr.cur = fx.work THEN mr.amt ELSE mr.amt * fr.r / fx.wr END)::double precision AS amt" : `mr.${name}`))
-  ctes.push(`mv_raw AS (${union})`)
-  ctes.push(`fx_rates AS (SELECT DISTINCT ON (fin_cur(code)) fin_cur(code) AS c, (CASE WHEN is_base = 1 THEN 1 ELSE NULLIF(rate, 0) END)::double precision AS r
+  // Accounts (kind "account"): a movement booked on another financial account than its shop's (acc) counts for that
+  // account — its rows are keyed "acc:<id>" and lib/finance/ledger.ts adds them to the account.
+  const byAccount = kind === "account"
+  const target = byAccount ? "mv_doc" : "mv"
+  if (!s.has("currencies")) {
+    ctes.push(`${target} AS (${union})`)
+  } else {
+    // App currency (Настройки → Валюта приложения, lib/app-currency.ts): every movement is
+    // converted into it with the current rates of Валюты (units of base per unit, base = 1),
+    // so balances, statements and totals are in that one currency. Without one, rows pass as they are.
+    const passed = names.map((name) => (name === "cur" ? "COALESCE(fx.work, mr.cur) AS cur" : name === "amt" ? "(CASE WHEN fx.work IS NULL OR mr.cur = fx.work THEN mr.amt ELSE mr.amt * fr.r / fx.wr END)::double precision AS amt" : `mr.${name}`))
+    ctes.push(`mv_raw AS (${union})`)
+    ctes.push(`fx_rates AS (SELECT DISTINCT ON (fin_cur(code)) fin_cur(code) AS c, (CASE WHEN is_base = 1 THEN 1 ELSE NULLIF(rate, 0) END)::double precision AS r
     FROM currencies ORDER BY fin_cur(code), is_base DESC, id)`)
-  ctes.push(`fx AS (SELECT w.c AS work, w.r AS wr FROM fx_rates w WHERE w.c = ${APP_CURRENCY_SQL} AND w.r IS NOT NULL)`)
-  ctes.push(`mv AS (SELECT ${passed.join(", ")} FROM mv_raw mr LEFT JOIN fx ON true LEFT JOIN fx_rates fr ON fr.c = mr.cur)`)
+    ctes.push(`fx AS (SELECT w.c AS work, w.r AS wr FROM fx_rates w WHERE w.c = ${APP_CURRENCY_SQL} AND w.r IS NOT NULL)`)
+    ctes.push(`${target} AS (SELECT ${passed.join(", ")} FROM mv_raw mr LEFT JOIN fx ON true LEFT JOIN fx_rates fr ON fr.c = mr.cur)`)
+  }
+  if (byAccount) ctes.push(`mv AS (SELECT ${names.map((name) => (name === "ek" ? "COALESCE(md.acc, md.ek) AS ek" : `md.${name}`)).join(", ")} FROM mv_doc md)`)
   return `WITH ${ctes.join(",\n")}`
 }

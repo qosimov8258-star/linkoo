@@ -10,7 +10,7 @@ import { loadCurrencyContext } from "@/lib/finance/context"
 import { isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
 import { REVALUATION_KIND, type LedgerPosting } from "@/lib/net-cost-ledger"
 import { loadCostLedger } from "@/lib/stock/costs"
-import { stockOrphanNames } from "@/lib/stock/level"
+import { stockDeletedKeys, stockOrphanNames } from "@/lib/stock/level"
 import { getStockCatalog, stockMovementsSql } from "@/lib/stock/ledger"
 import { parsePageParam } from "@/lib/stock/paging"
 import { STOCK_MOVE_KINDS, type StockCatalogItem, type StockMoveKind } from "@/lib/stock/types"
@@ -437,6 +437,8 @@ async function stockMovementRowsFresh(filters: MoveFilters, db: PgDb): Promise<M
   const context = await loadContext(filters, db)
   const { cells, needPriceList } = await loadCells(filters, context, db)
   if (filters.groupBy === "product") await resolveOrphans(cells.map((cell) => cell.itemKey), context, db)
+  // A deleted catalog item is not a row of its own (as in Остаток and the reference's report: live products only).
+  const deletedKeys = filters.groupBy === "product" ? await stockDeletedKeys([...new Set(cells.map((cell) => cell.itemKey).filter((key) => !context.catalog.has(key)))], db) : new Set<string>()
   const withValue = filters.mode === "cost" || (filters.mode === "price" && !needPriceList)
   const groups = new Map<string, MoveRow>()
   const ensure = (key: string) => {
@@ -477,6 +479,7 @@ async function stockMovementRowsFresh(filters: MoveFilters, db: PgDb): Promise<M
   const rows = [...groups.values()]
     .map((row) => ({ ...row, qty: finish(row.qty), value: row.value ? finish(row.value) : null }))
     .filter((row) => presenceMatches(row, filters))
+    .filter((row) => !deletedKeys.has(row.key))
     .filter((row) => filters.groupBy !== "product" || !(context.inventoryKeys.has(row.key) || !context.catalog.has(row.key)) || Object.values(row.qty).some((value) => value !== 0))
     .filter((row) => filters.groupBy === "product" || !needle || row.name.toLowerCase().includes(needle))
   return { rows, needPriceList, units }

@@ -40,7 +40,8 @@ type Row = {
 // are exactly that seed. Each seeded user is matched by the SHA-256 fingerprint of all its fields (id, names,
 // @username, phone, language, market id and name, first and last activity, joined by U+001F), so the other
 // company's names and phone numbers are not kept in the code. The QA row was stamped at run time, so it is matched
-// by its fixed fields and first activity = last activity. Nothing is inserted.
+// by its fixed fields and first activity = last activity. Nothing is inserted. Rows a data import wrote on purpose
+// (source = 'linko', scripts/linko-sync) are the company's own data and never removed.
 const LEGACY_SEED_FINGERPRINTS = [
   "eeb5ee473785940b96c9b7c3f1a4e02a61d19458df5b7e22b00698f143ba4224",
   "4816f745d5f663d823673966333921b3cb429abaf3e85f09289e7271e3de0b88",
@@ -52,7 +53,7 @@ const LEGACY_SEED_FINGERPRINTS = [
 const FINGERPRINT_SQL = `encode(sha256(convert_to(concat_ws(chr(31), u.id::text, u.first_name, u.last_name, u.username, u.phone, u.language,
   COALESCE(u.market_id::text, ''), u.market_name, u.created_date, u.last_active), 'UTF8')), 'hex')`
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 declare global {
   var __linkoTelegramUsersSchema: { version: number; ready: Promise<void> } | undefined
@@ -77,11 +78,12 @@ function ensureTelegramUsers(): Promise<void> {
             created_date TEXT NOT NULL DEFAULT '',
             last_active TEXT NOT NULL DEFAULT ''
           );
+          ALTER TABLE telegram_users ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '';
         `)
         await tx
           .prepare(
             `DELETE FROM telegram_users u
-              WHERE ${FINGERPRINT_SQL} = ANY(@seed::text[])
+              WHERE u.source = '' AND ${FINGERPRINT_SQL} = ANY(@seed::text[])
                  OR (u.id = 9999000001 AND u.first_name = 'QA' AND u.last_name = 'Test' AND u.username = 'qa_cli_test'
                      AND u.phone = '' AND u.language = '' AND u.market_id IS NULL AND u.market_name = ''
                      AND u.created_date = u.last_active)`,

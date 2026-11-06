@@ -78,6 +78,11 @@ export async function stockOrphanNames(keys: string[], db: PgDb = getDb()): Prom
   return keys.length ? orphanItems(keys, db, await stockTables(db)) : new Map()
 }
 
+/** Keys of `keys` that are deleted catalog items (for the other stock reports: left out as in Остаток). */
+export async function stockDeletedKeys(keys: string[], db: PgDb = getDb()): Promise<Set<string>> {
+  return keys.length ? deletedItemKeys(keys, db, await stockTables(db)) : new Set()
+}
+
 /** The keys (product:<id> / raw_material:<id>) of catalog items that exist but are deleted. */
 async function deletedItemKeys(keys: string[], db: PgDb, t: StockTables): Promise<Set<string>> {
   const result = new Set<string>()

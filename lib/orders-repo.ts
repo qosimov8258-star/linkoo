@@ -1109,21 +1109,67 @@ async function addLog(db: PgDb, orderId: number, entry: { action: "created" | "u
 
 export type ClientLedgerBalance = { lines: string[]; negative: boolean; byCurrency: Record<string, number>; lastOrder: string | null; lastPayment: string | null }
 
-/** Current (today's end) ledger balances per client id; empty map when the ledger is unavailable. */
-export async function clientLedgerBalances(options: { keys?: string[]; mode?: "created" | "realization" } = {}): Promise<Map<number, ClientLedgerBalance>> {
+/** Shop id → its financial account id (Клиенты → Финансовые счета, deleted ones too: Linko's list shows a shop of a
+ * deleted account with that account's balance); with `clientIds`, only those shops. Empty without the account tables. */
+async function accountOfShops(clientIds?: number[]): Promise<Map<number, number>> {
+  const db = getDb()
+  const present = (await db
+    .prepare("SELECT to_regclass('financial_accounts') IS NOT NULL AS a, to_regclass('financial_account_markets') IS NOT NULL AS m")
+    .get()) as { a: boolean; m: boolean } | undefined
+  if (!present?.a || !present.m) return new Map()
+  const rows = (await db
+    .prepare(
+      `SELECT m.client_id, m.financial_account_id AS account_id
+         FROM financial_account_markets m JOIN financial_accounts a ON a.id = m.financial_account_id
+        WHERE @all::boolean OR m.client_id = ANY(@ids::int[])`,
+    )
+    .all({ all: !clientIds, ids: clientIds ?? [] })) as Array<{ client_id: number; account_id: number }>
+  return new Map(rows.map((row) => [Number(row.client_id), Number(row.account_id)]))
+}
+
+/** A balance line of the client list: up to 3 decimals, as the reference shows them ("34,711 USD"). */
+function formatListMoney(amount: number, currency: string): string {
+  const rounded = Math.round(amount * 1000) / 1000
+  return `${rounded.toLocaleString("ru-RU", { maximumFractionDigits: 3 }).replace(/[\u00a0\u202f]/g, " ")} ${currency}`
+}
+
+/**
+ * Current (today's end) ledger balances per client id; empty map when the ledger is unavailable.
+ * `byAccount` (the client list): a shop that belongs to a financial account shows the balance of the whole account —
+ * Linko keeps the client's debt per account (its shops are outlets), with the money booked on the account itself —
+ * in the reference's form (currencies by code, up to 3 decimals).
+ */
+export async function clientLedgerBalances(
+  options: { keys?: string[]; mode?: "created" | "realization"; byAccount?: boolean } = {},
+): Promise<Map<number, ClientLedgerBalance>> {
   const out = new Map<number, ClientLedgerBalance>()
   try {
     const today = todayIso()
-    const result = await getBalanceList("client", { from: today, to: today, pageSize: 0, keys: options.keys, mode: options.mode ?? "created" })
+    const mode = options.mode ?? "created"
+    const result = await getBalanceList("client", { from: today, to: today, pageSize: 0, keys: options.keys, mode })
+    const accountOf = options.byAccount ? await accountOfShops(options.keys?.map(Number).filter((id) => Number.isSafeInteger(id))) : new Map<number, number>()
+    const accountTotals = new Map<number, Record<string, number>>()
+    if (accountOf.size) {
+      const wanted = options.keys ? [...new Set(options.keys.map((key) => accountOf.get(Number(key))).filter((id): id is number => id !== undefined))].map((id) => `acc:${id}`) : undefined
+      const accounts = await getBalanceList("account", { from: today, to: today, pageSize: 0, keys: wanted, mode, withDeletedAccounts: true })
+      for (const row of accounts.rows) {
+        if (!row.key.startsWith("acc:")) continue
+        accountTotals.set(Number(row.key.slice(4)), Object.fromEntries(Object.entries(row.currencies).map(([code, balance]) => [code, balance.end_balance ?? 0])))
+      }
+    }
+    const currencies = options.byAccount ? [...result.currencies].sort((a, b) => a.code.localeCompare(b.code)) : result.currencies
+    const digits = options.byAccount ? 1000 : 100
     for (const row of result.rows) {
       if (row.id === null) continue
+      const account = accountOf.get(row.id)
+      const totals = account === undefined ? undefined : accountTotals.get(account)
       const byCurrency: Record<string, number> = {}
       const lines: string[] = []
-      for (const currency of result.currencies) {
-        const value = Math.round((row.currencies[currency.code]?.end_balance ?? 0) * 100) / 100
-        if (Math.abs(value) < 0.005) continue
+      for (const currency of currencies) {
+        const value = Math.round((totals ? (totals[currency.code] ?? 0) : (row.currencies[currency.code]?.end_balance ?? 0)) * digits) / digits
+        if (Math.abs(value) < 0.5 / digits) continue
         byCurrency[currency.code] = value
-        lines.push(formatMoney(value, currency.code))
+        lines.push(options.byAccount ? formatListMoney(value, currency.code) : formatMoney(value, currency.code))
       }
       out.set(row.id, {
         lines,

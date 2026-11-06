@@ -9,9 +9,26 @@ const STATUS = { 0: "pending", 1: "pending", 2: "accepted", 3: "cancelled" }
 
 const list = raw("order_returns")
 const details = raw("order_returns_detail")
-// Linko's client ledger: what it credited per return (client transactions of type 3), also for returns still pending.
+// Linko's client ledger: what it credited per return and currency (client transactions of type 3), also for returns
+// still pending. A return can credit in two currencies (a line priced in another one).
 const credits = new Map()
-for (const t of raw("client_transactions")) if (t.type === 3 && t.order_return) credits.set(t.order_return, (credits.get(t.order_return) ?? 0) + Number(t.amount))
+const creditPayment = new Map()
+for (const t of raw("client_transactions")) {
+  if (t.type !== 3 || !t.order_return) continue
+  const id = t.order_return?.id ?? t.order_return
+  if (t.payment_type === "bank" || t.payment_type === "cash") creditPayment.set(id, t.payment_type)
+  const byCurrency = credits.get(id) ?? new Map()
+  const code = currencyCode(t.currency)
+  byCurrency.set(code, (byCurrency.get(code) ?? 0) + Number(t.amount))
+  credits.set(id, byCurrency)
+}
+const round9 = (value) => Math.round(value * 1e9) / 1e9
+/** The credit in the return's own currency, and the credits in other currencies ({"USD": 0.0091}) or null. */
+function creditOf(id, currency) {
+  const byCurrency = credits.get(id) ?? new Map()
+  const other = Object.fromEntries([...byCurrency].filter(([code, amount]) => code !== currency && Math.abs(amount) > 1e-9).map(([code, amount]) => [code, round9(amount)]))
+  return { main: round9(byCurrency.get(currency) ?? 0), other: Object.keys(other).length ? JSON.stringify(other) : null }
+}
 const run = runId("returns")
 
 const client = await connect()
@@ -19,6 +36,7 @@ await ensureRegistry(client)
 const stats = { insert: 0, update: 0, same: 0, items: 0 }
 try {
   await client.query("BEGIN")
+  await client.query("ALTER TABLE client_returns ADD COLUMN IF NOT EXISTS client_credit DOUBLE PRECISION, ADD COLUMN IF NOT EXISTS client_credit_other TEXT, ADD COLUMN IF NOT EXISTS payment_type TEXT NOT NULL DEFAULT ''")
   // Local order line of (order, product): returns point at their order line, kept by the order module.
   const lines = (await client.query("SELECT id, order_id, product_id, quantity FROM order_items")).rows
   const lineOf = new Map()
@@ -32,6 +50,7 @@ try {
     const status = STATUS[Number(row.status)] ?? "pending"
     const created = sqlDateTime(row.created_date)
     const acceptedAt = status === "accepted" ? utcIso(row.accepted_time ?? detail.accepted_time ?? row.created_date) : null
+    const credit = creditOf(row.id, currencyCode(row.currency))
     const values = {
       client_id: row.market?.id ?? row.client?.id ?? null,
       client: row.market?.name ?? row.client?.name ?? "",
@@ -51,7 +70,9 @@ try {
       organization: row.division?.name ?? detail.division_name ?? "",
       cancelled_at: status === "cancelled" ? created : null,
       cancelled_by: status === "cancelled" ? fullName(row.created_by) : "",
-      client_credit: Math.round((credits.get(row.id) ?? 0) * 1e6) / 1e6,
+      client_credit: credit.main,
+      client_credit_other: credit.other,
+      payment_type: creditPayment.get(row.id) ?? "",
     }
     stats[await upsertById(client, run, "client_returns", row.id, values)]++
 

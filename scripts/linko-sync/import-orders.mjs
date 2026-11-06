@@ -3,7 +3,8 @@
 // ship), the ship moment (shipped_at, from Linko's order history), the client (the shop: Linko's market), whether Linko
 // debited the client (orders.no_debt), the product lines (order_items: price before the line discount + the discount)
 // and the history (order_logs).
-// Orders themselves (928, same ids) were imported earlier; the fields above are what the stock and the history need.
+// Orders themselves (928, same ids) were imported earlier; the fields above are what the stock and the history need,
+// with the card's organization, payment type and term, currency, author, comment and invoice.
 //
 //   node scripts/linko-sync/import-orders.mjs   (raw: orders, orders_detail, order_products, order_logs)
 import { connect, currencyCode, ensureRegistry, fullName, raw, register, runId, upsertById, utcIso } from "./lib.mjs"
@@ -50,6 +51,17 @@ try {
         client_id: row.market?.id ?? doc.market?.id ?? null,
         // Linko booked no client debt for this order: the client ledger leaves it out too.
         no_debt: debited.has(row.id) ? 0 : 1,
+        // The order card's fields and the ledger's Организация / Тип оплаты (the client act per organization, the
+        // cash / bank split of Сверка): Linko's division, payment type and term, currency, author, comment, invoice.
+        organization: row.division?.name ?? doc.division?.name ?? "",
+        payment_type: row.payment_type === "bank" ? "bank" : "cash",
+        payment_date: row.payment_date ?? doc.payment_date ?? "",
+        currency: currencyCode(row.currency ?? doc.currency),
+        created_by: fullName(row.user ?? doc.user),
+        comment: row.comment ?? doc.comment ?? "",
+        invoice_number: row.invoice_number ?? "",
+        invoice_date: row.invoice_date ?? "",
+        invoice_active: row.invoice_is_active ? 1 : 0,
       })
     ]++
   }

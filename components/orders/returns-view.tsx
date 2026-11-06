@@ -176,7 +176,8 @@ export function ReturnsView({ initialId }: { initialId?: number } = {}) {
       .filter((row) => !filters.agent || row.agent === filters.agent)
       .filter((row) => !filters.client || row.client === filters.client)
       .filter((row) => !filters.zone || row.zone === filters.zone)
-      .filter((row) => !filters.status || t(STATUS_LABEL[row.status]) === filters.status)
+      // Like the reference (exclude_cancelled on every tab): cancelled returns show only when the status filter asks for them.
+      .filter((row) => (filters.status ? t(STATUS_LABEL[row.status]) === filters.status : row.status !== "cancelled"))
       .filter((row) => !filters.orderNo || String(row.orderId ?? "").includes(filters.orderNo))
       .filter((row) => !((filters.begin && row.returnDate < filters.begin) || (filters.end && row.returnDate > filters.end)))
       .filter((row) => !term || `${row.id} ${row.client} ${row.warehouse} ${row.deliverer} ${row.agent} ${row.orderId ?? ""} ${row.comment}`.toLowerCase().includes(term))

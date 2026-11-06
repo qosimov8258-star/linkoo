@@ -28,6 +28,8 @@ try {
   await client.query("BEGIN")
   await client.query("ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS supplier_id INTEGER")
   await client.query("ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS is_inventory INTEGER NOT NULL DEFAULT 0")
+  // 0 = a supply Linko has not confirmed yet: it is not planned for receiving (План приемок) until it is.
+  await client.query("ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS is_confirmed INTEGER NOT NULL DEFAULT 1")
   const ids = list.map((row) => row.id)
 
   // 1. Supplies that are not Linko's: only the ones a demo / parity seed wrote are removed.
@@ -98,6 +100,7 @@ try {
       // charges no supplier.
       supplier_id: doc.provider?.id ?? null,
       is_inventory: doc.is_inventory ? 1 : 0,
+      is_confirmed: (doc.is_confirmed ?? row.is_confirmed) === false ? 0 : 1,
     }
     stats[await upsertById(client, run, "supplier_incomings", row.id, values)]++
   }

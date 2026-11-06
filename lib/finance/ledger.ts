@@ -80,6 +80,8 @@ export type BalanceListParams = MovementFilters & {
   pageSize?: number
   /** Totals over the rows before search/keys filters (van-sell, employees). */
   totalsIgnoreSearch?: boolean
+  /** Accounts: also the deleted financial accounts (the client list shows their shops with their balance). */
+  withDeletedAccounts?: boolean
 }
 
 export type StatementParams = MovementFilters & {
@@ -324,7 +326,8 @@ function rollupAccounts(rows: WorkRow[], contractNames: Map<string, string>, cod
       }
       accounts.set(key, account)
     }
-    account.members!.push(row.id as number)
+    // A row of money booked on the account itself (key "acc:<id>", no shop) adds its balance, not a shop.
+    if (row.id !== null) account.members!.push(row.id as number)
     account.info.clients = account.members!.length
     // Last order / payment of an account = the latest of its clients (not the first client's).
     for (const field of ["last_order", "last_payment"]) {
@@ -395,6 +398,14 @@ function delivererEntities(entities: EntityRecord[], byEntity: Map<string, unkno
   return listed
 }
 
+/** Financial account id → name (Клиенты → Финансовые счета; deleted ones too: their booked money still counts). */
+async function financialAccountNames(db: PgDb): Promise<Map<number, { name: string; deleted: boolean }>> {
+  const present = (await db.prepare("SELECT to_regclass('financial_accounts') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!present?.ok) return new Map()
+  const rows = (await db.prepare("SELECT id, name, COALESCE(deleted, 0) AS deleted FROM financial_accounts").all()) as Array<{ id: number; name: string; deleted: number }>
+  return new Map(rows.map((row) => [Number(row.id), { name: String(row.name ?? ""), deleted: Number(row.deleted) === 1 }]))
+}
+
 /** Balances of every entity of `kind` for [from, to] (see BalanceListParams). */
 export async function getBalanceList(kind: BalanceEntityKind, params: BalanceListParams, db: PgDb = getDb()): Promise<BalanceListResult> {
   // internal_transfers.amount (read by the movement SQL) follows the cost ledger: refresh it first (a no-op
@@ -431,6 +442,49 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
     }
     return row
   })
+  // Accounts: money booked on a financial account rather than on its current shops ("acc:<id>" rows, see
+  // lib/finance/sources.ts movementCte) — rows of their own, after the shops, that rollupAccounts adds to the account;
+  // and, as Linko lists every account, an empty row for an account with neither shops nor money.
+  if (kind === "account") {
+    const names = await financialAccountNames(db)
+    const covered = new Set<number>()
+    for (const row of rows) {
+      const id = Number(row.info.account_id)
+      if (Number.isInteger(id) && id > 0) covered.add(id)
+    }
+    const accountRow = (id: number) => {
+      const account = names.get(id)
+      const key = `acc:${id}`
+      const name = account?.name ?? key
+      const info: Record<string, string | number | null> = {
+        account_id: id,
+        account_name: name,
+        account_deleted: account?.deleted ? 1 : 0,
+        inn: "",
+        type: "",
+        zone: "",
+        agent: "",
+        deliverer: "",
+        collector: "",
+        branch: "",
+        phone: "",
+        code: "",
+        tab: "",
+        created: "",
+      }
+      const row = buildRow({ key, id: null, name, info }, byEntity.get(key), codes, columns)
+      row.info.last_order = meta.get(key)?.lastOrder || null
+      row.info.last_payment = meta.get(key)?.lastPayment || null
+      return row
+    }
+    for (const key of byEntity.keys()) {
+      if (!key.startsWith("acc:")) continue
+      const id = Number(key.slice(4))
+      rows.push(accountRow(id))
+      covered.add(id)
+    }
+    for (const [id, account] of names) if (!covered.has(id) && !account.deleted) rows.push(accountRow(id))
+  }
 
   // Entity attribute filters.
   const branches = normList(params.branches)
@@ -473,6 +527,8 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
       }
       rows = [...byType.values()].flatMap((list) => rollupAccounts(list, contractNames, codes, columns))
     } else rows = rollupAccounts(rows, contractNames, codes, columns)
+    // A deleted financial account is not listed (as in Linko); its shops' money stays with it.
+    if (!params.withDeletedAccounts) rows = rows.filter((row) => !(row.key.startsWith("acc:") && Number(row.info.account_deleted) === 1))
   }
   if (kind === "agent") rows = rollupAgents(rows, await loadEmployeesByName(db), codes, columns)
   rows = rows.filter((row) => matchesBalanceType(row, params.balanceType, params.balanceCurrency))
@@ -537,10 +593,20 @@ type StatementDbRow = {
 async function resolveEntity(kind: BalanceEntityKind, key: string, db: PgDb, s: FinanceSchema, cc: CurrencyContext) {
   const entities = entitiesInAppCurrency(await loadEntities(kind, db, s), cc)
   if (kind === "account" && key.startsWith("acc:")) {
+    // The account's shops plus the money booked on the account itself (its "acc:<id>" movements).
     const account = Number(key.slice(4))
     const members = entities.filter((entity) => Number(entity.info.account_id) === account)
-    if (!members.length) return null
-    return { key, id: null, name: String(members[0].info.account_name ?? "") || members[0].name, info: { ...members[0].info, clients: members.length }, keys: members.map((entity) => entity.key) }
+    if (!members.length) {
+      const name = (await financialAccountNames(db)).get(account)?.name
+      return name === undefined ? null : { key, id: null, name, info: { account_id: account, account_name: name, clients: 0 }, keys: [key] }
+    }
+    return {
+      key,
+      id: null,
+      name: String(members[0].info.account_name ?? "") || members[0].name,
+      info: { ...members[0].info, clients: members.length },
+      keys: [...members.map((entity) => entity.key), key],
+    }
   }
   if (kind === "account" && key.startsWith("inn:")) {
     const inn = key.slice(4)

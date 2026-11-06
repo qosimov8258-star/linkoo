@@ -97,7 +97,7 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
   if ((tab === "receive" || tab === "receive_history") && t.has("supplier_incomings")) {
     const created = supplyCreated(t)
     if (tab === "receive") {
-      parts.push(withIds(select({ type: "supply", party: "i.supplier", warehouse: "i.warehouse", request: created, date: created }, "FROM supplier_incomings i WHERE i.status = 'ожидает'"), "i"))
+      parts.push(withIds(select({ type: "supply", party: "i.supplier", warehouse: "i.warehouse", request: created, date: created }, `FROM supplier_incomings i WHERE i.status = 'ожидает'${t.col("supplier_incomings", "is_confirmed") ? " AND COALESCE(i.is_confirmed, 1) = 1" : ""}`), "i"))
     } else {
       const accepted = t.col("supplier_incomings", "accepted_at") ? `COALESCE(${ts("i.accepted_at")}, ${created})` : created
       const by = columnOr(t, "supplier_incomings", "accepted_by", "i", "''")
@@ -136,7 +136,11 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
     const planned = t.col("client_returns", "return_date") ? `COALESCE(fin_ts(r.return_date), ${created})` : created
     const fields = {
       type: "order_return" as const,
-      party: columnOr(t, "client_returns", "client", "r", "''"),
+      // The client account the return was booked on (else the shop's account), as the reference's plan names it.
+      party:
+        t.has("financial_accounts") && t.has("financial_account_markets") && t.col("client_returns", "client_id")
+          ? `COALESCE((SELECT fa.name FROM financial_accounts fa WHERE fa.id = COALESCE(${t.col("client_returns", "financial_account_id") ? "r.financial_account_id" : "NULL"}, (SELECT fm.financial_account_id FROM financial_account_markets fm WHERE fm.client_id = r.client_id LIMIT 1))), ${columnOr(t, "client_returns", "client", "r", "''")})`
+          : columnOr(t, "client_returns", "client", "r", "''"),
       warehouse: "r.warehouse",
       request: created,
       deliverer: columnOr(t, "client_returns", "deliverer", "r", "''"),

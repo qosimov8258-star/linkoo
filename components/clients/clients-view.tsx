@@ -3010,11 +3010,17 @@ function ClientRow({
 }) {
   const { t } = useLanguage()
   const confirmed = client.tab !== "unconfirmed"
+  // «Информация» as the reference shows it: the client's first two attribute values ("name: value"); a client without
+  // any shows its INN. «Баланс» stays empty when the ledger balance is zero in every currency.
+  const infoAttributes = Object.entries(client.attributes ?? {})
+    .filter(([name, value]) => !name.startsWith("_") && value !== "")
+    .slice(0, 2)
+  const zeroBalance = client.currentBalances !== undefined && Object.keys(client.currentBalances).length === 0
 
   return (
     <div
       onClick={onOpen}
-      className={`grid cursor-pointer items-center border-b border-dotted border-[#d6d6d6] relative border-l-[3px] [border-left-style:solid] ${selectMode ? "pl-[52px]" : "pl-[27px]"} pr-[30px] [&>div]:[overflow-wrap:anywhere] h-[50px] hover:bg-[#f2f5f8] ${
+      className={`grid cursor-pointer items-center border-b border-dotted border-[#d6d6d6] relative border-l-[3px] [border-left-style:solid] ${selectMode ? "pl-[52px]" : "pl-[27px]"} pr-[30px] [&>div]:[overflow-wrap:anywhere] min-h-[50px] py-[3px] hover:bg-[#f2f5f8] ${
         !confirmed ? "border-l-[#5d6474]" : client.isActive === false ? "border-l-[#e57373]" : "border-l-[#81c784]"
       } bg-white`}
       style={{ gridTemplateColumns: gridTemplate(columns, "row") }}
@@ -3036,7 +3042,13 @@ function ClientRow({
       {columns.code && <div className="px-2 leading-[16.25px]">{client.code ?? ""}</div>}
       {columns.phone && <div className="px-2 leading-[16.25px]">{/^\d{9}$/.test(client.phone) ? `+998${client.phone}` : client.phone}</div>}
       {columns.info && <div className="px-2 leading-[16.25px]">
-        {client.inn ? (
+        {infoAttributes.length ? (
+          infoAttributes.map(([name, value]) => (
+            <div key={name}>
+              {name}: <b>{value}</b>
+            </div>
+          ))
+        ) : client.inn ? (
           <>
             {t("ИНН")}: <b>{client.inn}</b>
           </>
@@ -3055,7 +3067,9 @@ function ClientRow({
       {columns.deliverer && <div className="px-2 leading-[16.25px]">{client.deliverer}</div>}
       {columns.collector && <div className="px-2 leading-[16.25px]">{client.collector}</div>}
       {columns.balance && <div className="pl-2 text-center leading-[16.25px]">
-        {client.balanceLines?.length
+        {zeroBalance
+          ? ""
+          : client.balanceLines?.length
           ? client.balanceLines.map((line) => <div key={line} className={line.startsWith("-") ? "text-[#e57373]" : ""}>{line}</div>)
           : client.balance ? <span className={client.balance < 0 ? "text-[#e57373]" : ""}>{formatBalance(client.balance, baseCurrency)}</span> : ""}
       </div>}

@@ -3,12 +3,18 @@ import "server-only"
 import { withTransaction } from "@/lib/db"
 import { createRecord, deleteRecord, listRecords } from "@/lib/ref-records-repo"
 
-// "План опроса": plan rows per month (kind "survey-plan" of the shared reference store). The reference has no plan for the
-// current month, so the list starts empty.
+// "План опроса": plan rows per month (kind "survey-plan" of the shared reference store): which surveys an employee has to
+// carry out in the month ("Апрель-2025") and how many of each (plan; null = an entry saved before plans had a number).
 
-export type SurveyPlanEntry = { period: string; employee: string; survey: string }
+export type SurveyPlanEntry = { period: string; employee: string; survey: string; plan: number | null }
 
-export type SurveyPlanReplaceInput = { period: string; entries: { employee: string; survey: string }[] }
+export type SurveyPlanReplaceInput = { period: string; entries: { employee: string; survey: string; plan: number | null }[] }
+
+/** A planned number: a non-negative number (from JSON or a typed / imported text), else null. */
+function planNumber(value: unknown): number | null {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value.trim().replace(",", ".")) : NaN
+  return Number.isFinite(number) && number >= 0 && number <= 1_000_000 ? number : null
+}
 
 export function parseSurveyPlanReplaceInput(body: unknown): SurveyPlanReplaceInput | null {
   if (!body || typeof body !== "object") return null
@@ -21,13 +27,14 @@ export function parseSurveyPlanReplaceInput(body: unknown): SurveyPlanReplaceInp
     .map((item) => ({
       employee: typeof item.employee === "string" ? item.employee.trim() : "",
       survey: typeof item.survey === "string" ? item.survey.trim() : "",
+      plan: planNumber(item.plan),
     }))
     .filter((item) => item.employee && item.survey)
   return { period, entries }
 }
 
 function toEntry(data: Record<string, unknown>): SurveyPlanEntry {
-  return { period: String(data.period ?? ""), employee: String(data.employee ?? ""), survey: String(data.survey ?? "") }
+  return { period: String(data.period ?? ""), employee: String(data.employee ?? ""), survey: String(data.survey ?? ""), plan: planNumber(data.plan) }
 }
 
 export async function listSurveyPlans(): Promise<SurveyPlanEntry[]> {
@@ -44,7 +51,7 @@ export async function replaceSurveyPlanPeriod(input: SurveyPlanReplaceInput): Pr
     // getDb() is this transaction: the reads and writes below (createRecord / deleteRecord nest as savepoints) commit together.
     const existing = (await listRecords("survey-plan")).filter((record) => record.data.period === input.period)
     for (const record of existing) await deleteRecord("survey-plan", record.id)
-    for (const entry of input.entries) await createRecord("survey-plan", { period: input.period, employee: entry.employee, survey: entry.survey })
+    for (const entry of input.entries) await createRecord("survey-plan", { period: input.period, employee: entry.employee, survey: entry.survey, plan: entry.plan })
     return (await listRecords("survey-plan")).map((record) => toEntry(record.data)).filter((entry) => entry.period === input.period)
   })
 }

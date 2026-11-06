@@ -336,6 +336,9 @@ export type SplitOptions = {
   orderStatuses?: string[]
   /** Restrict to these client ids. */
   clientIds?: number[]
+  /** "account": movements keyed as the account balances key them (a document booked on another financial account
+   * than its shop's is keyed "acc:<id>"; see lib/finance/sources.ts movementCte). Default "client" (by shop). */
+  kind?: "client" | "account"
 }
 
 export type ClientSplit = { currencies: Map<string, ReconciliationMoney>; orders: number }
@@ -349,7 +352,7 @@ export async function clientBalanceSplit(db: PgDb, s: FinanceSchema, base: strin
   const joinOrders = orderPt || statuses.length ? "LEFT JOIN orders o ON mv.src = 'order' AND o.id = mv.src_id" : ""
   // Same row filter as the ledger's aggregate (MOVEMENT_WHERE + counted columns);
   // OFFSET 0 keeps the date parsing above the entity joins, like the ledger.
-  const sql = `${movementCte("client", s, { mode: options.mode, lean: false, orderScope: null })}
+  const sql = `${movementCte(options.kind ?? "client", s, { mode: options.mode, lean: false, orderScope: null })}
     SELECT m.ek, m.cur, SUM(m.amt) AS total, SUM(m.amt) FILTER (WHERE m.pay = 'bank') AS bank,
            COUNT(DISTINCT m.src_id) FILTER (WHERE m.src = 'order') AS orders
     FROM (
@@ -528,7 +531,9 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
     latestDeadlines(db, variant),
   ])
   // The SQL default of rows without a currency is the real base currency (the list's is the app currency when one is chosen).
-  const split = await clientBalanceSplit(db, s, (await loadCurrencyContext(db)).base, { to: asOf, mode: params.mode, organizations: params.organizations, orderStatuses })
+  // Accounts: by the account each movement was booked on (as the account balances), so an account's money is its
+  // shops' plus what was booked on the account itself, as in Linko.
+  const split = await clientBalanceSplit(db, s, (await loadCurrencyContext(db)).base, { to: asOf, mode: params.mode, organizations: params.organizations, orderStatuses, kind: variant })
   const seen = new Set(list.currencies.map((currency) => currency.code))
   const currencies = [...list.currencies]
   for (const entry of split.values()) {
@@ -545,13 +550,15 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
 
   let rows: StoreReconciliationRow[] = []
   for (const balanceRow of list.rows) {
-    // A shop row is one client; an account row sums its clients (ledger members).
+    // A shop row is one client; an account row sums its clients (ledger members) and the money booked on the account
+    // itself (its "acc:<id>" key). An account without shops is listed too (Linko lists every account).
     const memberIds = variant === "account" ? (balanceRow.members ?? []) : balanceRow.id !== null ? [balanceRow.id] : []
-    if (!memberIds.length) continue
+    const splitKeys = [...memberIds.map(String), ...(variant === "account" && balanceRow.key.startsWith("acc:") ? [balanceRow.key] : [])]
+    if (!splitKeys.length) continue
     const money: Record<string, ReconciliationMoney> = Object.fromEntries(codes.map((code) => [code, emptyMoney()]))
     let orders = 0
-    for (const memberId of memberIds) {
-      const entry = split.get(String(memberId))
+    for (const splitKey of splitKeys) {
+      const entry = split.get(splitKey)
       if (!entry) continue
       orders += entry.orders
       for (const [code, value] of entry.currencies) if (money[code]) addMoney(money[code], value)

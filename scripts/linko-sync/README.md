@@ -37,11 +37,21 @@ the importers at another database of the same server; a remote host is refused u
   warehouses, equipment issued from a warehouse, a few corrections): production movements of direction `adjust`
   marked "Linko: …" (the ledger's "Прочие" column), so every product's balance in every warehouse equals Linko's.
 - **Client ledger**: an order Linko booked no debt for is `orders.no_debt = 1`; a return carries what Linko credited
-  (`client_returns.client_credit`, also for returns still pending there).
+  (`client_returns.client_credit`, also for returns still pending there; a credit in another currency than the
+  return's in `client_credit_other`).
+- **Financial accounts**: Linko keeps a client's debt per financial account. A document booked on another account than
+  its shop's current one (the shop moved later), or a payment booked on an account without any shop, carries that
+  account (`financial_account_id` on orders, returns, payments, corrections, withdrawals — `import-document-accounts.mjs`),
+  so «Долги по счетам» and the client list's balance (the shop's account, as Linko shows it) equal Linko's; the shop's
+  own balance (Баланс клиентов, its card) is unchanged. A deleted account is not listed but still holds its shops' money.
 - **Reservations** follow Linko: unconfirmed orders ("Не подтвержден") and confirmed transfers reserve stock.
 - **Same names**: document lines carry the catalog key (`"key": "product:<id>"`), supplies and supplier returns the
   supplier id, shops their financial account — so Linko products, suppliers and accounts that share a name stay apart.
 - Products Linko deleted but its documents still name are kept as deleted products (left out of Остаток, as in Linko).
+- Small lists an older build seeded and its "legacy seed" cleanups would delete when they look seeded (Telegram bot
+  users, Транспорт, Смены, notification subscribers) are written so the cleanups leave them alone
+  (`import-settings-lists.mjs`); the example surveys and survey plans of that seed are replaced by Linko's
+  (`import-surveys.mjs`).
 
 Linko itself answers 500 for a few documents (some returns, inventory 125, some repricings, production records); their
 lines come from other lists where Linko has them (see `fetch.mjs` steps `returns-patch`, `manufacture-returns`).

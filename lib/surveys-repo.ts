@@ -295,9 +295,12 @@ async function surveyValues(body: SurveyBody): Promise<SurveyValues> {
 // Reads / writes
 // ---------------------------------------------------------------------------
 
+/** The reference's list order: by the sequence number (surveys without one last), then the newest first. */
+const LIST_ORDER = "CASE WHEN order_no ~ '^[0-9]{1,9}$' THEN CAST(order_no AS INTEGER) END ASC NULLS LAST, id DESC"
+
 export async function listSurveys(): Promise<Survey[]> {
   await ensureSchema()
-  const [rows, refs] = await Promise.all([getDb().prepare("SELECT * FROM surveys ORDER BY id DESC").all() as Promise<Row[]>, directory()])
+  const [rows, refs] = await Promise.all([getDb().prepare(`SELECT * FROM surveys ORDER BY ${LIST_ORDER}`).all() as Promise<Row[]>, directory()])
   return rows.map((row) => rowToSurvey(row, refs))
 }
 

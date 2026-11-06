@@ -150,7 +150,9 @@ try {
         doc_no: p.transaction ?? null,
         client: text(p.market?.name ?? p.client?.name),
         client_code: null,
-        client_id: p.market?.id ?? p.client?.id ?? null,
+        // The shop; a payment Linko booked on a financial account without a shop has none (import-document-accounts.mjs
+        // records the account).
+        client_id: p.market?.id ?? null,
         created_by: name(p.user),
         paid_at: russianDateTime(p.created_date),
         payment_date: localIso(p.created_date),

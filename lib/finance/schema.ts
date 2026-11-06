@@ -182,6 +182,8 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
     is_deleted: "INTEGER NOT NULL DEFAULT 0",
     deleted_at: "TEXT NOT NULL DEFAULT ''",
     deleted_by: "TEXT NOT NULL DEFAULT ''",
+    // See client_balance_corrections below; a payment with no shop (client_id NULL) is the account's alone.
+    financial_account_id: "INTEGER",
   },
   cash_management_entries: {
     created_by: "TEXT NOT NULL DEFAULT ''",
@@ -191,6 +193,8 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
     income_category_id: "INTEGER",
     expense_category_id: "INTEGER",
     client_id: "INTEGER",
+    // The financial account a client withdrawal was booked on, when not the shop's current one (see customer_payments).
+    financial_account_id: "INTEGER",
     supply_id: "INTEGER",
     supply_expense_id: "INTEGER",
     employee_id: "INTEGER",
@@ -266,6 +270,18 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
   // the app's rule (an accepted return credits its amount). See also orders.no_debt below.
   client_returns: {
     client_credit: "DOUBLE PRECISION",
+    // What Linko credited in other currencies than the return's own ({"USD": 0.0091}, a line priced in another one).
+    client_credit_other: "TEXT",
+    // How Linko booked the credit ("cash" / "bank"); '' = the returned order's payment type.
+    payment_type: "TEXT NOT NULL DEFAULT ''",
+    financial_account_id: "INTEGER",
+  },
+  // A client document Linko booked on another financial account than the shop's current one (the shop moved to
+  // another account later), or on an account without a shop: financial_account_id = that account. The account balances
+  // (Долги по счетам, the client list's balance) count it for that account; the shop's own balance is unchanged.
+  // NULL = the shop's current account (every document the app writes).
+  client_balance_corrections: {
+    financial_account_id: "INTEGER",
   },
   // Manual movements can be soft-deleted ("Удалить" of the movement dialog); a loyalty movement the same way.
   loyalty_card_transactions: {
@@ -289,11 +305,17 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
   // Contract 6: orders link their client by id (the orders module writes it;
   // the name stays as a snapshot). Rows without it are filled by name below
   // (backfillOrderClients), so renaming a client keeps its orders.
+  // 1 / 0 = Linko's answer whether the branch is listed in Баланс филиалов (show_balance and not is_main); NULL = the
+  // app's rule (Учет долга, not the main branch).
+  branches: {
+    in_balance: "INTEGER",
+  },
   orders: {
     client_id: "INTEGER",
     // 1 = an order imported from Linko that Linko booked no client debt for: left out of the client ledger and of
     // the order debts, whatever its status.
     no_debt: "INTEGER NOT NULL DEFAULT 0",
+    financial_account_id: "INTEGER",
   },
 }
 
@@ -327,6 +349,9 @@ const LEDGER_TABLES = [
   "salary_plans",
   "branches",
   "branch_balance_transactions",
+  // Ledgers whose history up to a moment is a copy of Linko's (Баланс филиалов / вансел): the app's own documents
+  // add movements only after it (scripts/linko-sync/import-finance-ledgers.mjs).
+  "linko_history",
   "warehouses",
   "internal_transfers",
   "write_offs",

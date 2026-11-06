@@ -16,6 +16,9 @@ const STOCK_SCHEMA_VERSION = 1
 
 /** Every table the stock ledger reads. */
 export const STOCK_TABLES = [
+  // Client accounts: the plan names a return by the client account (as the reference), not the shop.
+  "financial_accounts",
+  "financial_account_markets",
   "products",
   "raw_materials",
   "warehouses",
