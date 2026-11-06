@@ -220,6 +220,10 @@ type OrderSqlRow = {
   delivery_day: string | null
   realization_day: string | null
   payment_day: string | null
+  /** Linko's own remainder of an imported order (NULL = an order of the app). */
+  linko_remaining: number | string | null
+  order_currency: string
+  wrong_debt: number | null
 }
 
 type ClientSqlRow = {
@@ -265,9 +269,12 @@ async function buildModel(db: PgDb): Promise<Model> {
                 to_char(fin_ts(o.created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS') AS created,
                 to_char(fin_ts(o.delivery), 'YYYY-MM-DD') AS delivery_day,
                 to_char(${orderRealizationTs(s, "o")}, 'YYYY-MM-DD') AS realization_day,
-                to_char(fin_ts(NULLIF(o.payment_date, '')), 'YYYY-MM-DD') AS payment_day
+                to_char(fin_ts(NULLIF(o.payment_date, '')), 'YYYY-MM-DD') AS payment_day,
+                ${s.col("orders", "linko_remaining") ? "o.linko_remaining" : "NULL::double precision AS linko_remaining"},
+                ${s.col("orders", "currency") ? "COALESCE(o.currency, '')" : "''"} AS order_currency,
+                ${s.col("orders", "wrong_debt") ? "o.wrong_debt" : "0 AS wrong_debt"}
          FROM orders o ${orderClientJoin(s, "o", "oc", "ck")}
-         WHERE ${orderCountedSql("o")}${orderDebtSql("o")}`,
+         WHERE ${s.col("orders", "linko_remaining") ? `(o.linko_remaining IS NOT NULL OR (${orderCountedSql("o")}${orderDebtSql("o")}))` : `${orderCountedSql("o")}${orderDebtSql("o")}`}`,
       )
       .all() as Promise<OrderSqlRow[]>,
     db
@@ -284,6 +291,7 @@ async function buildModel(db: PgDb): Promise<Model> {
   ])
 
   const recalcs = new Map(recalcRows.map((row) => [Number(row.client_id), row]))
+  const clientCreated = new Map(clientRows.map((row) => [Number(row.id), String(row.created ?? "")]))
   const balances = new Map(ledger.rows.map((row) => [row.key, row]))
   const clients = new Map<string, ClientState>()
   const newClient = (info: OrderDebtClientInfo, extra: Partial<ClientState> = {}): ClientState => ({
@@ -366,6 +374,41 @@ async function buildModel(db: PgDb): Promise<Model> {
     client.orders.push(meta)
   }
 
+  // Orders imported from Linko keep Linko's own remainder (its allocation of the payments, counted for handed-over
+  // orders only), less what was paid on the order here since the import; the app's orders follow the FIFO rule below.
+  const linko = new Map<number, { remaining: number; currency: string; wrong: boolean }>()
+  for (const row of orderRows) {
+    if (row.linko_remaining === null || row.linko_remaining === undefined || !orders.has(Number(row.id))) continue
+    const released = RELEASED.has(nameKey(row.status))
+    linko.set(Number(row.id), { remaining: released ? Math.max(0, num(row.linko_remaining)) : 0, currency: row.order_currency ? normCurrency(row.order_currency, cc.base) : "", wrong: Number(row.wrong_debt) === 1 })
+  }
+  // Clients Linko flags for a recalculation (an imported order with a wrong debt, whatever its status), and the moment
+  // the history was copied: a client that existed then and has no order of the app keeps Linko's picture (no
+  // "unexplained" debt of its own).
+  const linkoWrong = new Set<number>()
+  let linkoUntil = ""
+  if (linko.size) {
+    for (const row of (await db.prepare("SELECT DISTINCT client_id FROM orders WHERE wrong_debt = 1 AND linko_remaining IS NOT NULL AND client_id IS NOT NULL").all()) as Array<{ client_id: number }>) linkoWrong.add(Number(row.client_id))
+    const history = (await db.prepare("SELECT to_regclass('linko_history') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+    if (history?.ok) linkoUntil = String(((await db.prepare("SELECT until FROM linko_history WHERE ledger = 'order_debts'").get()) as { until: string } | undefined)?.until ?? "")
+  }
+  if (linko.size && linkoUntil && s.col("customer_payments", "order_id")) {
+    {
+      const paidAfter = (await db
+        .prepare(
+          `SELECT p.order_id, SUM(p.amount)::double precision AS paid FROM customer_payments p
+            WHERE p.order_id = ANY(@ids::int[]) AND COALESCE(p.is_deleted, 0) = 0
+              AND p.created_at > COALESCE((SELECT until FROM linko_history WHERE ledger = 'order_debts'), '')
+            GROUP BY p.order_id`,
+        )
+        .all({ ids: [...linko.keys()] })) as Array<{ order_id: number; paid: number }>
+      for (const row of paidAfter) {
+        const entry = linko.get(Number(row.order_id))
+        if (entry) entry.remaining = Math.max(0, roundMoney(entry.remaining - num(row.paid)))
+      }
+    }
+  }
+
   // Totals and linked payments per order × currency (the cash core's numbers).
   const dues = orders.size ? await orderDues(db, [...orders.keys()], cc) : []
   for (const due of dues) {
@@ -378,6 +421,8 @@ async function buildModel(db: PgDb): Promise<Model> {
   }
 
   for (const client of clients.values()) {
+    // A client of the copied history without an order of the app: Linko's remainders only.
+    const linkoClient = Boolean(linkoUntil) && client.orders.every((order) => linko.has(order.id)) && client.info.id !== null && clientCreated.get(client.info.id) !== undefined && clientCreated.get(client.info.id)! <= linkoUntil.slice(0, 10)
     // Oldest first: the pool pays the oldest orders.
     client.orders.sort((a, b) => (a.realizationDay || a.createdDay).localeCompare(b.realizationDay || b.createdDay) || a.id - b.id)
     const balance = balances.get(client.info.key)
@@ -385,8 +430,20 @@ async function buildModel(db: PgDb): Promise<Model> {
     for (const parts of client.parts.values()) for (const part of parts) codes.add(part.currency)
     if (balance) for (const [code, value] of Object.entries(balance.currencies)) if (Math.abs(value.end_balance) > EPS) codes.add(code)
     for (const code of codes) {
-      const parts = client.orders.map((order) => client.parts.get(order.id)?.find((part) => part.currency === code)).filter((part): part is Part => Boolean(part))
-      let positive = 0
+      const all = client.orders.map((order) => ({ order, part: client.parts.get(order.id)?.find((part) => part.currency === code) })).filter((entry): entry is { order: OrderMeta; part: Part } => Boolean(entry.part))
+      // Linko's remainders are fixed; the pool (the ledger debt they do not explain) is shared by the app's orders only.
+      let fixed = 0
+      for (const { order, part } of all) {
+        const entry = linko.get(order.id)
+        if (!entry) continue
+        // Linko's remainder is in the order's currency; another currency part of it is settled.
+        part.remaining = !entry.currency || entry.currency === code ? roundMoney(entry.remaining) : 0
+        part.allocated = roundMoney(Math.max(0, part.total - part.paid - part.remaining))
+        fixed += part.remaining
+      }
+      const parts = all.filter(({ order }) => !linko.has(order.id)).map(({ part }) => part)
+      if (!parts.length && (all.length || linkoClient)) continue
+      let positive = fixed
       let overflow = 0
       for (const part of parts) {
         const rest = part.total - part.paid
@@ -410,6 +467,8 @@ async function buildModel(db: PgDb): Promise<Model> {
     }
     for (const parts of client.parts.values()) for (const part of parts) part.remaining = roundMoney(part.remaining)
 
+    // A client Linko flags for a recalculation (an imported order with a wrong debt) stays flagged.
+    if (client.info.id !== null && linkoWrong.has(client.info.id)) client.wrong = true
     const unexplainedCodes = Object.keys(client.unexplained)
     if (unexplainedCodes.length) {
       if (client.recalc && client.info.id !== null) {

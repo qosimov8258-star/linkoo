@@ -31,6 +31,13 @@ try {
     const id = typeof log.order === "object" ? log.order?.id : log.order
     if (SHIPPED.has(String(log.status)) && !shippedAt.has(id)) shippedAt.set(id, log.created_date)
   }
+  await client.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS linko_remaining DOUBLE PRECISION")
+  // Payments linked to an order after this moment reduce Linko's remainder (lib/finance-order-debts.ts).
+  await client.query("CREATE TABLE IF NOT EXISTS linko_history (ledger TEXT PRIMARY KEY, until TEXT NOT NULL)")
+  await client.query(
+    `INSERT INTO linko_history (ledger, until) VALUES ('order_debts', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
+     ON CONFLICT (ledger) DO UPDATE SET until = EXCLUDED.until`,
+  )
   const known = new Set((await client.query("SELECT id FROM orders")).rows.map((r) => r.id))
   for (const row of list) {
     if (!known.has(row.id)) {
@@ -62,6 +69,8 @@ try {
         invoice_number: row.invoice_number ?? "",
         invoice_date: row.invoice_date ?? "",
         invoice_active: row.invoice_is_active ? 1 : 0,
+        // «Долги с заказов»: what Linko still counts unpaid on the order (its own allocation of the payments).
+        linko_remaining: Number(row.total_balance) || 0,
       })
     ]++
   }
