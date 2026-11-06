@@ -21,7 +21,7 @@ import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { innKey, nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
-import { orderClientJoin, orderCountedSql, orderRealizationTs } from "@/lib/finance/sources"
+import { orderClientJoin, orderCountedSql, orderDebtSql, orderRealizationTs } from "@/lib/finance/sources"
 import { getClientBalanceOptions } from "@/lib/finance-client-balance"
 import {
   DEBT_BUCKETS,
@@ -73,13 +73,14 @@ import { invalidFieldResponse } from "@/lib/validation"
 // creation for orders not released yet. Buckets: ≤ p1, ≤ p2, ≤ p3, > p3
 // with the periods of order_debt_settings (default 7 / 30 / 120).
 
-const SCHEMA_VERSION = 4
+const SCHEMA_VERSION = 5
 
 const DDL = `
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_date TEXT NOT NULL DEFAULT '';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS organization TEXT NOT NULL DEFAULT '';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_man TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS no_debt INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS order_debt_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL DEFAULT '',
@@ -266,7 +267,7 @@ async function buildModel(db: PgDb): Promise<Model> {
                 to_char(${orderRealizationTs(s, "o")}, 'YYYY-MM-DD') AS realization_day,
                 to_char(fin_ts(NULLIF(o.payment_date, '')), 'YYYY-MM-DD') AS payment_day
          FROM orders o ${orderClientJoin(s, "o", "oc", "ck")}
-         WHERE ${orderCountedSql("o")}`,
+         WHERE ${orderCountedSql("o")}${orderDebtSql("o")}`,
       )
       .all() as Promise<OrderSqlRow[]>,
     db

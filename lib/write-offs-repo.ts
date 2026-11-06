@@ -353,7 +353,7 @@ async function ledgerOrphans(db: PgDb, warehouse: string, lines: WriteOffLineInp
 async function checkStock(tx: PgDb, warehouse: string, day: string, items: WriteOffItem[], index: CatalogIndex) {
   const stock = await warehouseStock(warehouse, day, tx)
   const shortages = findShortages(
-    items.map((item) => ({ product: item.product, quantity: item.qty, unit: item.unit, defect: item.defect })),
+    items.map((item) => ({ product: item.product, quantity: item.qty, unit: item.unit, defect: item.defect, key: item.key })),
     index,
     stock,
   )

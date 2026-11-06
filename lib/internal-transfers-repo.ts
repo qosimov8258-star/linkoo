@@ -159,13 +159,13 @@ function priceAtLedger(items: TransferItem[], index: CatalogIndex, out: Map<stri
   const goodQty = new Map<string, number>()
   for (const item of items) {
     if (item.defect) continue
-    const key = ledgerKey(index, item.product)
+    const key = ledgerKey(index, item.product, item.key)
     goodQty.set(key, (goodQty.get(key) ?? 0) + item.quantity)
   }
   let amount = 0
   const priced = items.map((item) => {
     if (item.defect) return { ...item, price: 0, priced: "cost" as const }
-    const key = ledgerKey(index, item.product)
+    const key = ledgerKey(index, item.product, item.key)
     const value = out.get(key)
     const qty = goodQty.get(key) ?? 0
     if (value === undefined || !(qty > 0)) {
@@ -610,6 +610,15 @@ async function applyAction(tx: PgDb, current: Transfer, action: TransferAction, 
     await lockWarehouseStock(tx, [current.fromWarehouse])
     const catalog = index ?? (await catalogIndex(tx))
     const stock = await warehouseStock(current.fromWarehouse, moment.slice(0, 10), tx)
+    // A confirmed transfer reserves its goods at the source (lib/stock/sources.ts buildPendingSql): its own
+    // reservation is available to it.
+    if (current.status === "потвержден") {
+      for (const item of current.items) {
+        if (item.defect) continue
+        const entry = stock.get(ledgerKey(catalog, item.product, item.key))
+        if (entry) entry.available = round6(entry.available + item.quantity)
+      }
+    }
     const shortages = findShortages(current.items, catalog, stock)
     if (shortages.length) throw new TransferAbort({ error: shortageMessage(current.fromWarehouse, shortages), status: 409, shortages })
     Object.assign(set, { given_at: moment, given_by: userName })

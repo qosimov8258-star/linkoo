@@ -240,8 +240,11 @@ function matchesSearch(row: WorkRow, query: string): boolean {
   return haystack.includes(query)
 }
 
-/** Account key of a client row: "inn:<inn>" or the client's own key (no INN). */
+/** Account key of a client row: its financial account ("acc:<id>", Клиенты → Финансовые счета — the reference's
+ * account), else "inn:<inn>", else the client's own key. */
 function accountKeyOf(row: WorkRow): string {
+  const account = Number(row.info.account_id)
+  if (Number.isInteger(account) && account > 0) return `acc:${account}`
   const inn = innKey(row.info.inn)
   return inn ? `inn:${inn}` : row.key
 }
@@ -308,12 +311,13 @@ function rollupAccounts(rows: WorkRow[], contractNames: Map<string, string>, cod
   for (const row of rows) {
     const inn = innKey(row.info.inn)
     const key = accountKeyOf(row)
+    const byAccount = key.startsWith("acc:")
     let account = accounts.get(key)
     if (!account) {
       account = {
         key,
-        id: inn ? null : row.id,
-        name: (inn && contractNames.get(inn)) || row.name,
+        id: byAccount || inn ? null : row.id,
+        name: (byAccount && String(row.info.account_name ?? "")) || (inn && contractNames.get(inn)) || row.name,
         info: { ...row.info, clients: 0 },
         currencies: Object.fromEntries(codes.map((code) => [code, emptyBalance(columns)])),
         members: [],
@@ -532,6 +536,12 @@ type StatementDbRow = {
 
 async function resolveEntity(kind: BalanceEntityKind, key: string, db: PgDb, s: FinanceSchema, cc: CurrencyContext) {
   const entities = entitiesInAppCurrency(await loadEntities(kind, db, s), cc)
+  if (kind === "account" && key.startsWith("acc:")) {
+    const account = Number(key.slice(4))
+    const members = entities.filter((entity) => Number(entity.info.account_id) === account)
+    if (!members.length) return null
+    return { key, id: null, name: String(members[0].info.account_name ?? "") || members[0].name, info: { ...members[0].info, clients: members.length }, keys: members.map((entity) => entity.key) }
+  }
   if (kind === "account" && key.startsWith("inn:")) {
     const inn = key.slice(4)
     const members = entities.filter((entity) => innKey(entity.info.inn) === inn)

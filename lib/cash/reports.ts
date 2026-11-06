@@ -36,7 +36,9 @@ x AS (
   LEFT JOIN expense_categories ec ON o.category_kind = 'expense' AND ec.id = o.category_id
   LEFT JOIN ecx en ON ec.id IS NULL AND fin_key(o.category_name) <> '' AND en.k = fin_key(o.category_name)
   WHERE NOT o.deleted AND o.verified AND o.amount < 0 AND o.op NOT IN (1, 2)
-    AND (NOT @listMode::boolean OR NOT o.internal)
+    -- The pages (listMode) leave out internal categories and, like Linko (its supply-expense payments are internal
+    -- transfers: they become part of the supply's cost, not an expense of the period), the supply extra expenses (op 9).
+    AND (NOT @listMode::boolean OR (NOT o.internal AND o.op <> 9))
 )`
 
 const ISO_TS = `COALESCE(to_char(x.ts, 'YYYY-MM-DD"T"HH24:MI:SS'), '')`
@@ -388,7 +390,12 @@ export async function staffExpenseRows(query: StaffExpenseQuery, db: PgDb = getD
               fin_place(e.organization) AS organization, e.comment, s.amount, COALESCE(fin_cur(NULLIF(s.currency, '')), fin_cur(cb.currency), @base::text) AS cur, e.custom_rate
        FROM cash_entry_staff s JOIN cash_management_entries e ON e.id = s.entry_id JOIN cashboxes cb ON cb.id = e.cashbox_id
        LEFT JOIN employees emp ON emp.id = s.employee_id
+       LEFT JOIN expense_categories ec ON ec.id = e.expense_category_id
+       LEFT JOIN (SELECT DISTINCT ON (fin_key(name)) fin_key(name) AS k, direct FROM expense_categories ORDER BY fin_key(name), id) en
+         ON ec.id IS NULL AND fin_key(e.category) <> '' AND en.k = fin_key(e.category)
        WHERE e.is_deleted = 0 AND e.is_verified <> 0 AND e.amount < 0
+         -- Like "Расходы по категориям" (and Linko): money paid out under an internal category is not a staff expense.
+         AND COALESCE(ec.direct, en.direct, 0) = 0
          AND (cardinality(@employees::int[]) = 0 OR s.employee_id = ANY(@employees::int[]))
          AND (@from::text = '' OR COALESCE(fin_ts(e.entry_date), fin_ts(e.created_at, true))::date >= NULLIF(@from::text, '')::date)
          AND (@to::text = '' OR COALESCE(fin_ts(e.entry_date), fin_ts(e.created_at, true))::date <= NULLIF(@to::text, '')::date)

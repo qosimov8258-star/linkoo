@@ -9,6 +9,7 @@ import { parseAnyDay } from "@/lib/finance/dates";
 import { formatDateText } from "@/lib/i18n/format-date";
 import { useLanguage } from "@/lib/i18n/language-context";
 import { PromoForm, emptyPromoForm } from "./promo-form";
+import { PromoDetail, type PromoRef } from "./promo-detail";
 
 type Promo = {
   id: number;
@@ -17,13 +18,32 @@ type Promo = {
   end: string;
   type: string;
   active: boolean;
+  /** The reference's promotion document (imported from Linko): shown in the detail card. */
+  ref?: PromoRef;
 };
+
+/** Running today: the reference's "Активные" tab lists the promotions whose period holds today. */
+function isActive(promo: Promo, day: string): boolean {
+  const start = promoDay(promo.start);
+  const end = promoDay(promo.end);
+  if (start && end) return start <= day && day <= end;
+  return promo.active;
+}
+
+const tashkentDay = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent" }).format(new Date());
 
 
 type Tab = "Активные" | "Не активные" | "Все";
 
 /** Day "YYYY-MM-DD" of a stored promotion date: new ones are ISO days, older records a Russian label ("25 апр. 2026"). */
 const promoDay = (text: string) => parseAnyDay(text) ?? "";
+
+const TYPE_KEY: Record<string, string> = { Бонус: "bonus", Скидка: "discount", Надбавка: "addup", Балл: "ball", Кэшбэк: "cash_back" };
+
+/** A promotion created here (no reference document): its card shows what the list knows. */
+function fallbackRef(promo: Promo): PromoRef {
+  return { id: promo.id, name: promo.name, type: TYPE_KEY[promo.type] ?? promo.type, begin_date: promoDay(promo.start), till_date: promoDay(promo.end), bonus_type: "auto", discount_type: "percent", promotion_type: "promotion_all", products: [] };
+}
 
 export function MarketingCampaignsView() {
   const { t, language } = useLanguage();
@@ -36,19 +56,21 @@ export function MarketingCampaignsView() {
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState(emptyPromoForm);
   const [currencies, setCurrencies] = useState<string[]>([]);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const day = useMemo(() => tashkentDay(), []);
   useEffect(() => {
     fetch("/api/currencies").then((r) => (r.ok ? r.json() : [])).then((rows: { name?: string }[]) => setCurrencies(Array.isArray(rows) ? rows.map((row) => row.name ?? "").filter(Boolean) : [])).catch(() => {});
   }, []);
 
   const rows = useMemo(() => promos.filter((promo) => {
-    const suitableTab = tab === "Все" || (tab === "Активные" ? promo.active : !promo.active);
+    const suitableTab = tab === "Все" || (tab === "Активные" ? isActive(promo, day) : !isActive(promo, day));
     const suitableSearch = promo.name.toLowerCase().includes(search.toLowerCase()) || promo.type.toLowerCase().includes(search.toLowerCase());
     const types = applied.select.type ?? [];
     const suitableType = types.length === 0 || types.includes(t(promo.type));
     const suitableStart = !applied.start || (promoDay(promo.start) !== "" && promoDay(promo.start) >= applied.start);
     const suitableEnd = !applied.end || (promoDay(promo.end) !== "" && promoDay(promo.end) <= applied.end);
     return suitableTab && suitableSearch && suitableType && suitableStart && suitableEnd;
-  }), [applied, promos, search, tab, t]);
+  }), [applied, day, promos, search, tab, t]);
 
   const downloadCsv = () => {
     const csv = csvText([[t("№ акции"), t("Наименование"), t("Дата начала"), t("Дата завершения"), t("Тип акции")], ...rows.map((row) => [row.id, row.name, formatDateText(row.start, language), formatDateText(row.end, language), t(row.type)])]);
@@ -116,6 +138,9 @@ export function MarketingCampaignsView() {
           heads={[t("№ акции"), t("Наименование"), t("Дата начала"), t("Дата завершения"), t("Тип акции")]}
           rows={pageRows}
           rowKey={(promo) => promo.id}
+          onRowClick={(promo) => setOpenId((current) => (current === promo.id ? null : promo.id))}
+          rowClass={(promo) => (openId === promo.id ? "hidden" : "")}
+          expanded={(promo) => (openId === promo.id ? <PromoDetail promo={promo.ref ?? fallbackRef(promo)} onClose={() => setOpenId(null)} /> : null)}
           empty={<div className="flex flex-col items-center"><img src="/robot-empty.png" alt="" className="w-[120px]" /><span className="-mt-[22px]">{t("По вашему запросу ничего не найдено")}</span></div>}
           render={(promo) => [promo.id, promo.name, formatDateText(promo.start, language), formatDateText(promo.end, language), t(promo.type)]}
         />

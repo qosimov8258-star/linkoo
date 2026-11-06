@@ -8,7 +8,6 @@ import {
 } from "@/components/analytics/agent-visits-view"
 import { SystemDistributionView } from "@/components/analytics/system-distribution-view"
 import { VisitsByDayView } from "@/components/analytics/visits-by-day-view"
-import { PhotoReportReviewView } from "@/components/analytics/photo-report-review-view"
 import { AgentWorkingTimeView } from "@/components/analytics/agent-working-time-view"
 import { VisitBuilderView } from "@/components/analytics/visit-builder-view"
 import { ProductStoreCheckView, StoreCheckView, StoreTimeView } from "@/components/analytics/store-time-view"
@@ -188,8 +187,9 @@ export default async function AnalyticsPage({ params }: PageProps) {
     return <SupervisorAgentVisitsView />
   }
 
+  // The reference's "Проверка фотоотчетов" menu item opens its Активность page (#/activity): the same board here.
   if (report.slug === "photo-report-review") {
-    return <PhotoReportReviewView />
+    return <ActivityView />
   }
 
   if (report.slug === "agent-working-time") {

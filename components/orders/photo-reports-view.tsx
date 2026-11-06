@@ -74,7 +74,7 @@ async function loadPage(query: Query, before: string | null, pageSize: number, f
   return body
 }
 
-function PhotoSlot({ photo, badge, t }: { photo?: FieldPhoto; badge: "до" | "после"; t: (key: string) => string }) {
+function PhotoSlot({ photo, badge, showBadge = true, t }: { photo?: FieldPhoto; badge: "до" | "после"; showBadge?: boolean; t: (key: string) => string }) {
   return (
     <div className="relative flex h-[200px] flex-1 items-center justify-center overflow-hidden rounded-[6px] border border-[#d9dde3] px-[6px] text-center text-[12px] leading-[14px] text-[#777]">
       {photo ? (
@@ -85,7 +85,7 @@ function PhotoSlot({ photo, badge, t }: { photo?: FieldPhoto; badge: "до" | "�
       ) : (
         t("Изображение не найдено")
       )}
-      <span className="absolute left-[2px] top-[2px] rounded-full bg-[#555] px-[8px] py-[1px] text-[11px] font-semibold text-white">{t(badge)}</span>
+      {showBadge ? <span className="absolute left-[2px] top-[2px] rounded-full bg-[#555] px-[8px] py-[1px] text-[11px] font-semibold text-white">{t(badge)}</span> : null}
     </div>
   )
 }
@@ -109,7 +109,13 @@ function Card({
   const { language } = useLanguage()
   const before = report.photos.filter((photo) => photo.slot === "before")
   const after = report.photos.filter((photo) => photo.slot === "after")
-  const pairs = Math.max(1, before.length, after.length)
+  // Named photo groups (Polka, DMP, … of an imported report): the reference lists the group names in order and puts
+  // the i-th before / after pair under the i-th name; names left over follow the last pair.
+  const groups = report.photoTypes ?? []
+  const groupBefore = groups.reduce((sum, group) => sum + group.before, 0)
+  const groupAfter = groups.reduce((sum, group) => sum + group.after, 0)
+  const pairs = Math.max(1, before.length, after.length, groupBefore, groupAfter)
+  const rows = Math.max(pairs, groups.length)
   const locked = !canReview || busy
   return (
     <section className="mb-[20px] rounded-[2px] bg-white px-[10px] pb-[14px] pt-[12px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
@@ -123,12 +129,15 @@ function Card({
         </div>
         <button type="button" disabled={locked} aria-label={t("Отклонить")} aria-pressed={report.status === "rejected"} onClick={() => onSet("rejected")} className={`flex h-[32px] w-[32px] items-center justify-center rounded-[4px] ${report.status === "rejected" ? "bg-[#e57373]" : "bg-[#7d7d7d]"} text-white ${canReview ? "disabled:opacity-60" : "cursor-default"}`}><Minus className="h-[18px] w-[18px]" /></button>
       </div>
-      {Array.from({ length: pairs }).map((_, index) => (
+      {Array.from({ length: rows }).map((_, index) => (
         <div key={index} className="mt-[6px]">
-          <div className="mt-[8px] flex gap-[11px]">
-            <PhotoSlot photo={before[index]} badge="до" t={t} />
-            <PhotoSlot photo={after[index]} badge="после" t={t} />
-          </div>
+          {groups[index] ? <div className="text-center text-[12px] leading-[19px] text-[#777]">{groups[index].name}</div> : null}
+          {index < pairs ? (
+            <div className="mt-[8px] flex gap-[11px]">
+              <PhotoSlot photo={before[index]} badge="до" showBadge={!groups.length || index === 0} t={t} />
+              <PhotoSlot photo={after[index]} badge="после" showBadge={!groups.length || index === 0} t={t} />
+            </div>
+          ) : null}
         </div>
       ))}
     </section>

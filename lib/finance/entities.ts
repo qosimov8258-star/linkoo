@@ -66,12 +66,14 @@ async function cashboxes(db: PgDb): Promise<EntityRecord[]> {
 }
 
 async function clients(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
-  const optional = (column: string) => (s.col("clients", column) ? column : `'' AS ${column}`)
+  const optional = (column: string) => (s.col("clients", column) ? `c.${column}` : `'' AS ${column}`)
+  // The financial account of the shop (Клиенты → Финансовые счета): "Долги по счетам" adds the shops of an account up.
+  const accounts = await financialAccountsOf(db)
   const rows = (await db
     .prepare(
-      `SELECT id, name, COALESCE(inn, '') AS inn, type, zone, agent, deliverer, collector, phone, tab,
-              to_char(fin_ts(created_at, true), 'YYYY-MM-DD') AS created, ${optional("branch")}, ${optional("code")}
-       FROM clients ORDER BY lower(name), id`,
+      `SELECT c.id, c.name, COALESCE(c.inn, '') AS inn, c.type, c.zone, c.agent, c.deliverer, c.collector, c.phone, c.tab,
+              to_char(fin_ts(c.created_at, true), 'YYYY-MM-DD') AS created, ${optional("branch")}, ${optional("code")}
+       FROM clients c ORDER BY lower(c.name), c.id`,
     )
     .all()) as Array<Record<string, string | number>>
   return rows.map((row) => ({
@@ -90,8 +92,25 @@ async function clients(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
       code: String(row.code ?? ""),
       tab: String(row.tab ?? ""),
       created: String(row.created ?? ""),
+      account_id: accounts.get(Number(row.id))?.id ?? null,
+      account_name: accounts.get(Number(row.id))?.name ?? "",
     },
   }))
+}
+
+/** shop id → its financial account (financial_account_markets, else clients.financial_account_id), when those tables exist. */
+async function financialAccountsOf(db: PgDb): Promise<Map<number, { id: number; name: string }>> {
+  const present = (await db
+    .prepare("SELECT to_regclass('financial_accounts') IS NOT NULL AS a, to_regclass('financial_account_markets') IS NOT NULL AS m")
+    .get()) as { a: boolean; m: boolean } | undefined
+  if (!present?.a || !present.m) return new Map()
+  const rows = (await db
+    .prepare(
+      `SELECT m.client_id, a.id, a.name FROM financial_account_markets m JOIN financial_accounts a ON a.id = m.financial_account_id
+        WHERE COALESCE(a.deleted, 0) = 0`,
+    )
+    .all()) as Array<{ client_id: number; id: number; name: string }>
+  return new Map(rows.map((row) => [Number(row.client_id), { id: Number(row.id), name: row.name }]))
 }
 
 async function suppliers(db: PgDb): Promise<EntityRecord[]> {

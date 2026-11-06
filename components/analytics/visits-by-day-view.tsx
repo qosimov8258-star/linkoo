@@ -8,7 +8,7 @@ import { ReportMatrix, type MatrixHead, type MatrixRow } from "@/components/ref/
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
 
-type VisitAgent = { employeeId: number; name: string; days: Set<string> }
+type VisitAgent = { employeeId: number; name: string; days: Set<string>; counts: Record<string, number> }
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -22,9 +22,9 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
-// Визиты по дням: 1 / 0 per agent and day — whether the agent visited any client that day, from the field
-// activity visits (GET /api/agent-visits?view=routes, the visits of Активность / Отслеживание). Like the
-// reference report, only agents with at least one visit inside the applied period get a row.
+// Визиты по дням: per agent and day the number of clients the agent visited that day (0 = none), from the field
+// activity visits (GET /api/agent-visits?view=routes, visitsByDay; the visits of Активность / Отслеживание). Like
+// the reference report, only agents with at least one visit inside the applied period get a row.
 export function VisitsByDayView() {
   const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
@@ -59,7 +59,7 @@ export function VisitsByDayView() {
   const agents = useMemo<VisitAgent[]>(() => {
     const list = (summary?.agents ?? [])
       .filter((agent) => agent.visitDays.length > 0)
-      .map((agent) => ({ employeeId: agent.employeeId, name: agent.name, days: new Set(agent.visitDays) }))
+      .map((agent) => ({ employeeId: agent.employeeId, name: agent.name, days: new Set(agent.visitDays), counts: agent.visitsByDay ?? {} }))
       .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.employeeId - b.employeeId)
     return sortDir === "asc" ? list : list.reverse()
   }, [summary, sortDir])
@@ -95,7 +95,7 @@ export function VisitsByDayView() {
   function downloadVisitsCsv() {
     const rows = [
       [t("Агент"), ...days.map((day) => String(day.day))],
-      ...agents.map((agent) => [agent.name, ...days.map((day) => (agent.days.has(day.iso) ? "1" : "0"))]),
+      ...agents.map((agent) => [agent.name, ...days.map((day) => String(agent.counts[day.iso] ?? (agent.days.has(day.iso) ? 1 : 0)))]),
     ]
     downloadExcelTable("visits-by-day.xls", rows)
   }
@@ -105,7 +105,7 @@ export function VisitsByDayView() {
     [days, t],
   )
   const matrixRows = useMemo<MatrixRow[]>(
-    () => agents.map((agent) => ({ key: String(agent.employeeId), cells: [agent.name, ...days.map((day) => (agent.days.has(day.iso) ? 1 : 0))] })),
+    () => agents.map((agent) => ({ key: String(agent.employeeId), cells: [agent.name, ...days.map((day) => agent.counts[day.iso] ?? (agent.days.has(day.iso) ? 1 : 0))] })),
     [agents, days],
   )
 

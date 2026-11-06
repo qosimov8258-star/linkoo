@@ -185,8 +185,11 @@ const CTE_SQL: Record<string, (ctx: SourceContext) => string> = {
      FROM order_items GROUP BY 1, 2`,
   oi_orders: () => "SELECT DISTINCT order_id FROM order_items",
   client_default_org: (ctx) => clientDefaultOrgSql(ctx.s),
+  // A leg's branch is the one chosen on the transfer (the leg's own branch column), else its cashbox's branch — the
+  // branch Linko books the transfer to in "Баланс филиалов".
   transfer_legs: (ctx) =>
-    `SELECT e.id, e.cashbox_id, e.amount::double precision AS a, e.entry_date, e.created_at, cb.name, cb.branch,
+    `SELECT e.id, e.cashbox_id, e.amount::double precision AS a, e.entry_date, e.created_at, cb.name,
+            COALESCE(NULLIF(btrim(e.branch), ''), cb.branch) AS branch,
             COALESCE(fin_cur(cb.currency), @base) AS cur, ${col(ctx, "e", CME, "transfer_id", "NULL::int")} AS tid
      FROM cash_management_entries e JOIN cashboxes cb ON cb.id = e.cashbox_id WHERE ${isTransfer(ctx)} AND ${entryCounts(ctx)}`,
   // Cash-core transfers link their two legs by transfer_id (cash_transfers.id;
@@ -264,6 +267,13 @@ const sqlList = (values: readonly string[]) => values.map((value) => `'${value.r
 /** Orders that count as a sale / debt at all: not cancelled, not unconfirmed. */
 export function orderCountedSql(alias = "o"): string {
   return `${alias}.status NOT IN (${sqlList(ORDER_EXCLUDED_STATUSES)})`
+}
+
+/** SQL: " AND …" leaving out of the client DEBT (ledger, order debts, payment allocation — not sales) the orders
+ * imported from Linko that Linko booked no client debt for (orders.no_debt, a LEDGER_EXTENSIONS column:
+ * lib/finance/schema.ts adds it before any ledger query). */
+export function orderDebtSql(alias = "o"): string {
+  return ` AND COALESCE(${alias}.no_debt, 0) = 0`
 }
 
 /** SQL: `column` (an agent name: orders.agent, client_returns.agent …) names one of the @agentIds
@@ -424,9 +434,10 @@ function cashboxSources(ctx: SourceContext): string[] {
 // --- clients (and accounts, which roll clients up) --------------------------
 
 function orderStatusFilter(ctx: SourceContext): string {
-  if (ctx.o.orderScope === "delivered") return "o.status = 'Доставлено'"
-  if (ctx.o.mode === "realization" || ctx.o.orderScope === "released") return orderReleasedSql("o")
-  return orderCountedSql("o")
+  const debt = ctx.s.col("orders", "no_debt") ? orderDebtSql("o") : ""
+  if (ctx.o.orderScope === "delivered") return `o.status = 'Доставлено'${debt}`
+  if (ctx.o.mode === "realization" || ctx.o.orderScope === "released") return `${orderReleasedSql("o")}${debt}`
+  return `${orderCountedSql("o")}${debt}`
 }
 
 function clientSources(ctx: SourceContext): string[] {
@@ -505,6 +516,11 @@ function clientSources(ctx: SourceContext): string[] {
         ? "LEFT JOIN client_keys rk ON r.client_id IS NULL AND rk.k = fin_key(r.client) JOIN clients rc ON rc.id = COALESCE(r.client_id, rk.id)"
         : "JOIN clients rc ON rc.id = r.client_id"
       : "JOIN client_keys rk ON rk.k = fin_key(r.client) JOIN clients rc ON rc.id = rk.id"
+    // A return imported from Linko credits what Linko credited (client_credit, also for a return still pending there);
+    // the app's own returns credit their amount once accepted.
+    const override = ctx.s.col(CR, "client_credit")
+    const credited = override ? "(CASE WHEN r.client_credit IS NOT NULL THEN true ELSE r.status = 'accepted' END)" : "r.status = 'accepted'"
+    const creditAmount = override ? "COALESCE(r.client_credit, COALESCE(r.amount, 0))" : "COALESCE(r.amount, 0)"
     const acceptedTs = [
       ctx.s.col(CR, "accepted_at") ? utcTs("r.accepted_at::text") : "",
       ctx.s.col(CR, "return_date") ? "fin_ts(r.return_date::text)" : "",
@@ -518,7 +534,7 @@ function clientSources(ctx: SourceContext): string[] {
           cur: `COALESCE(fin_cur(${col(ctx, "r", CR, "currency", "NULL")}), @base)`,
           ts: acceptedTs.length ? ts(...acceptedTs) : "NULL::timestamp",
           col: "'order_return'",
-          amt: "r.amount",
+          amt: creditAmount,
           // The return's own organization first (returns without an order carry one too).
           org: ctx.s.col(CR, "organization")
             ? returnOrder && ctx.s.col("orders", "organization")
@@ -539,7 +555,7 @@ function clientSources(ctx: SourceContext): string[] {
           href: "'/analytics/returns'",
         },
         `FROM ${CR} r ${returnClient} ${returnOrder ? "LEFT JOIN orders ro ON ro.id = r.order_id" : ""}
-         WHERE r.status = 'accepted' AND COALESCE(r.amount, 0) <> 0`,
+         WHERE ${credited} AND ${creditAmount} <> 0`,
       ),
     )
   }
@@ -696,14 +712,18 @@ function clientSources(ctx: SourceContext): string[] {
 function supplierSources(ctx: SourceContext): string[] {
   const out: string[] = []
   need(ctx, "supplier_keys")
-  const ek = (nameExpr: string) => `COALESCE(sk.id::text, 'name:' || fin_key(${nameExpr}))`
+  const ek = (nameExpr: string, idExpr?: string) => `COALESCE(${idExpr ? `${idExpr}::text, ` : ""}sk.id::text, 'name:' || fin_key(${nameExpr}))`
   const join = (nameExpr: string) => `LEFT JOIN supplier_keys sk ON sk.k = fin_key(${nameExpr})`
+  // The supplier by id when the document names it (data imported from Linko, whose suppliers may share a name), else by name.
+  const incomingId = ctx.s.col("supplier_incomings", "supplier_id") ? "i.supplier_id" : undefined
+  const returnId = ctx.s.col("supplier_returns", "supplier_id") ? "r.supplier_id" : undefined
+  const notInventory = ctx.s.col("supplier_incomings", "is_inventory") ? " AND COALESCE(i.is_inventory, 0) = 0" : ""
 
   out.push(
     select(
       ctx,
       {
-        ek: ek("i.supplier"),
+        ek: ek("i.supplier", incomingId),
         nm: "i.supplier",
         cur: `COALESCE(fin_cur(${col(ctx, "i", "supplier_incomings", "currency", "NULL")}), @base)`,
         // The earlier of the document date and the acceptance (LEAST skips NULL), as
@@ -724,14 +744,14 @@ function supplierSources(ctx: SourceContext): string[] {
         cby: col(ctx, "i", "supplier_incomings", "accepted_by", "i.initiator"),
         href: "'/analytics/supplier-incomings'",
       },
-      `FROM supplier_incomings i ${join("i.supplier")} WHERE i.status = 'принят' AND fin_key(i.supplier) <> ''`,
+      `FROM supplier_incomings i ${join("i.supplier")} WHERE i.status = 'принят' AND fin_key(i.supplier) <> ''${notInventory}`,
     ),
   )
   out.push(
     select(
       ctx,
       {
-        ek: ek("r.from_whom"),
+        ek: ek("r.from_whom", returnId),
         nm: "r.from_whom",
         cur: "COALESCE(fin_cur(r.currency), @base)",
         ts: ts("LEAST(fin_ts(r.date), fin_ts(r.transfer_time))", utcTs("r.updated_at")),

@@ -31,6 +31,10 @@ import {
 export type FieldEventQuery = FieldEventFilter & {
   /** Drop orders / deliveries of cancelled and unconfirmed orders (counted = false). */
   excludeCancelled?: boolean
+  /** Orders kept instead (overrides excludeCancelled): "all" (cancelled too) or "not_cancelled" (unconfirmed too). */
+  orders?: "all" | "not_cancelled"
+  /** Client returns kept: "not_cancelled" (default: pending and accepted) or "accepted" only. */
+  returns?: "not_cancelled" | "accepted"
 }
 
 const DAY_MS = 24 * 60 * 60_000
@@ -96,7 +100,7 @@ const localTs = (expr: string) => `((${expr}) AT TIME ZONE 'UTC') + interval '5 
 /** Base-currency multiplier of a canonical currency expression (NULL when the rate is unknown). */
 const toBase = (cur: string) => `(CASE WHEN ${cur} = @base::text THEN 1::float8 ELSE (SELECT fx.rate FROM rates fx WHERE fx.code = ${cur}) END)`
 
-type Ctx = { s: FinanceSchema; extra: Map<string, Set<string>>; excludeCancelled: boolean }
+type Ctx = { s: FinanceSchema; extra: Map<string, Set<string>>; excludeCancelled: boolean; orders?: "all" | "not_cancelled"; returns?: "not_cancelled" | "accepted" }
 
 const has = (ctx: Ctx, table: string, column?: string) =>
   ctx.s.has(table) ? !column || ctx.s.col(table, column) : column ? Boolean(ctx.extra.get(table)?.has(column)) : ctx.extra.has(table)
@@ -187,7 +191,9 @@ function orderSource(ctx: Ctx): string {
   ${client.join}
   ${employee.join}
   ${money.joins}
-  WHERE ${at} >= @from::timestamp AND ${at} < @to::timestamp${ctx.excludeCancelled ? ` AND ${orderCountedSql("o")}` : ""}`
+  WHERE ${at} >= @from::timestamp AND ${at} < @to::timestamp${
+    ctx.orders === "all" ? "" : ctx.orders === "not_cancelled" ? ` AND NOT ${CANCELLED("o")}` : ctx.excludeCancelled ? ` AND ${orderCountedSql("o")}` : ""
+  }`
 }
 
 function deliverySource(ctx: Ctx): string {
@@ -295,7 +301,7 @@ function returnSource(ctx: Ctx): string {
   ${client.join}
   ${agent.join}
   ${deliverer.join}
-  WHERE ${at} >= @from::timestamp AND ${at} < @to::timestamp${col(ctx, T, "status", " AND COALESCE(r.status, '') <> 'cancelled'", "")}`
+  WHERE ${at} >= @from::timestamp AND ${at} < @to::timestamp${col(ctx, T, "status", ctx.returns === "accepted" ? " AND COALESCE(r.status, '') = 'accepted'" : " AND COALESCE(r.status, '') <> 'cancelled'", "")}`
 }
 
 function visitSource(): string {
@@ -384,7 +390,7 @@ async function buildFiltered(query: FieldEventQuery): Promise<Built> {
   const kinds = new Set<FieldEventKind>(query.kinds?.length ? query.kinds : FIELD_EVENT_KINDS)
   const empty = (query.employeeIds && !query.employeeIds.length) || (query.clientIds && !query.clientIds.length)
   if (empty) return { sql: null, base }
-  const ctx: Ctx = { s, extra, excludeCancelled: Boolean(query.excludeCancelled) }
+  const ctx: Ctx = { s, extra, excludeCancelled: Boolean(query.excludeCancelled), orders: query.orders, returns: query.returns }
   const sources: string[] = []
   if (kinds.has("order")) sources.push(orderSource(ctx))
   if (kinds.has("delivery")) sources.push(deliverySource(ctx))

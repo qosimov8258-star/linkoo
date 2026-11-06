@@ -6,7 +6,10 @@ import { stockTables, type StockTables } from "@/lib/stock/schema"
 import type { StockCatalogItem, StockItemKey } from "@/lib/stock/types"
 
 // The stock catalog: every (non-deleted) product and every raw material, with
-// the attributes the stock pages show and filter by.
+// the attributes the stock pages show and filter by. A raw material that has the
+// name of a live product is that product (data imported from Linko keeps raw
+// materials as products, which the stock ledger matches first by name): it is
+// listed once, as the product.
 
 type CatalogRow = {
   kind: "product" | "raw_material"
@@ -76,7 +79,8 @@ function catalogSql(t: StockTables): string {
       ${rc("unit")}::text, ${rc("organization")}::text, ${rc("supplier")}::text, NULL::double precision, NULL::double precision,
       ${rc("price_lists")}::text, ${rc("price_list")}::text, ${rc("cash_price")}::text, ${rc("min_stock")}::text, ${rc("mass")}::text,
       ${rc("volume")}::text, ${rc("sub_unit")}::text
-      FROM raw_materials r ${t.col("raw_materials", "deleted") ? "WHERE COALESCE(r.deleted, 0) = 0" : ""}`)
+      FROM raw_materials r WHERE ${t.col("raw_materials", "deleted") ? "COALESCE(r.deleted, 0) = 0" : "true"}
+      ${t.has("products") ? `AND NOT EXISTS (SELECT 1 FROM products px WHERE fin_key(px.name) = fin_key(r.name)${t.col("products", "deleted") ? " AND COALESCE(px.deleted, 0) = 0" : ""})` : ""}`)
   }
   return parts.join(" UNION ALL ")
 }

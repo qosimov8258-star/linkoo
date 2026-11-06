@@ -251,6 +251,22 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
     payment_id: "INTEGER",
     log: "TEXT NOT NULL DEFAULT '[]'",
   },
+  // Supplies and supplier returns imported from Linko name their supplier by id too (Linko has suppliers that share a
+  // name); a supply Linko generated from an inventory surplus (provider "Инвенторизация", is_inventory = 1) is a
+  // stock document only: it does not charge any supplier.
+  supplier_incomings: {
+    supplier_id: "INTEGER",
+    is_inventory: "INTEGER NOT NULL DEFAULT 0",
+  },
+  supplier_returns: {
+    supplier_id: "INTEGER",
+  },
+  // Client returns imported from Linko keep the credit Linko itself booked: client_returns.client_credit — the amount
+  // Linko credited the client for the return (also when the return is still pending there; 0 = not credited); NULL =
+  // the app's rule (an accepted return credits its amount). See also orders.no_debt below.
+  client_returns: {
+    client_credit: "DOUBLE PRECISION",
+  },
   // Manual movements can be soft-deleted ("Удалить" of the movement dialog); a loyalty movement the same way.
   loyalty_card_transactions: {
     is_deleted: "INTEGER NOT NULL DEFAULT 0",
@@ -275,6 +291,9 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
   // (backfillOrderClients), so renaming a client keeps its orders.
   orders: {
     client_id: "INTEGER",
+    // 1 = an order imported from Linko that Linko booked no client debt for: left out of the client ledger and of
+    // the order debts, whatever its status.
+    no_debt: "INTEGER NOT NULL DEFAULT 0",
   },
 }
 

@@ -90,13 +90,23 @@ export async function createGroupPayment(input: GroupPaymentInput, createdBy: st
     code: string
   }>
   const byId = new Map(clients.map((client) => [String(client.id), client]))
+  // An account row ("acc:<financial account id>") pays its first shop (lowest id), as an INN row pays its first client.
+  const byAccount = new Map<string, (typeof clients)[number]>()
+  const links = (await db
+    .prepare("SELECT client_id, financial_account_id FROM financial_account_markets WHERE to_regclass('financial_account_markets') IS NOT NULL ORDER BY client_id")
+    .all()
+    .catch(() => [])) as Array<{ client_id: number; financial_account_id: number }>
+  for (const link of links) {
+    const shop = byId.get(String(link.client_id))
+    if (shop && !byAccount.has(String(link.financial_account_id))) byAccount.set(String(link.financial_account_id), shop)
+  }
   const byInn = new Map<string, (typeof clients)[number]>()
   for (const client of clients) {
     const inn = innKey(client.inn)
     if (inn && !byInn.has(inn)) byInn.set(inn, client)
   }
   const resolved = items.map((item) => {
-    const client = item.key.startsWith("inn:") ? byInn.get(item.key.slice(4)) : byId.get(item.key)
+    const client = item.key.startsWith("acc:") ? byAccount.get(item.key.slice(4)) : item.key.startsWith("inn:") ? byInn.get(item.key.slice(4)) : byId.get(item.key)
     if (!client) throw new FinanceInputError("Клиент не найден", 404)
     return { client, amount: item.amount, comment: item.comment?.trim() || input.comment?.trim() || "" }
   })

@@ -144,8 +144,10 @@ export async function catalogIndex(db: PgDb = getDb()): Promise<CatalogIndex> {
   return { byKey, byName, items }
 }
 
-/** The stock key the ledger will give a document line (by its name, as the core does). */
-export function ledgerKey(index: CatalogIndex, name: string): string {
+/** The stock key the ledger will give a document line, as the core does (lib/stock/sources.ts lineItem): its catalog
+ * key ("product:12" / "raw_material:3") when the line carries one, else the catalog item of its name. */
+export function ledgerKey(index: CatalogIndex, name: string, key?: string | null): string {
+  if (key && /^(product|raw_material):\d+$/.test(key)) return key
   const item = index.byName.get(textKey(name))
   return item ? item.key : `name:${textKey(name)}`
 }
@@ -166,15 +168,15 @@ export function resolveLine(index: CatalogIndex, line: LineRef): { key: string; 
 /** Lines whose total quantity exceeds what the warehouse has available (good units;
  * lines flagged `defect` against the defective units). */
 export function findShortages(
-  lines: Array<{ product: string; quantity: number; unit?: string; defect?: boolean }>,
+  lines: Array<{ product: string; quantity: number; unit?: string; defect?: boolean; key?: string }>,
   index: CatalogIndex,
   stock: Map<string, ItemStock>,
 ): StockShortage[] {
   const need = new Map<string, { key: string; defect: boolean; product: string; unit: string; required: number }>()
   for (const line of lines) {
     if (!(line.quantity > 0)) continue
-    // Key as the ledger will book it (by name), so the check matches the movement.
-    const key = ledgerKey(index, line.product)
+    // Key as the ledger will book it, so the check matches the movement.
+    const key = ledgerKey(index, line.product, line.key)
     const defect = Boolean(line.defect)
     const id = `${key}\u0000${defect ? 1 : 0}`
     const current = need.get(id)
@@ -308,9 +310,9 @@ export async function lockNamedWarehouse(tx: PgDb, name: string, seen: { id: num
   return locked ? locked.name : name
 }
 
-/** The stock keys the ledger books a document's lines under (by name, as the core does). */
-export function documentKeys(index: CatalogIndex, lines: Array<{ product: string }>): string[] {
-  return [...new Set(lines.map((line) => ledgerKey(index, String(line.product ?? ""))).filter((key) => key && key !== "name:"))]
+/** The stock keys the ledger books a document's lines under (as the core does). */
+export function documentKeys(index: CatalogIndex, lines: Array<{ product: string; key?: string }>): string[] {
+  return [...new Set(lines.map((line) => ledgerKey(index, String(line.product ?? ""), line.key)).filter((key) => key && key !== "name:"))]
 }
 
 /** Whether a confirmed inventory of `warehouse` counted one of the document's items

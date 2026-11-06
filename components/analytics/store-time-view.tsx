@@ -1,9 +1,11 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
-import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
+import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportGridTable, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -29,11 +31,38 @@ function monthEnd() {
   return inputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
 }
 
+/** One visit with a measured stay (GET /api/agent-visits?view=store-time, lib/agent-visits-repo.ts StoreTimeRow). */
+type StoreTimeRow = {
+  visitId: number
+  date: string
+  branch: string
+  employeeId: number
+  agent: string
+  start: string
+  end: string
+  minutes: number
+  clientId: number
+  client: string
+  agentGps: string
+  clientGps: string
+  distance: number | null
+  planned: boolean
+}
+
+/** "2,4" — minutes with one decimal and a decimal comma, as the reference prints them. */
+const minutesText = (value: number) => (Math.round(value * 10) / 10).toFixed(1).replace(/\.0$/, "").replace(".", ",")
+
 export function StoreTimeView({ storeCheckMode = false, productCheckMode = false, title }: { storeCheckMode?: boolean; productCheckMode?: boolean; title?: string }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
+  const stayMode = !storeCheckMode && !productCheckMode && !title
   const today = useMemo(() => inputDate(new Date()), [])
-  const [from, setFrom] = useState(storeCheckMode || productCheckMode ? monthStart : today)
-  const [to, setTo] = useState(storeCheckMode || productCheckMode ? monthEnd : today)
+  // ?beginDate=&endDate= (the reference's #/dynamic-reports/market_service_time/?beginDate=…) opens a period.
+  const search = useSearchParams()
+  const isDay = (value: string | null): value is string => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value))
+  const urlFrom = search.get("beginDate")
+  const urlTo = search.get("endDate")
+  const [from, setFrom] = useState(isDay(urlFrom) ? urlFrom : storeCheckMode || productCheckMode ? monthStart : today)
+  const [to, setTo] = useState(isDay(urlTo) ? urlTo : storeCheckMode || productCheckMode ? monthEnd : today)
   const [agent, setAgent] = useState("")
   const [branch, setBranch] = useState("")
   const [contractor, setContractor] = useState("")
@@ -42,6 +71,35 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
   const [survey, setSurvey] = useState("")
   const [productGroup, setProductGroup] = useState("")
   const [, setApplied] = useState("")
+  // "Время нахождения в магазинах": the visits of the period with a measured stay, narrowed by the filters.
+  const [stays, setStays] = useState<StoreTimeRow[]>([])
+  const [staysLoading, setStaysLoading] = useState(false)
+  const [stayFilter, setStayFilter] = useState({ agent: "", branch: "", contractor: "", planned: "" })
+  const loadStays = (periodFrom: string, periodTo: string) => {
+    if (!stayMode || periodFrom > periodTo) return
+    setStaysLoading(true)
+    fetch(`/api/agent-visits?view=store-time&from=${periodFrom}&to=${periodTo}`, { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<StoreTimeRow[]>) : Promise.reject()))
+      .then((rows) => setStays(Array.isArray(rows) ? rows : []))
+      .catch(() => setStays([]))
+      .finally(() => setStaysLoading(false))
+  }
+  useEffect(() => {
+    loadStays(from, to)
+    // The period of the first render only; later periods load on "Применить".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const shownStays = useMemo(
+    () =>
+      stays.filter(
+        (row) =>
+          (!stayFilter.agent || row.agent === stayFilter.agent) &&
+          (!stayFilter.branch || row.branch === stayFilter.branch) &&
+          (!stayFilter.contractor || row.client === stayFilter.contractor) &&
+          (!stayFilter.planned || (stayFilter.planned === "Да") === row.planned),
+      ),
+    [stays, stayFilter],
+  )
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
@@ -85,6 +143,13 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
   }, [])
 
   function downloadCsv() {
+    if (stayMode) {
+      downloadExcelTable("store-time.xls", [
+        ["Дата", "Филиал", "Агент", "Начало", "Конец", "В магазине, мин", "ИД контрагента", "Контрагент", "GPS Агента", "GPS ТТ", "Погрешность, м", "По плану"],
+        ...shownStays.map((row) => [row.date, row.branch, row.agent, row.start, row.end, minutesText(row.minutes), String(row.clientId), row.client, row.agentGps, row.clientGps, row.distance === null ? "" : String(row.distance), row.planned ? "Да" : "Нет"]),
+      ])
+      return
+    }
     const rows = productCheckMode
       ? [["Дата от", "Дата до", "Создал", "Опрос", "Продукты"], [from, to, creator || "Все", survey || "Все", productGroup || "Все"]]
       : [["Дата от", "Дата до", "Агент", "Филиал", "Контрагент", "По плану"], [from, to, agent || "Не найдено", branch || "Все", contractor || "Все", planned || "Все"]]
@@ -103,6 +168,10 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
         <ReportFilters
           onApply={() => {
             if (from <= to) setApplied([branch, contractor, planned, creator, survey, productGroup].filter(Boolean).join(" · "))
+            if (stayMode && from <= to) {
+              setStayFilter({ agent, branch, contractor, planned })
+              loadStays(from, to)
+            }
           }}
           applyDisabled={from > to}
         >
@@ -125,7 +194,31 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
           )}
         </ReportFilters>
 
-        <ReportEmpty />
+        {stayMode ? (
+          <ReportGridTable
+            minWidth={1500}
+            loading={staysLoading}
+            emptyText={t("По вашему запросу ничего не найдено")}
+            colWidths={["100px", "150px", "300px", "100px", "100px", "150px", "100px", "250px", "150px", "150px", "120px", "100px"]}
+            heads={["Дата", "Филиал", "Агент", "Начало", "Конец", "В магазине, мин", "ИД контрагента", "Контрагент", "GPS Агента", "GPS ТТ", "Погрешность, м", "По плану"].map((head) => t(head))}
+            rows={shownStays.map((row) => [
+              formatDateText(row.date, language),
+              row.branch,
+              row.agent,
+              row.start,
+              row.end,
+              <span key="m" className="block text-right">{minutesText(row.minutes)}</span>,
+              String(row.clientId),
+              row.client,
+              row.agentGps,
+              row.clientGps,
+              <span key="d" className="block text-right">{row.distance === null ? "" : row.distance}</span>,
+              t(row.planned ? "Да" : "Нет"),
+            ])}
+          />
+        ) : (
+          <ReportEmpty />
+        )}
       </ReportBand>
 
       {overlayOpen && <button type="button" aria-label={t("Закрыть окно")} onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}

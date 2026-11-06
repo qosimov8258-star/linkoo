@@ -32,7 +32,12 @@ export type FieldRecordRow = {
   status: string
   /** Refusal photos, or the report's before / after photos (in that order). */
   photos: FieldPhoto[]
+  /** Photo report: its named photo groups (shelf, poster, …), each shown as a before / after pair. */
+  photoTypes?: PhotoTypeGroup[]
 }
+
+/** A named photo group of a photo report and how many before / after pictures it had. */
+export type PhotoTypeGroup = { name: string; before: number; after: number }
 
 export type FieldOption = { id: number; name: string }
 

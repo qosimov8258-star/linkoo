@@ -78,6 +78,19 @@ export async function stockOrphanNames(keys: string[], db: PgDb = getDb()): Prom
   return keys.length ? orphanItems(keys, db, await stockTables(db)) : new Map()
 }
 
+/** The keys (product:<id> / raw_material:<id>) of catalog items that exist but are deleted. */
+async function deletedItemKeys(keys: string[], db: PgDb, t: StockTables): Promise<Set<string>> {
+  const result = new Set<string>()
+  for (const [kind, table] of [["product", "products"], ["raw_material", "raw_materials"]] as const) {
+    if (!t.has(table) || !t.col(table, "deleted")) continue
+    const ids = keys.filter((key) => key.startsWith(`${kind}:`)).map((key) => Number(key.slice(kind.length + 1))).filter(Number.isInteger)
+    if (!ids.length) continue
+    const rows = (await db.prepare(`SELECT id FROM ${table} WHERE id = ANY(@stk_ids::int[]) AND COALESCE(deleted, 0) <> 0`).all({ stk_ids: ids })) as Array<{ id: number }>
+    for (const row of rows) result.add(`${kind}:${row.id}`)
+  }
+  return result
+}
+
 /** Display names of balance keys that are not in the catalog (deleted
  * products, document names that match nothing). */
 async function orphanItems(keys: string[], db: PgDb, t: StockTables): Promise<Map<string, { name: string; unit: string }>> {
@@ -186,7 +199,16 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
     line.transit += row.transit
   }
 
-  const orphanKeys = [...acc.entries()].filter(([key, item]) => !byKey.has(key) && (item.total || item.reserved || item.transit)).map(([key]) => key)
+  // Stock of a deleted catalog item is left out of Остаток, as in the reference (its all_balances lists live products only);
+  // the documents that moved it keep showing it. Items that never matched the catalog ("name:…") stay listed.
+  const deletedKeys = await deletedItemKeys(
+    [...acc.entries()].filter(([key, item]) => !byKey.has(key) && (item.total || item.reserved || item.transit)).map(([key]) => key),
+    db,
+    ctx.tables,
+  )
+  const orphanKeys = [...acc.entries()]
+    .filter(([key, item]) => !byKey.has(key) && !deletedKeys.has(key) && (item.total || item.reserved || item.transit))
+    .map(([key]) => key)
   const orphans = orphanKeys.length ? await orphanItems(orphanKeys, db, ctx.tables) : new Map<string, { name: string; unit: string }>()
 
   const priceList = query.priceList.trim()

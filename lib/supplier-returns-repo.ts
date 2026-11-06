@@ -431,7 +431,7 @@ export async function changeSupplierReturnStatus(id: number, action: "give" | "c
       // itself), so the goods must be there from that day on — every later day included.
       const stock = await warehouseStock(current.warehouse, parseAnyDay(current.date) ?? undefined, tx)
       const shortages = findShortages(
-        current.items.map((item) => ({ product: item.product, quantity: Number(item.qty) || 0 })),
+        current.items.map((item) => ({ product: item.product, quantity: Number(item.qty) || 0, key: item.key })),
         index,
         stock,
       )

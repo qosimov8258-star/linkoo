@@ -374,6 +374,8 @@ export type AgentRouteSummaryRow = {
   outside: AgentRouteTotals
   /** Local days with at least one visit. */
   visitDays: string[]
+  /** Visited clients per local day ("YYYY-MM-DD" → count), the cells of Визиты по дням. */
+  visitsByDay: Record<string, number>
 }
 
 export type AgentRouteSummary = { from: string; to: string; baseCurrency: string; agents: AgentRouteSummaryRow[] }
@@ -386,11 +388,11 @@ export async function getAgentRouteSummary(from: string, to: string, employeeIds
 }
 
 async function summarize(from: string, to: string, days: ClientDay[], { baseCurrency, orders }: { baseCurrency: string; orders: OrderFact[] }): Promise<AgentRouteSummary> {
-  type Acc = { plan: number; route: AgentRouteTotals; outside: AgentRouteTotals; visitDays: Set<string>; clients: Set<string> }
+  type Acc = { plan: number; route: AgentRouteTotals; outside: AgentRouteTotals; visitDays: Set<string>; byDay: Map<string, number>; clients: Set<string> }
   const acc = new Map<number, Acc>()
   const entry = (id: number) => {
     let value = acc.get(id)
-    if (!value) acc.set(id, (value = { plan: 0, route: emptyTotals(), outside: emptyTotals(), visitDays: new Set(), clients: new Set() }))
+    if (!value) acc.set(id, (value = { plan: 0, route: emptyTotals(), outside: emptyTotals(), visitDays: new Set(), byDay: new Map(), clients: new Set() }))
     return value
   }
   const planned = new Set<string>()
@@ -406,6 +408,7 @@ async function summarize(from: string, to: string, days: ClientDay[], { baseCurr
     if (day.effective) side.effective += 1
     if (day.refused) side.refused += 1
     target.visitDays.add(day.day)
+    target.byDay.set(day.day, (target.byDay.get(day.day) ?? 0) + 1)
   }
   for (const order of orders) {
     const target = entry(order.employeeId)
@@ -434,6 +437,7 @@ async function summarize(from: string, to: string, days: ClientDay[], { baseCurr
         route: value.route,
         outside: value.outside,
         visitDays: [...value.visitDays].sort(),
+        visitsByDay: Object.fromEntries([...value.byDay.entries()].sort(([a], [b]) => a.localeCompare(b))),
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.employeeId - b.employeeId)
@@ -688,4 +692,97 @@ export async function getFieldSummary(begin: string, end: string, employeeIds?: 
     users,
     visits: await visitTotals(begin, end, employeeIds),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Время нахождения в магазинах
+// ---------------------------------------------------------------------------
+
+export type StoreTimeRow = {
+  visitId: number
+  /** Local "YYYY-MM-DD" of the check-in. */
+  date: string
+  /** The client's branch (Филиал of the client card). */
+  branch: string
+  employeeId: number
+  agent: string
+  /** Local "HH:mm:ss" of the check-in / check-out. */
+  start: string
+  end: string
+  /** Minutes at the client, one decimal. */
+  minutes: number
+  clientId: number
+  client: string
+  /** "lat, lng" (6 decimals) where the agent checked in, and where the client is ("" when unknown). */
+  agentGps: string
+  clientGps: string
+  /** Metres between the two, null when unknown. */
+  distance: number | null
+  /** The client was on the agent's route that day. */
+  planned: boolean
+}
+
+const gps = (lat: number | null, lng: number | null) =>
+  lat === null || lng === null || lat === undefined || lng === undefined ? "" : `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`
+
+/** The visits of the period with a measured stay (checked in and out at different moments), newest first. A visit known
+ * only from an order / refusal / report (finished = started) is no stay and is left out. */
+export async function getStoreTime(from: string, to: string, employeeIds?: number[]): Promise<StoreTimeRow[]> {
+  checkPeriod(from, to)
+  if (employeeIds && !employeeIds.length) return []
+  await ensureFieldSchema()
+  const rows = (await getDb()
+    .prepare(
+      `SELECT v.id, v.employee_id, v.client_id, v.planned, v.distance_m,
+              v.start_lat, v.start_lng, COALESCE(v.client_lat, c.location_lat) AS client_lat, COALESCE(v.client_lng, c.location_lng) AS client_lng,
+              to_char(${local("v.started_at")}, 'YYYY-MM-DD') AS day,
+              to_char(${local("v.started_at")}, 'HH24:MI:SS') AS start_text,
+              to_char(${local("v.finished_at")}, 'HH24:MI:SS') AS end_text,
+              EXTRACT(EPOCH FROM (v.finished_at - v.started_at))::float8 AS seconds,
+              COALESCE(c.name, '') AS client_name, COALESCE(c.branch, '') AS branch,
+              e.first_name, e.last_name
+         FROM field_visits v
+         LEFT JOIN clients c ON c.id = v.client_id
+         LEFT JOIN employees e ON e.id = v.employee_id
+        WHERE v.started_at >= @fromUtc::timestamptz AND v.started_at < @toUtc::timestamptz
+          AND v.finished_at IS NOT NULL AND v.finished_at > v.started_at
+          ${employeeIds ? "AND v.employee_id = ANY(@employeeIds::int[])" : ""}
+        ORDER BY v.started_at DESC, v.id DESC`,
+    )
+    .all({ ...utcBounds(from, to), employeeIds: employeeIds ?? [] })) as Array<{
+    id: number
+    employee_id: number
+    client_id: number
+    planned: boolean
+    distance_m: number | null
+    start_lat: number | null
+    start_lng: number | null
+    client_lat: number | null
+    client_lng: number | null
+    day: string
+    start_text: string
+    end_text: string
+    seconds: number
+    client_name: string
+    branch: string
+    first_name: string | null
+    last_name: string | null
+  }>
+  return rows.map((row) => ({
+    visitId: Number(row.id),
+    date: row.day,
+    branch: row.branch,
+    employeeId: Number(row.employee_id),
+    agent: nameOf(row) || `#${row.employee_id}`,
+    start: row.start_text,
+    end: row.end_text,
+    // Tenths of a minute, a half rounded down: the moments are kept to the second, so x.x5 is at most that.
+    minutes: Math.round((Number(row.seconds) / 6) - 1e-9) / 10,
+    clientId: Number(row.client_id),
+    client: row.client_name,
+    agentGps: gps(row.start_lat, row.start_lng),
+    clientGps: gps(row.client_lat, row.client_lng),
+    distance: row.distance_m === null || row.distance_m === undefined ? null : Math.round(Number(row.distance_m)),
+    planned: Boolean(row.planned),
+  }))
 }

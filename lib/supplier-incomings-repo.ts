@@ -690,7 +690,7 @@ export async function changeIncomingStatus(id: number, action: StatusAction, use
       const day = days[0]
       const stock = await warehouseStock(current.warehouse, day, tx)
       const shortages = findShortages(
-        current.items.map((item) => ({ product: item.product, quantity: Number(item.qty) || 0 })),
+        current.items.map((item) => ({ product: item.product, quantity: Number(item.qty) || 0, key: item.key })),
         index,
         stock,
       )

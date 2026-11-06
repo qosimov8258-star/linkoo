@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS stock_inventory_items (
   series TEXT NOT NULL DEFAULT '',
   position INTEGER NOT NULL DEFAULT 0
 );
+-- 1 = an inventory imported from Linko, whose differences Linko booked as separate supply / write-off documents
+-- (imported with them): the stock ledger does not count its differences again (lib/stock/sources.ts).
+ALTER TABLE stock_inventories ADD COLUMN IF NOT EXISTS booked_by_documents INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS stock_inventory_items_inventory_idx ON stock_inventory_items (inventory_id);
 CREATE INDEX IF NOT EXISTS stock_inventories_status_idx ON stock_inventories (status, warehouse);
 `

@@ -42,7 +42,7 @@ import {
 // - Statuses and transitions: components/orders/orders-data.ts. Доставлено /
 //   Отменен are final; lines can change only in Не подтвержден / В процессе /
 //   Есть на складе.
-// - Stock (contract 4): an order with lines in "Есть на складе" (reserved),
+// - Stock (contract 4): an order with lines in "Есть на складе" or "Не подтвержден" (reserved, as in the reference),
 //   "В пути" / "Доставлено" (shipped) names its warehouse (orders.warehouse,
 //   the warehouses.name). Entering such a status, changing the warehouse or a
 //   line of a reserved order checks availability: on hand − reserved by other
@@ -968,9 +968,14 @@ function needsOf(items: Array<Pick<ItemRow, "product_id" | "product_name" | "qua
   return items.map((item) => ({ key: lineKey(item.product_id, item.product_name), name: item.product_name, quantity: Number(item.quantity) }))
 }
 
+/** Order statuses whose lines reserve stock at the order's warehouse, as in the reference (Linko): the unconfirmed
+ * "Не подтвержден" reserves like "Есть на складе". */
+const RESERVING_STATUSES = ["Есть на складе", "Не подтвержден"]
+
 function reservedBy(order: Pick<OrderRow, "status" | "warehouse">, items: ItemRow[], warehouse: string): Map<string, number> {
   const own = new Map<string, number>()
-  if (order.status !== "Есть на складе" || nameKey(order.warehouse ?? "") !== nameKey(warehouse)) return own
+  // The statuses that reserve stock (lib/stock/sources.ts buildPendingSql): the order's own reservation is available to it.
+  if (!RESERVING_STATUSES.includes(order.status ?? "") || nameKey(order.warehouse ?? "") !== nameKey(warehouse)) return own
   for (const need of needsOf(items)) own.set(need.key, (own.get(need.key) ?? 0) + need.quantity)
   return own
 }

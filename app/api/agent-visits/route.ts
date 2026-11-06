@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getAgentRouteSummary, getRoutesBoard, getVisitStats, getWorkTime } from "@/lib/agent-visits-repo"
+import { getAgentRouteSummary, getRoutesBoard, getStoreTime, getVisitStats, getWorkTime } from "@/lib/agent-visits-repo"
 import { requireFieldReader, scopedEmployeeIds } from "@/lib/field-activity/actor"
 import { badQuery, fieldRoute } from "@/lib/field-activity/http"
 import { dayParam, periodParams } from "@/lib/field-activity/input"
@@ -13,7 +13,8 @@ import { dayParam, periodParams } from "@/lib/field-activity/input"
  * GET /api/agent-visits?date=YYYY-MM-DD → the route board of "Анализ маршрутов";
  * GET /api/agent-visits?view=routes&from=…&to=… → per agent plan / visits / refusals / sales of a period;
  * GET /api/agent-visits?view=stats&begin=…&end=… → per-agent visit statistics (dashboard widget);
- * GET /api/agent-visits?view=work-time&begin=…&end=… → per agent and day working-time facts.
+ * GET /api/agent-visits?view=work-time&begin=…&end=… → per agent and day working-time facts;
+ * GET /api/agent-visits?view=store-time&from=…&to=… → the visits with a measured stay (Время нахождения в магазинах).
  * A client's visits are paged by GET /api/field-activity/client-visits.
  */
 export async function GET(request: NextRequest) {
@@ -28,6 +29,11 @@ export async function GET(request: NextRequest) {
       const period = periodParams(params)
       if (!period.ok) return badQuery(period)
       return NextResponse.json(await getAgentRouteSummary(period.value.from, period.value.to, employeeIds))
+    }
+    if (view === "store-time") {
+      const period = periodParams(params)
+      if (!period.ok) return badQuery(period)
+      return NextResponse.json(await getStoreTime(period.value.from, period.value.to, employeeIds))
     }
     if (view === "stats" || view === "work-time") {
       const period = periodParams(params, "begin", "end")

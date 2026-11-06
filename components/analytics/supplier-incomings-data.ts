@@ -3,6 +3,8 @@ export type IncomingStatus = "принят" | "ожидает" | "отменен
 
 export type IncomingItem = {
   id: number
+  /** Catalog key ("product:12"), when known (lines imported from Linko): the stock ledger books the line under it. */
+  key?: string
   product: string
   expiry: string
   qty: number

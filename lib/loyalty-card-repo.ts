@@ -253,10 +253,21 @@ export async function listLoyaltyCards(query: LoyaltyListQuery): Promise<Loyalty
       search: [client.name, client.phone, client.inn, client.code].map((value) => nameKey(value)).join("\n"),
     })
   }
-  // Movements of deleted clients stay visible so the totals keep matching the management balance.
+  // Movements of deleted clients stay visible so the totals keep matching the management balance. Linko keeps the
+  // cashback per financial account: an imported account without a client of its own is named after that account.
+  const unknown = [...byClient.keys()].filter((id) => !known.has(id))
+  const accountNames = new Map<number, string>()
+  const hasAccounts = unknown.length
+    ? Boolean(((await db.prepare("SELECT to_regclass('financial_accounts') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined)?.ok)
+    : false
+  if (hasAccounts) {
+    const rows = (await db.prepare("SELECT id, name FROM financial_accounts WHERE id = ANY(@ids::int[])").all({ ids: unknown })) as Array<{ id: number; name: string | null }>
+    for (const row of rows) accountNames.set(Number(row.id), String(row.name ?? ""))
+  }
   for (const [id, item] of byClient) {
     if (known.has(id)) continue
-    entries.push({ row: { id, name: "", exists: false, lastCreated: item.last, balances: item.balances }, type: "", search: String(id) })
+    const name = accountNames.get(id) ?? ""
+    entries.push({ row: { id, name, exists: false, lastCreated: item.last, balances: item.balances }, type: "", search: [String(id), nameKey(name)].join("\n") })
   }
 
   let filtered = entries

@@ -74,6 +74,13 @@ function jsonFlag(element: string, field: string): string {
   return `(CASE WHEN lower(COALESCE(${element} ->> '${field}', '')) IN ('true', '1') THEN 1 ELSE 0 END)`
 }
 
+/** The item of a JSON line: its catalog key ("key": "product:12" / "raw_material:3") when it has one — exact even when
+ * two catalog items share a name — else its product name, matched to the catalog by name. Keys travel as '#<key>'
+ * through the per-spelling name match (stk_raw), which passes them through unchanged. */
+function lineItem(element: string): string {
+  return `COALESCE(CASE WHEN (${element} ->> 'key') ~ '^(product|raw_material):[0-9]+$' THEN '#' || (${element} ->> 'key') END, ${element} ->> 'product')`
+}
+
 const KEY_JOIN = (alias: string, name: string) => `LEFT JOIN stk_names ${alias} ON ${alias}.k = fin_key(${name})`
 const KEY_OF = (alias: string, name: string) => `COALESCE(${alias}.item_key, 'name:' || fin_key(${name}))`
 
@@ -140,7 +147,7 @@ export function buildMovementsSql(t: StockTables): string {
       FROM supplier_incomings i WHERE i.status = 'принят'
     )`)
     ctes.push(`stk_sup AS MATERIALIZED (
-      SELECT d.id, d.warehouse, d.day, d.rate, d.expense, l.j ->> 'product' AS raw, ${jsonNum("l.j", "qty")} AS qty, ${jsonNum("l.j", "cost")} AS cost
+      SELECT d.id, d.warehouse, d.day, d.rate, d.expense, ${lineItem("l.j")} AS raw, ${jsonNum("l.j", "qty")} AS qty, ${jsonNum("l.j", "cost")} AS cost
       FROM stk_sup_doc d CROSS JOIN LATERAL ${jsonElements("d.js")} AS l(j)
     )`)
     ctes.push("stk_sup_tot AS (SELECT id, SUM(qty * cost) AS value, SUM(qty) AS qty FROM stk_sup GROUP BY id)")
@@ -172,7 +179,7 @@ export function buildMovementsSql(t: StockTables): string {
       FROM supplier_returns r WHERE r.status = 'завершен'
     )`)
     lines.push(
-      lineRow("d.day", "d.warehouse", "l.j ->> 'product'", `-${jsonNum("l.j", "qty")}`, `-${jsonNum("l.j", "qty")} * ${jsonNum("l.j", "price")} * d.rate`, "supply_return", "supplier_returns", "d.id", `FROM stk_ret_doc d CROSS JOIN LATERAL ${jsonElements("d.js")} AS l(j)`),
+      lineRow("d.day", "d.warehouse", lineItem("l.j"), `-${jsonNum("l.j", "qty")}`, `-${jsonNum("l.j", "qty")} * ${jsonNum("l.j", "price")} * d.rate`, "supply_return", "supplier_returns", "d.id", `FROM stk_ret_doc d CROSS JOIN LATERAL ${jsonElements("d.js")} AS l(j)`),
     )
   }
 
@@ -189,7 +196,7 @@ export function buildMovementsSql(t: StockTables): string {
       lineRow(
         "d.day",
         "d.warehouse",
-        "l.j ->> 'product'",
+        lineItem("l.j"),
         `-${jsonNum("l.j", "qty")}`,
         `-${jsonNum("l.j", "qty")} * ${jsonNum("l.j", "cost")}`,
         "writeoff",
@@ -219,7 +226,7 @@ export function buildMovementsSql(t: StockTables): string {
       FROM internal_transfers tr WHERE tr.status IN ('в пути', 'принят')
     )`)
     ctes.push(`stk_tr AS MATERIALIZED (
-      SELECT d.id, d.status, d.from_warehouse, d.to_warehouse, d.out_day, d.in_day, l.j ->> 'product' AS raw, ${jsonNum("l.j", "quantity")} AS qty,
+      SELECT d.id, d.status, d.from_warehouse, d.to_warehouse, d.out_day, d.in_day, ${lineItem("l.j")} AS raw, ${jsonNum("l.j", "quantity")} AS qty,
              ${jsonFlag("l.j", "defect")} AS defect
       FROM stk_tr_doc d CROSS JOIN LATERAL ${jsonElements("d.js")} AS l(j)
     )`)
@@ -231,7 +238,7 @@ export function buildMovementsSql(t: StockTables): string {
     ctes.push(`stk_lines AS MATERIALIZED (${lines.join("\nUNION ALL\n")})`)
     // One fin_key() per distinct spelling; empty names are dropped.
     ctes.push(`stk_raw AS MATERIALIZED (
-      SELECT r.raw, COALESCE(n.item_key, 'name:' || r.k) AS item_key
+      SELECT r.raw, CASE WHEN left(r.raw, 1) = '#' THEN substr(r.raw, 2) ELSE COALESCE(n.item_key, 'name:' || r.k) END AS item_key
       FROM (SELECT raw, fin_key(raw) AS k FROM (SELECT DISTINCT raw FROM stk_lines) d) r
       LEFT JOIN stk_names n ON n.k = r.k
       WHERE r.k <> ''
@@ -261,6 +268,8 @@ export function buildMovementsSql(t: StockTables): string {
     const hasDefect = t.col("production_movements", "is_defect")
     const defect = hasDefect ? "COALESCE(m.is_defect, 0) = 1" : "false"
     const byParty = hasDefect && t.col("production_movements", "party_id")
+    // Batch lines imported from Linko that Linko never booked into the stock (in_stock = 0) stay on the batch only.
+    const inStock = t.col("production_movements", "in_stock") ? " AND COALESCE(m.in_stock, 1) = 1" : ""
     // fin_ts once per distinct date text (many movements share a day).
     ctes.push("stk_pm_dates AS MATERIALIZED (SELECT DISTINCT date FROM production_movements)")
     ctes.push("stk_pm_days AS MATERIALIZED (SELECT date, to_char(fin_ts(date), 'YYYY-MM-DD') AS day FROM stk_pm_dates)")
@@ -269,7 +278,7 @@ export function buildMovementsSql(t: StockTables): string {
         SELECT party_id,
                SUM(COALESCE(amount, 0) * COALESCE(cost, 0)) AS made_value,
                SUM(CASE WHEN COALESCE(is_defect, 0) = 1 THEN 0 ELSE COALESCE(amount, 0) END) AS good_qty
-        FROM production_movements WHERE direction = 'made' AND party_id IS NOT NULL GROUP BY party_id
+        FROM production_movements WHERE direction = 'made' AND party_id IS NOT NULL${inStock.replace("m.in_stock", "in_stock")} GROUP BY party_id
       )`)
     }
     const madeValue = byParty
@@ -290,7 +299,7 @@ export function buildMovementsSql(t: StockTables): string {
         `FROM production_movements m ${parties ? "LEFT JOIN production_parties p ON p.id = m.party_id" : ""} ${join}
          LEFT JOIN stk_pm_days pd ON pd.date = m.date
          ${byParty ? "LEFT JOIN stk_pm_made pm ON pm.party_id = m.party_id" : ""}
-         WHERE m.direction IN ('made', 'raw', 'adjust') AND ${parties ? "(p.id IS NULL OR p.status <> 'cancelled')" : "true"}`,
+         WHERE m.direction IN ('made', 'raw', 'adjust') AND ${parties ? "(p.id IS NULL OR p.status <> 'cancelled')" : "true"}${inStock}`,
       ),
     )
   }
@@ -299,6 +308,10 @@ export function buildMovementsSql(t: StockTables): string {
   // by the inventory module, so only when they exist). Non-catalog lines
   // ("name:<name>") are keyed like every other document ('name:' + fin_key).
   if (t.has("stock_inventories") && t.has("stock_inventory_items")) {
+    // An inventory imported from Linko (booked_by_documents = 1) had its differences booked as separate documents there
+    // (a supply from "Инвенторизация" for a surplus, a write-off for a shortage), which are imported too: its own
+    // differences are not counted again.
+    const booked = t.col("stock_inventories", "booked_by_documents") ? " AND COALESCE(si.booked_by_documents, 0) = 0" : ""
     parts.push(
       row(
         dayOf("fin_ts(si.inv_date)", "fin_ts(si.created_at, true)"),
@@ -311,7 +324,7 @@ export function buildMovementsSql(t: StockTables): string {
         "si.id",
         "0",
         `FROM stock_inventories si JOIN stock_inventory_items ii ON ii.inventory_id = si.id
-         WHERE si.status = 'confirmed' AND COALESCE(ii.diff, 0) <> 0 AND si.id <> @stk_exclude_inv`,
+         WHERE si.status = 'confirmed' AND COALESCE(ii.diff, 0) <> 0 AND si.id <> @stk_exclude_inv${booked}`,
       ),
     )
   }
@@ -377,8 +390,10 @@ export function buildMovementsSql(t: StockTables): string {
   return `WITH ${ctes.join(",\n")}\n${parts.length ? parts.join("\nUNION ALL\n") : EMPTY}`
 }
 
-/** Pending quantities: reserved by orders still in the warehouse, and
- * internal transfers given but not yet accepted ("в пути", towards the target). Columns:
+/** Pending quantities, as the reference (Linko stock/reserved_product) counts them: reserved by
+ * orders still in the warehouse ("Есть на складе" and the unconfirmed "Не подтвержден") and by
+ * confirmed internal transfers waiting to leave ("потвержден", at the source); internal
+ * transfers given but not yet accepted ("в пути", towards the target) are in transit. Columns:
  * warehouse, item_key, reserved, transit. No parameters. */
 export function buildPendingSql(t: StockTables): string {
   const parts: string[] = []
@@ -387,15 +402,21 @@ export function buildPendingSql(t: StockTables): string {
     const key = t.col("order_items", "product_id") ? `CASE WHEN oi.product_id IS NOT NULL THEN 'product:' || oi.product_id ELSE ${KEY_OF("n", name)} END` : KEY_OF("n", name)
     parts.push(`SELECT o.warehouse::text AS warehouse, (${key})::text AS item_key, COALESCE(oi.quantity, 0)::double precision AS reserved, 0::double precision AS transit
       FROM orders o JOIN order_items oi ON oi.order_id = o.id ${KEY_JOIN("n", name)}
-      WHERE btrim(o.warehouse) <> '' AND o.status = 'Есть на складе'`)
+      WHERE btrim(o.warehouse) <> '' AND o.status IN ('Есть на складе', 'Не подтвержден')`)
   }
   if (t.has("internal_transfers")) {
     // Every part names its columns: the orders part may be missing (order_items is created lazily).
-    parts.push(`SELECT tr.to_warehouse::text AS warehouse, (${KEY_OF("n", "l.j ->> 'product'")})::text AS item_key, 0::double precision AS reserved,
+    const lineKey = `CASE WHEN (l.j ->> 'key') ~ '^(product|raw_material):[0-9]+$' THEN l.j ->> 'key' ELSE ${KEY_OF("n", "l.j ->> 'product'")} END`
+    parts.push(`SELECT tr.to_warehouse::text AS warehouse, (${lineKey})::text AS item_key, 0::double precision AS reserved,
         (${jsonNum("l.j", "quantity")})::double precision AS transit
       FROM internal_transfers tr CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("tr.items")}) AS l(j)
       ${KEY_JOIN("n", "l.j ->> 'product'")}
       WHERE tr.status = 'в пути' AND fin_key(l.j ->> 'product') <> ''`)
+    parts.push(`SELECT tr.from_warehouse::text AS warehouse, (${lineKey})::text AS item_key, (${jsonNum("l.j", "quantity")})::double precision AS reserved,
+        0::double precision AS transit
+      FROM internal_transfers tr CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("tr.items")}) AS l(j)
+      ${KEY_JOIN("n", "l.j ->> 'product'")}
+      WHERE tr.status = 'потвержден' AND fin_key(l.j ->> 'product') <> ''`)
   }
   const body = parts.length
     ? parts.join("\nUNION ALL\n")

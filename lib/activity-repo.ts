@@ -23,12 +23,13 @@ import { normCurrency } from "@/lib/finance/currency"
 // Read model of the Активность page (/analytics/activity). Everything comes from the field
 // event stream (lib/field-activity/events.ts), so the column header counts and the cards each
 // column can load are the same rows:
-// - Сделки = counted orders (cancelled and unconfirmed ones are left out: excludeCancelled),
-//   Отказы = visit refusals, Отчеты = photo reports, Возвраты = client returns that are not
-//   cancelled, Сбор денег = client payments, Доставки = orders that reached Доставлено;
+// - as the reference counts them (market/today_plan_stat_sum, market/agent/done_plan): Сделки = every
+//   order of the period (cancelled ones too), Отказы = visit refusals, Отчеты = photo reports,
+//   Возвраты = accepted client returns, Сбор денег = client payments, Доставки = orders that
+//   reached Доставлено;
 // - the agent strip lists the active employees (with 0 too) plus any inactive one that still
-//   has visits or sales in the period; the number is their visits, the sum their counted
-//   orders per currency (currencies are never added together).
+//   has visits or sales in the period; the number is their visits, the sum their orders that are
+//   not cancelled (unconfirmed ones too) per currency (currencies are never added together).
 // A reader restricted to their own data (lib/field-activity/actor.ts) sees only their employee.
 
 /** The page filter of a board / feed request. */
@@ -88,7 +89,8 @@ function eventQuery(query: ActivityQuery, kinds: FieldEventKind[], employeeIds: 
     clientTypeIds: query.clientTypeIds.length ? query.clientTypeIds : undefined,
     withEquipment: query.withEquipment,
     branchId: query.branchId,
-    excludeCancelled: true,
+    orders: "all",
+    returns: "accepted",
   }
 }
 
@@ -116,6 +118,9 @@ export async function activityBoard(query: ActivityQuery, scope: FieldScope): Pr
   const totals = await fieldEventTotals(eventQuery(query, [...ACTIVITY_COLUMNS, "visit"], stripIds))
   const base = normCurrency(totals.baseCurrency)
   const perEmployee = new Map(totals.byEmployee.map((entry) => [entry.employeeId, entry]))
+  // The strip's sales: the agent's orders that are not cancelled.
+  const salesTotals = await fieldEventTotals({ ...eventQuery(query, ["order"], stripIds), orders: "not_cancelled" })
+  const salesOf = new Map(salesTotals.byEmployee.map((entry) => [entry.employeeId, entry.byKind.order]))
 
   let columns: Record<ActivityColumn, KindTotal>
   if (query.employeeId === null) columns = columnsOf(totals.byKind, base)
@@ -127,7 +132,7 @@ export async function activityBoard(query: ActivityQuery, scope: FieldScope): Pr
   for (const employee of employees) {
     const entry = perEmployee.get(employee.employeeId)
     const visits = entry?.byKind.visit?.count ?? 0
-    const sales = moneyOf(entry?.byKind.order, base)
+    const sales = moneyOf(salesOf.get(employee.employeeId), base)
     if (!employee.active && visits === 0 && sales.length === 0) continue
     agents.push({
       employeeId: employee.employeeId,

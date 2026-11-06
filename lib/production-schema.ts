@@ -142,6 +142,9 @@ async function createSchema(db: PgDb) {
     -- components' current averages of its day (lib/net-cost-sync.ts). NULL on older
     -- rows (they keep their stored cost) and on every other line.
     ALTER TABLE production_movements ADD COLUMN IF NOT EXISTS cost_basis TEXT;
+    -- 0 = a batch line imported from Linko that Linko shows on the batch but never booked into the stock
+    -- (its stock history has no movement for it): the stock ledger leaves it out (lib/stock/sources.ts).
+    ALTER TABLE production_movements ADD COLUMN IF NOT EXISTS in_stock INTEGER NOT NULL DEFAULT 1;
 
     -- Money / quantity columns are double precision (older databases may hold real).
     DO $production_types$

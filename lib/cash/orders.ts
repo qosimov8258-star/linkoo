@@ -7,7 +7,7 @@ import { todayIso } from "@/lib/finance/dates"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { lockClientPayments } from "@/lib/finance/customer-payment"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
-import { orderClientJoin, orderCountedSql, orderRealizationTs, orderReleasedSql } from "@/lib/finance/sources"
+import { orderClientJoin, orderCountedSql, orderDebtSql, orderRealizationTs, orderReleasedSql } from "@/lib/finance/sources"
 import { num } from "@/lib/cash/common"
 
 // What a client still owes on an order ("Ожидаемые оплаты" / pay-order dialog).
@@ -199,7 +199,7 @@ export async function allocatedOrderDues(db: PgDb, ids: number[] | null, cc: Cur
          SELECT o.id, oc.id AS cid,
                 to_char(CASE WHEN ${orderReleasedSql("o")} THEN ${orderRealizationTs(s, "o")} ELSE fin_ts(o.created_at, true) END, 'YYYY-MM-DD') AS age_day
          FROM orders o ${orderClientJoin(s, "o", "oc", "ck")}
-         WHERE ${orderCountedSql("o")}
+         WHERE ${orderCountedSql("o")}${s.col("orders", "no_debt") ? orderDebtSql("o") : ""}
        ),
        req AS (SELECT cid FROM o2 WHERE @all::boolean OR id = ANY(@ids::int[]))
        SELECT o2.id, o2.cid, true AS counted, COALESCE(o2.age_day, '') AS age_day FROM o2

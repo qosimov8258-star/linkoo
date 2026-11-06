@@ -1,0 +1,987 @@
+{
+ "lists": [
+  {
+   "name": "orders",
+   "path": "sales/order/"
+  },
+  {
+   "name": "order_products",
+   "path": "sales/order_product/"
+  },
+  {
+   "name": "order_returns",
+   "path": "sales/order_return/"
+  },
+  {
+   "name": "rejections",
+   "path": "market/rejection/"
+  },
+  {
+   "name": "promotions",
+   "path": "market/promotion/"
+  },
+  {
+   "name": "client_promotions",
+   "path": "sales/client_promotion/"
+  },
+  {
+   "name": "mailings",
+   "path": "telegram/mailing/"
+  },
+  {
+   "name": "quizzes",
+   "path": "main/quiz/",
+   "params": {
+    "from_desktop": "true"
+   }
+  },
+  {
+   "name": "system_pages",
+   "path": "main/system-pages/"
+  },
+  {
+   "name": "branches",
+   "path": "main/branch/"
+  },
+  {
+   "name": "employees_active",
+   "path": "main/crud/",
+   "params": {
+    "is_active": "true",
+    "with_detail": "true"
+   }
+  },
+  {
+   "name": "employees_all",
+   "path": "main/crud/",
+   "params": {
+    "with_detail": "true"
+   }
+  },
+  {
+   "name": "start_locations",
+   "path": "main/user/crud/start_locations/"
+  },
+  {
+   "name": "groups",
+   "path": "main/group/gcrud/"
+  },
+  {
+   "name": "price_lists",
+   "path": "sales/price_list/"
+  },
+  {
+   "name": "currencies",
+   "path": "finance/currencies/",
+   "params": {
+    "show_all": "true"
+   }
+  },
+  {
+   "name": "divisions",
+   "path": "main/division/"
+  },
+  {
+   "name": "stocks",
+   "path": "stock/stock/"
+  },
+  {
+   "name": "jobs",
+   "path": "main/jobs/"
+  },
+  {
+   "name": "positions",
+   "path": "main/position/"
+  },
+  {
+   "name": "kpi_tasks",
+   "path": "staff/performance_indicator/",
+   "params": {
+    "show_tab": "all"
+   }
+  },
+  {
+   "name": "access",
+   "path": "main/access/"
+  },
+  {
+   "name": "supply_returns",
+   "path": "stock/supply_return/"
+  },
+  {
+   "name": "supplies",
+   "path": "stock/supply/"
+  },
+  {
+   "name": "products",
+   "path": "main/product/"
+  },
+  {
+   "name": "products_net_costs",
+   "path": "stock/products_net_costs/"
+  },
+  {
+   "name": "inventories",
+   "path": "stock/inventory/"
+  },
+  {
+   "name": "all_balances",
+   "path": "stock/all_balances/",
+   "params": {
+    "in_way": "true",
+    "show_in": "amount"
+   }
+  },
+  {
+   "name": "all_balances_plain",
+   "path": "stock/all_balances/",
+   "params": {
+    "for_day_end": "false"
+   }
+  },
+  {
+   "name": "stock_transfers",
+   "path": "stock/stock_transfer/"
+  },
+  {
+   "name": "income_tasks",
+   "path": "stock/income_tasks/"
+  },
+  {
+   "name": "gears",
+   "path": "main/gear/",
+   "params": {
+    "status": "all",
+    "with_image": "false"
+   }
+  },
+  {
+   "name": "writeoffs",
+   "path": "stock/writeoff_request/"
+  },
+  {
+   "name": "reprices",
+   "path": "main/reprice/"
+  },
+  {
+   "name": "net_costs",
+   "path": "stock/net_cost/"
+  },
+  {
+   "name": "market_options",
+   "path": "market/options/"
+  },
+  {
+   "name": "market_classification",
+   "path": "market/market_classification/"
+  },
+  {
+   "name": "product_types_menu",
+   "path": "main/product_type/as_menu/"
+  },
+  {
+   "name": "markets",
+   "path": "market/market/"
+  },
+  {
+   "name": "clients",
+   "path": "sales/client/"
+  },
+  {
+   "name": "client_transactions",
+   "path": "sales/client_transaction/"
+  },
+  {
+   "name": "cash_transactions",
+   "path": "finance/transaction/"
+  },
+  {
+   "name": "provider_transactions",
+   "path": "finance/provider_transactions/"
+  },
+  {
+   "name": "money_requests",
+   "path": "finance/money_request/"
+  },
+  {
+   "name": "cashboxes",
+   "path": "finance/cashbox/"
+  },
+  {
+   "name": "income_categories",
+   "path": "finance/income_category/"
+  },
+  {
+   "name": "options_expense",
+   "path": "main/options/",
+   "params": {
+    "use": "expense"
+   }
+  },
+  {
+   "name": "parties",
+   "path": "manufacture/party/"
+  },
+  {
+   "name": "saas_templates",
+   "path": "saas/template/"
+  },
+  {
+   "name": "supply_products",
+   "path": "stock/supply_product/"
+  },
+  {
+   "name": "supply_expenses",
+   "path": "stock/supply_expense/"
+  },
+  {
+   "name": "supply_logs",
+   "path": "stock/supply_log/"
+  },
+  {
+   "name": "order_logs",
+   "path": "sales/order_logs/"
+  },
+  {
+   "name": "outcome_tasks",
+   "path": "stock/outcome_tasks/"
+  },
+  {
+   "name": "reserved_products",
+   "path": "stock/reserved_product/"
+  },
+  {
+   "name": "series",
+   "path": "stock/series/"
+  },
+  {
+   "name": "series_balance",
+   "path": "stock/series_balance/"
+  },
+  {
+   "name": "gear_logs",
+   "path": "main/gear_log/"
+  },
+  {
+   "name": "gear_checks",
+   "path": "main/gear_check/"
+  },
+  {
+   "name": "gear_conditions",
+   "path": "main/gear_condition/"
+  },
+  {
+   "name": "manufacture_writeoffs",
+   "path": "manufacture/manufacture_writeoff/"
+  },
+  {
+   "name": "manufacturings",
+   "path": "manufacture/manufacturing/"
+  },
+  {
+   "name": "manufacture_operations",
+   "path": "manufacture/operations/"
+  },
+  {
+   "name": "price_list_items",
+   "path": "sales/price_list_item/"
+  },
+  {
+   "name": "providers",
+   "path": "stock/provider/"
+  },
+  {
+   "name": "provider_categories",
+   "path": "stock/provider_category/"
+  },
+  {
+   "name": "provider_balances",
+   "path": "stock/provider_balances/"
+  },
+  {
+   "name": "provider_request_balances",
+   "path": "stats/provider/request_balances/"
+  },
+  {
+   "name": "currency_rates",
+   "path": "finance/currency_rate/"
+  },
+  {
+   "name": "individual_rates",
+   "path": "finance/individual_rate/"
+  },
+  {
+   "name": "provider_debt_separations",
+   "path": "finance/provider_debt_separations/"
+  },
+  {
+   "name": "staff_expenses",
+   "path": "sales/staff_expense/"
+  },
+  {
+   "name": "expense_categories",
+   "path": "finance/expense_category/"
+  },
+  {
+   "name": "notifications",
+   "path": "notification/notifications/"
+  },
+  {
+   "name": "notification_templates",
+   "path": "notification/notification_template/"
+  },
+  {
+   "name": "merch_reports",
+   "path": "market/merch_report/"
+  },
+  {
+   "name": "monthly_plans",
+   "path": "sales/monthly_plan/"
+  },
+  {
+   "name": "order_product_exp",
+   "path": "sales/order_product_exp/"
+  },
+  {
+   "name": "contracts",
+   "path": "sales/contract/"
+  },
+  {
+   "name": "contracts_debt",
+   "path": "sales/contract/",
+   "params": {
+    "debt": "true"
+   }
+  },
+  {
+   "name": "client_balances",
+   "path": "sales/client_balances/",
+   "params": {
+    "only_accepted": "false"
+   }
+  },
+  {
+   "name": "market_balances",
+   "path": "sales/market_balance/",
+   "params": {
+    "only_accepted": "false"
+   }
+  },
+  {
+   "name": "client_balances_expanded",
+   "path": "stats/client_balances_expanded/"
+  },
+  {
+   "name": "cash_backs",
+   "path": "sales/cash_back/"
+  },
+  {
+   "name": "cashback_requests",
+   "path": "telegram/cashback_request/"
+  },
+  {
+   "name": "telegram_users",
+   "path": "telegram/users/"
+  },
+  {
+   "name": "market_restrictions",
+   "path": "market/restriction/"
+  },
+  {
+   "name": "market_types",
+   "path": "market/market_type/"
+  },
+  {
+   "name": "borders",
+   "path": "market/border/"
+  },
+  {
+   "name": "market_categories",
+   "path": "market/category/"
+  },
+  {
+   "name": "rejection_types",
+   "path": "market/rejection_type/"
+  },
+  {
+   "name": "draft_orders",
+   "path": "sales/draft_order/"
+  },
+  {
+   "name": "knowledge",
+   "path": "main/knowledge/"
+  },
+  {
+   "name": "transports",
+   "path": "main/transport/"
+  },
+  {
+   "name": "shifts",
+   "path": "staff/shift/"
+  },
+  {
+   "name": "user_shifts",
+   "path": "staff/user_shift/"
+  },
+  {
+   "name": "billing",
+   "path": "main/billing/"
+  },
+  {
+   "name": "subscriptions",
+   "path": "main/crud/subscriptions/"
+  },
+  {
+   "name": "product_types",
+   "path": "main/product_type/"
+  },
+  {
+   "name": "measurements",
+   "path": "main/measurement/"
+  },
+  {
+   "name": "brands",
+   "path": "main/brand/"
+  },
+  {
+   "name": "e_options",
+   "path": "e_commerce/options/"
+  },
+  {
+   "name": "e_option_values",
+   "path": "e_commerce/option_value/"
+  },
+  {
+   "name": "rival_products",
+   "path": "main/rival_product/",
+   "params": {
+    "m": "Product"
+   }
+  },
+  {
+   "name": "rivals",
+   "path": "main/rival/"
+  },
+  {
+   "name": "docs_templates",
+   "path": "saas/template/"
+  },
+  {
+   "name": "excel_codes",
+   "path": "saas/excel_code/"
+  },
+  {
+   "name": "dashboards",
+   "path": "main/dashboard/"
+  },
+  {
+   "name": "cells",
+   "path": "stock/cell/"
+  },
+  {
+   "name": "cell_types",
+   "path": "stock/cell_type/"
+  },
+  {
+   "name": "archives",
+   "path": "main/archive/"
+  },
+  {
+   "name": "tasks",
+   "path": "main/task/"
+  },
+  {
+   "name": "quizzes_all",
+   "path": "main/quiz/"
+  },
+  {
+   "name": "frozen_products",
+   "path": "stock/frozen_product/"
+  },
+  {
+   "name": "stock_delivery_mans",
+   "path": "stock/delivery_mans/"
+  },
+  {
+   "name": "report_configs",
+   "path": "main/report_config/"
+  },
+  {
+   "name": "static_widgets",
+   "path": "main/static_widget/"
+  },
+  {
+   "name": "widgets",
+   "path": "main/widget/"
+  },
+  {
+   "name": "firebase_keys",
+   "path": "notification/firebase_key/"
+  },
+  {
+   "name": "stats_supply",
+   "path": "stats/supply/"
+  },
+  {
+   "name": "debtors",
+   "path": "stats/debtors/"
+  },
+  {
+   "name": "debtors_group",
+   "path": "stats/debtors_group/"
+  },
+  {
+   "name": "employees_inactive",
+   "path": "main/crud/",
+   "params": {
+    "is_active": "false",
+    "with_detail": "true"
+   }
+  },
+  {
+   "name": "users_for_select",
+   "path": "main/user/crud/for_select/"
+  },
+  {
+   "name": "auth_logs",
+   "path": "main/auth_log/"
+  },
+  {
+   "name": "products_raw",
+   "path": "main/product/",
+   "params": {
+    "is_raw": "true"
+   }
+  },
+  {
+   "name": "products_notraw",
+   "path": "main/product/",
+   "params": {
+    "is_raw": "false"
+   }
+  },
+  {
+   "name": "products_deleted",
+   "path": "main/product/",
+   "params": {
+    "is_delete": "true"
+   }
+  },
+  {
+   "name": "all_balances_by_stock",
+   "path": "stock/all_balances_by_stock/"
+  },
+  {
+   "name": "barcode_history",
+   "path": "stock/barcode_history/"
+  },
+  {
+   "name": "manufacture_orders",
+   "path": "manufacture/manufacture_order/"
+  },
+  {
+   "name": "manufacture_defects",
+   "path": "manufacture/defect/list/"
+  },
+  {
+   "name": "manufacture_ingredients",
+   "path": "manufacture/ingredients/"
+  },
+  {
+   "name": "manufacture_ready_ingredients",
+   "path": "manufacture/ready_ingredients/"
+  },
+  {
+   "name": "manufacture_factory_stock",
+   "path": "manufacture/factory_stock/"
+  },
+  {
+   "name": "market_plans",
+   "path": "market/plan/"
+  },
+  {
+   "name": "agents_location",
+   "path": "market/agents_location/"
+  },
+  {
+   "name": "start_locations_all",
+   "path": "main/user/crud/start_locations/"
+  },
+  {
+   "name": "fin_cashboxes_sum_list",
+   "path": "stats/cashboxes_sum_list/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   },
+   "pageSize": 1000
+  },
+  {
+   "name": "fin_cashboxes_sum",
+   "path": "stats/cashboxes_sum/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   },
+   "pageSize": 1000
+  },
+  {
+   "name": "fin_client_balances_expanded_all",
+   "path": "stats/client_balances_expanded/",
+   "params": {
+    "only_out_stock": "False",
+    "is_only_delivered": "False",
+    "last_status": "False",
+    "exclude_closed_clients": "false",
+    "only_payment_with_invoice": "false",
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_client_balances_expanded_total",
+   "path": "stats/client_balances_expanded/total/",
+   "params": {
+    "only_out_stock": "False",
+    "is_only_delivered": "False",
+    "last_status": "False",
+    "exclude_closed_clients": "false",
+    "only_payment_with_invoice": "false",
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_legal_balances_expanded_all",
+   "path": "stats/legal_client_balances_expanded/",
+   "params": {
+    "only_out_stock": "False",
+    "is_only_delivered": "False",
+    "last_status": "False",
+    "exclude_closed_clients": "false",
+    "only_payment_with_invoice": "false",
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_legal_balances_expanded_total",
+   "path": "stats/legal_client_balances_expanded/total/",
+   "params": {
+    "only_out_stock": "False",
+    "is_only_delivered": "False",
+    "last_status": "False",
+    "exclude_closed_clients": "false",
+    "only_payment_with_invoice": "false",
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_provider_balance_extended",
+   "path": "stats/provider/balance/extended/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_provider_balance_extended_total",
+   "path": "stats/provider/balance/extended/total/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_vansell_balance",
+   "path": "staff/balance/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_vansell_balance_total",
+   "path": "staff/balance/total/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_branch_balance",
+   "path": "main/branch/balance/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_branch_balance_total",
+   "path": "main/branch/total/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_salary_balance",
+   "path": "staff/salary_balance/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_salary_balance_total",
+   "path": "staff/salary_balance/total/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_debtors_stats",
+   "path": "stats/debtors_stats/"
+  },
+  {
+   "name": "fin_debtors",
+   "path": "stats/debtors/"
+  },
+  {
+   "name": "fin_expenses_all",
+   "path": "stats/expenses/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_staff_expenses_all",
+   "path": "stats/staff_expenses/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_money_requests_all",
+   "path": "finance/money_request/"
+  },
+  {
+   "name": "fin_cashback_requests",
+   "path": "telegram/cashback_request/"
+  },
+  {
+   "name": "fin_contracts_all",
+   "path": "sales/contract/"
+  },
+  {
+   "name": "fin_contracts_debt",
+   "path": "sales/contract/",
+   "params": {
+    "debt": "true"
+   }
+  },
+  {
+   "name": "fin_cash_backs",
+   "path": "sales/cash_back/"
+  },
+  {
+   "name": "fin_client_balances_stats",
+   "path": "stats/client/balances/"
+  },
+  {
+   "name": "fin_market_balance_total",
+   "path": "sales/market_balance/total/",
+   "params": {
+    "only_accepted": "false"
+   }
+  },
+  {
+   "name": "fin_client_balances_total",
+   "path": "sales/client_balances/total/",
+   "params": {
+    "only_accepted": "false"
+   }
+  },
+  {
+   "name": "fin_transaction_total",
+   "path": "finance/transaction/total/",
+   "params": {
+    "own": "True"
+   }
+  },
+  {
+   "name": "fin_payment_total",
+   "path": "sales/client_transaction/total_payment/",
+   "params": {
+    "with_market_responsible": "true",
+    "type": "1",
+    "show_tab": "all"
+   }
+  },
+  {
+   "name": "fin_provider_tx_total",
+   "path": "finance/provider_transactions/total/",
+   "params": {
+    "type": "1"
+   }
+  },
+  {
+   "name": "fin_widget_general_all",
+   "path": "stats/widget/general/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_widget_general_today",
+   "path": "stats/widget/general/",
+   "params": {
+    "begin_date": "{today}",
+    "end_date": "{today}"
+   }
+  },
+  {
+   "name": "fin_widget_cashbox_balance",
+   "path": "stats/widget/cashbox_balance/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_widget_provider_debt",
+   "path": "stats/widget/provider_debt/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_widget_branch_client_debt",
+   "path": "stats/widget/branch_client_debt/",
+   "params": {
+    "begin_date": "2020-01-01",
+    "end_date": "{year_end}"
+   }
+  },
+  {
+   "name": "fin_currency_rates",
+   "path": "finance/currency_rate/"
+  },
+  {
+   "name": "fin_individual_rates",
+   "path": "finance/individual_rate/"
+  },
+  {
+   "name": "fin_cashbox_for_select",
+   "path": "finance/cashbox/for_select/"
+  },
+  {
+   "name": "fin_income_categories",
+   "path": "finance/income_category/"
+  },
+  {
+   "name": "fin_expense_categories",
+   "path": "finance/expense_category/"
+  },
+  {
+   "name": "fin_options_income",
+   "path": "main/options/",
+   "params": {
+    "use": "income"
+   }
+  },
+  {
+   "name": "fin_options_expense",
+   "path": "main/options/",
+   "params": {
+    "use": "expense"
+   }
+  },
+  {
+   "name": "fin_divisions",
+   "path": "main/division/"
+  },
+  {
+   "name": "fin_staff_expense_items",
+   "path": "sales/staff_expense/"
+  },
+  {
+   "name": "fin_provider_debt_separations",
+   "path": "finance/provider_debt_separations/"
+  },
+  {
+   "name": "fin_delivery_balance_today",
+   "path": "stats/delivery_balance/",
+   "params": {
+    "by": "today",
+    "only_out_stock": "False",
+    "type": "prediction",
+    "begin_date": "{today}",
+    "end_date": "{today}"
+   }
+  },
+  {
+   "name": "fin_delivery_balance_total_today",
+   "path": "stats/delivery_balance/total/",
+   "params": {
+    "by": "today",
+    "only_out_stock": "False",
+    "type": "prediction",
+    "begin_date": "{today}",
+    "end_date": "{today}"
+   }
+  }
+ ],
+ "details": [
+  {
+   "list": "promotions",
+   "path": "market/promotion/{id}/"
+  },
+  {
+   "list": "supplies",
+   "path": "stock/supply/{id}/"
+  },
+  {
+   "list": "supply_returns",
+   "path": "stock/supply_return/{id}/"
+  },
+  {
+   "list": "writeoffs",
+   "path": "stock/writeoff_request/{id}/"
+  },
+  {
+   "list": "stock_transfers",
+   "path": "stock/stock_transfer/{id}/"
+  },
+  {
+   "list": "inventories",
+   "path": "stock/inventory/{id}/"
+  },
+  {
+   "list": "order_returns",
+   "path": "sales/order_return/{id}/"
+  },
+  {
+   "list": "parties",
+   "path": "manufacture/party/{id}/"
+  },
+  {
+   "list": "reprices",
+   "path": "main/reprice/{id}/"
+  },
+  {
+   "list": "orders",
+   "path": "sales/order/{id}/"
+  },
+  {
+   "list": "tasks",
+   "path": "main/task/{id}/"
+  }
+ ]
+}

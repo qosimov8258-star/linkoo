@@ -14,6 +14,7 @@ import {
   type FieldOption,
   type FieldRecordFacets,
   type FieldRecordRow,
+  type PhotoTypeGroup,
 } from "@/lib/field-activity/record-list-types"
 import { columnsOf, ensureFieldSchema } from "@/lib/field-activity/schema"
 import { isIsoDay } from "@/lib/finance/dates"
@@ -213,10 +214,27 @@ type Row = {
   reason: string | null
   refusal_type_id: number | null
   status: string | null
+  photo_types: string | null
   cursor: string
 }
 
 const num = (value: number | null | undefined) => (value === null || value === undefined ? null : Number(value))
+
+/** field_photo_reports.photo_types → the named photo groups (a damaged value is no groups). */
+function photoTypesOf(text: string | null): PhotoTypeGroup[] {
+  try {
+    const value = JSON.parse(text || "[]") as unknown
+    if (!Array.isArray(value)) return []
+    return value.flatMap((item) => {
+      if (!item || typeof item !== "object") return []
+      const group = item as Record<string, unknown>
+      const name = typeof group.name === "string" ? group.name.trim() : ""
+      return name ? [{ name, before: Number(group.before) || 0, after: Number(group.after) || 0 }] : []
+    })
+  } catch {
+    return []
+  }
+}
 
 type RecordPage = { count: number; hasMore: boolean; nextCursor: string | null; rows: FieldRecordRow[] }
 
@@ -250,7 +268,7 @@ export async function listFieldRecords(
   const columns =
     kind === "refusal"
       ? `f.comment, ${types ? "COALESCE(rt.name, f.reason)" : "f.reason"} AS reason, f.refusal_type_id, NULL AS status`
-      : "f.comment, NULL AS reason, NULL AS refusal_type_id, f.status"
+      : "f.comment, NULL AS reason, NULL AS refusal_type_id, f.status, f.photo_types"
   const rows = (await db
     .prepare(
       `SELECT f.id, f.visit_id, f.employee_id, ${EMPLOYEE_NAME} AS employee_name, f.client_id, c.name AS client_name,
@@ -282,6 +300,7 @@ export async function listFieldRecords(
       refusalTypeId: num(row.refusal_type_id),
       status: row.status ?? "",
       photos: photos.get(Number(row.id)) ?? [],
+      ...(kind === "photo_report" ? { photoTypes: photoTypesOf(row.photo_types) } : {}),
     })),
   }
 }

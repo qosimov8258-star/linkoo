@@ -158,7 +158,7 @@ export type BalanceInfoValue = string | number | null
 
 export type BalanceRow = {
   /** Stable key: String(id) for DB rows; "name:<name>" for a supplier only
-   * referenced by documents; "inn:<inn>" for an account grouping clients;
+   * referenced by documents; "acc:<financial account id>" or "inn:<inn>" for an account grouping clients;
    * "type:<type>" in client-type mode. Pass it back as `key` to statements. */
   key: string
   /** Primary DB id (cashboxes.id, clients.id, suppliers.id, employees.id,
@@ -169,7 +169,7 @@ export type BalanceRow = {
   info: Record<string, BalanceInfoValue>
   /** Keyed by currency code; every code of BalanceListResult.currencies is present. */
   currencies: Record<string, CurrencyBalance>
-  /** Account rows ("inn:…") and client-type rows ("type:…"): the clients.id values summed into the row. */
+  /** Account rows ("acc:…" / "inn:…") and client-type rows ("type:…"): the clients.id values summed into the row. */
   members?: number[]
 }
 

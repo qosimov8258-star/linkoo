@@ -1,6 +1,7 @@
 export type ReturnStatus = "завершен" | "в процессе" | "отменен"
 
-export type ReturnItem = { id: number; product: string; qty: number; series: string; price: number; total: number }
+/** `key`: the catalog key ("product:12") when known (pickers, lines imported from Linko): the stock ledger books the line under it. */
+export type ReturnItem = { id: number; key?: string; product: string; qty: number; series: string; price: number; total: number }
 
 export type SupplierReturn = {
   id: number
