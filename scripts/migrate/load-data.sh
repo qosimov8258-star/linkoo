@@ -44,9 +44,13 @@ echo "2/4 keeping the sign-in accounts and settings"
 KEEP_TABLES=$(pg psql -U "$DB_USER" -d "$DB_NAME" -Atc \
   "SELECT string_agg('-t ' || quote_ident(tablename), ' ') FROM pg_tables WHERE schemaname = current_schema() AND tablename IN ('users', 'app_settings')")
 if [ -n "$KEEP_TABLES" ]; then
+  # Their structure too: a package may come without these tables (it carries no accounts).
+  # shellcheck disable=SC2086
+  pg pg_dump -U "$DB_USER" --schema-only $KEEP_TABLES "$DB_NAME" > "backups/keep-schema-$STAMP.sql"
   # shellcheck disable=SC2086
   pg pg_dump -U "$DB_USER" --data-only --column-inserts $KEEP_TABLES "$DB_NAME" > "backups/keep-$STAMP.sql"
 else
+  : > "backups/keep-schema-$STAMP.sql"
   : > "backups/keep-$STAMP.sql"
 fi
 
@@ -55,9 +59,22 @@ $COMPOSE stop app
 pg dropdb -U "$DB_USER" --if-exists "$DB_NAME"
 pg createdb -U "$DB_USER" "$DB_NAME"
 pg pg_restore -U "$DB_USER" -d "$DB_NAME" --no-owner --no-acl < "$DUMP"
-# The package's own accounts and settings make way for this server's.
-pg psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -c "TRUNCATE users, app_settings"
-pg psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q < "backups/keep-$STAMP.sql"
+# The package's own accounts and settings make way for this server's. A package without these tables gets this
+# server's structure for them first (no constraint of it may fail: the accounts' links are cleared below).
+for TABLE in users app_settings; do
+  EXISTS=$(pg psql -U "$DB_USER" -d "$DB_NAME" -Atc "SELECT to_regclass('$TABLE') IS NOT NULL")
+  if [ "$EXISTS" = "t" ]; then
+    pg psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -c "TRUNCATE $TABLE CASCADE"
+  fi
+done
+MISSING=$(pg psql -U "$DB_USER" -d "$DB_NAME" -Atc "SELECT count(*) FROM (VALUES ('users'), ('app_settings')) t(n) WHERE to_regclass(n) IS NULL")
+if [ "$MISSING" != "0" ] && [ -s "backups/keep-schema-$STAMP.sql" ]; then
+  # Only the missing tables' statements matter; the others fail harmlessly (already there).
+  pg psql -U "$DB_USER" -d "$DB_NAME" -q < "backups/keep-schema-$STAMP.sql" || true
+fi
+# The kept rows go in without the foreign-key checks (their employee / access right ids are cleared next).
+{ echo "SET session_replication_role = replica;"; cat "backups/keep-$STAMP.sql"; echo "SET session_replication_role = DEFAULT;"; } |
+  pg psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q
 pg psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -c "
   UPDATE users SET employee_id = NULL, access_right_id = NULL;
   SELECT setval(pg_get_serial_sequence('users', 'id'), GREATEST(COALESCE((SELECT MAX(id) FROM users), 0), 1));"
