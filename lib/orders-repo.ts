@@ -943,7 +943,7 @@ async function assertAvailable(warehouse: string, needs: Need[], ownReserved: Ma
   if (!wanted.size) return
   const [balances, pending] = await Promise.all([
     getStockBalances({ warehouses: [warehouse], date: LEDGER_END }),
-    getStockPending({ warehouses: [warehouse] }),
+    getStockPending({ warehouses: [warehouse], blocking: true }),
   ])
   const onHand = new Map<string, number>()
   for (const row of balances) if (nameKey(row.warehouse) === nameKey(warehouse)) onHand.set(row.key, (onHand.get(row.key) ?? 0) + row.qty)
@@ -968,9 +968,9 @@ function needsOf(items: Array<Pick<ItemRow, "product_id" | "product_name" | "qua
   return items.map((item) => ({ key: lineKey(item.product_id, item.product_name), name: item.product_name, quantity: Number(item.quantity) }))
 }
 
-/** Order statuses whose lines reserve stock at the order's warehouse, as in the reference (Linko): the unconfirmed
- * "Не подтвержден" reserves like "Есть на складе". */
-const RESERVING_STATUSES = ["Есть на складе", "Не подтвержден"]
+/** Order statuses whose reservation stops another movement (getStockPending `blocking`): a confirmed order. The
+ * unconfirmed "Не подтвержден" shows as reserved (as in the reference) but blocks nothing. */
+const RESERVING_STATUSES = ["Есть на складе"]
 
 function reservedBy(order: Pick<OrderRow, "status" | "warehouse">, items: ItemRow[], warehouse: string): Map<string, number> {
   const own = new Map<string, number>()

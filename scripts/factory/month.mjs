@@ -277,6 +277,8 @@ export async function runMonth(ctx) {
     await step(`buyurtma #${created.id} sanasi`, () => patch(`/api/orders/${created.id}`, { createdAt: `${date} ${time(R.int(8, 12))}` }))
     const order = { id: created.id, date, client, samarkand, warehouse, lines, total: Number(created.amount ?? 0), status: "Не подтвержден", paid: 0 }
     orders.push(order)
+    // An unconfirmed order already reserves its goods (shown as reserved, as in Linko): they leave the free stock now.
+    for (const line of lines) move(warehouse, productKey(line.productName), -line.quantity)
     const path = { "Не подтвержден": [], "Есть на складе": ["Есть на складе"], "В пути": ["Есть на складе", "В пути"], "Доставлено": ["Есть на складе", "В пути", "Доставлено"], "Отменен": ["Отменен"] }[finalStatus]
     for (const status of path) {
       const body = { status }
@@ -284,8 +286,11 @@ export async function runMonth(ctx) {
       const ok = await step(`buyurtma #${created.id} → ${status}`, () => patch(`/api/orders/${created.id}`, body))
       if (!ok) break
       order.status = status
-      if (status === "Есть на складе") for (const line of lines) move(warehouse, productKey(line.productName), -line.quantity)
-      if (status === "Отменен") stats.cancelled++
+      // Cancelling the unconfirmed order frees its reservation.
+      if (status === "Отменен") {
+        stats.cancelled++
+        for (const line of lines) move(warehouse, productKey(line.productName), line.quantity)
+      }
       if (status === "Доставлено") stats.delivered++
     }
     const fresh = await step(`buyurtma #${created.id} o'qish`, () => get(`/api/orders/${created.id}`))

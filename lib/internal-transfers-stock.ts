@@ -103,7 +103,7 @@ export async function warehouseStock(warehouse: string, day?: string, db: PgDb =
   const docDay = checkDay(day)
   const [balances, pending, costs] = await Promise.all([
     minBalancesFrom(warehouse, docDay, db),
-    getStockPending({ warehouses: [warehouse] }, db),
+    getStockPending({ warehouses: [warehouse], blocking: true }, db),
     getWarehouseItemCosts({ date: docDay }, db),
   ])
   const reserved = new Map<string, number>()

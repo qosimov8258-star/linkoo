@@ -162,12 +162,12 @@ export async function getStockAverageCosts(
   return costs
 }
 
-export async function computeStockPending(query: { warehouses?: string[] } = {}, db: PgDb = getDb()): Promise<StockPending[]> {
+export async function computeStockPending(query: { warehouses?: string[]; blocking?: boolean } = {}, db: PgDb = getDb()): Promise<StockPending[]> {
   const t = await stockTables(db)
   const warehouses = (query.warehouses ?? []).map((name) => String(name ?? "")).filter((name) => name.trim())
   const whFilter = warehouses.length ? "AND fin_key(p.warehouse) IN (SELECT fin_key(x) FROM unnest(@stk_whs::text[]) AS x)" : ""
   const statement = db.prepare(
-    `WITH stk_p AS (${buildPendingSql(t)}), ${warehouseNamesCte(t)}
+    `WITH stk_p AS (${buildPendingSql(t, { blocking: query.blocking })}), ${warehouseNamesCte(t)}
      SELECT COALESCE(MIN(w.name), MIN(p.warehouse)) AS warehouse, p.item_key, SUM(p.reserved) AS reserved, SUM(p.transit) AS transit
      FROM stk_p p LEFT JOIN stk_wh w ON w.k = fin_key(p.warehouse)
      WHERE fin_key(p.warehouse) <> '' ${whFilter}

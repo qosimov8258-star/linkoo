@@ -395,14 +395,18 @@ export function buildMovementsSql(t: StockTables): string {
  * confirmed internal transfers waiting to leave ("потвержден", at the source); internal
  * transfers given but not yet accepted ("в пути", towards the target) are in transit. Columns:
  * warehouse, item_key, reserved, transit. No parameters. */
-export function buildPendingSql(t: StockTables): string {
+export function buildPendingSql(t: StockTables, options: { blocking?: boolean } = {}): string {
   const parts: string[] = []
+  // An unconfirmed order ("Не подтвержден", an agent's request the operator has not confirmed) shows as reserved, as in
+  // the reference; `blocking` (the checks of a new movement) leaves it out, so a stale request never stops another
+  // order, a transfer or a write-off.
+  const orderStatuses = options.blocking ? "('Есть на складе')" : "('Есть на складе', 'Не подтвержден')"
   if (t.has("orders") && t.has("order_items") && t.col("orders", "warehouse")) {
     const name = t.col("order_items", "product_name") ? "oi.product_name" : "''"
     const key = t.col("order_items", "product_id") ? `CASE WHEN oi.product_id IS NOT NULL THEN 'product:' || oi.product_id ELSE ${KEY_OF("n", name)} END` : KEY_OF("n", name)
     parts.push(`SELECT o.warehouse::text AS warehouse, (${key})::text AS item_key, COALESCE(oi.quantity, 0)::double precision AS reserved, 0::double precision AS transit
       FROM orders o JOIN order_items oi ON oi.order_id = o.id ${KEY_JOIN("n", name)}
-      WHERE btrim(o.warehouse) <> '' AND o.status IN ('Есть на складе', 'Не подтвержден')`)
+      WHERE btrim(o.warehouse) <> '' AND o.status IN ${orderStatuses}`)
   }
   if (t.has("internal_transfers")) {
     // Every part names its columns: the orders part may be missing (order_items is created lazily).

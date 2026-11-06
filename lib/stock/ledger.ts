@@ -39,7 +39,8 @@ export async function getStockBalances(query: StockBalanceQuery = {}, db: PgDb =
   return rows.map(({ key, warehouse, qty, value, cost, defects }) => ({ key, warehouse, qty, value, cost, defects }))
 }
 
-/** Reserved / in-transit quantities per (item, warehouse), current moment only. */
-export async function getStockPending(query: { warehouses?: string[] } = {}, db: PgDb = getDb()): Promise<StockPending[]> {
+/** Reserved / in-transit quantities per (item, warehouse), current moment only. `blocking`: only what stops a new
+ * movement (unconfirmed orders left out, see buildPendingSql). */
+export async function getStockPending(query: { warehouses?: string[]; blocking?: boolean } = {}, db: PgDb = getDb()): Promise<StockPending[]> {
   return computeStockPending(query, db)
 }
