@@ -16,9 +16,10 @@ const pad = (value: number) => String(value).padStart(2, "0")
 
 const TIME = /\d{1,2}:\d{2}/
 
-/** ru Intl writes "20 окт. 2026 г."; the app (reference "DD MMM YYYY") drops the "г.". */
+/** ru Intl writes "20 окт. 2026 г."; the app (reference "DD MMM YYYY") drops the "г.". Only the mark after
+ * the year goes: the "г." that ends "авг." (August) stays ("14 авг. 2025", never "14 ав 2025"). */
 function withoutYearMark(text: string): string {
-  return text.replace(/\s*г\.(?=,|\s|$)/, "")
+  return text.replace(/(\d{4})\s*г\.(?=,|\s|$)/, "$1")
 }
 
 /** A moment (browser-local time) in the UI language: "20 okt 2026" (", 11:17" with `withTime`). */

@@ -1,5 +1,6 @@
 "use client"
 
+import { MoneyInput } from "@/components/ui/money-input"
 import { useState } from "react"
 
 import { cashMutate } from "@/components/analytics/cash/use-cash"
@@ -199,7 +200,7 @@ export function CashTransferDialog({
         </FormField>
         <div className={percentMode || rateMode ? "grid grid-cols-2 gap-3" : ""}>
           <FormField label={<>{t("Сумма с кассы")}{fromCurrency ? <span className="ml-3 font-normal text-[#555]">{currencyLabel(fromCurrency)}</span> : null}</>} required error={errors.amount}>
-            <input type="number" min="0" step="any" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} className={`${inputClass} ${errors.amount ? "border-[#e57373]" : ""}`} />
+            <MoneyInput value={amount} onValueChange={setAmount} className={`${inputClass} ${errors.amount ? "border-[#e57373]" : ""}`} />
           </FormField>
           {percentMode && (
             <FormField label={`${t("Процент")} (%)`} required error={errors.percentage}>
@@ -219,14 +220,12 @@ export function CashTransferDialog({
           )}
           {rateMode && (
             <FormField label={t("Курс")} required error={errors.rate}>
-              <input
-                type="number"
-                min="0"
-                step="any"
+              <MoneyInput
                 value={rate}
+                decimals={6}
                 placeholder={defaultRate ? formatMoney(defaultRate, 5) : ""}
-                onChange={(event) => {
-                  setRate(event.target.value)
+                onValueChange={(value) => {
+                  setRate(value)
                   setErrors((current) => ({ ...current, rate: undefined }))
                 }}
                 className={`${inputClass} ${errors.rate ? "border-[#e57373]" : ""}`}

@@ -75,7 +75,9 @@ async function readAppCurrency(): Promise<AppCurrencyInfo> {
   if (!(await getCurrentUser())) return { code: '', rates: {} }
   try {
     const context = await loadCurrencyContext(getDb())
-    return { code: context.work, rates: context.rates }
+    // The names of Валюты: every screen prints a currency by its name there (lib/finance/currency.ts currencyLabel).
+    const names = Object.fromEntries(context.all.map((currency) => [currency.code, currency.name]))
+    return { code: context.work, rates: context.rates, names }
   } catch {
     return { code: '', rates: {} }
   }

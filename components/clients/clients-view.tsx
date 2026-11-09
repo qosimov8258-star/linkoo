@@ -1,5 +1,6 @@
 "use client"
 
+import { MoneyInput } from "@/components/ui/money-input"
 import { askDelete } from "@/lib/ask-confirm"
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
@@ -2552,13 +2553,10 @@ export function ClientDetail({
                   </div>
                   <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
                     {t("Сумма")} ({base}) *
-                    <input
+                    <MoneyInput
                       autoFocus
-                      type="number"
-                      min="0"
-                      step="any"
                       value={paymentAmount}
-                      onChange={(event) => (setPaymentAmount(event.target.value), setPaymentError(""))}
+                      onValueChange={(value) => (setPaymentAmount(value), setPaymentError(""))}
                       className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none"
                     />
                   </label>

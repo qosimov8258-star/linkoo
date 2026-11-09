@@ -100,16 +100,18 @@ export function ToggleRow({ checked, onChange, label }: { checked: boolean; onCh
 }
 
 /** Underlined input; the label sits inside while empty and floats above once filled. */
-export function LineField({ label, value, onChange, required, autoFocus, flush }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; autoFocus?: boolean; flush?: boolean }) {
+/** A text field with a floating label. `disabled`: read-only, greyed text over a dotted line (the reference's
+ * disabled field, e.g. "Курс" in "Изменить валюту"). */
+export function LineField({ label, value, onChange, required, autoFocus, flush, disabled }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; autoFocus?: boolean; flush?: boolean; disabled?: boolean }) {
   const { t } = useLanguage()
   const [focused, setFocused] = useState(false)
   const floating = focused || value !== ""
   return (
-    <div className="relative h-[40px] border-b border-[#d5dae1]">
+    <div className={`relative h-[40px] ${disabled ? "cursor-not-allowed border-b-2 border-dotted border-black/30" : "border-b border-[#d5dae1]"}`}>
       <span className={`pointer-events-none absolute left-0 transition-all ${floating ? `${flush ? "-top-[1.2px]" : "top-0"} text-[10px] font-semibold leading-3` : "top-[18px] text-[13px] font-semibold leading-4"}`}>
         {t(label)}{required && <span className="font-semibold text-[#e57373]"> *</span>}
       </span>
-      <input value={value} autoFocus={autoFocus} onChange={(event) => onChange(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} className={`absolute inset-x-0 h-[26px] bg-transparent text-[13px] font-semibold outline-none ${flush ? "-bottom-px" : "bottom-0"}`} />
+      <input value={value} disabled={disabled} autoFocus={autoFocus} onChange={(event) => onChange(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} className={`absolute inset-x-0 h-[26px] bg-transparent text-[13px] font-semibold outline-none disabled:cursor-not-allowed disabled:text-black/30 ${flush ? "-bottom-px" : "bottom-0"}`} />
     </div>
   )
 }

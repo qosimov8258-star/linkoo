@@ -61,7 +61,8 @@ function translateMonths(lang: TargetLanguage, text: string): string {
 function translateGlue(lang: TargetLanguage, text: string): string {
   // The reference keeps the Russian "на" next to uz dates ("Sotuvlar на 25 oktyabr") and says "on" in English.
   const joiner = lang === "en" ? " on " : lang === "uz" ? " на " : " — "
-  return text.replace(/\sна\s(?=\d)/g, joiner).replace(/\s*г\.(?=,|\s|$)/g, "")
+  // The year mark only ("2026 г."), never the "г." that ends "авг.".
+  return text.replace(/\sна\s(?=\d)/g, joiner).replace(/(\d{4})\s*г\.(?=,|\s|$)/g, "$1")
 }
 
 // Whole-phrase fallback for strings built by concatenation ("Выбрано филиалов: 3",

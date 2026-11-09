@@ -194,3 +194,21 @@ export function monthRangeLabel(day: string = todayIso()): string {
   const name = RU_MONTH_ABBR[month - 1]
   return `01 ${name} ${year} - ${String(last).padStart(2, "0")} ${name} ${year}`
 }
+
+/** The report builders' month names (moment "ru" short months in a "DD MMM YYYY" format, capitalized as the
+ * reference shows them: "01 Нояб. 2026", "05 Мая 2026"). */
+const RU_BUILDER_MONTHS = ["Янв.", "Февр.", "Мар.", "Апр.", "Мая", "Июня", "Июля", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
+
+/** "01 Нояб. 2026" — one day of a report builder period ("YYYY-MM-DD" in), in the UI language. */
+export function builderDayLabel(iso: string, language = "ru"): string {
+  const [y, m, d] = iso.slice(0, 10).split("-")
+  const index = Number(m) - 1
+  const short = MONTHS[language]?.short[index]
+  const name = short ? short.charAt(0).toLocaleUpperCase() + short.slice(1) : RU_BUILDER_MONTHS[index] ?? m
+  return `${d} ${name} ${y}`
+}
+
+/** "01 Нояб. 2026 - 30 Нояб. 2026": the period field of the report builders (Конструктор / Конструктор отчетов). */
+export function builderRangeLabel(from: string, to: string, language = "ru"): string {
+  return `${builderDayLabel(from, language)} - ${builderDayLabel(to, language)}`
+}

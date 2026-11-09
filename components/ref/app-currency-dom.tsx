@@ -5,6 +5,7 @@ import { useLayoutEffect } from "react"
 
 import { useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { appCurrencyTextConverter, setAppCurrencyText } from "@/lib/app-currency-text"
+import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { translate } from "@/lib/i18n/translate"
 
@@ -32,7 +33,7 @@ export function AppCurrencyDom() {
   const pathname = usePathname()
 
   useLayoutEffect(() => {
-    const convert = appCurrencyTextConverter(info.code, info.rates, translate(language, "ЕВРО"))
+    const convert = appCurrencyTextConverter(info.code, info.rates, translate(language, currencyLabel("EUR")))
     setAppCurrencyText(convert)
     if (!convert) return
 

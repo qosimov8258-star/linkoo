@@ -1,5 +1,6 @@
 "use client"
 
+import { MoneyInput } from "@/components/ui/money-input"
 import { useMemo, useRef, useState } from "react"
 import { Check, Pencil, Trash2 } from "lucide-react"
 
@@ -400,12 +401,9 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
               />
             </FormField>
             <FormField label={t("Сумма")} required>
-              <input
-                type="number"
-                min="0"
-                step="any"
+              <MoneyInput
                 value={entry.amount}
-                onChange={(event) => setEntry((current) => ({ ...current, amount: event.target.value }))}
+                onValueChange={(value) => setEntry((current) => ({ ...current, amount: value }))}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") applyEntry()
                 }}
@@ -453,12 +451,9 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
                     <td className="px-2 py-1.5">{row.clientName}</td>
                     <td className="px-2 py-1.5">{row.contractLabel || "—"}</td>
                     <td className="px-2 py-1.5">
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
+                      <MoneyInput
                         value={row.amount}
-                        onChange={(event) => setRows((current) => current.map((item) => (item.key === row.key ? { ...item, amount: event.target.value } : item)))}
+                        onValueChange={(value) => setRows((current) => current.map((item) => (item.key === row.key ? { ...item, amount: value } : item)))}
                         className="h-8 w-32 rounded-md border border-[#dbe0e8] px-2"
                         aria-label={t("Сумма")}
                       />
@@ -532,7 +527,7 @@ function NotFoundRow({ item, onChange, onAdd, onRemove }: { item: NotFound; onCh
         loading={clients.loading}
         placeholder={t("Клиент")}
       />
-      <input type="number" min="0" step="any" value={item.amount} onChange={(event) => onChange({ ...item, amount: event.target.value })} className={inputClass} aria-label={t("Сумма")} />
+      <MoneyInput value={item.amount} onValueChange={(value) => onChange({ ...item, amount: value })} className={inputClass} aria-label={t("Сумма")} />
       <span className="flex items-center gap-2">
         <button type="button" disabled={!item.clientId || !(parseAmount(item.amount) > 0)} onClick={onAdd} className="rounded-md bg-[#1E4A9A] px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40">
           {t("Добавить")}

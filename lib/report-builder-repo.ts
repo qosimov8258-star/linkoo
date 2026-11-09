@@ -7,7 +7,7 @@ import { listFieldEmployees } from "@/lib/field-activity/employees"
 import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
-import { orderRealizationTs } from "@/lib/finance/sources"
+import { orderRealizationTs, orderReleasedSql } from "@/lib/finance/sources"
 import { ensureOrdersSchema, parseMoneyText } from "@/lib/orders-repo"
 import { selectedBranchName } from "@/lib/selected-branch"
 import { costsFromLedger, documentLineUnit, documentLineValues, loadCostLedger } from "@/lib/stock/costs"
@@ -18,15 +18,19 @@ import { costsFromLedger, documentLineUnit, documentLineValues, loadCostLedger }
 // stay empty) so the page can say so instead of printing made-up numbers. The visits come from the field activity data
 // (planned routes + visits of the mobile app), the one source of Активность / Отслеживание.
 //
-// Sales money is never summed across currencies: every line amount is converted to the base currency (Валюты) with the
-// rate its order's currency had when the order was created (lib/currency-rates-repo.ts loadRateBook) before it is
-// added; a currency without a rate is left out of the sums and named in `missingRates`. The "…, SUM" columns, profit,
-// markup and cost are always in the base currency. The plain "Сумма …" columns are the amount in the document's own
-// currency when "Валюта" is one of the groupings (each cell then holds one currency; a total over several currencies
-// stays empty instead of mixing them), else the base-currency amount; `documentColumns` names the ones in the
-// document's currency, the rest of the money columns are in `currency`. The cost of goods is the one of the stock core
-// (lib/stock/costs.ts: the value the cost ledger moved the order's goods at, else the average of the day), in the base
-// currency. Days are business days (Asia/Tashkent), as the finance core dates orders.
+// Sales money: the "…, SUM" columns, profit, markup and cost convert every line amount to the base currency (Валюты)
+// with the rate its order's currency had when the order was created (lib/currency-rates-repo.ts loadRateBook); a
+// currency without a rate is left out of those sums and named in `missingRates`. The plain "Сумма …" columns are the
+// documents' own amounts as the reference adds them up (its report_html sums the order totals without converting
+// them): `documentColumns` names them, the rest of the money columns are in `currency`. The cost of goods is the one
+// of the stock core (lib/stock/costs.ts: the value the cost ledger moved the order's goods at, else the average of the
+// day), in the base currency. Days are business days (Asia/Tashkent).
+//
+// The tabs are the reference's models: "… ПО ДАТЕ СОЗДАНИЯ" dates every order that is not cancelled by its creation;
+// "… ПО ДАТЕ РЕАЛИЗАЦИИ" (order_and_return_delivery) takes the realized orders only (В пути / Доставлено) on the day
+// they were accepted (orders.accepted_date, the reference's accepted_time; an order of this app without one: the
+// moment it was shipped, as the finance core dates a realization). Rows and columns come in the reference's order:
+// texts by their characters (Latin before Cyrillic), numbers by value, dates by date; an empty name is "Не указано".
 
 export type BuilderKind = "sales" | "visits"
 export type BuilderInput = {
@@ -54,9 +58,19 @@ export type BuilderResult = {
   currency?: string
   /** Currencies of orders that have no rate to the base currency: their amounts are left out (sales). */
   missingRates?: string[]
-  /** Money columns whose cells are in the document's own currency (the row's / column's "Валюта" grouping), not in
-   * `currency` (sales, only while "Валюта" is a grouping). */
+  /** Money columns whose cells are the documents' own amounts added up as they are (sales: the plain "Сумма …"
+   * ones), not amounts in `currency`. */
   documentColumns?: string[]
+  /** The groupings the rows are split by (the supported ones of the request, in its order). */
+  vertical?: string[]
+  /** The horizontal grouping values (" / "-joined), in column order; [""] without a horizontal grouping. */
+  keys?: string[]
+  /** The measure columns of each key (the supported ones of the request, in its order). */
+  columns?: string[]
+  /** With a horizontal grouping: each row's measures over all of its columns (the "Итоги справа" column), in `columns` order. */
+  rowTotals?: (string | number)[][]
+  /** With a horizontal grouping: the measures over every row and column (the corner of the two totals). */
+  grandTotals?: (string | number)[]
 }
 
 const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
@@ -135,21 +149,18 @@ const SALES_COLUMNS = new Set([
   "Сумма возвратов", "Сумма факт", "Сумма заказов, SUM", "Сумма возвратов, SUM", "Сумма факт, SUM", "Сумма до переоценки заказов",
   "Сумма до переоценки возвратов", "Сумма до переоценки факт", "Себестоимость заказа", "Себестоимость возврата", "Cебестоимость факт", "Ассортимент",
 ])
-/** Plain amount columns: in the document's own currency while "Валюта" is a grouping, else in the base currency. */
+/** Plain amount columns: the documents' own amounts added up as they are (the reference's "Сумма заказов"). */
 const DOCUMENT_MONEY_COLUMNS = new Set([
   "Сумма заказов", "Сумма возвратов", "Сумма факт", "Сумма до переоценки заказов", "Сумма до переоценки возвратов", "Сумма до переоценки факт",
 ])
 /** Columns that need the cost of goods (the cost ledger is loaded only for them). */
 const COST_COLUMNS = new Set(["Себестоимость заказа", "Себестоимость возврата", "Cебестоимость факт", "Прибыль от продаж", "Наценка Заказа (%)"])
 
-/** A sum in the documents' own currency: empty when the cells mix currencies (never added across currencies). */
-const documentSum = (acc: Acc, value: number) => (card(acc, "currencies") > 1 ? "" : round(value, 2))
-
-function salesMeasure(acc: Acc, column: string, byDocumentCurrency: boolean): number | string {
-  if (byDocumentCurrency && DOCUMENT_MONEY_COLUMNS.has(column)) {
-    if (column.endsWith("заказов")) return documentSum(acc, sum(acc, "ad"))
-    if (column.endsWith("возвратов")) return documentSum(acc, sum(acc, "ard"))
-    return documentSum(acc, sum(acc, "ad") - sum(acc, "ard"))
+function salesMeasure(acc: Acc, column: string): number | string {
+  if (DOCUMENT_MONEY_COLUMNS.has(column)) {
+    if (column.endsWith("заказов")) return round(sum(acc, "ad"), 2)
+    if (column.endsWith("возвратов")) return round(sum(acc, "ard"), 2)
+    return round(sum(acc, "ad") - sum(acc, "ard"), 2)
   }
   switch (column) {
     case "АКБ заказа": return card(acc, "clients")
@@ -167,10 +178,10 @@ function salesMeasure(acc: Acc, column: string, byDocumentCurrency: boolean): nu
     case "Колв. бонусов факт": return round(sum(acc, "bn") - sum(acc, "bnr"))
     case "Колв. оформленных заказов": return card(acc, "orders")
     case "Колв. оформленных возвратов": return card(acc, "returns")
-    // The base currency ("…, SUM" is the reference's name; the plain ones without a "Валюта" grouping).
-    case "Сумма заказов": case "Сумма до переоценки заказов": case "Сумма заказов, SUM": return round(sum(acc, "a"), 2)
-    case "Сумма возвратов": case "Сумма до переоценки возвратов": case "Сумма возвратов, SUM": return round(sum(acc, "ar"), 2)
-    case "Сумма факт": case "Сумма до переоценки факт": case "Сумма факт, SUM": return round(sum(acc, "a") - sum(acc, "ar"), 2)
+    // The base currency ("…, SUM" is the reference's name of it).
+    case "Сумма заказов, SUM": return round(sum(acc, "a"), 2)
+    case "Сумма возвратов, SUM": return round(sum(acc, "ar"), 2)
+    case "Сумма факт, SUM": return round(sum(acc, "a") - sum(acc, "ar"), 2)
     case "Себестоимость заказа": return round(sum(acc, "c"), 2)
     case "Себестоимость возврата": return round(sum(acc, "cr"), 2)
     case "Cебестоимость факт": return round(sum(acc, "c") - sum(acc, "cr"), 2)
@@ -194,17 +205,20 @@ async function loadSales(input: BuilderInput, withCost: boolean): Promise<{ reco
   const cc = await loadCurrencyContext(db)
   const shown = baseReportCurrency(cc)
   const appCurrency = cc.work
-  // The business day of the order: its creation moment ("… ПО ДАТЕ СОЗДАНИЯ"), else its realization
-  // moment as the finance core dates it (shipped_at, a legacy planned delivery day, the creation).
+  // The business day of the order: its creation moment ("… ПО ДАТЕ СОЗДАНИЯ", every order that is not cancelled),
+  // else the day a realized order was accepted (the reference's accepted_time; this app's orders: the moment they
+  // were shipped, then the finance core's fallbacks).
   const byCreation = /СОЗДАН/.test(input.tab ?? "")
-  const dayTs = byCreation ? "fin_ts(o.created_at, true)" : orderRealizationTs(s, "o")
+  const accepted = s.col("orders", "accepted_date") ? `fin_ts(NULLIF(o.accepted_date, ''))` : "NULL::timestamp"
+  const dayTs = byCreation ? "fin_ts(o.created_at, true)" : `COALESCE(${accepted}, ${orderRealizationTs(s, "o")})`
+  const scope = byCreation ? "o.status <> 'Отменен'" : orderReleasedSql("o")
   const orders = (await db
     .prepare(
       `SELECT o.id, o.client_id, o.client, o.market_name, o.zone, o.agent, o.delivery_man, o.expeditor, o.organization, o.price_list,
               o.stock_name, o.branch_name, o.pay_type_name, o.deal_type, o.currency, o.amount, o.created_at,
               to_char((${dayTs})::date, 'YYYY-MM-DD') AS day
          FROM orders o
-        WHERE o.status <> 'Отменен' AND (@branch::text = '' OR o.branch_name = @branch)
+        WHERE ${scope} AND (@branch::text = '' OR o.branch_name = @branch)
           AND (${dayTs})::date BETWEEN @from::date AND @to::date`,
     )
     .all({ branch, from: input.from, to: input.to })) as SalesOrderRow[]
@@ -341,7 +355,6 @@ function accumulateSales(acc: Acc, rec: SalesRec) {
   add(acc, "q", rec.qty); add(acc, "qr", rec.retQty)
   add(acc, "a", rec.ordAmount); add(acc, "ar", rec.retAmount)
   add(acc, "ad", rec.docAmount); add(acc, "ard", rec.docRetAmount)
-  addSet(acc, "currencies", rec.currency)
   add(acc, "c", rec.ordCost); add(acc, "cr", rec.retCost)
   add(acc, "b", rec.blockQty); add(acc, "br", rec.qty > 0 ? rec.blockQty * (rec.retQty / rec.qty) : 0)
   add(acc, "bn", rec.bonusQty); add(acc, "bnr", rec.bonusRet)
@@ -463,6 +476,11 @@ export async function runBuilderReport(input: BuilderInput): Promise<BuilderResu
   const visitFilterField: Record<string, string> = { "Пользователь": "Пользователь", "Зона": "Зона", "Статус": "Статус" }
   const filtered = records.filter((rec) =>
     filters.every(([label, value]) => {
+      // An individual filter ("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР"): "*<grouping>" → the grouping's value contains the text.
+      if (label.startsWith(CUSTOM_FILTER)) {
+        const text = (rec.group[label.slice(CUSTOM_FILTER.length)] ?? "").toLocaleLowerCase("ru")
+        return text.includes(value.trim().toLocaleLowerCase("ru"))
+      }
       const field = sales ? SALES_FILTER_FIELD[label] : visitFilterField[label]
       return field ? (rec.group[field] ?? "") === value : true
     }),
@@ -475,19 +493,21 @@ export async function runBuilderReport(input: BuilderInput): Promise<BuilderResu
   for (const name of [...input.vertical, ...input.horizontal]) if (!groupSupported(name)) unsupported.add(name)
   const vertical = input.vertical.filter(groupSupported)
   const horizontal = input.horizontal.filter(groupSupported)
-  // The plain "Сумма …" columns are in each document's own currency only while "Валюта" splits the cells by currency.
-  const byDocumentCurrency = sales && [...vertical, ...horizontal].includes("Валюта")
 
-  const rowsMap = new Map<string, { labels: string[]; sort: string; cells: Map<string, Acc> }>()
-  const horizontalKeys = new Set<string>()
+  const label = (rec: SalesRec | VisitRec, name: string) => rec.group[name] || NOT_SET
+  // Sort keys: a date grouping sorts by its ISO day ("~<name>"), anything else by its shown name.
+  const sortKey = (rec: SalesRec | VisitRec, name: string) => rec.group["~" + name] || label(rec, name)
+  const rowsMap = new Map<string, { labels: string[]; sort: string[]; cells: Map<string, Acc>; all: Acc }>()
+  const colSort = new Map<string, string[]>()
   const totalAcc = new Map<string, Acc>()
+  const grandAcc = newAcc()
   const accumulate = (acc: Acc, rec: SalesRec | VisitRec) => (sales ? accumulateSales(acc, rec as SalesRec) : accumulateVisit(acc, rec as VisitRec))
   for (const rec of filtered) {
-    const rowLabels = vertical.map((name) => rec.group[name] ?? "")
+    const rowLabels = vertical.map((name) => label(rec, name))
     const rowKey = rowLabels.join("\u0001")
-    const colKey = horizontal.map((name) => rec.group[name] ?? "").join(" / ")
-    horizontalKeys.add(colKey)
-    const row = rowsMap.get(rowKey) ?? { labels: rowLabels, sort: vertical.map((name) => rec.group["~" + name] ?? rec.group[name] ?? "").join("\u0001"), cells: new Map<string, Acc>() }
+    const colKey = horizontal.map((name) => label(rec, name)).join(" / ")
+    if (!colSort.has(colKey)) colSort.set(colKey, horizontal.map((name) => sortKey(rec, name)))
+    const row = rowsMap.get(rowKey) ?? { labels: rowLabels, sort: vertical.map((name) => sortKey(rec, name)), cells: new Map<string, Acc>(), all: newAcc() }
     rowsMap.set(rowKey, row)
     const cell = row.cells.get(colKey) ?? newAcc()
     row.cells.set(colKey, cell)
@@ -495,20 +515,45 @@ export async function runBuilderReport(input: BuilderInput): Promise<BuilderResu
     const total = totalAcc.get(colKey) ?? newAcc()
     totalAcc.set(colKey, total)
     accumulate(total, rec)
+    if (horizontal.length) {
+      accumulate(row.all, rec)
+      accumulate(grandAcc, rec)
+    }
   }
 
-  const colKeys = [...horizontalKeys].sort((a, b) => a.localeCompare(b, "ru", { numeric: true }))
+  const colKeys = [...colSort.keys()].sort((a, b) => compareKeys(colSort.get(a) ?? [], colSort.get(b) ?? []))
   const measure = (acc: Acc | undefined, column: string) =>
-    acc ? (sales ? salesMeasure(acc, column, byDocumentCurrency) : visitMeasure(acc, column)) : sales ? 0 : column.includes("активность") ? "" : 0
+    acc ? (sales ? salesMeasure(acc, column) : visitMeasure(acc, column)) : sales ? 0 : column.includes("активность") ? "" : 0
   const headers = [...vertical, ...colKeys.flatMap((key) => columns.map((column) => (horizontal.length && key ? `${key} · ${column}` : column)))]
-  const rows = [...rowsMap.values()]
-    .sort((a, b) => a.sort.localeCompare(b.sort, "ru", { numeric: true }))
-    .map((row) => [...row.labels, ...colKeys.flatMap((key) => columns.map((column) => measure(row.cells.get(key), column)))])
+  const sorted = [...rowsMap.values()].sort((a, b) => compareKeys(a.sort, b.sort))
+  const rows = sorted.map((row) => [...row.labels, ...colKeys.flatMap((key) => columns.map((column) => measure(row.cells.get(key), column)))])
   const totals = input.showTotals === false ? null : [...vertical.map((_, index) => (index === 0 ? "Итого" : "")), ...colKeys.flatMap((key) => columns.map((column) => measure(totalAcc.get(key), column)))]
-  const result: BuilderResult = { headers, rows, totals, unsupported: [...unsupported], count: filtered.length }
+  const result: BuilderResult = { headers, rows, totals, unsupported: [...unsupported], count: filtered.length, vertical, keys: colKeys, columns }
+  if (horizontal.length) {
+    result.rowTotals = sorted.map((row) => columns.map((column) => measure(row.all, column)))
+    result.grandTotals = columns.map((column) => measure(grandAcc, column))
+  }
   if (!salesData) return result
-  const documentColumns = byDocumentCurrency ? columns.filter((column) => DOCUMENT_MONEY_COLUMNS.has(column)) : []
+  const documentColumns = columns.filter((column) => DOCUMENT_MONEY_COLUMNS.has(column))
   return { ...result, currency: salesData.base, missingRates: salesData.missingRates, documentColumns }
+}
+
+/** The name of an empty grouping value, as the reference prints it. */
+const NOT_SET = "Не указано"
+/** Prefix of an individual filter's key: "*<grouping>" = the grouping's value contains the filter text. */
+const CUSTOM_FILTER = "*"
+const NUMERIC = /^-?\d+(?:[.,]\d+)?$/
+/** The reference's order (pandas): numbers by value, texts by their characters (Latin before Cyrillic). */
+function compareLabel(a: string, b: string): number {
+  if (NUMERIC.test(a) && NUMERIC.test(b)) return Number(a.replace(",", ".")) - Number(b.replace(",", "."))
+  return a < b ? -1 : a > b ? 1 : 0
+}
+function compareKeys(a: string[], b: string[]): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const order = compareLabel(a[index] ?? "", b[index] ?? "")
+    if (order) return order
+  }
+  return 0
 }
 
 /** Distinct values per filter label for the filter selects of the page. For visits, `employeeIds` is the reader's

@@ -8,6 +8,9 @@ import { useLanguage } from "@/lib/i18n/language-context"
 const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]
 const WEEKDAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 const PRESETS = ["Сегодня", "Вчера", "Последние 7 дней", "Текущий месяц", "Пред. месяц"] as const
+/** The report builders' picker (Конструктор / Конструктор отчетов): one more preset, "Последние 30 дней". */
+const BUILDER_PRESETS = ["Сегодня", "Вчера", "Последние 7 дней", "Текущий месяц", "Последние 30 дней", "Пред. месяц"] as const
+type Preset = (typeof BUILDER_PRESETS)[number]
 
 const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 const fromIso = (value: string) => {
@@ -16,7 +19,7 @@ const fromIso = (value: string) => {
 }
 const sameDay = (a: Date, b: Date) => iso(a) === iso(b)
 
-function presetRange(preset: (typeof PRESETS)[number]): [Date, Date] {
+function presetRange(preset: Preset): [Date, Date] {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   switch (preset) {
@@ -34,6 +37,11 @@ function presetRange(preset: (typeof PRESETS)[number]): [Date, Date] {
     }
     case "Текущий месяц":
       return [new Date(today.getFullYear(), today.getMonth(), 1), new Date(today.getFullYear(), today.getMonth() + 1, 0)]
+    case "Последние 30 дней": {
+      const s = new Date(today)
+      s.setDate(s.getDate() - 30)
+      return [s, today]
+    }
     default:
       return [new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0)]
   }
@@ -50,6 +58,7 @@ function Month({
   onPrev,
   onNext,
   weekdays = WEEKDAYS,
+  wide = false,
 }: {
   weekdays?: string[]
   year: number
@@ -61,6 +70,8 @@ function Month({
   onHover: (date: Date | null) => void
   onPrev?: () => void
   onNext?: () => void
+  /** The report builders' calendar: 330 px wide, 47 px days, and the ends of the range dark only inside the month. */
+  wide?: boolean
 }) {
   const { t } = useLanguage()
   const first = new Date(year, month, 1)
@@ -71,7 +82,7 @@ function Month({
   const hi = start && rangeEnd ? (start <= rangeEnd ? rangeEnd : start) : start
 
   return (
-    <div className="w-[300px] p-[10px]">
+    <div className={wide ? "w-[330px]" : "w-[300px] p-[10px]"}>
       <div className="relative flex h-[38px] items-center justify-center bg-[#5d6474] text-[12px] text-white">
         <button type="button" onClick={onPrev} className={`absolute left-[10px] top-[10px] flex h-[18px] w-[18px] items-center justify-center rounded-[5px] bg-white ${onPrev ? "" : "invisible"}`} aria-label={t("Назад")}>
           <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#333]"><path d="M15 6v12l-8-6z" /></svg>
@@ -81,9 +92,9 @@ function Month({
           <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#333]"><path d="M9 6v12l8-6z" /></svg>
         </button>
       </div>
-      <div className="grid h-[21px] grid-cols-7 text-center text-[12px] font-semibold text-[#5d6474]">
+      <div className={`grid grid-cols-7 text-center text-[12px] font-semibold text-[#5d6474] ${wide ? "h-[24px]" : "h-[21px]"}`}>
         {weekdays.map((day) => (
-          <span key={day} className="h-5 leading-5">{day}</span>
+          <span key={day} className={wide ? "leading-[24px]" : "h-5 leading-5"}>{day}</span>
         ))}
       </div>
       <div className="grid grid-cols-7 text-center text-[12px]">
@@ -91,7 +102,9 @@ function Month({
           const inMonth = date.getMonth() === month
           const selected = (start && sameDay(date, start)) || (end && sameDay(date, end))
           const inRange = lo && hi && date >= lo && date <= hi
-          const tone = selected ? "bg-[#5d6474] text-white" : inRange ? (inMonth ? "bg-[#7e8698] text-white" : "bg-[#bec1c7] text-white") : inMonth ? "text-black" : "text-[#aeaeae]"
+          // The builders' calendar marks the ends dark only inside their month (another month's days stay light).
+          const edge = wide ? selected && inMonth : selected
+          const tone = edge ? "bg-[#5d6474] text-white" : inRange ? (inMonth ? "bg-[#7e8698] text-white" : "bg-[#bec1c7] text-white") : inMonth ? "text-black" : "text-[#aeaeae]"
           return (
             <button
               key={iso(date)}
@@ -99,7 +112,7 @@ function Month({
               onClick={() => onPick(date)}
               onMouseEnter={() => onHover(date)}
               onMouseLeave={() => onHover(null)}
-              className={`h-10 ${tone}`}
+              className={`${wide ? "h-[47px]" : "h-10"} ${tone}`}
             >
               {date.getDate()}
             </button>
@@ -118,6 +131,8 @@ export function DateRangePicker({
   placement = "below",
   positionClassName,
   highlightPreset = true,
+  variant = "default",
+  onChange,
 }: {
   begin: string
   end: string
@@ -128,20 +143,36 @@ export function DateRangePicker({
   positionClassName?: string
   /** false: no preset button is highlighted for a matching period (the reference's Activity filter) */
   highlightPreset?: boolean
+  /** "builder": the report builders' picker (850 px, six presets with "Последние 30 дней", arrows on both months). */
+  variant?: "default" | "builder"
+  /** Called with the range on every pick (a preset, a day): the builders print the period while it is chosen. */
+  onChange?: (begin: string, end: string) => void
 }) {
   const { t, language } = useLanguage()
   const weekdays = weekdayLabels(language, WEEKDAYS)
+  const builder = variant === "builder"
+  const presets: readonly Preset[] = builder ? BUILDER_PRESETS : PRESETS
   const initial = fromIso(begin)
   const [view, setView] = useState({ year: initial.getFullYear(), month: initial.getMonth() - 1 })
   const [start, setStart] = useState<Date | null>(fromIso(begin))
   const [stop, setStop] = useState<Date | null>(fromIso(end))
   const [hover, setHover] = useState<Date | null>(null)
+  // The builders' picker highlights the preset that was clicked (none on opening, none after a day pick).
+  const [clicked, setClicked] = useState<Preset | null>(null)
 
   // the preset matching the selected range is highlighted, as in the reference picker
-  const activePreset = PRESETS.find((item) => {
-    const [from, to] = presetRange(item)
-    return highlightPreset && !!start && !!stop && sameDay(from, start) && sameDay(to, stop)
-  })
+  const activePreset = builder
+    ? clicked
+    : presets.find((item) => {
+        const [from, to] = presetRange(item)
+        return highlightPreset && !!start && !!stop && sameDay(from, start) && sameDay(to, stop)
+      })
+
+  function choose(from: Date, to: Date | null) {
+    setStart(from)
+    setStop(to)
+    onChange?.(iso(from), iso(to ?? from))
+  }
 
   const normalized = useMemo(() => {
     const base = new Date(view.year, view.month, 1)
@@ -155,15 +186,62 @@ export function DateRangePicker({
   })
 
   function pick(date: Date) {
-    if (!start || (start && stop)) {
-      setStart(date)
-      setStop(null)
-    } else if (date < start) {
-      setStop(start)
-      setStart(date)
-    } else {
-      setStop(date)
-    }
+    setClicked(null)
+    if (!start || (start && stop)) choose(date, null)
+    else if (date < start) choose(date, start)
+    else choose(start, date)
+  }
+
+  if (builder) {
+    const weekdaysShown = weekdays
+    return (
+      <>
+        <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="fixed inset-0 z-30 cursor-default" />
+        <div className={`absolute ${positionClassName ?? "left-0 top-[calc(100%+8px)]"} z-40 h-[365px] w-[850px] rounded-[8px] bg-white font-sans text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]`}>
+          <div className="absolute left-[10px] top-[10px] flex w-[140px] flex-col gap-[6px]">
+            {presets.map((item, index) => {
+              const label = presetLabelFor(language, index, t(item))
+              if (label === null) return null
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => {
+                    const [s, e] = presetRange(item)
+                    setClicked(item)
+                    choose(s, e)
+                  }}
+                  className={`min-h-[35px] rounded-[2px] py-[10px] pl-[14px] pr-[18px] text-left text-[12px] leading-[15px] ${activePreset === item ? "bg-[#98a1b7] text-white" : "bg-[#ecf0f1] text-[#2c3e50]"}`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          <div className="absolute left-[15px] top-[329px] flex gap-[10px]">
+            <button type="button" onClick={onClose} aria-label={t("Отмена")} className="flex h-[25px] w-[60px] items-center justify-center rounded-[3px] bg-[#5d6474]">
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+            </button>
+            <button
+              type="button"
+              disabled={!start}
+              onClick={() => start && onApply(iso(start), iso(stop ?? start))}
+              aria-label={t("Применить")}
+              className="flex h-[25px] w-[60px] items-center justify-center rounded-[3px] bg-[#5d6474] disabled:opacity-50"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
+            </button>
+          </div>
+          {/* Both months have both arrows, as the reference: either one moves the pair. */}
+          <div className="absolute left-[160px] top-[10px]">
+            <Month wide year={normalized[0].getFullYear()} month={normalized[0].getMonth()} start={start} end={stop} hover={hover} onPick={pick} onHover={setHover} onPrev={() => shift(-1)} onNext={() => shift(1)} weekdays={weekdaysShown} />
+          </div>
+          <div className="absolute left-[510px] top-[10px]">
+            <Month wide year={normalized[1].getFullYear()} month={normalized[1].getMonth()} start={start} end={stop} hover={hover} onPick={pick} onHover={setHover} onPrev={() => shift(-1)} onNext={() => shift(1)} weekdays={weekdaysShown} />
+          </div>
+        </div>
+      </>
+    )
   }
 
   return (
@@ -171,7 +249,7 @@ export function DateRangePicker({
       <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="fixed inset-0 z-30 cursor-default" />
       <div className={`absolute ${positionClassName ?? `left-0 ${placement === "above" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"}`} z-40 h-[319px] w-[750px] rounded-[8px] bg-white font-sans text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]`}>
         <div className="absolute left-[10px] top-[10px] flex w-[140px] flex-col gap-[6px]">
-          {PRESETS.map((item, index) => {
+          {presets.map((item, index) => {
             const label = presetLabelFor(language, index, t(item))
             if (label === null) return null
             return (
@@ -180,8 +258,7 @@ export function DateRangePicker({
               type="button"
               onClick={() => {
                 const [s, e] = presetRange(item)
-                setStart(s)
-                setStop(e)
+                choose(s, e)
                 setView({ year: s.getFullYear(), month: s.getMonth() })
               }}
               className={`h-[35px] whitespace-nowrap rounded-[2px] px-[14px] text-left text-[12px] ${activePreset === item ? "bg-[#98a1b7] text-white" : "bg-[#ecf0f1] text-[#2c3e50]"}`}

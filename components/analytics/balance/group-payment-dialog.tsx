@@ -1,5 +1,7 @@
 "use client"
 
+import { MoneyInput } from "@/components/ui/money-input"
+import { parseNumberInput } from "@/lib/number-input"
 import { useMemo, useState } from "react"
 import { X } from "lucide-react"
 
@@ -83,14 +85,14 @@ export function GroupPaymentDialog({
   const currency = cashbox ? normCurrency(cashbox.currency) : ""
   const base = currencyInfo?.base ?? "SUM"
   const currentRate = currencyInfo?.currencies.find((item) => item.code === currency)?.rate ?? null
-  const rate = rateType === "custom" ? Number(customRate) || null : currentRate
-  const total = useMemo(() => rows.reduce((sum, row) => sum + (Number(amounts[row.key]) || 0), 0), [rows, amounts])
+  const rate = rateType === "custom" ? parseNumberInput(customRate) || null : currentRate
+  const total = useMemo(() => rows.reduce((sum, row) => sum + (parseNumberInput(amounts[row.key]) || 0), 0), [rows, amounts])
 
   if (!open) return null
 
   const submit = async () => {
     setError("")
-    const items = rows.map((row) => ({ key: row.key, amount: Number(amounts[row.key]) || 0 })).filter((item) => item.amount > 0)
+    const items = rows.map((row) => ({ key: row.key, amount: parseNumberInput(amounts[row.key]) || 0 })).filter((item) => item.amount > 0)
     if (!cashboxId) return setError(t("Выберите кассу"))
     if (!organization) return setError(t("Организация обязательна"))
     if (!items.length) return setError(t("Укажите сумму оплаты"))
@@ -217,7 +219,7 @@ export function GroupPaymentDialog({
                   {t("Индивидуальный")}
                 </label>
                 {rateType === "custom" && (
-                  <input type="number" min="0" step="any" value={customRate} onChange={(event) => setCustomRate(event.target.value)} placeholder={t("Курс")} className={field} />
+                  <MoneyInput value={customRate} onValueChange={setCustomRate} decimals={6} placeholder={t("Курс")} className={field} />
                 )}
                 <span>
                   {t("После конвертации")}: <b className="text-[#17233b]">{rate ? `${formatMoney(total * rate)} ${currencyLabel(base)}` : "—"}</b>
@@ -255,12 +257,9 @@ export function GroupPaymentDialog({
                       </td>
                     ))}
                     <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
+                      <MoneyInput
                         value={amounts[row.key] ?? ""}
-                        onChange={(event) => setAmounts((value) => ({ ...value, [row.key]: event.target.value }))}
+                        onValueChange={(next) => setAmounts((value) => ({ ...value, [row.key]: next }))}
                         className="h-9 w-36 rounded-md border border-[#dbe0e8] px-2"
                       />
                     </td>

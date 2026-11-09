@@ -16,12 +16,13 @@ import {
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
 import { appCurrencyColumn, useAppCurrency } from "@/lib/app-currency-context"
-import { currencyLabel, formatMoney } from "@/lib/finance/currency"
-import { formatDateText } from "@/lib/i18n/format-date"
+import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { downloadExcelTable } from "@/lib/excel-export"
 import type { BuilderResult } from "@/lib/report-builder-repo"
 import { useDirectoryNames } from "@/components/clients/use-directory"
+import { BuilderPeriod } from "./builder-period"
+import { BuilderNoData, BuilderTable } from "./builder-table"
 
 const columns = [
   "План визитов",
@@ -53,7 +54,7 @@ const groupings = [
   "Статус",
 ]
 
-const salesColumns = [
+export const salesColumns = [
   "АКБ заказа", "Вес продуктов заказа", "Вес продуктов возврата", "Вес продуктов факт",
   "Колв. продуктов заказа", "Колв. продуктов возврата", "Колв. продуктов факт",
   "Колв. блоков заказа", "Колв. блоков возврата", "Колв. блоков факт",
@@ -66,7 +67,7 @@ const salesColumns = [
   "Cебестоимость факт", "Ассортимент",
 ]
 
-const salesGroupings = [
+export const salesGroupings = [
   "Дата по дням", "Дата по неделям", "Дата по месяцам", "Валюта", "Документ №",
   "Документ Тип", "Документ Отв.агент", "Документ Отв.агент (Имя)",
   "Документ Отв.агент (Фамилия)", "Документ Супервайзер", "Документ Аудиторы",
@@ -86,7 +87,7 @@ const salesGroupings = [
   "Номер транспорта", "Водитель транспорта",
 ]
 
-const salesFilters = [
+export const salesFilters = [
   "Бренд", "Документ Отв. агент", "Документ Аудиторы", "Доставщик", "Права доступа",
   "Магазин", "Организация", "Ответственный агент магазина", "Прайс-лист", "Продукт",
   "Склад", "Склад заказа", "Склад возврата", "Статус заказа", "Статус возврата",
@@ -148,8 +149,19 @@ export const INFO_ITEMS = new Set([
   "Документ Отв.агент (Фамилия)", "Документ Супервайзер", "Документ Аудиторы",
 ])
 
+/** Hints of the ⓘ icons (the reference's field descriptions). */
+export const INFO_HINTS: Record<string, string> = {
+  "Документ №": "ИД заказа или возврата",
+  "Документ Тип": "Заказ или возврат",
+  "Документ Отв.агент": "Ответственный агент заказа или возврата",
+  "Документ Отв.агент (Имя)": "Имя ответственного агента заказа или возврата",
+  "Документ Отв.агент (Фамилия)": "Фамилия ответственного агента заказа или возврата",
+  "Документ Супервайзер": "Супервайзер ответственного агент заказа или возврата",
+  "Документ Аудиторы": "Аудиторы агент заказа или возврата",
+}
+
 export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | "sales" }) {
-  const { t, language } = useLanguage()
+  const { t } = useLanguage()
   const isSales = variant === "sales"
   const availableColumns = isSales ? salesColumns : columns
   const availableGroupings = isSales ? salesGroupings : groupings
@@ -284,19 +296,13 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     downloadExcelTable(t(isSales ? "Отчет по продажам" : "Конструктор"), [data.headers.map((item) => headerLabel(data, item)), ...data.rows, ...totals])
   }
 
-  /** A header in the UI language; a money column carries its currency (never a hard-coded "SUM"). */
+  /** A header in the UI language; a base-currency money column carries its currency (never a hard-coded "SUM"),
+   * the plain "Сумма …" ones (the documents' own amounts, as the reference adds them up) their bare name. */
   function headerLabel(data: BuilderResult, header: string): string {
     const { prefix, column } = measureOf(header)
-    if (!MONEY_COLUMNS.has(column) || !data.currency) return prefix + t(column)
+    if (!MONEY_COLUMNS.has(column) || !data.currency || data.documentColumns?.includes(column)) return prefix + t(column)
     const name = t(column.endsWith(", SUM") ? column.slice(0, -", SUM".length) : column)
-    // Columns in the document's own currency: each cell is in its row's / column's "Валюта".
-    if (data.documentColumns?.includes(column)) return `${prefix}${name}, ${t("Валюта")}`
     return `${prefix}${name}, ${currencyLabel(data.currency)}`
-  }
-
-  function cellText(data: BuilderResult, cell: string | number, index: number): string | number {
-    if (typeof cell !== "number") return cell
-    return MONEY_COLUMNS.has(measureOf(data.headers[index] ?? "").column) ? formatMoney(cell, 2) : new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(cell)
   }
 
   const shownColumns = availableColumns.filter((item) => item.toLowerCase().includes(columnQuery.toLowerCase()))
@@ -360,11 +366,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
             <Download className="mr-[7px] h-[18px] w-[18px]" /> {t("Скачать")}
           </button>
           <div className="ml-auto flex flex-wrap items-center gap-[19px]">
-            <span className="relative text-[12px] font-bold text-[#1E4A9A]">
-              {formatDateText(from, language, { withTime: false })} - {formatDateText(to, language, { withTime: false })}
-              <input type="date" aria-label={t("Дата от")} value={from} max={to} onChange={(event) => event.target.value && setFrom(event.target.value)} className="absolute left-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
-              <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && setTo(event.target.value)} className="absolute right-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
-            </span>
+            <BuilderPeriod from={from} to={to} onApply={(begin, end) => { setFrom(begin); setTo(end); setReportReady(false) }} />
             <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
               <span>{settingsVisible ? `${t("СКРЫТЬ НАСТРОЙКИ")} ▲` : `${t("ПОКАЗАТЬ НАСТРОЙКИ")} ▼`}</span>
             </button>
@@ -411,25 +413,17 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
           </div>
         )}
 
-        {reportReady && result && (
-          <div className="overflow-x-auto p-6">
-            <h2 className="mb-4 text-xl font-bold">{t("Сформированный отчет")} · {t(activeTab)}</h2>
-            {result.rows.length === 0 ? (
-              <p className="py-10 text-center text-slate-500">{t("По вашему запросу ничего не найдено")}</p>
-            ) : (
-              <table className="w-full min-w-[720px] border-collapse">
-                <thead><tr className="bg-navy text-white">{result.headers.map((item, index) => <th key={`${item}-${index}`} className="border border-white/20 px-4 py-3 text-left">{headerLabel(result, item)}</th>)}</tr></thead>
-                <tbody>
-                  {result.rows.map((row, rowIndex) => (
-                    <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className={`border px-4 py-3 ${typeof cell === "number" ? "text-right" : ""}`}>{cellText(result, cell, cellIndex)}</td>)}</tr>
-                  ))}
-                  {result.totals && <tr className="bg-slate-100 font-bold">{result.totals.map((cell, cellIndex) => <td key={cellIndex} className={`border px-4 py-3 ${typeof cell === "number" ? "text-right" : ""}`}>{typeof cell === "string" && cell === "Итого" ? t("Итого") : cellText(result, cell, cellIndex)}</td>)}</tr>}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
       </section>
+
+      {reportReady && result && (
+        result.rows.length === 0 ? (
+          <BuilderNoData className="mx-7 mt-[30px]" />
+        ) : (
+          <div className="mx-7 mt-[30px] overflow-x-auto rounded-[8px] bg-white">
+            <BuilderTable result={result} />
+          </div>
+        )
+      )}
 
       {reportsOpen && (
         <aside
@@ -546,3 +540,6 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
     </label>
   )
 }
+
+/** The visits model's measures and groupings (Конструктор отчетов, model "Визит"). */
+export { columns as visitColumns, groupings as visitGroupings }

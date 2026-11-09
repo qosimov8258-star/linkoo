@@ -2,7 +2,7 @@ import "server-only"
 
 import { storedAppCurrency } from "@/lib/app-currency"
 import type { PgDb } from "@/lib/db"
-import { convertAmount, currencyLabel, normCurrency } from "@/lib/finance/currency"
+import { convertAmount, currencyLabel, normCurrency, setCurrencyNames } from "@/lib/finance/currency"
 import type { FinanceCurrency } from "@/lib/finance/types"
 
 export type CurrencyContext = {
@@ -68,6 +68,8 @@ type CurrencyRow = { id: number; name: string; code: string; rate: number | null
  * currency is created — that one becomes the base (lib/currencies-repo.ts). */
 export async function loadCurrencyContext(db: PgDb): Promise<CurrencyContext> {
   const rows = (await db.prepare("SELECT id, name, code, rate, is_base FROM currencies ORDER BY is_base DESC, id").all()) as CurrencyRow[]
+  // The names of Валюты are the names every screen prints (currencyLabel, lib/finance/currency.ts).
+  setCurrencyNames(rows)
   const currencies: FinanceCurrency[] = []
   for (const row of rows) {
     const code = normCurrency(row.code)

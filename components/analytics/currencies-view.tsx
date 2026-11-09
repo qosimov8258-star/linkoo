@@ -1,13 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 
 import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
 import { CheckBox, ImportDialog, LineField, Modal, SaveButton, SaveLink } from "@/components/analytics/catalog-ui"
 import {
   ConfirmDeleteDialog,
   EmptyRows,
-  PAGE_SIZES,
+  PageSizeSelect,
+  PagerArrow,
   ROW_ICONS,
   RowActions,
   RowIcon,
@@ -26,9 +28,10 @@ import { notify } from "@/lib/notify"
 
 // "Валюты" (demo #/currency, Settings → Финансы; API finance/currencies/, currency_rate/, individual_rate/).
 // Note about the base currency, then the tabs ОБЩИЙ / ИНДИВИДУАЛЬНЫЙ:
-//  * Общий: № | Валюта | Курс ("1 USD = 12 500 SUM") | Дата обновления; the base currency row is dimmed
-//    without actions, the others have $ ("Установить курс") and ✎ ("Изменить валюту") on hover; a row
-//    click opens "История обновления курса".
+//  * Общий: № | Валюта | Курс ("1 USD = 12 500 SUM") | Дата обновления; every row, the base currency's too, has
+//    $ ("Установить курс") and ✎ ("Изменить валюту": the name; the rate is shown disabled, it changes only through
+//    "Установить курс") on hover, and a row click opens "История обновления курса" ("1 USD = 12 500"). The base
+//    currency's rate stays 1 (the server refuses another one); the other rows also have the bin.
 //  * Индивидуальный: № | Наименование | Курс USD | Дата начала | Дата завершения | Дата создания,
 //    "+ добавить", ✎ per row (dialog "… индивидуальный курс": name, rate and two dates) and the bin icon (a wrong
 //    entry is removed after the confirm dialog; DELETE /api/individual-rates/[id]).
@@ -113,20 +116,22 @@ function RateDialog({ currency, onClose, onSaved }: { currency: Currency; onClos
   )
 }
 
+/** "Изменить валюту" (as the reference): the name (what every screen prints for this currency,
+ * lib/finance/currency.ts) and the rate shown disabled — a rate changes only through "Установить курс", which
+ * records it in the history. The base currency's name (SOM …) can be changed like any other. */
 function CurrencyDialog({ currency, onClose, onSaved }: { currency: Currency; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
   const [name, setName] = useState(currency.name)
-  const [rate, setRate] = useState(maskRate(String(currency.rate)))
   const [saving, setSaving] = useState(false)
 
   async function save() {
-    if (saving || !name.trim() || !rate) return
+    if (saving || !name.trim()) return
     setSaving(true)
     try {
       const response = await fetch(`/api/currencies/${currency.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), rate: unmask(rate) }),
+        body: JSON.stringify({ name: name.trim() }),
       })
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string }
@@ -146,15 +151,15 @@ function CurrencyDialog({ currency, onClose, onSaved }: { currency: Currency; on
       title={t("Изменить валюту")}
       onClose={onClose}
       bodyClassName="px-[30px] pb-[90px] pt-[18px]"
-      footer={<SaveButton disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
+      footer={<SaveAction ready={Boolean(name.trim())} saving={saving} onClick={() => void save()} label={t("Сохранить")} />}
     >
       <LineField label={t("Наименование")} value={name} onChange={setName} />
-      <div className="mt-[12px]"><LineField label={t("Курс")} value={rate} onChange={(value) => setRate(maskRate(value))} /></div>
+      <div className="mt-[12px]"><LineField label={t("Курс")} value={maskRate(String(currency.rate))} onChange={() => {}} disabled /></div>
     </Modal>
   )
 }
 
-function HistoryDialog({ currency, baseName, onClose }: { currency: Currency; baseName: string; onClose: () => void }) {
+function HistoryDialog({ currency, onClose }: { currency: Currency; onClose: () => void }) {
   const { t, language } = useLanguage()
   const [rates, setRates] = useState<CurrencyRate[] | null>(null)
   const controls = useListControls()
@@ -170,19 +175,16 @@ function HistoryDialog({ currency, baseName, onClose }: { currency: Currency; ba
       title={t("История обновления курса")}
       width={700}
       onClose={onClose}
-      bodyClassName="h-[424px] overflow-y-auto px-[22px]"
+      // As the reference: as tall as its rows, up to eight of them.
+      bodyClassName="max-h-[424px] overflow-y-auto px-[22px]"
       footer={
         <div className="flex items-center pr-[20px] text-[13px]">
-          <select value={controls.pageSize} onChange={(event) => controls.setPageSize(Number(event.target.value))} aria-label={t("Строк на странице")} className="bg-transparent text-[13px] outline-none">
-            {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
-          </select>
-          <span className="ml-[30px]">{paged.from} - {paged.to} {t("из")} {paged.total}</span>
-          <button type="button" disabled={paged.page <= 1} onClick={() => controls.setPage(paged.page - 1)} aria-label={t("Назад")} className="ml-[10px] h-6 w-6">
-            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${paged.page > 1 ? "fill-black/70" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
-          </button>
-          <button type="button" disabled={paged.page >= paged.pageCount} onClick={() => controls.setPage(paged.page + 1)} aria-label={t("Вперед")} className="ml-[5px] h-6 w-6">
-            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${paged.page < paged.pageCount ? "fill-black/70" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg>
-          </button>
+          <PageSizeSelect value={controls.pageSize} onChange={controls.setPageSize} />
+          <span className="ml-[22px]">{paged.from} - {paged.to} {t("из")} {paged.total}</span>
+          <span className="ml-[10px] flex gap-[5px]">
+            <PagerArrow dir="prev" onClick={paged.page > 1 ? () => controls.setPage(paged.page - 1) : undefined} />
+            <PagerArrow dir="next" onClick={paged.page < paged.pageCount ? () => controls.setPage(paged.page + 1) : undefined} />
+          </span>
         </div>
       }
     >
@@ -192,7 +194,8 @@ function HistoryDialog({ currency, baseName, onClose }: { currency: Currency; ba
       {paged.rows.map((rate) => (
         <div key={rate.id} className="grid h-[46px] grid-cols-[109px_1fr_auto] items-center border-b-2 border-dotted border-[#d9e0e5] px-[8px]">
           <span>{rate.id}</span>
-          <span>1 {currency.name} = {money(rate.rate)} {baseName}</span>
+          {/* As the reference: "1 USD = 12 070,85", without the base currency's name. */}
+          <span>1 {currency.name} = {money(rate.rate)}</span>
           <span className="text-right">{formatDateText(rate.createdAt, language, { withTime: true, utc: true })}</span>
         </div>
       ))}
@@ -325,6 +328,7 @@ function Tabs({ tab, onTab }: { tab: "general" | "individual"; onTab: (tab: "gen
 
 export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
   const { t, language } = useLanguage()
+  const router = useRouter()
   const [tab, setTab] = useState<"general" | "individual">("general")
   const [currencies, setCurrencies] = useState<Currency[] | null>(null)
   const [loadError, setLoadError] = useState("")
@@ -355,6 +359,12 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
     }
   }, [])
   useEffect(() => { void load() }, [load])
+  // After a write the root layout is read again too: the names and rates of Валюты are what every screen prints
+  // (lib/app-currency-context.tsx), so a renamed currency shows its new name everywhere at once.
+  const reload = useCallback(() => {
+    void load()
+    router.refresh()
+  }, [load, router])
 
   const needle = controls.query.trim().toLowerCase()
   const base = currencies?.find((currency) => currency.isBase)
@@ -385,7 +395,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
         return
       }
       setDeleting(null)
-      void load()
+      reload()
     } catch {
       notify(t("Сервер недоступен, попробуйте ещё раз"))
     }
@@ -403,7 +413,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
       }
       // 404: someone else removed it already; the list is reloaded either way.
       setDeletingIndividual(null)
-      void load()
+      reload()
     } catch {
       notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
@@ -479,7 +489,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
           failed += 1
         }
       }
-      if (created) void load()
+      if (created) reload()
       if (failed) notify(`${t("Импортировано")} ${created} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`)
     } finally {
       setImportSaving(false)
@@ -535,23 +545,23 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
           {pagedCurrencies.rows.map((currency) => (
             <div
               key={currency.id}
-              onClick={() => !currency.isBase && setHistory(currency)}
-              className={`${kitRow} ${currency.isBase ? "text-[#b5b5b5]" : "cursor-pointer"}`}
+              onClick={() => setHistory(currency)}
+              className={`${kitRow} cursor-pointer`}
               style={{ gridTemplateColumns: GENERAL_COLUMNS }}
             >
               <span className="pl-[30px]">{currency.id}</span>
               <span>{currency.name}</span>
               <span>1 {currency.name} = {money(currency.rate)} {baseName}</span>
               <span>{formatDateText(currency.rateDate, language, { withTime: true, utc: true })}</span>
-              {!currency.isBase && (
-                <RowActions
-                  right={67}
-                  gap={6}
-                  extra={<RowIcon path={ROW_ICONS.dollar} label={t("Установить курс")} onClick={() => setRateOf(currency)} />}
-                  onEdit={() => setEditing(currency)}
-                  onDelete={() => setDeleting(currency)}
-                />
-              )}
+              {/* Every row as the reference: $ and ✎ (the base currency's too: its rate stays 1, the server says so);
+                  a currency other than the base one can also be deleted. */}
+              <RowActions
+                right={67}
+                gap={6}
+                extra={<RowIcon path={ROW_ICONS.dollar} label={t("Установить курс")} onClick={() => setRateOf(currency)} />}
+                onEdit={() => setEditing(currency)}
+                onDelete={currency.isBase ? undefined : () => setDeleting(currency)}
+              />
             </div>
           ))}
           {currencies && pagedCurrencies.rows.length === 0 && <EmptyRows />}
@@ -581,10 +591,10 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
         </>
       )}
 
-      {rateOf && <RateDialog currency={rateOf} onClose={() => setRateOf(null)} onSaved={() => { setRateOf(null); void load() }} />}
-      {editing && <CurrencyDialog currency={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load() }} />}
-      {history && <HistoryDialog currency={history} baseName={baseName} onClose={() => setHistory(null)} />}
-      {creating && <CreateDialog noBase={noBase} baseCode={baseCode} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); void load() }} />}
+      {rateOf && <RateDialog currency={rateOf} onClose={() => setRateOf(null)} onSaved={() => { setRateOf(null); reload() }} />}
+      {editing && <CurrencyDialog currency={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
+      {history && <HistoryDialog currency={history} onClose={() => setHistory(null)} />}
+      {creating && <CreateDialog noBase={noBase} baseCode={baseCode} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload() }} />}
       {deleting && <ConfirmDeleteDialog name={deleting.name} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
       {deletingIndividual && (
         <ConfirmDeleteDialog
@@ -609,7 +619,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
           key={individualDialog.item?.id ?? "new"}
           item={individualDialog.item}
           onClose={() => setIndividualDialog(null)}
-          onSaved={() => { setIndividualDialog(null); void load() }}
+          onSaved={() => { setIndividualDialog(null); reload() }}
         />
       )}
     </section>

@@ -2,17 +2,26 @@
 
 import { createContext, useContext, type ReactNode } from "react"
 
-import { convertAmount, currencyLabel, normCurrency } from "@/lib/finance/currency"
+import { convertAmount, currencyLabel, normCurrency, setCurrencyNames } from "@/lib/finance/currency"
 
 // The app currency (Настройки → Валюта приложения, lib/app-currency.ts) for client components:
 // read once by the root layout. `code` '' = every currency; `rates` = units of the base currency
 // per unit of every currency of Валюты (base = 1), to show stored amounts in the app currency.
-export type AppCurrencyInfo = { code: string; rates: Record<string, number | null> }
+// `names` = the name of every currency of Валюты by canonical code ("SUM" → "SOM"): what every screen prints.
+export type AppCurrencyInfo = { code: string; rates: Record<string, number | null>; names?: Record<string, string> }
 
 const AppCurrencyContext = createContext<AppCurrencyInfo>({ code: "", rates: {} })
 
 export function AppCurrencyProvider({ value, children }: { value: AppCurrencyInfo; children: ReactNode }) {
+  // Set while rendering, before any child prints a currency (currencyLabel); a rename on Валюты refreshes the
+  // root layout (router.refresh), which brings the new names here.
+  setCurrencyNames(value.names ?? {})
   return <AppCurrencyContext.Provider value={value}>{children}</AppCurrencyContext.Provider>
+}
+
+/** A key that changes whenever the names of Валюты change (DOM passes re-run on it). */
+export function useCurrencyNamesKey(): string {
+  return JSON.stringify(useContext(AppCurrencyContext).names ?? {})
 }
 
 /** Canonical code of the app currency, or '' when every currency is used. */

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Plus, Search, Trash2 } from "lucide-react"
 
 import { MaterialCheckbox } from "@/components/analytics/cash-material"
+import { MoneyInput } from "@/components/ui/money-input"
 import { cashMutate, useCashJson, useCashOperation } from "@/components/analytics/cash/use-cash"
 import {
   CashModal,
@@ -686,14 +687,10 @@ function OperationForm({
               {requestLocked && payMode && state.request ? (
                 <input value={formatCash(state.request.amount, state.request.currency)} disabled className={inputClass} />
               ) : (
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  inputMode="decimal"
+                <MoneyInput
                   value={childrenMode ? String(childrenTotal || "") : values.amount}
                   disabled={childrenMode}
-                  onChange={(event) => set("amount", event.target.value)}
+                  onValueChange={(value) => set("amount", value)}
                   className={`${inputClass} ${errors.amount ? "border-[#e57373]" : ""}`}
                 />
               )}
@@ -876,7 +873,7 @@ export function RateBlock({
         (individual ? (
           <FormField label={`${t("Курс кассы")}: 1 ${currencyLabel(cashCurrency)} =`}>
             <span className="flex items-center gap-2">
-              <input type="number" min="0" step="any" value={customRate} onChange={(event) => onChange({ customRate: event.target.value })} className={inputClass} />
+              <MoneyInput value={customRate} onValueChange={(value) => onChange({ customRate: value })} decimals={6} className={inputClass} />
               <span>{currencyLabel(base)}</span>
             </span>
           </FormField>
@@ -889,7 +886,7 @@ export function RateBlock({
         (individual ? (
           <FormField label={`${t("Курс долга")}: 1 ${currencyLabel(debt)} =`}>
             <span className="flex items-center gap-2">
-              <input type="number" min="0" step="any" value={debtRate} onChange={(event) => onChange({ debtRate: event.target.value })} className={inputClass} />
+              <MoneyInput value={debtRate} onValueChange={(value) => onChange({ debtRate: value })} decimals={6} className={inputClass} />
               <span>{currencyLabel(base)}</span>
             </span>
           </FormField>
@@ -946,12 +943,9 @@ function StaffPanel({ employees, staff, currency, error, onChange }: { employees
         {list.map((item) => (
           <div key={item.id} className="flex items-center gap-3 border-b border-dashed border-[#e1e5eb] py-2">
             <span className="min-w-0 flex-1 truncate text-[14px]">{item.name}</span>
-            <input
-              type="number"
-              min="0"
-              step="any"
+            <MoneyInput
               value={staff[String(item.id)] ?? ""}
-              onChange={(event) => onChange({ ...staff, [String(item.id)]: event.target.value })}
+              onValueChange={(value) => onChange({ ...staff, [String(item.id)]: value })}
               className="h-9 w-32 rounded-md border border-[#dbe0e8] px-2 text-right text-[14px]"
               aria-label={item.name}
             />
@@ -977,7 +971,7 @@ function ChildrenPanel({ rows, currency, error, onChange }: { rows: Array<{ name
             <input value={row.name} onChange={(event) => onChange(rows.map((item, itemIndex) => (itemIndex === index ? { ...item, name: event.target.value } : item)))} className={inputClass} />
           </FormField>
           <FormField label={t("Сумма")} className="w-32">
-            <input type="number" min="0" step="any" value={row.amount} onChange={(event) => onChange(rows.map((item, itemIndex) => (itemIndex === index ? { ...item, amount: event.target.value } : item)))} className={inputClass} />
+            <MoneyInput value={row.amount} onValueChange={(value) => onChange(rows.map((item, itemIndex) => (itemIndex === index ? { ...item, amount: value } : item)))} className={inputClass} />
           </FormField>
           <button type="button" disabled={rows.length <= 1} onClick={() => onChange(rows.filter((_, itemIndex) => itemIndex !== index))} aria-label={t("Удалить")} className="mb-2 text-[#e57373] disabled:opacity-30">
             <Trash2 className="h-5 w-5" />

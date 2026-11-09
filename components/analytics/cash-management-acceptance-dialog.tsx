@@ -1,5 +1,6 @@
 "use client"
 
+import { MoneyInput } from "@/components/ui/money-input"
 import { useState } from "react"
 import { Download, Trash2 } from "lucide-react"
 
@@ -254,12 +255,9 @@ function AcceptanceEditForm({ detail, cashboxes, onClose, onSaved }: { detail: A
                 <td className="px-2 py-1.5 whitespace-nowrap">{formatCashDate(payment.date, language)}</td>
                 <td className="px-2 py-1.5">{payment.orderId ?? "—"}</td>
                 <td className="px-2 py-1.5">
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
+                  <MoneyInput
                     value={amounts[payment.id] ?? ""}
-                    onChange={(event) => setAmounts((current) => ({ ...current, [payment.id]: event.target.value }))}
+                    onValueChange={(value) => setAmounts((current) => ({ ...current, [payment.id]: value }))}
                     className="h-8 w-36 rounded-md border border-[#dbe0e8] px-2"
                     aria-label={t("Сумма")}
                   />

@@ -5,7 +5,8 @@ import { useLayoutEffect } from "react"
 import { useLanguage } from "./language-context"
 import { usePathname } from "next/navigation"
 
-import { showCurrencyNames } from "@/lib/finance/currency"
+import { useCurrencyNamesKey } from "@/lib/app-currency-context"
+import { currencyLabel, showCurrencyNames } from "@/lib/finance/currency"
 
 import { isUntranslated, translate } from "./translate"
 import type { LanguageCode } from "./types"
@@ -64,12 +65,14 @@ function reportMissing(language: LanguageCode, text: string) {
  * Safety net for screens that render Russian literals without calling t().
  * Walks the DOM, translates any text/attribute found in the dictionary and
  * remembers the original so switching back to Russian restores it. In every
- * language it also prints stored currency codes by their shown names
- * (SUM → SOM, Euro/EUR → ЕВРО; lib/finance/currency.ts showCurrencyNames).
+ * language it also prints stored currency codes by their names of Валюты
+ * (SUM → SOM, Euro/EUR → ЕВРО by default; lib/finance/currency.ts showCurrencyNames).
  */
 export function DomTranslator() {
   const { language } = useLanguage()
   const pathname = usePathname() ?? ""
+  // A rename on Валюты: every text is printed again from its original with the new names.
+  const currencyNamesKey = useCurrencyNamesKey()
 
   // A layout effect: the first pass runs right after hydration, before the
   // browser paints again, so hydrated screens never flash their Russian literals.
@@ -93,7 +96,7 @@ export function DomTranslator() {
 
     // Every text with a translation is translated on every page (the user's decision of 2026-10-30): the
     // reference's habit of printing some dictionary texts and dates in Russian on some pages is not copied.
-    const euroName = translate(language, "ЕВРО")
+    const euroName = translate(language, currencyLabel("EUR"))
     const convert = (source: string) => {
       const lead = source.match(/^\s*/)?.[0] ?? ""
       const trail = source.match(/\s*$/)?.[0] ?? ""
@@ -211,7 +214,7 @@ export function DomTranslator() {
       sweeps.forEach((id) => window.clearTimeout(id))
       if (frame) cancelAnimationFrame(frame)
     }
-  }, [language, pathname])
+  }, [language, pathname, currencyNamesKey])
 
   return null
 }
