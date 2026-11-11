@@ -780,3 +780,70 @@ export async function getStatement(kind: BalanceEntityKind, params: StatementPar
     organizations,
   }
 }
+
+/** One movement of the ledger with what its document tells (statement fields), for every entity of the kind. */
+export type LedgerMovement = {
+  /** Entity key: clients.id / cashboxes.id / employees.id … as text, or "name:<key>". */
+  ek: string
+  cur: string
+  /** Local "YYYY-MM-DDTHH:mm:ss". */
+  ts: string
+  col: string
+  amt: number
+  pending: boolean
+  org: string
+  pt: string
+  src: string
+  src_id: number | null
+  title: string
+  doc: string
+  descr: string
+  cmt: string
+  cat: string
+  cp: string
+  br: string
+  cb: string
+  cby: string
+}
+
+/** Every movement of the kind in the period, all entities (the report builder's finance models). Amounts are in
+ * the documents' currencies (the app currency when one is chosen), like every balance page. */
+export async function listLedgerMovements(kind: BalanceEntityKind, params: { from: string; to: string; mode?: BalanceDateMode }, db: PgDb = getDb()): Promise<LedgerMovement[]> {
+  await syncTransferValues()
+  const s = await ensureFinanceSchema(db)
+  const cc = await loadCurrencyContext(db)
+  const mode = modeOf(kind, params)
+  const cte = movementCte(kind, s, { mode, lean: false, orderScope: null })
+  const rows = (await db
+    .prepare(
+      `${cte}
+       SELECT mv.ek, mv.cur, to_char(mv.ts, 'YYYY-MM-DD"T"HH24:MI:SS') AS ts, mv.col, mv.amt, mv.pending, mv.org, mv.pt, mv.src, mv.src_id,
+              mv.title, mv.doc, mv.descr, mv.cmt, mv.cat, mv.cp, mv.br, mv.cb, mv.cby
+         FROM (${ENTITY_ROWS}) mv
+        WHERE mv.ts::date BETWEEN @from::date AND @to::date
+        ORDER BY mv.ts, mv.src, mv.src_id`,
+    )
+    .all(movementParams(kind, cc.base, { from: params.from, to: params.to, mode }))) as Record<string, unknown>[]
+  const text = (value: unknown) => (value === null || value === undefined ? "" : String(value))
+  return rows.map((row) => ({
+    ek: text(row.ek),
+    cur: text(row.cur),
+    ts: text(row.ts),
+    col: text(row.col),
+    amt: num(row.amt),
+    pending: row.pending === true,
+    org: text(row.org),
+    pt: text(row.pt),
+    src: text(row.src),
+    src_id: row.src_id === null || row.src_id === undefined ? null : Number(row.src_id),
+    title: text(row.title),
+    doc: text(row.doc),
+    descr: text(row.descr),
+    cmt: text(row.cmt),
+    cat: text(row.cat),
+    cp: text(row.cp),
+    br: text(row.br),
+    cb: text(row.cb),
+    cby: text(row.cby),
+  }))
+}

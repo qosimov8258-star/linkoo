@@ -6784,4 +6784,6 @@ export const en: Record<string, string> = {
   "Mин. себестоимость за ед.": "Min. unit cost",
   "№ Магазина": "Shop No.",
   "№ транзакции": "Transaction No.",
+  // Конструктор отчетов: order history actions
+  "Изменена счет-фактура": "Invoice changed",
 }

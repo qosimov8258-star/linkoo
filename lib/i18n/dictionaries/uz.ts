@@ -6766,4 +6766,6 @@ export const uz: Record<string, string> = {
   "Mин. себестоимость за ед.": "Birlik uchun min. tannarx",
   "№ Магазина": "Do'kon №",
   "№ транзакции": "Tranzaksiya №",
+  // Конструктор отчетов: order history actions
+  "Изменена счет-фактура": "Hisob-faktura o'zgartirildi",
 }

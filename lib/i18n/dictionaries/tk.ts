@@ -6783,4 +6783,6 @@ export const tk: Record<string, string> = {
   "Mин. себестоимость за ед.": "Birlik üçin iň pes özüne düşýän baha",
   "№ Магазина": "Dükan №",
   "№ транзакции": "Tranzaksiýa №",
+  // Конструктор отчетов: order history actions
+  "Изменена счет-фактура": "Hasap-faktura üýtgedildi",
 }
