@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
-import { X } from "lucide-react"
+import { useRef, useState, type ReactNode } from "react"
+import { CalendarDays, XCircle } from "lucide-react"
 
 import type { BalanceQuery } from "@/components/analytics/balance/use-balance"
-import { MultiSelect } from "@/components/analytics/client-balance-filters"
-import { isIsoDay } from "@/lib/finance/dates"
+import { FilterCardContext, FilterCardOptionSelect } from "@/components/analytics/balance/filter-bar"
+import { ClientPeriodField, MultiSelect } from "@/components/analytics/client-balance-filters"
+import { formatDotDate, isIsoDay } from "@/lib/finance/dates"
 import type { BalanceDateMode } from "@/lib/finance/types"
 import { ORDER_STATUS_OPTIONS, RECONCILIATION_STATUS_OPTIONS, type StoreReconciliationOptions } from "@/lib/finance-store-reconciliation-types"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -231,33 +232,6 @@ export function Field({ label, children, wide = false }: { label: string; childr
 
 type Option = { value: string; label: string }
 
-function SingleSelect({ value, options, onChange }: { value: string; options: Option[]; onChange: (next: string) => void }) {
-  const { t } = useLanguage()
-  return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} className={fieldClass}>
-      <option value="">{t("Все")}</option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function DaysRange({ label, min, max, onChange }: { label: string; min: string; max: string; onChange: (next: { min: string; max: string }) => void }) {
-  const { t } = useLanguage()
-  const clean = (value: string) => value.replace(/\D/g, "")
-  return (
-    <Field label={label}>
-      <span className="grid grid-cols-2 gap-2">
-        <input inputMode="numeric" value={min} onChange={(event) => onChange({ min: clean(event.target.value), max })} placeholder={t("От (дней)")} className={fieldClass} />
-        <input inputMode="numeric" value={max} onChange={(event) => onChange({ min, max: clean(event.target.value) })} placeholder={t("До (дней)")} className={fieldClass} />
-      </span>
-    </Field>
-  )
-}
-
 const names = (values: string[] | undefined, selected: string[] = []): Option[] => [...new Set([...(values ?? []), ...selected])].map((value) => ({ value, label: value }))
 
 /** Demo filter popup (no period: the page shows balances on one day). */
@@ -294,33 +268,30 @@ export function ReconciliationFilterDialog({
     onClose()
   }
 
+  // The reference's card under the summary blocks: four columns, labels inside the fields, a dark «ПРИМЕНИТЬ».
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/30 py-10" onClick={onClose}>
-      <div className="w-full max-w-[1100px] rounded-lg bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-[#e1e5eb] px-6 py-4">
-          <h2 className="text-lg font-bold text-[#5d6474]">{t("Фильтр")}</h2>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#8f8f8f]">
-            <X className="h-5 w-5" />
+    <div className="fixed inset-x-0 bottom-0 top-[50px] z-[100] overflow-y-auto bg-black/10" onClick={onClose}>
+      <div className="mx-[30px] mt-[225px] bg-white px-[20px] pb-[10px] pt-[20px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex h-[30px] items-center justify-between">
+          <h2 className="text-[15px] font-normal text-[#777]">{t("Фильтр")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#555]">
+            <XCircle className="h-6 w-6" strokeWidth={1.5} />
           </button>
         </div>
-        <div className="grid grid-cols-1 gap-4 px-6 py-5 md:grid-cols-2 lg:grid-cols-4">
-          <Field label="Долг на определенную дату">
-            <input type="date" value={draft.debtDate} onChange={(event) => set("debtDate", event.target.value)} className={fieldClass} />
-          </Field>
-          <Field label="Срок долга">
-            <span className="grid grid-cols-2 gap-2">
-              <input type="date" value={draft.deadlineFrom} onChange={(event) => set("deadlineFrom", event.target.value)} className={fieldClass} aria-label={t("От")} title={t("От")} />
-              <input type="date" value={draft.deadlineTo} onChange={(event) => set("deadlineTo", event.target.value)} className={fieldClass} aria-label={t("До")} title={t("До")} />
-            </span>
-          </Field>
-          <Field label="Филиалы">
-            <MultiSelect value={draft.branch} options={names(options?.branches, draft.branch)} onChange={(value) => set("branch", value)} />
-          </Field>
-          <Field label="Зона">
-            <MultiSelect value={draft.zone} options={names(options?.zones, draft.zone)} onChange={(value) => set("zone", value)} />
-          </Field>
-          <Field label="Тип баланса">
-            <SingleSelect
+        <FilterCardContext.Provider value>
+          <div className="mt-[14px] grid grid-cols-1 gap-x-[10px] gap-y-[14px] md:grid-cols-4">
+            <DateField label={t("Долг на определенную дату")} value={draft.debtDate} onChange={(value) => set("debtDate", value)} />
+            <div className="relative md:col-span-2">
+              <span className="absolute -top-[22px] left-0 text-[13px] text-[#555]">{t("Срок долга")}</span>
+              <div className="grid grid-cols-2 gap-[10px]">
+                <DateField label={t("От")} value={draft.deadlineFrom} onChange={(value) => set("deadlineFrom", value)} />
+                <DateField label={t("До")} value={draft.deadlineTo} onChange={(value) => set("deadlineTo", value)} />
+              </div>
+            </div>
+            <MultiSelect label={t("Филиалы")} value={draft.branch} options={names(options?.branches, draft.branch)} onChange={(value) => set("branch", value)} />
+            <MultiSelect label={t("Зона")} value={draft.zone} options={names(options?.zones, draft.zone)} onChange={(value) => set("zone", value)} />
+            <FilterCardOptionSelect
+              label={t("Тип баланса")}
               value={draft.balanceType}
               options={[
                 { value: "debtor", label: t("Задолжники") },
@@ -328,10 +299,9 @@ export function ReconciliationFilterDialog({
               ]}
               onChange={(value) => set("balanceType", value as ReconciliationFilters["balanceType"])}
             />
-          </Field>
-          {draft.balanceType && (
-            <Field label="Тип оплаты">
-              <SingleSelect
+            {draft.balanceType && (
+              <FilterCardOptionSelect
+                label={t("Тип оплаты")}
                 value={draft.paymentType}
                 options={[
                   { value: "cash", label: t("Наличные") },
@@ -339,40 +309,29 @@ export function ReconciliationFilterDialog({
                 ]}
                 onChange={(value) => set("paymentType", value as ReconciliationFilters["paymentType"])}
               />
-            </Field>
-          )}
-          <Field label="Организация">
-            <MultiSelect value={draft.organization} options={names(options?.organizations, draft.organization)} onChange={(value) => set("organization", value)} />
-          </Field>
-          <Field label="Агент">
-            <MultiSelect value={draft.agent} options={names(options?.agents, draft.agent)} onChange={(value) => set("agent", value)} />
-          </Field>
-          <Field label="Клиента создал">
-            <MultiSelect value={draft.createdBy} options={names(options?.users, draft.createdBy)} onChange={(value) => set("createdBy", value)} />
-          </Field>
-          <Field label="Тип клиента">
-            <SingleSelect value={draft.clientType} options={names(options?.types, draft.clientType ? [draft.clientType] : [])} onChange={(value) => set("clientType", value)} />
-          </Field>
-          <Field label="Статус">
+            )}
+            <MultiSelect label={t("Организация")} value={draft.organization} options={names(options?.organizations, draft.organization)} onChange={(value) => set("organization", value)} />
+            <MultiSelect label={t("Агент")} value={draft.agent} options={names(options?.agents, draft.agent)} onChange={(value) => set("agent", value)} />
+            <MultiSelect label={t("Клиента создал")} value={draft.createdBy} options={names(options?.users, draft.createdBy)} onChange={(value) => set("createdBy", value)} />
+            <FilterCardOptionSelect label={t("Тип клиента")} value={draft.clientType} options={names(options?.types, draft.clientType ? [draft.clientType] : [])} onChange={(value) => set("clientType", value)} />
             <MultiSelect
+              label={t("Статус")}
               value={draft.messageStatus}
               options={RECONCILIATION_STATUS_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
               onChange={(value) => set("messageStatus", value)}
             />
-          </Field>
-          <Field label="Статус заказа">
             <MultiSelect
+              label={t("Статус заказа")}
               value={draft.orderStatus}
               options={ORDER_STATUS_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
               onChange={(value) => set("orderStatus", value)}
             />
-          </Field>
-          <DaysRange label="Прошло дней с последнего заказа" {...range("orderDaysMin", "orderDaysMax")} />
-          <DaysRange label="Прошло дней с последней оплаты" {...range("paymentDaysMin", "paymentDaysMax")} />
-          <DaysRange label="Прошло дней с последнего отказа" {...range("rejectDaysMin", "rejectDaysMax")} />
-          <DaysRange label="Прошло дней с последнего визита" {...range("visitDaysMin", "visitDaysMax")} />
-          <Field label="Последнее посещение">
-            <SingleSelect
+            <WideDays label={t("Прошло дней с последнего заказа")} {...range("orderDaysMin", "orderDaysMax")} />
+            <WideDays label={t("Прошло дней с последней оплаты")} {...range("paymentDaysMin", "paymentDaysMax")} />
+            <WideDays label={t("Прошло дней с последнего отказа")} {...range("rejectDaysMin", "rejectDaysMax")} />
+            <WideDays label={t("Прошло дней с последнего визита")} {...range("visitDaysMin", "visitDaysMax")} />
+            <FilterCardOptionSelect
+              label={t("Последнее посещение")}
               value={draft.lastVisit}
               options={[
                 { value: "success", label: t("Успешный") },
@@ -380,20 +339,46 @@ export function ReconciliationFilterDialog({
               ]}
               onChange={(value) => set("lastVisit", value as ReconciliationFilters["lastVisit"])}
             />
-          </Field>
-          <Field label="Период создания клиента" wide>
-            <span className="flex items-center gap-2">
-              <input type="date" value={draft.clientFrom} onChange={(event) => set("clientFrom", event.target.value)} className={fieldClass} />
-              <span className="text-[#586174]">—</span>
-              <input type="date" value={draft.clientTo} onChange={(event) => set("clientTo", event.target.value)} className={fieldClass} />
-            </span>
-          </Field>
-        </div>
-        <div className="flex justify-end border-t border-[#e1e5eb] px-6 py-4">
-          <button type="button" onClick={apply} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold uppercase text-white">
-            {t("Применить")}
-          </button>
-        </div>
+            <ClientPeriodField from={draft.clientFrom} to={draft.clientTo} onChange={(from, to) => setDraft((current) => ({ ...current, clientFrom: from, clientTo: to }))} />
+          </div>
+        </FilterCardContext.Provider>
+        <button type="button" onClick={apply} className="mt-[22px] h-9 rounded-[3px] bg-[#5d6474] px-[16px] text-[13px] font-semibold uppercase text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]">
+          {t("Применить")}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** Date field of the reference's card: the label until a day is picked, a calendar icon, the native picker on click. */
+function DateField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const input = useRef<HTMLInputElement>(null)
+  return (
+    <div className="relative h-[40px] border-b border-[#d5dae1]">
+      <button
+        type="button"
+        onClick={() => input.current?.showPicker?.()}
+        className="absolute inset-0 flex items-end justify-between pb-[6px] text-left text-[13px] text-black"
+      >
+        <span>{value ? formatDotDate(value) : label}</span>
+        <CalendarDays className="h-4 w-4 text-[#bdbdbd]" />
+      </button>
+      <input ref={input} type="date" value={value} onChange={(event) => onChange(event.target.value)} tabIndex={-1} aria-label={label} className="pointer-events-none absolute bottom-0 left-0 h-0 w-0 opacity-0" />
+    </div>
+  )
+}
+
+/** «Прошло дней с …» over two columns: the caption, then bold От (дней) / До (дней) inputs side by side. */
+function WideDays({ label, min, max, onChange }: { label: string; min: string; max: string; onChange: (next: { min: string; max: string }) => void }) {
+  const { t } = useLanguage()
+  const clean = (value: string) => value.replace(/\D/g, "")
+  const input = "h-[36px] w-full border-0 border-b border-[#d5dae1] bg-transparent px-0 text-[13px] text-black outline-none placeholder:font-semibold placeholder:text-black"
+  return (
+    <div className="flex flex-col gap-1 md:col-span-2">
+      <span className="text-[13px] text-[#555]">{label}</span>
+      <div className="grid grid-cols-2 gap-[10px]">
+        <input inputMode="numeric" value={min} onChange={(event) => onChange({ min: clean(event.target.value), max })} placeholder={t("От (дней)")} className={input} />
+        <input inputMode="numeric" value={max} onChange={(event) => onChange({ min, max: clean(event.target.value) })} placeholder={t("До (дней)")} className={input} />
       </div>
     </div>
   )

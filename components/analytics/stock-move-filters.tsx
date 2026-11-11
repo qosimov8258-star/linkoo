@@ -1,9 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 
-import { BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterDialog, FilterCardOptionSelect } from "@/components/analytics/balance/filter-bar"
 import { MultiSelect } from "@/components/analytics/client-balance-filters"
 import { isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -213,25 +213,11 @@ export function draftFromState(state: MoveState): MoveFilterDraft {
   return { warehouses, branches, divisions, typeParents, types, brands, transaction, balance, showOthers }
 }
 
-function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
-  const { t } = useLanguage()
-  return (
-    <div className={`flex flex-col gap-1 ${wide ? "md:col-span-2" : ""}`}>
-      <span className="text-sm text-[#586174]">{t(label)}</span>
-      {children}
-    </div>
-  )
-}
-
-function PresenceSelect({ value, onChange }: { value: MovePresence; onChange: (next: MovePresence) => void }) {
-  const { t } = useLanguage()
-  return (
-    <select value={value} onChange={(event) => onChange(event.target.value as MovePresence)} className="h-10 rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]">
-      <option value="">{t("Все")}</option>
-      <option value="exist">{t("Есть")}</option>
-      <option value="not_exist">{t("Нет")}</option>
-    </select>
-  )
+function presenceOptions(t: (key: string) => string): Array<{ value: string; label: string }> {
+  return [
+    { value: "exist", label: t("Есть") },
+    { value: "not_exist", label: t("Нет") },
+  ]
 }
 
 export function MoveFilterDialog({
@@ -261,34 +247,22 @@ export function MoveFilterDialog({
   // Warehouses of the chosen branches only (demo: the branch narrows the warehouse list).
   const warehouseNames = options.warehouses.filter((warehouse) => !draft.branches.length || draft.branches.includes(warehouse.branch)).map((warehouse) => warehouse.name)
   return (
-    <BalanceFilterDialog open={open} onClose={onClose} from={state.from} to={state.to} onApply={(period) => onApply(period, draft)}>
-      {optionsError && <p className="text-sm text-[#e57373] md:col-span-2">{t("Не удалось загрузить списки фильтра")}: {t(optionsError)}</p>}
-      <Field label="Филиалы">
-        <MultiSelect value={draft.branches} options={withSelected(branchNames, draft.branches)} onChange={(next) => set("branches", next)} />
-      </Field>
-      <Field label="Организация">
-        <MultiSelect value={draft.divisions} options={withSelected(options.organizations, draft.divisions)} onChange={(next) => set("divisions", next)} />
-      </Field>
-      <Field label="Склад">
-        <MultiSelect value={draft.warehouses} options={withSelected(warehouseNames, draft.warehouses)} onChange={(next) => set("warehouses", next)} />
-      </Field>
-      <Field label="Тип продукта">
-        <MultiSelect value={draft.typeParents} options={withSelected(options.types, draft.typeParents)} onChange={(next) => set("typeParents", next)} />
-      </Field>
-      <Field label="Подкатегория">
-        <MultiSelect value={draft.types} options={withSelected(options.subcategories, draft.types)} onChange={(next) => set("types", next)} />
-      </Field>
-      <Field label="Бренд">
-        <MultiSelect value={draft.brands} options={withSelected(options.brands, draft.brands)} onChange={(next) => set("brands", next)} />
-      </Field>
-      <Field label="Движение за период">
-        <PresenceSelect value={draft.transaction} onChange={(next) => set("transaction", next)} />
-      </Field>
-      <Field label="Остаток за период">
-        <PresenceSelect value={draft.balance} onChange={(next) => set("balance", next)} />
-      </Field>
-      <label className="flex items-center gap-2 text-[#17233b] md:col-span-2">
-        <input type="checkbox" checked={draft.showOthers} onChange={(event) => set("showOthers", event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
+    // The reference's compact card: Диапазон дат, Филиалы, Организация, Склад / Тип продукта, Бренд, Движение за период,
+    // Остаток за период / Показать прочие (Подкатегория appears once a product type is chosen).
+    <BalanceFilterDialog open={open} columns={4} onClose={onClose} from={state.from} to={state.to} onApply={(period) => onApply(period, draft)}>
+      {optionsError && <p className="text-sm text-[#e57373] md:col-span-4">{t("Не удалось загрузить списки фильтра")}: {t(optionsError)}</p>}
+      <MultiSelect label={t("Филиалы")} value={draft.branches} options={withSelected(branchNames, draft.branches)} onChange={(next) => set("branches", next)} />
+      <MultiSelect label={t("Организация")} value={draft.divisions} options={withSelected(options.organizations, draft.divisions)} onChange={(next) => set("divisions", next)} />
+      <MultiSelect label={t("Склад")} value={draft.warehouses} options={withSelected(warehouseNames, draft.warehouses)} onChange={(next) => set("warehouses", next)} />
+      <MultiSelect label={t("Тип продукта")} value={draft.typeParents} options={withSelected(options.types, draft.typeParents)} onChange={(next) => set("typeParents", next)} />
+      {(draft.typeParents.length > 0 || draft.types.length > 0) && (
+        <MultiSelect label={t("Подкатегория")} value={draft.types} options={withSelected(options.subcategories, draft.types)} onChange={(next) => set("types", next)} />
+      )}
+      <MultiSelect label={t("Бренд")} value={draft.brands} options={withSelected(options.brands, draft.brands)} onChange={(next) => set("brands", next)} />
+      <FilterCardOptionSelect label={t("Движение за период")} value={draft.transaction} options={presenceOptions(t)} onChange={(next) => set("transaction", next as MovePresence)} />
+      <FilterCardOptionSelect label={t("Остаток за период")} value={draft.balance} options={presenceOptions(t)} onChange={(next) => set("balance", next as MovePresence)} />
+      <label className="flex items-center gap-2 pt-2 text-[13px] font-semibold text-black md:col-span-4">
+        <input type="checkbox" checked={draft.showOthers} onChange={(event) => set("showOthers", event.target.checked)} className="h-4 w-4 accent-[#444]" />
         {t("Показать прочие")}
       </label>
     </BalanceFilterDialog>
