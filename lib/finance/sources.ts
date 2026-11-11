@@ -1289,7 +1289,9 @@ function delivererSources(ctx: SourceContext): string[] {
     LEFT JOIN dlv_orders dor ON m.src = 'order' AND dor.id = m.src_id
     LEFT JOIN dlv_payments dp ON m.src = 'customer_payment' AND dp.id = m.src_id
     LEFT JOIN dlv_client_corrections dcc ON m.src = 'client_correction' AND dcc.id = m.src_id
-    LEFT JOIN dlv_clients dc ON dc.id = m.ek::int
+    -- Compared as text: a payment booked to an account without a shop is keyed 'acc:<id>' (no client, so no
+    -- client deliverer), and casting that key to int failed the whole page with a 500.
+    LEFT JOIN dlv_clients dc ON dc.id::text = m.ek
     WHERE m.src <> 'client_correction' OR dcc.dk IS NOT NULL`
   const out = [
     select(
