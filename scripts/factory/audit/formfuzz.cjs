@@ -4,7 +4,8 @@ const path = require("path")
 const fs = require("fs")
 const ROOT = path.join(__dirname, "../../..")
 const { chromium } = require(process.env.PW_CORE || path.join(ROOT, "tools/reference-test/node_modules/playwright-core"))
-const BASE = "http://localhost:3001"
+const BASE = process.env.FACTORY_URL || "http://localhost:3001"
+if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) throw new Error("local servers only")
 const EXE = process.env.CHROME || `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
 const OUT = process.env.AUDIT_OUT || path.join(ROOT, ".ui-check/audit/forms")
 fs.mkdirSync(OUT, { recursive: true })
