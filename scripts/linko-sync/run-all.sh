@@ -13,6 +13,7 @@ run() { echo "== $1"; node "$1"; }
 run import-deleted-products.mjs
 run import-promotions.mjs
 run import-orders.mjs
+run import-order-deliverers.mjs
 run import-returns.mjs
 # Warehouse documents (supplies, returns to suppliers, write-offs, transfers, inventories) and production
 run import-supplies.mjs

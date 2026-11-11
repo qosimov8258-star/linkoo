@@ -204,13 +204,36 @@ export async function isVansellAgent(db: PgDb, employeeId: number): Promise<bool
 /** Same pattern as the "Доставщик" options of Баланс клиентов (lib/finance-client-balance.ts). */
 const DELIVERY_POSITION = /достав|курьер|экспедит|водит|deliver|eltuv|yetkaz|haydov/i
 
-/** Every employee (any one may be named as a deliverer); info.is_deliverer = 1
- * for the ones the page lists even without movements: a delivery position, or
- * named as deliverer on a client / order / payment / correction. */
+/** Every employee; info.is_deliverer = 1 for the ones «Долги доставщиков» lists. Like Linko, that is whoever's
+ * access right (Права доступа) carries the «Доставщик» capability (Доставщик, Супер-Админ, Оператор, Вансел агент, …),
+ * active or not; an employee without an access right row goes by the right named in its position. Without the access
+ * right tables, the old guess (a delivery position or named as deliverer somewhere) is used. */
 async function deliverers(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
+  const withRight = s.col("employees", "access_right_id")
+  // Like the employee card: without a right of its own, the right its account signs in with (not an administrator's).
+  const withAccount = withRight && s.col("users", "employee_id") && s.col("users", "access_right_id") && s.col("users", "role")
+  const right = withAccount
+    ? `, COALESCE(e.access_right_id, (SELECT CASE WHEN u.role <> 'admin' THEN u.access_right_id END FROM users u WHERE u.employee_id = e.id ORDER BY u.id LIMIT 1)) AS access_right_id`
+    : withRight
+      ? ", e.access_right_id"
+      : ""
   const rows = (await db
-    .prepare("SELECT id, first_name, last_name, position, branch, active FROM employees ORDER BY lower(first_name), lower(last_name), id")
-    .all()) as EmployeeRow[]
+    .prepare(`SELECT e.id, e.first_name, e.last_name, e.position, e.branch, e.active${right} FROM employees e ORDER BY lower(e.first_name), lower(e.last_name), e.id`)
+    .all()) as Array<EmployeeRow & { access_right_id?: number | null }>
+  const rights = await delivererAccessRights(db, s)
+  if (rights) {
+    return rows.map((row) => {
+      const record = employeeRecord(row)
+      const rightId = row.access_right_id === null || row.access_right_id === undefined ? null : Number(row.access_right_id)
+      // Without a known access right, the right is read from the position "<access right> · <job>" (older rows:
+      // "<access right>|<job>"). A one-part position is only a job title: those are the placeholder employees kept for
+      // documents that name a user Linko has deleted, and Linko does not list them.
+      const parts = String(row.position ?? "").split(/\s*[|·]\s*/)
+      const named = parts.length > 1 ? nameKey(parts[0]) : ""
+      record.info.is_deliverer = (rightId !== null && rights.all.has(rightId) ? rights.ids.has(rightId) : Boolean(named) && rights.names.has(named)) ? 1 : 0
+      return record
+    })
+  }
   const values = async (sql: string, ok: boolean): Promise<unknown[]> => (ok ? ((await db.prepare(sql).all()) as Array<{ v: unknown }>).map((row) => row.v) : [])
   const [clientNames, orderNames, paymentNames, paymentIds, correctionIds] = await Promise.all([
     values("SELECT DISTINCT deliverer AS v FROM clients", s.col("clients", "deliverer")),
@@ -226,6 +249,30 @@ async function deliverers(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
     record.info.is_deliverer = DELIVERY_POSITION.test(row.position ?? "") || names.has(nameKey(record.name)) || ids.has(row.id) ? 1 : 0
     return record
   })
+}
+
+/** Access rights that carry the «Доставщик» capability: their ids and names (null without the tables or the capability). */
+async function delivererAccessRights(db: PgDb, s: FinanceSchema): Promise<{ ids: Set<number>; names: Set<string>; all: Set<number> } | null> {
+  if (!s.has("access_rights") || !s.has("capabilities") || !s.col("access_rights", "capability_ids")) return null
+  const capabilities = (await db.prepare("SELECT id FROM capabilities WHERE lower(btrim(name)) = 'доставщик'").all()) as Array<{ id: number }>
+  if (!capabilities.length) return null
+  const wanted = new Set(capabilities.map((row) => Number(row.id)))
+  const rights = (await db.prepare("SELECT id, name, capability_ids FROM access_rights").all()) as Array<{ id: number; name: string; capability_ids: string | null }>
+  const ids = new Set<number>()
+  const names = new Set<string>()
+  for (const right of rights) {
+    let list: unknown = []
+    try {
+      list = JSON.parse(right.capability_ids || "[]")
+    } catch {
+      list = []
+    }
+    if (Array.isArray(list) && list.some((id) => wanted.has(Number(id)))) {
+      ids.add(Number(right.id))
+      names.add(nameKey(right.name))
+    }
+  }
+  return { ids, names, all: new Set(rights.map((right) => Number(right.id))) }
 }
 
 /** Employees by normalised full name (lowest id wins, like the ledger's emp_keys). */

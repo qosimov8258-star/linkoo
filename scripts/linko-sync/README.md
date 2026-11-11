@@ -39,6 +39,10 @@ the importers at another database of the same server; a remote host is refused u
 - **Client ledger**: an order Linko booked no debt for is `orders.no_debt = 1`; a return carries what Linko credited
   (`client_returns.client_credit`, also for returns still pending there; a credit in another currency than the
   return's in `client_credit_other`).
+- **Долги доставщиков**: Linko books every client transaction with its own delivery man and counts it for him once
+  accepted (an order once В пути / Доставлено, on its accepted day; an accepted payment or return; a correction). An
+  order whose delivery man was changed after it was booked keeps the one Linko booked in `orders.debt_delivery_man_id`
+  (`import-order-deliverers.mjs`). The list is whoever's access right carries the «Доставщик» capability.
 - **Financial accounts**: Linko keeps a client's debt per financial account. A document booked on another account than
   its shop's current one (the shop moved later), or a payment booked on an account without any shop, carries that
   account (`financial_account_id` on orders, returns, payments, corrections, withdrawals — `import-document-accounts.mjs`),

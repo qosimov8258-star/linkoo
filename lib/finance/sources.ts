@@ -30,6 +30,9 @@ export type SourceOptions = {
   orderScope?: "released" | "delivered" | null
   /** Lean rows also carry src / src_id (the deliverer ledger re-keys client movements by their document). */
   withSource?: boolean
+  /** Realization mode: date an order by the day it was accepted (orders.accepted_date, Linko's accepted_time) before
+   * the moment it was shipped (the deliverer ledger, like Linko's «Долги доставщиков»). */
+  acceptedDay?: boolean
 }
 
 const FIELD_TYPES = {
@@ -487,7 +490,12 @@ function clientSources(ctx: SourceContext): string[] {
   // Orders follow their client by orders.client_id (renaming a client keeps
   // its orders), legacy rows by name; they carry their own organization and
   // payment type, so the Организация / Тип оплаты filters keep them.
-  const orderTs = realization ? orderRealizationTs(ctx.s, "o") : utcTs("o.created_at")
+  const acceptedDay = realization && ctx.o.acceptedDay && ctx.s.col("orders", "accepted_date")
+  const orderTs = realization
+    ? acceptedDay
+      ? `COALESCE(fin_ts(NULLIF(o.accepted_date, '')), ${orderRealizationTs(ctx.s, "o")})`
+      : orderRealizationTs(ctx.s, "o")
+    : utcTs("o.created_at")
   const orderFields = (cur: string, amount: string): Partial<Record<Field, string>> => ({
     ek: "oc.id",
     cur,
@@ -1231,30 +1239,39 @@ function delivererNames(alias: string, nameExpr: string, table: string, where: s
 }
 
 // The client ledger (every source of clientSources, same filters and dates)
-// re-keyed by the delivery man responsible for each movement: the order's
-// delivery_man, the payment's delivery_man_id / delivery_man, else the
-// client's deliverer (clients.deliverer — the fallback lib/cash uses for
-// orders); movements without any deliverer go to the 'none' row. Client
-// none_type_plus / none_type_minus become none_type. Orders also carry their
-// own organization / payment type here (the client ledger has none for
-// orders). Plus the deliverer's own corrections. Keys are resolved once per
-// client / order / payment (small CTEs), not per movement row.
+// re-keyed by the delivery man written on each movement, as Linko books every
+// client transaction with its own delivery man: the order's delivery_man, the
+// payment's delivery_man_id / delivery_man, the return's deliverer, the
+// correction's delivery_man. A movement without one (a payment nobody
+// delivered, an opening balance, a cash entry) is nobody's: it goes to the
+// 'none' key, which «Долги доставщиков» does not list — the client's own
+// deliverer is not used, or a shop's payments would land on its deliverer
+// (Linko does not). Client none_type_plus / none_type_minus become none_type.
+// Orders also carry their own organization / payment type here (the client
+// ledger has none for orders). Plus the deliverer's own corrections. Keys are
+// resolved once per order / payment / return (small CTEs), not per movement row.
 function delivererSources(ctx: SourceContext): string[] {
-  const inner: SourceContext = { s: ctx.s, o: { ...ctx.o, withSource: true }, ctes: ctx.ctes }
+  // A deliverer owes an order once it has left the warehouse (В пути / Доставлено), as in Linko: an order still
+  // «Есть на складе» or «В процессе» is the client's debt, not yet the deliverer's.
+  const inner: SourceContext = { s: ctx.s, o: { ...ctx.o, withSource: true, orderScope: ctx.o.orderScope ?? "released", acceptedDay: true }, ctes: ctx.ctes }
   ctx.ctes.set("client_mv", clientSources(inner).join("\nUNION ALL\n"))
   need(ctx, "emp_keys")
   const CP = "customer_payments"
-  ctx.ctes.set("dlv_clients", delivererNames("c", "c.deliverer", "clients", "COALESCE(c.deliverer, '') <> ''"))
 
   const orderName = ctx.s.col("orders", "delivery_man")
   const orderOrg = ctx.s.col("orders", "organization")
   const orderPt = ctx.s.col("orders", "payment_type")
-  const orderWhere = [orderName && "o.delivery_man <> ''", orderOrg && "o.organization <> ''", orderPt && "o.payment_type <> ''"].filter(Boolean)
-  const orderColumns = [orderOrg && "organization", orderPt && "payment_type"].filter((column): column is string => Boolean(column))
+  // An order whose delivery man was changed after Linko booked it stays with the one booked (debt_delivery_man_id).
+  const orderBooked = ctx.s.col("orders", "debt_delivery_man_id")
+  const orderWhere = [orderName && "o.delivery_man <> ''", orderOrg && "o.organization <> ''", orderPt && "o.payment_type <> ''", orderBooked && "o.debt_delivery_man_id IS NOT NULL"].filter(Boolean)
+  const orderColumns = [orderOrg && "organization", orderPt && "payment_type", orderBooked && "debt_delivery_man_id"].filter((column): column is string => Boolean(column))
   ctx.ctes.set(
     "dlv_orders",
     orderWhere.length
-      ? `SELECT n.id, n.dk, n.dn, ${orderOrg ? "fin_place(n.organization)" : "''"} AS org, ${orderPt ? "fin_pt(n.payment_type)" : "''"} AS pt
+      ? `SELECT n.id,
+           ${orderBooked ? "CASE WHEN n.debt_delivery_man_id IS NULL THEN n.dk ELSE NULLIF(n.debt_delivery_man_id, 0)::text END" : "n.dk"} AS dk,
+           ${orderBooked ? "CASE WHEN n.debt_delivery_man_id IS NULL THEN n.dn ELSE '' END" : "n.dn"} AS dn,
+           ${orderOrg ? "fin_place(n.organization)" : "''"} AS org, ${orderPt ? "fin_pt(n.payment_type)" : "''"} AS pt
          FROM (${delivererNames("o", orderName ? "o.delivery_man" : "''", "orders", orderWhere.join(" OR "), orderColumns)}) n`
       : "SELECT NULL::int AS id, NULL::text AS dk, ''::text AS dn, ''::text AS org, ''::text AS pt WHERE false",
   )
@@ -1270,6 +1287,14 @@ function delivererSources(ctx: SourceContext): string[] {
          ${payId ? "LEFT JOIN employees pe ON pe.id = n.delivery_man_id" : ""}`
       : "SELECT NULL::int AS id, NULL::text AS dk, ''::text AS dn WHERE false",
   )
+  // A return is the deliverer's once accepted (a return Linko still holds as pending credits the client already, see
+  // clientSources, but not the deliverer).
+  ctx.ctes.set(
+    "dlv_returns",
+    ctx.s.col("client_returns", "deliverer")
+      ? delivererNames("r", "r.deliverer", "client_returns", "r.deliverer <> '' AND r.status = 'accepted'")
+      : "SELECT NULL::int AS id, NULL::text AS dk, ''::text AS dn WHERE false",
+  )
   // Client balance corrections (Сверка магазина через бот: Списать / Добавить,
   // "Установить долг с Excel") are not the deliverer's business: they count
   // only for the delivery man written on the correction itself.
@@ -1281,18 +1306,18 @@ function delivererSources(ctx: SourceContext): string[] {
       : "SELECT NULL::int AS id, NULL::text AS dk, ''::text AS dn WHERE false",
   )
   const attributed = `SELECT m.*,
-      CASE WHEN m.src = 'client_correction' THEN dcc.dk ELSE COALESCE(dp.dk, dor.dk, dc.dk) END AS dk,
-      CASE WHEN m.src = 'client_correction' THEN dcc.dn WHEN dp.dk IS NOT NULL THEN dp.dn WHEN dor.dk IS NOT NULL THEN dor.dn ELSE COALESCE(dc.dn, '') END AS dn,
+      COALESCE(dcc.dk, dp.dk, dor.dk, dr.dk) AS dk,
+      COALESCE(dcc.dn, dp.dn, dor.dn, dr.dn, '') AS dn,
       COALESCE(dor.org, '') AS order_org,
       COALESCE(dor.pt, '') AS order_pt
     FROM client_mv m
     LEFT JOIN dlv_orders dor ON m.src = 'order' AND dor.id = m.src_id
     LEFT JOIN dlv_payments dp ON m.src = 'customer_payment' AND dp.id = m.src_id
+    LEFT JOIN dlv_returns dr ON m.src = 'client_return' AND dr.id = m.src_id
     LEFT JOIN dlv_client_corrections dcc ON m.src = 'client_correction' AND dcc.id = m.src_id
-    -- Compared as text: a payment booked to an account without a shop is keyed 'acc:<id>' (no client, so no
-    -- client deliverer), and casting that key to int failed the whole page with a 500.
-    LEFT JOIN dlv_clients dc ON dc.id::text = m.ek
-    WHERE m.src <> 'client_correction' OR dcc.dk IS NOT NULL`
+    -- A payment not yet accepted into a cashbox is still the deliverer's money: like Linko, it does not lower his debt
+    -- (the client's ledger counts it already).
+    WHERE (m.src <> 'client_correction' OR dcc.dk IS NOT NULL) AND NOT COALESCE(m.pending, false)`
   const out = [
     select(
       ctx,

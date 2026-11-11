@@ -126,7 +126,7 @@ function movementParams(kind: BalanceEntityKind, base: string, f: MovementFilter
     from: f.from,
     to: f.to,
     cols: [...MOVEMENT_COLUMNS[kind]],
-    countPending: (f.mode ?? "created") === "created",
+    countPending: modeOf(kind, f) === "created",
     orgs: normList(f.organizations),
     pt: f.paymentType ?? "",
     keys: [] as string[],
@@ -147,8 +147,11 @@ const MOVEMENT_WHERE = `mv.ek IS NOT NULL
 const ENTITY_ROWS = `SELECT mv.* FROM mv WHERE ${MOVEMENT_WHERE} AND mv.col = ANY(@cols::text[]) AND (NOT mv.pending OR @countPending) OFFSET 0`
 
 function modeOf(kind: BalanceEntityKind, f: MovementFilters): BalanceDateMode {
-  // The deliverer ledger is the client ledger re-keyed, so it has both modes too.
-  return isClientKind(kind) || kind === "deliverer" ? (f.mode ?? "created") : "created"
+  // The deliverer ledger is the client ledger re-keyed, so it has both modes too; by default it dates a movement when
+  // it was accepted (an order when it left the warehouse, a payment when the cashbox took it), as Linko's
+  // «Долги доставщиков» does.
+  if (kind === "deliverer") return f.mode ?? "realization"
+  return isClientKind(kind) ? (f.mode ?? "created") : "created"
 }
 
 async function aggregate(db: PgDb, kind: BalanceEntityKind, s: FinanceSchema, base: string, f: MovementFilters, keys: string[] = [], currency = ""): Promise<AggRow[]> {
@@ -387,15 +390,11 @@ function rollupAgents(rows: WorkRow[], employees: Map<string, EntityRecord>, cod
 /** Deliverer rows: the listed employees (info.is_deliverer) and every other
  * key with movements — an employee, a name only ("name:<name>", e.g. a
  * deliverer typed on a client card) or "none" (no deliverer, listed last). */
-function delivererEntities(entities: EntityRecord[], byEntity: Map<string, unknown>, meta: Map<string, { name: string }>): EntityRecord[] {
-  const listed = entities.filter((entity) => entity.info.is_deliverer || byEntity.has(entity.key))
-  const known = new Set(entities.map((entity) => entity.key))
-  const blank = { first_name: "", last_name: "", position: "", branch: "", active: 0, is_deliverer: 0 }
-  for (const key of byEntity.keys()) {
-    if (key.startsWith("name:") && !known.has(key)) listed.push({ key, id: null, name: meta.get(key)?.name || key.slice(5), info: { ...blank } })
-  }
-  if (byEntity.has("none")) listed.push({ key: "none", id: null, name: "", info: { ...blank } })
-  return listed
+function delivererEntities(entities: EntityRecord[]): EntityRecord[] {
+  // Like Linko: only the deliverers (info.is_deliverer), with or without movements; movements attributed to other
+  // employees, to a bare name or to nobody are neither listed nor in the totals.
+  // The entities come by name; Linko's page, unsorted, goes by user id.
+  return entities.filter((entity) => entity.info.is_deliverer).sort((a, b) => Number(a.id) - Number(b.id))
 }
 
 /** Financial account id → name (Клиенты → Финансовые счета; deleted ones too: their booked money still counts). */
@@ -425,7 +424,7 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
   const { byEntity, meta } = indexAgg(agg, columns, kind)
 
   // Van-sell agents are listed once they have any ledger movement (like the demo's staff balance list), not for every vansell-looking employee.
-  const all = kind === "deliverer" ? delivererEntities(entities, byEntity, meta) : kind === "vansell" ? entities.filter((entity) => byEntity.has(entity.key)) : [...entities]
+  const all = kind === "deliverer" ? delivererEntities(entities) : kind === "vansell" ? entities.filter((entity) => byEntity.has(entity.key)) : [...entities]
   if (kind === "supplier") {
     // Suppliers that exist only as a name on supplies/returns/payments.
     const known = new Set(entities.map((entity) => entity.key))

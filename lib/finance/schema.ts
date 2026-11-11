@@ -316,6 +316,9 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
     // the order debts, whatever its status.
     no_debt: "INTEGER NOT NULL DEFAULT 0",
     financial_account_id: "INTEGER",
+    // The delivery man Linko booked the order's debit to, when the order's delivery man was changed afterwards (0 =
+    // nobody); NULL = the order's own delivery man. Долги доставщиков go by it (scripts/linko-sync/import-order-deliverers.mjs).
+    debt_delivery_man_id: "INTEGER",
   },
 }
 
@@ -341,6 +344,11 @@ const LEDGER_TABLES = [
   "supplier_payments",
   "supplier_balance_transactions",
   "employees",
+  // access rights and their capabilities: «Долги доставщиков» lists whoever's right carries «Доставщик» (lib/finance/entities.ts)
+  "access_rights",
+  "capabilities",
+  // an employee without a right of its own signs in with its account's (lib/employees-repo.ts selectSql)
+  "users",
   "vansell_transactions",
   "employee_balance_transactions",
   // "Зачислить" of "Зарплата и установка планов" (lib/salary-records-repo.ts)
