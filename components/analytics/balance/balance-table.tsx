@@ -70,6 +70,8 @@ export type BalanceTableProps<R extends BalanceRow> = {
   fixedWidth?: number
   /** Vertical cell padding in px of the fixed-width mode (13 by default; the employee balance rows are 43px). */
   rowPad?: number
+  /** Fixed-width mode: a table narrower than its container stretches to it (the columns keep their proportions). */
+  fill?: boolean
   footer?: ReactNode
 }
 
@@ -95,6 +97,7 @@ export function BalanceTable<R extends BalanceRow>({
   compact = false,
   fixedWidth,
   rowPad = 13,
+  fill = false,
   footer,
 }: BalanceTableProps<R>) {
   const { t } = useLanguage()
@@ -156,7 +159,7 @@ export function BalanceTable<R extends BalanceRow>({
   return (
     <div ref={scrollRef} className={`overflow-x-auto ${inset ? "mx-[30px]" : ""} ${loading ? "opacity-60" : ""}`}>
       {fixedWidth && <ScrollButtons targetRef={scrollRef} watch={rows.length} />}
-      <table className={`border-collapse text-[13px] leading-[18px] ${fixedWidth ? "table-fixed" : "w-full"}`} style={tableWidth ? { width: tableWidth } : undefined}>
+      <table className={`border-collapse text-[13px] leading-[18px] ${fixedWidth ? "table-fixed" : "w-full"}`} style={tableWidth ? { width: tableWidth, minWidth: fill ? "100%" : undefined } : undefined}>
         {fixedWidth && (
           <colgroup>
             {selection && !selectionAfterFirst && <col style={{ width: selectWidth }} />}

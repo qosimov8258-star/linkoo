@@ -118,6 +118,27 @@ export function visibleCurrencyCodes(currencies: Pick<FinanceCurrency, "code">[]
   return currencies.length ? [currencies[0].code] : []
 }
 
+/** The currencies that have an amount to show in `fields` (the columns a table or a summary prints), in the order of
+ * the currency list: non-zero in one of `sources` (totals, rows). Unlike visibleCurrencyCodes it does not look at
+ * the fields that are not printed, so a currency whose only amounts are elsewhere (a money request in EUR on the
+ * balance tab) gets no column of zeros. Never empty: with nothing to show, the first currency. */
+export function currenciesWithAmounts(
+  currencies: Pick<FinanceCurrency, "code">[],
+  fields: readonly string[],
+  sources: Array<Record<string, CurrencyBalance | Record<string, number> | undefined> | undefined>,
+): string[] {
+  const used = currencies
+    .map((currency) => currency.code)
+    .filter((code) =>
+      sources.some((source) => {
+        const balance = source?.[code] as Record<string, unknown> | undefined
+        return !!balance && fields.some((field) => typeof balance[field] === "number" && Math.abs(balance[field] as number) > 1e-9)
+      }),
+    )
+  if (used.length) return used
+  return currencies.length ? [currencies[0].code] : []
+}
+
 /** Rounds away float noise (amount columns are REAL in Postgres). */
 export function roundMoney(value: number, digits = 2): number {
   if (!Number.isFinite(value)) return 0

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { CircleMinus, CirclePlus, Filter, HandCoins, Search } from "lucide-react"
 
@@ -25,6 +25,7 @@ import {
 } from "@/components/analytics/supplier-balance-dialogs"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { currenciesWithAmounts } from "@/lib/finance/currency"
 import { formatDotDate, isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
 import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -47,14 +48,15 @@ const TOGGLES: Array<{ id: Toggle; name: string }> = [
   { id: "request", name: "Запрос средств" },
 ]
 
-// supply_expense ("Расходы") is returned by the ledger but, as in the demo, not shown.
+// supply_expense ("Расходы") is returned by the ledger but, as in the demo, not shown. «Прочие приходы» and
+// «Прочие расходы» (none_type_plus / none_type_minus: the manual entries of the ⊕ / ⊖ buttons) are not listed
+// either, in the table, the summary and the Excel file: the customer asked for that (the reference lists them).
+// They still count in «Баланс на конец» and every one of them is a line of the supplier's act.
 const BALANCE_GROUPS: BalanceColumnGroup[] = [
   { field: "begin_balance", label: "Баланс на начало периода" },
   { field: "supply", label: MOVEMENT_LABELS.supplier.supply },
   { field: "supply_return", label: MOVEMENT_LABELS.supplier.supply_return },
   { field: "payment", label: MOVEMENT_LABELS.supplier.payment },
-  { field: "none_type_plus", label: MOVEMENT_LABELS.supplier.none_type_plus },
-  { field: "none_type_minus", label: MOVEMENT_LABELS.supplier.none_type_minus },
   { field: "end_balance", label: "Баланс на конец" },
 ]
 
@@ -78,14 +80,9 @@ const SUMMARY_BOXES: SummaryBox[] = [
       { label: MOVEMENT_LABELS.supplier.payment, field: "payment" },
     ],
   },
-  {
-    metrics: [
-      { label: MOVEMENT_LABELS.supplier.none_type_plus, field: "none_type_plus" },
-      { label: MOVEMENT_LABELS.supplier.none_type_minus, field: "none_type_minus" },
-    ],
-  },
   { align: "right", metrics: [{ label: "Баланс на конец периода", field: "end_balance" }] },
 ]
+const SUMMARY_FIELDS = SUMMARY_BOXES.flatMap((box) => box.metrics.map((metric) => metric.field))
 
 const BALANCE_TYPES = ["debtor", "creditor", "debtor_for_begin", "creditor_for_begin"]
 
@@ -189,10 +186,18 @@ export function SupplierBalanceView() {
   const canEdit = me?.role === "manager" || me?.role === "admin"
 
   const rows = list.data?.rows ?? []
-  const visible = list.data?.visibleCurrencies ?? []
   const currencies = currencyInfo?.currencies ?? list.data?.currencies ?? []
   const baseCurrency = list.data?.baseCurrency ?? currencyInfo?.base ?? "SUM"
   const groups = toggle === "balance" ? BALANCE_GROUPS : REQUEST_GROUPS
+  // Currency sub-columns: a currency is printed where it has an amount in the printed columns — in the totals of
+  // the whole list or on a listed row (opposite amounts of two suppliers cancel out in the totals). A currency whose
+  // only amounts are in other columns (a «Запрос средств» in EURO while the balance tab is open) gets no zeros.
+  const listed = list.data
+  const tableCurrencies = useMemo(
+    () => (listed ? currenciesWithAmounts(listed.currencies, groups.map((group) => group.field), [listed.totals, ...listed.rows.map((row) => row.currencies)]) : []),
+    [listed, groups],
+  )
+  const summaryCurrencies = useMemo(() => (listed ? currenciesWithAmounts(listed.currencies, SUMMARY_FIELDS, [listed.totals]) : []), [listed])
 
   // --- local UI state -------------------------------------------------------------
   const [expanded, setExpanded] = useState(false)
@@ -240,7 +245,7 @@ export function SupplierBalanceView() {
       const response = await fetch(`/api/balances/supplier?${buildBalanceQuery({ ...listQuery, page: undefined, pageSize: 0, totalsIgnoreSearch: false })}`, { cache: "no-store" })
       const body = (await response.json().catch(() => null)) as (BalanceListResult & { error?: string }) | null
       if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
-      const codes = visible.length ? visible : body.visibleCurrencies
+      const codes = currenciesWithAmounts(body.currencies, groups.map((group) => group.field), [body.totals, ...body.rows.map((row) => row.currencies)])
       downloadExcelTable(
         `${t(toggle === "balance" ? "Баланс поставщиков" : "Запрос средств")} ${formatDotDate(from)} - ${formatDotDate(to)}`,
         balanceListExcelRows({ rows: body.rows, groups, currencies: codes, leading: [{ label: "Поставщик", value: (row) => row.name }], totals: body.totals, t }),
@@ -336,7 +341,7 @@ export function SupplierBalanceView() {
 
       {list.error && <p className="px-6 pb-4 text-[#e57373] md:px-9">{t(list.error)}</p>}
 
-      <BalanceSummaryCards digits={3} compact hideCurrency boxes={SUMMARY_BOXES} totals={list.data?.totals ?? {}} currencies={visible} loading={list.loading} />
+      <BalanceSummaryCards digits={3} compact hideCurrency boxes={SUMMARY_BOXES} totals={list.data?.totals ?? {}} currencies={summaryCurrencies} loading={list.loading} />
 
       <ExpandedOverlay expanded={expanded}>
         <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] pb-[8px] pt-[17px]">
@@ -387,10 +392,11 @@ export function SupplierBalanceView() {
         <div className="pb-10">
           <BalanceTable
           fixedWidth={100}
+              fill
               inset
             rows={rows}
             groups={groups}
-            currencies={visible}
+            currencies={tableCurrencies}
             first={{ label: "Поставщик", width: 220, sortKey: "name", render: renderName }}
             ordering={ordering}
             onOrderingChange={(next) => update({ ordering: next })}
