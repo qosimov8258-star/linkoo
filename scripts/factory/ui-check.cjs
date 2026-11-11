@@ -22,6 +22,8 @@ const FILTER = process.argv[3] ? new RegExp(process.argv[3]) : null
 const CLICKS = Number(process.env.CLICKS ?? 30)
 // Longest wait for a page to go quiet after it loads (a page that polls never does).
 const IDLE_MS = Number(process.env.IDLE_MS ?? 15000)
+// Longest time one page (load + clicks) may take before it is reported as hung and left behind.
+const PAGE_MS = Number(process.env.PAGE_MS ?? 240000)
 const SKIP = /удал|сохран|отправ|подтвер|выйти|выход|перерасч|пересчит|сверить|принять|закрыть|очист|сброс|импорт|загруз|архив|отмен|оплат|провест|создать|^да$|^ok$|начать|завершить|копир|дублир|блок|актив|зачисл|списат|выдать|передать|рассчитать|применить|telegram|excel|скачать|печать|экспорт|синхрон/i
 
 if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) throw new Error("ui-check only runs against a local server")
@@ -65,7 +67,7 @@ const mine = routes.map((route, index) => ({ route, index })).filter(({ index })
     page.on("dialog", (dialog) => dialog.dismiss().catch(() => {}))
     let status = 0
     let text = ""
-    try {
+    const visit = async () => {
       const response = await page.goto(BASE + route, { timeout: 120000 })
       status = response ? response.status() : 0
       await page.waitForLoadState("networkidle", { timeout: IDLE_MS }).catch(() => {})
@@ -91,14 +93,26 @@ const mine = routes.map((route, index) => ({ route, index })).filter(({ index })
           await page.waitForTimeout(1200)
         }
       }
-    } catch (error) {
-      problems.push({ at: current, kind: "nav", text: error.message.slice(0, 200) })
     }
+    // A page that stops answering (a frozen or crashed renderer) must not stop the whole run.
+    let timer
+    const hung = await Promise.race([
+      visit().then(
+        () => false,
+        (error) => {
+          problems.push({ at: current, kind: "nav", text: error.message.slice(0, 200) })
+          return false
+        },
+      ),
+      new Promise((resolve) => (timer = setTimeout(() => resolve(true), PAGE_MS))),
+    ])
+    clearTimeout(timer)
+    if (hung) problems.push({ at: current, kind: "hang", text: `the page did not answer within ${PAGE_MS / 1000} s` })
     const flagged = /Application error|Unhandled Runtime Error|This page could not be found|Internal Server Error/.test(text.slice(0, 4000))
-    const row = { route, status, final: page.url().replace(BASE, ""), flagged, problems }
+    const row = { route, status, final: hung ? route : page.url().replace(BASE, ""), flagged, problems }
     results.push(row)
     if (status >= 400 || flagged || problems.length) console.log(JSON.stringify(row))
-    await page.close()
+    await Promise.race([page.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 5000))])
   }
   fs.writeFileSync(path.join(OUT, `ui-check-${SHARD_INDEX}.json`), JSON.stringify(results, null, 1))
   console.log(`done: ${results.length} pages, ${results.filter((row) => row.problems.length || row.flagged || row.status >= 400).length} with problems`)
