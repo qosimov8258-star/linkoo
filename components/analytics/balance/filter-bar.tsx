@@ -102,6 +102,22 @@ export function FilterCardSelect({ label, text, onClick, children }: { label: st
 }
 
 /** Renders `card` inside the small filter card and `plain` inside the full-width panel. */
+/** Filter-card select (label floats up once a value is chosen), like the reference's filter dropdowns. */
+export function FilterCardOptionSelect({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (next: string) => void }) {
+  return (
+    <label className="relative block h-[40px] border-b border-[#d5dae1]">
+      <span className={`pointer-events-none absolute left-0 ${value ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-x-0 bottom-0 h-[26px] w-full appearance-none bg-transparent text-[13px] outline-none">
+        <option value=""></option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+      <svg viewBox="0 0 10 5" className="pointer-events-none absolute bottom-[10px] right-[2px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+    </label>
+  )
+}
+
 export function FilterVariant({ card, plain }: { card: ReactNode; plain: ReactNode }) {
   return <>{useFilterCard() ? card : plain}</>
 }

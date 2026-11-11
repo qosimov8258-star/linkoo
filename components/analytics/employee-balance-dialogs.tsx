@@ -341,7 +341,7 @@ export function EmployeeUsersSelect({ options, value, onChange }: { options: Emp
   const names = sorted.filter((item) => selected.has(String(item.id))).map((item) => item.name)
   const toggle = (id: string) => onChange(selected.has(id) ? value.filter((item) => item !== id) : [...value, id])
   return (
-    <div className="flex flex-col gap-1 md:col-span-2">
+    <div className={card ? "flex flex-col gap-1" : "flex flex-col gap-1 md:col-span-2"}>
       {card ? (
         <FilterCardSelect label={t("Пользователи")} text={names.join(", ")} onClick={() => setOpen((current) => !current)} />
       ) : (

@@ -7,7 +7,7 @@ import { FileSpreadsheet, MinusCircle, PlusCircle, Search, X } from "lucide-reac
 import { BalanceTable } from "@/components/analytics/balance/balance-table"
 import { balanceListExcelRows } from "@/components/analytics/balance/excel"
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
-import { BalanceFilterChip, BalanceFilterDialog, FilterCardSelect, FilterVariant, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterChip, BalanceFilterDialog, FilterCardOptionSelect, countActiveFilters } from "@/components/analytics/balance/filter-bar"
 import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useLookup } from "@/components/analytics/balance/use-balance"
@@ -85,6 +85,8 @@ type UrlState = {
   period: { from: string; to: string }
   periodApplied: boolean
   branches: string[]
+  /** Organization (division) name: movements of other organizations are left out (filter «Организация»). */
+  organization: string
   search: string
   page: number
   pageSize: number
@@ -118,6 +120,7 @@ function readUrlState(params: Pick<URLSearchParams, "get" | "getAll">): UrlState
           .filter((value) => /^\d+$/.test(value)),
       ),
     ],
+    organization: params.get("organization")?.trim() ?? "",
     search: params.get("search")?.trim() ?? "",
     page: Number.isInteger(page) && page > 0 ? page : 1,
     pageSize: (BALANCE_PAGE_SIZES as readonly number[]).includes(pageSize) ? pageSize : DEFAULT_PAGE_SIZE,
@@ -141,13 +144,13 @@ export function BranchBalanceView() {
   const [period, setPeriod] = useState(initial.period)
   const [periodApplied, setPeriodApplied] = useState(initial.periodApplied)
   const [branchIds, setBranchIds] = useState<string[]>(initial.branches)
-  const [draftBranchIds, setDraftBranchIds] = useState<string[]>(initial.branches)
+  const [organization, setOrganization] = useState(initial.organization)
+  const [draftOrganization, setDraftOrganization] = useState(initial.organization)
   const [searchInput, setSearchInput] = useState(initial.search)
   const [search, setSearch] = useState(initial.search)
   const [paging, setPaging] = useState({ page: initial.page, pageSize: initial.pageSize })
   const [ordering, setOrdering] = useState<string[]>(initial.ordering)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [branchListOpen, setBranchListOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [detail, setDetail] = useState<{ key: string; name: string } | null>(initial.detail ? { key: initial.detail, name: "" } : null)
   const [create, setCreate] = useState<{ kind: "add" | "expense"; branchId: number } | null>(initial.create)
@@ -156,6 +159,7 @@ export function BranchBalanceView() {
   const [exportError, setExportError] = useState("")
 
   const branchOptions = useLookup<BranchOption>("/api/branches")
+  const organizationOptions = useLookup<{ id: number; name: string }>("/api/organizations")
   // Like the reference, the list holds only the branches that have manual balance entries, in the order of their first entry;
   // their opening / closing balances come from those entries (same rule as the dashboard tab ФИЛИАЛ).
   const [entries, setEntries] = useState<ManualEntry[] | null>(null)
@@ -172,8 +176,8 @@ export function BranchBalanceView() {
     return [...first.entries()].sort((a, b) => a[1] - b[1]).map(([branchId]) => String(branchId))
   }, [entries])
   const query = useMemo(
-    () => ({ from: period.from, to: period.to, search, key: branchIds.length ? branchIds : (entryOrder ?? ["0"]), ordering, page: 1, pageSize: 1000, totalsIgnoreSearch: true }),
-    [period, search, branchIds, entryOrder, ordering],
+    () => ({ from: period.from, to: period.to, search, key: branchIds.length ? branchIds : (entryOrder ?? ["0"]), organization: organization ? [organization] : undefined, ordering, page: 1, pageSize: 1000, totalsIgnoreSearch: true }),
+    [period, search, branchIds, entryOrder, organization, ordering],
   )
   const { data, loading, error, reload } = useBalanceList("branch", query)
   const processed = useMemo(() => {
@@ -194,7 +198,7 @@ export function BranchBalanceView() {
     return sums
   }, [processed])
   const currencies = useMemo(() => (data ? shownCurrencies(data) : ["SUM"]), [data])
-  const filterCount = countActiveFilters({ toDate: periodApplied ? period.to : "", branch: branchIds })
+  const filterCount = countActiveFilters({ toDate: periodApplied ? period.to : "", branch: branchIds, organization: organization ? [organization] : [] })
 
   // A page past the end (rows removed, deep link) falls back to the last page.
   const lastPage = Math.max(1, Math.ceil(count / Math.max(1, paging.pageSize)))
@@ -221,6 +225,7 @@ export function BranchBalanceView() {
       params.set("toDate", period.to)
     }
     if (branchIds.length) params.set("branch", branchIds.join("-"))
+    if (organization) params.set("organization", organization)
     if (search) params.set("search", search)
     if (paging.page > 1) params.set("page", String(paging.page))
     if (paging.pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(paging.pageSize))
@@ -230,7 +235,7 @@ export function BranchBalanceView() {
     if (create) params.set(create.kind === "add" ? "openAddDialog" : "openCreateDialog", String(create.branchId))
     const next = params.toString()
     if (next !== window.location.search.replace(/^\?/, "")) window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}`)
-  }, [period, periodApplied, branchIds, search, paging, ordering, detail, create])
+  }, [period, periodApplied, branchIds, organization, search, paging, ordering, detail, create])
 
   useEffect(() => {
     if (!toast) return
@@ -239,7 +244,7 @@ export function BranchBalanceView() {
   }, [toast])
 
   const openFilter = () => {
-    setDraftBranchIds(branchIds)
+    setDraftOrganization(organization)
     setFilterOpen(true)
   }
 
@@ -247,6 +252,7 @@ export function BranchBalanceView() {
     setPeriod(monthPeriod())
     setPeriodApplied(false)
     setBranchIds([])
+    setOrganization("")
     setPaging((current) => ({ ...current, page: 1 }))
   }
 
@@ -274,8 +280,6 @@ export function BranchBalanceView() {
       setExporting(false)
     }
   }
-
-  const toggleDraftBranch = (id: string) => setDraftBranchIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
 
   return (
     <main className="ref-white min-h-screen bg-white text-[#333]">
@@ -371,52 +375,12 @@ export function BranchBalanceView() {
         onApply={(next) => {
           setPeriod(next)
           setPeriodApplied(true)
-          setBranchIds(draftBranchIds)
+          setOrganization(draftOrganization)
           setPaging((current) => ({ ...current, page: 1 }))
         }}
       >
-        <FilterVariant
-          plain={
-          <div className="flex flex-col gap-1 md:col-span-2">
-            <span className="flex items-center justify-between text-sm text-[#586174]">
-              {t("Филиалы")}
-              {draftBranchIds.length > 0 && (
-                <button type="button" onClick={() => setDraftBranchIds([])} className="flex items-center gap-1 text-[#1E4A9A]">
-                  <X className="h-3.5 w-3.5" /> {t("Очистить")}
-                </button>
-              )}
-            </span>
-            <div className="max-h-[240px] overflow-y-auto rounded-md border border-[#dbe0e8] p-2">
-              {branchOptions.map((branch) => (
-                <label key={branch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-[#f2f5f8]">
-                  <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#1E4A9A]" />
-                  {branch.name}
-                </label>
-              ))}
-              {!branchOptions.length && <p className="px-2 py-1.5 text-[#9aa3b6]">{t("Нет данных")}</p>}
-            </div>
-          </div>
-          }
-          card={
-            <div className="relative">
-              <FilterCardSelect
-                label={t("Филиалы")}
-                text={branchOptions.filter((branch) => draftBranchIds.includes(String(branch.id))).map((branch) => branch.name).join(", ")}
-                onClick={() => setBranchListOpen((value) => !value)}
-              />
-              {branchListOpen && (
-                <div className="mt-1 max-h-[200px] overflow-y-auto border border-[#e0e0e0] bg-white p-1">
-                  {branchOptions.map((branch) => (
-                    <label key={branch.id} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-[#f2f5f8]">
-                      <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#1E4A9A]" />
-                      {branch.name}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          }
-        />
+        {/* Like the reference: the filter card has «Период создания» and «Организация». */}
+        <FilterCardOptionSelect label={t("Организация")} value={draftOrganization} onChange={setDraftOrganization} options={organizationOptions.map((item) => ({ value: item.name, label: item.name }))} />
       </BalanceFilterDialog>
 
       {detail && <BranchDetailDialog entityKey={detail.key} name={detail.name} onClose={() => setDetail(null)} />}

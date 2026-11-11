@@ -6,7 +6,7 @@ import { Download, Loader2, MoreVertical, Search } from "lucide-react"
 import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
 import { balanceListExcelRows } from "@/components/analytics/balance/excel"
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
-import { BalanceFilterChip, BalanceFilterDialog, FilterVariant } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterChip, BalanceFilterDialog, FilterCardOptionSelect, FilterVariant } from "@/components/analytics/balance/filter-bar"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useFinanceCurrencies, useLookup, type BalanceQuery } from "@/components/analytics/balance/use-balance"
@@ -94,6 +94,10 @@ type ViewState = {
   /** null = default period (not counted as an active filter). */
   period: { from: string; to: string } | null
   users: string[]
+  /** Filter dialog selects (reference order: Пользователи, Должность, Права доступа, Организация). */
+  job: string
+  accessRight: string
+  organizationId: string
   search: string
   page: number
   pageSize: number
@@ -104,7 +108,7 @@ type ViewState = {
   movement: { action: EmployeeMovementAction; employeeId: number } | null
 }
 
-const INITIAL_STATE: ViewState = { period: null, users: [], search: "", page: 1, pageSize: DEFAULT_PAGE_SIZE, ordering: [], detail: null, movement: null }
+const INITIAL_STATE: ViewState = { period: null, users: [], job: "", accessRight: "", organizationId: "", search: "", page: 1, pageSize: DEFAULT_PAGE_SIZE, ordering: [], detail: null, movement: null }
 
 function positiveId(value: string | null): number | null {
   const id = Number(value)
@@ -126,6 +130,9 @@ function readUrlState(): ViewState {
   return {
     period: from && to ? (from <= to ? { from, to } : { from: to, to: from }) : null,
     users: (params.get("users") ?? "").split("-").filter((id) => /^\d+$/.test(id)),
+    job: params.get("position") ?? "",
+    accessRight: params.get("accessRight") ?? "",
+    organizationId: /^\d+$/.test(params.get("organization") ?? "") ? (params.get("organization") as string) : "",
     search: params.get("search") ?? "",
     page: Number.isInteger(page) && page > 0 ? page : 1,
     pageSize: Number.isInteger(pageSize) && pageSize > 0 ? pageSize : DEFAULT_PAGE_SIZE,
@@ -141,6 +148,9 @@ function writeUrlState(state: ViewState) {
   set("fromDate", state.period?.from ?? "")
   set("toDate", state.period?.to ?? "")
   set("users", state.users.join("-"))
+  set("position", state.job)
+  set("accessRight", state.accessRight)
+  set("organization", state.organizationId)
   set("search", state.search)
   set("page", state.page > 1 ? String(state.page) : "")
   set("pageSize", String(state.pageSize))
@@ -220,11 +230,25 @@ export function EmployeeBalanceView() {
   }, [menu])
 
   const period = state.period ?? defaultPeriod()
+  const employees = useLookup<EmployeeOption & { job?: string; accessRight?: string; organizationIds?: number[] }>("/api/employees")
+  const organizations = useLookup<{ id: number; name: string }>("/api/organizations")
+  // Должность / Права доступа / Организация narrow the rows to the matching employees (with the chosen users, if any).
+  const attributeFilter = Boolean(state.job || state.accessRight || state.organizationId)
+  const filteredKeys = useMemo(() => {
+    if (!attributeFilter) return state.users
+    const chosen = new Set(state.users)
+    const keys = employees
+      .filter((item) => (!state.job || item.job === state.job) && (!state.accessRight || item.accessRight === state.accessRight))
+      .filter((item) => !state.organizationId || (item.organizationIds ?? []).includes(Number(state.organizationId)))
+      .map((item) => String(item.id))
+      .filter((id) => !chosen.size || chosen.has(id))
+    return keys.length ? keys : ["0"]
+  }, [attributeFilter, employees, state.users, state.job, state.accessRight, state.organizationId])
   const query: BalanceQuery = {
     from: period.from,
     to: period.to,
     search: state.search,
-    key: state.users,
+    key: filteredKeys,
     ordering: state.ordering,
     page: state.page,
     pageSize: state.pageSize,
@@ -233,15 +257,16 @@ export function EmployeeBalanceView() {
   }
   const list = useBalanceList("employee", query)
   const currencies = useFinanceCurrencies()
-  const employees = useLookup<EmployeeOption & { job?: string }>("/api/employees")
   const [draftJob, setDraftJob] = useState("")
+  const [draftRight, setDraftRight] = useState("")
+  const [draftOrg, setDraftOrg] = useState("")
   const canEdit = useCanEdit()
 
   const data = list.data
   const rows = useMemo(() => data?.rows ?? [], [data])
   const visible = useMemo(() => (data ? shownCurrencies(data) : []), [data])
   const currencyList = currencies.data?.currencies ?? data?.currencies ?? []
-  const filterCount = (state.period ? 1 : 0) + (state.users.length ? 1 : 0)
+  const filterCount = (state.period ? 1 : 0) + (state.users.length ? 1 : 0) + (state.job ? 1 : 0) + (state.accessRight ? 1 : 0) + (state.organizationId ? 1 : 0)
 
   const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
 
@@ -332,6 +357,9 @@ export function EmployeeBalanceView() {
             count={filterCount}
             onOpen={() => {
               setDraftUsers(state.users)
+              setDraftJob(state.job)
+              setDraftRight(state.accessRight)
+              setDraftOrg(state.organizationId)
               setFilterOpen(true)
             }}
             onClear={() => update({ period: null, users: [], page: 1 })}
@@ -415,9 +443,10 @@ export function EmployeeBalanceView() {
         onApply={(next) => {
           // An untouched default period stays "not set" (the demo counts only a chosen period).
           const unchanged = !state.period && next.from === period.from && next.to === period.to
-          update({ period: unchanged ? null : next, users: draftUsers, page: 1 })
+          update({ period: unchanged ? null : next, users: draftUsers, job: draftJob, accessRight: draftRight, organizationId: draftOrg, page: 1 })
         }}
       >
+        <EmployeeUsersSelect options={draftJob ? employees.filter((item) => item.job === draftJob) : employees} value={draftUsers} onChange={setDraftUsers} />
         <FilterVariant
           plain={
           <label className="flex flex-col gap-1 md:col-span-2">
@@ -457,7 +486,13 @@ export function EmployeeBalanceView() {
             </label>
           }
         />
-        <EmployeeUsersSelect options={draftJob ? employees.filter((item) => item.job === draftJob) : employees} value={draftUsers} onChange={setDraftUsers} />
+        <FilterCardOptionSelect
+          label={t("Права доступа")}
+          value={draftRight}
+          onChange={setDraftRight}
+          options={[...new Set(employees.map((item) => item.accessRight).filter((right): right is string => !!right))].sort((a, b) => a.localeCompare(b, "ru")).map((right) => ({ value: right, label: right }))}
+        />
+        <FilterCardOptionSelect label={t("Организация")} value={draftOrg} onChange={setDraftOrg} options={organizations.map((item) => ({ value: String(item.id), label: item.name }))} />
       </BalanceFilterDialog>
 
       {state.detail && (
