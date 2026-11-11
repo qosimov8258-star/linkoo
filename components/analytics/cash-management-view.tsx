@@ -29,7 +29,7 @@ import {
   excelTime,
   formatCash,
   mutationError,
-  useCanWrite,
+  useCanManage,
   type SnackbarMessage,
 } from "@/components/analytics/cash-management-shared"
 import { CashTransferDialog } from "@/components/analytics/cash-management-transfer-dialog"
@@ -86,6 +86,8 @@ type TopDialog =
   | { kind: "acceptanceEdit"; id: number }
 type Panel = "accept" | "requests" | "unverified"
 
+const CASH_WRITE = ["cash.manage"] as const
+
 export function CashManagementView() {
   return (
     <Suspense fallback={null}>
@@ -112,7 +114,8 @@ function CashManagementContent() {
   const ordering = SORTABLE.some((field) => orderingParam === field || orderingParam === `-${field}`) ? orderingParam : "-id"
 
   // --- data -----------------------------------------------------------------------
-  const canWrite = useCanWrite()
+  // Every action of the page books cash: only for those who hold the cash permission (the server refuses the rest anyway).
+  const canWrite = useCanManage(CASH_WRITE)
   const cashboxesState = useCashboxes()
   const cashboxes = useMemo(() => cashboxesState.data?.cashboxes ?? [], [cashboxesState.data])
   // Настройки → Валюта приложения: new money goes only into cashboxes of the app currency (the others are shown, converted).
