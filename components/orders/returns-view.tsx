@@ -72,7 +72,8 @@ function displayMoment(value: string | null) {
 }
 
 function money(value: number) {
-  return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
+  // Up to three decimals, like the reference's band (1 653 912 387,883 SUM).
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
 }
 
 function formatNumber(value: number, maxFraction = 3) {

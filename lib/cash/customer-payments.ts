@@ -212,7 +212,9 @@ const ORDERING: Record<string, string> = {
 }
 
 function orderBy(ordering: string | undefined): string {
-  const value = String(ordering ?? "").trim() || "-id"
+  // Unsorted, the reference lists the newest payment first by its date, payments of the same moment by number.
+  if (!String(ordering ?? "").trim()) return `${PAY_TS} DESC NULLS LAST, p.id ASC`
+  const value = String(ordering ?? "").trim()
   const desc = value.startsWith("-")
   const expr = ORDERING[value.replace(/^-/, "")] ?? "p.id"
   return `${expr} ${desc ? "DESC" : "ASC"} NULLS LAST, p.id ${desc ? "DESC" : "ASC"}`

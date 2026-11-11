@@ -139,16 +139,16 @@ export function currenciesWithAmounts(
   return currencies.length ? [currencies[0].code] : []
 }
 
-/** Rounds away float noise (amount columns are REAL in Postgres). */
-export function roundMoney(value: number, digits = 2): number {
+/** Rounds away float noise. Three decimals by default, like the reference's amounts (7 079 026,149). */
+export function roundMoney(value: number, digits = 3): number {
   if (!Number.isFinite(value)) return 0
   const factor = 10 ** digits
   const rounded = Math.round(value * factor) / factor
   return Object.is(rounded, -0) ? 0 : rounded
 }
 
-/** "1 234 567,5" (ru-RU grouping, up to `maxDigits` decimals, no currency). */
-export function formatMoney(value: number, maxDigits = 2): string {
+/** "1 234 567,5" (ru-RU grouping, up to `maxDigits` decimals, no currency). The reference shows up to three decimals. */
+export function formatMoney(value: number, maxDigits = 3): string {
   return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: maxDigits }).format(roundMoney(value, maxDigits))
 }
 

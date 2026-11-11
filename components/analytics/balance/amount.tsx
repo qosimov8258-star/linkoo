@@ -21,7 +21,7 @@ export function BalanceAmount({
   value,
   currency,
   variant = "table",
-  digits = 2,
+  digits = 3,
   className = "",
 }: {
   value: number

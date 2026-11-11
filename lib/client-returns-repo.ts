@@ -367,8 +367,9 @@ export async function listClientReturns(query: ClientReturnQuery = {}): Promise<
   const statement = getDb().prepare(sql)
   const rows = ((Object.keys(params).length ? await statement.all(params) : await statement.all()) as ReturnRow[]).map(rowToReturn)
   const totals = new Map<string, number>()
-  for (const row of rows) if (row.status !== "cancelled") totals.set(row.currency, round2((totals.get(row.currency) ?? 0) + row.amount))
-  return { rows, totals: [...totals].map(([currency, amount]) => ({ currency, amount })) }
+  // Summed unrounded and rounded once to three decimals, like the reference's band (1 653 912 387,883 SUM).
+  for (const row of rows) if (row.status !== "cancelled") totals.set(row.currency, (totals.get(row.currency) ?? 0) + row.amount)
+  return { rows, totals: [...totals].map(([currency, amount]) => ({ currency, amount: Math.round(amount * 1000) / 1000 })) }
 }
 
 async function loadReturn(db: PgDb, id: number, lock = false): Promise<ReturnRow | undefined> {

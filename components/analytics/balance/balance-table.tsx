@@ -88,7 +88,7 @@ export function BalanceTable<R extends BalanceRow>({
   sortCycle = "asc-first",
   multiSort = false,
   onCellClick,
-  digits = 2,
+  digits = 3,
   loading = false,
   emptyText = "По вашему запросу ничего не найдено",
   headerTone = "light",

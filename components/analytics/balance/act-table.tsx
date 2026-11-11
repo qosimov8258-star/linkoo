@@ -35,7 +35,7 @@ export function BalanceActTable({
   statement,
   currencies,
   columns,
-  digits = 2,
+  digits = 3,
   emptyText = "Пока транзакции нет",
 }: {
   statement: StatementResult

@@ -31,7 +31,7 @@ export function BalanceSummaryCards({
   boxes,
   totals,
   currencies,
-  digits = 2,
+  digits = 3,
   loading = false,
   hideCurrency = false,
   marginClass = "mx-[30px]",
