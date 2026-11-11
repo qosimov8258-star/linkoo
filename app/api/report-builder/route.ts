@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { parseDocDay } from "@/lib/document-dates"
 import { requireFieldReader, scopedEmployeeIds } from "@/lib/field-activity/actor"
 import { FIELD_MESSAGES, fieldErrorResponse } from "@/lib/field-activity/errors"
+import { oldReportGet, oldReportPost } from "@/lib/old-report/http"
 import { builderFilterOptions, runBuilderReport, type BuilderInput, type BuilderKind } from "@/lib/report-builder-repo"
 
 // Refusals are Russian i18n keys; a FieldError of the visits source (period checks of
@@ -49,6 +50,7 @@ function filterMap(value: unknown): Record<string, string> | null {
 
 // POST /api/report-builder {kind: "sales" | "visits", tab, from, to, columns[], vertical[], horizontal[], filters{}, showTotals}
 // → {headers, rows, totals, unsupported, count[, currency, missingRates]}; GET ?kind=… → filter option lists.
+// kind "old" is «Конструктор отчетов» (the old builder: a model and field ids instead of names, lib/old-report/http.ts).
 export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: NOT_SIGNED_IN }, { status: 401 })
@@ -58,6 +60,15 @@ export async function POST(request: Request) {
   const body = parsed.data
   if (!body || typeof body !== "object" || Array.isArray(body)) return fail(BAD_DATA)
   const data = body as Record<string, unknown>
+  if (data.kind === "old") {
+    try {
+      return await oldReportPost(user, data)
+    } catch (error) {
+      const response = fieldErrorResponse(error)
+      if (response) return response
+      throw error
+    }
+  }
   if (!isKind(data.kind)) return fail(UNKNOWN_KIND, "kind")
   let employeeIds: number[] | undefined
   if (data.kind === "visits") {
@@ -112,7 +123,17 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: NOT_SIGNED_IN }, { status: 401 })
-  const kind = new URL(request.url).searchParams.get("kind")
+  const params = new URL(request.url).searchParams
+  const kind = params.get("kind")
+  if (kind === "old") {
+    try {
+      return await oldReportGet(user, params)
+    } catch (error) {
+      const response = fieldErrorResponse(error)
+      if (response) return response
+      throw error
+    }
+  }
   if (!isKind(kind)) return fail(UNKNOWN_KIND, "kind")
   let employeeIds: number[] | undefined
   if (kind === "visits") {
