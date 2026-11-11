@@ -8,13 +8,13 @@ import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/ba
 import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
 import { balanceListExcelRows } from "@/components/analytics/balance/excel"
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
-import { BalanceFilterDialog, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterDialog, FilterCardOptionSelect, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { MultiSelect } from "@/components/analytics/client-balance-filters"
 import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useBalanceStatement, useFinanceCurrencies, useLookup, type BalanceQuery } from "@/components/analytics/balance/use-balance"
 import { SupplierActDialog } from "@/components/analytics/supplier-balance-act"
 import {
-  MultiSelectField,
   Snackbar,
   SUPPLIER_PAYMENT_TYPES,
   SupplierDeleteDialog,
@@ -407,25 +407,22 @@ export function SupplierBalanceView() {
         </div>
       </ExpandedOverlay>
 
+      {/* The reference's compact card: Диапазон дат, Организация, Тип оплаты in one row. */}
       <BalanceFilterDialog
         open={filterOpen}
+        columns={4}
         onClose={() => setFilterOpen(false)}
         from={from}
         to={to}
         onApply={(period) => update({ fromDate: period.from, toDate: period.to, division: draftDivisions, paymentType: draftPaymentType, page: null })}
       >
-        <MultiSelectField label={t("Организация")} options={options?.organizations ?? []} value={draftDivisions} onChange={setDraftDivisions} />
-        <label className="flex flex-col gap-1">
-          <span className="text-sm text-[#586174]">{t("Тип оплаты")}</span>
-          <select value={draftPaymentType} onChange={(event) => setDraftPaymentType(event.target.value)} className="h-10 rounded-md border border-[#dbe0e8] px-3 text-[#17233b]">
-            <option value="">{t("Все")}</option>
-            {SUPPLIER_PAYMENT_TYPES.map((item) => (
-              <option key={item.value} value={item.value}>
-                {t(item.label)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MultiSelect label={t("Организация")} options={(options?.organizations ?? []).map((name) => ({ value: name, label: name }))} value={draftDivisions} onChange={setDraftDivisions} />
+        <FilterCardOptionSelect
+          label={t("Тип оплаты")}
+          value={draftPaymentType}
+          options={SUPPLIER_PAYMENT_TYPES.map((item) => ({ value: item.value, label: t(item.label) }))}
+          onChange={setDraftPaymentType}
+        />
       </BalanceFilterDialog>
 
       {openProvider && (

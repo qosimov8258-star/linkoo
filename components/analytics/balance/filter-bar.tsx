@@ -103,11 +103,23 @@ export function FilterCardSelect({ label, text, onClick, children }: { label: st
 
 /** Renders `card` inside the small filter card and `plain` inside the full-width panel. */
 /** Filter-card select (label floats up once a value is chosen), like the reference's filter dropdowns. */
-export function FilterCardOptionSelect({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (next: string) => void }) {
+export function FilterCardOptionSelect({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  onChange: (next: string) => void
+  disabled?: boolean
+}) {
   return (
-    <label className="relative block h-[40px] border-b border-[#d5dae1]">
+    <label className={`relative block h-[40px] border-b border-[#d5dae1] ${disabled ? "opacity-60" : ""}`}>
       <span className={`pointer-events-none absolute left-0 ${value ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-x-0 bottom-0 h-[26px] w-full appearance-none bg-transparent text-[13px] outline-none">
+      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="absolute inset-x-0 bottom-0 h-[26px] w-full appearance-none bg-transparent text-[13px] outline-none">
         <option value=""></option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
@@ -131,6 +143,7 @@ export function BalanceFilterDialog({
   dateLabel = "Диапазон дат",
   title = "Фильтр",
   variant = "panel",
+  columns = 1,
   hideDate = false,
   children,
 }: {
@@ -146,6 +159,8 @@ export function BalanceFilterDialog({
   title?: string
   /** "card": the reference's small anchored card (310px, dark "Применить") instead of the full-width panel. */
   variant?: "panel" | "card"
+  /** Panel only: 4 = the reference's compact card (fields in four columns, labels inside the fields). */
+  columns?: 1 | 4
   hideDate?: boolean
   /** Page-specific fields (selects, checkboxes). */
   children?: ReactNode
@@ -217,20 +232,20 @@ export function BalanceFilterDialog({
   // stacked fields and a full-width green "Применить".
   return (
     <div className="fixed inset-x-0 bottom-0 top-[50px] z-[100] overflow-y-auto bg-black/10" onClick={onClose}>
-      <div className="mx-[30px] mt-[117px] bg-white p-[30px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]" onClick={(event) => event.stopPropagation()}>
+      <div className={`mx-[30px] ${columns === 4 ? "mt-[80px]" : "mt-[117px]"} bg-white p-[30px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]`} onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between">
           <h2 className="text-[13px] font-semibold text-[#333]">{t(title)}</h2>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#333]">
             <XCircle className="h-6 w-6" />
           </button>
         </div>
-        <div className="mt-[10px] grid grid-cols-1 gap-[22px]">
+        <div className={columns === 4 ? "mt-[10px] grid grid-cols-1 gap-x-[22px] gap-y-[12px] md:grid-cols-4" : "mt-[10px] grid grid-cols-1 gap-[22px]"}>
           <div className="relative flex flex-col gap-1">
             <span className="text-[11px] font-semibold text-black">{t(dateLabel)}</span>
             <button
               type="button"
               onClick={() => setPickerOpen((value) => !value)}
-              className="flex h-9 w-[256px] items-center justify-between border-b border-[#dbe0e8] text-left text-[13px] text-[#17233b]"
+              className={`flex h-9 ${columns === 4 ? "w-full" : "w-[256px]"} items-center justify-between border-b border-[#dbe0e8] text-left text-[13px] text-[#17233b]`}
             >
               <span>
                 {rangeLabel(draft.from)} - {rangeLabel(draft.to)}
@@ -249,13 +264,13 @@ export function BalanceFilterDialog({
               />
             )}
           </div>
-          {children}
+          {columns === 4 ? <FilterCardContext.Provider value>{children}</FilterCardContext.Provider> : children}
         </div>
         <button
           type="button"
           onClick={apply}
           disabled={!draft.from || !draft.to}
-          className="mt-[10px] h-9 w-full rounded-[3px] bg-[#71ce87] text-[13px] font-semibold uppercase text-white disabled:opacity-50"
+          className={`mt-[10px] h-9 w-full rounded-[3px] bg-[#71ce87] text-[13px] font-semibold text-white disabled:opacity-50 ${columns === 4 ? "" : "uppercase"}`}
         >
           {t("Применить")}
         </button>

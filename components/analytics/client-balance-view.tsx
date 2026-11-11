@@ -380,6 +380,7 @@ export function ClientBalanceView() {
 
       <BalanceFilterDialog
         open={filterOpen}
+        columns={4}
         onClose={() => setFilterOpen(false)}
         from={state.filters.from}
         to={state.filters.to}

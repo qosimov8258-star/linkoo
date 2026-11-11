@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ChevronDown, Filter, Info } from "lucide-react"
 
-import { FilterCardSelect, useFilterCard } from "@/components/analytics/balance/filter-bar"
+import { FilterCardOptionSelect, FilterCardSelect, useFilterCard } from "@/components/analytics/balance/filter-bar"
+import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import type { BalanceQuery } from "@/components/analytics/balance/use-balance"
-import { defaultBalancePeriod, formatDotDate, isIsoDay } from "@/lib/finance/dates"
+import { defaultBalancePeriod, formatDotDate, isIsoDay, todayIso } from "@/lib/finance/dates"
 import { NO_CLIENT_TYPE, type ClientBalanceOptions } from "@/lib/finance-client-balance-types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -329,11 +330,16 @@ export function ClientBalanceFilterButton({ state, onOpen }: { state: ClientBala
 
 const fieldClass = "h-9 w-full border-0 border-b border-[#dbe0e8] bg-white px-0 text-[13px] text-[#17233b]"
 
-function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
+/** In the reference's compact card the label sits inside the select (FilterCardSelect), so the field passes it down. */
+const FieldLabelContext = createContext("")
+
+function Field({ label, children, wide = false, labelAbove = false }: { label: string; children: ReactNode; wide?: boolean; labelAbove?: boolean }) {
   const { t } = useLanguage()
+  const card = useFilterCard()
+  if (card && !labelAbove) return <FieldLabelContext.Provider value={label}>{children}</FieldLabelContext.Provider>
   return (
     <div className={`flex flex-col gap-1 ${wide ? "md:col-span-2" : ""}`}>
-      <span className="text-sm text-[#586174]">{t(label)}</span>
+      <span className={card ? "text-[10px] font-semibold leading-3 text-black" : "text-sm text-[#586174]"}>{t(label)}</span>
       {children}
     </div>
   )
@@ -342,9 +348,11 @@ function Field({ label, children, wide = false }: { label: string; children: Rea
 type Option = { value: string; label: string }
 
 /** Multi-select with search (demo *MultiSearchField). */
-export function MultiSelect({ value, options, onChange, disabled = false, label = "" }: { value: string[]; options: Option[]; onChange: (next: string[]) => void; disabled?: boolean; label?: string }) {
+export function MultiSelect({ value, options, onChange, disabled = false, label: ownLabel = "" }: { value: string[]; options: Option[]; onChange: (next: string[]) => void; disabled?: boolean; label?: string }) {
   const { t } = useLanguage()
   const card = useFilterCard()
+  const fieldLabel = useContext(FieldLabelContext)
+  const label = ownLabel || fieldLabel
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const ref = useRef<HTMLDivElement>(null)
@@ -402,6 +410,9 @@ export function MultiSelect({ value, options, onChange, disabled = false, label 
 
 function SingleSelect({ value, options, onChange }: { value: string; options: Option[]; onChange: (next: string) => void }) {
   const { t } = useLanguage()
+  const card = useFilterCard()
+  const label = useContext(FieldLabelContext)
+  if (card) return <FilterCardOptionSelect label={t(label)} value={value} options={options} onChange={onChange} />
   return (
     <select value={value} onChange={(event) => onChange(event.target.value)} className={fieldClass}>
       <option value="">{t("Все")}</option>
@@ -414,26 +425,57 @@ function SingleSelect({ value, options, onChange }: { value: string; options: Op
   )
 }
 
-function DaysRange({
+export function DaysRange({
   label,
   min,
   max,
   onChange,
+  disabled = false,
 }: {
   label: string
   min: string
   max: string
   onChange: (next: { min: string; max: string }) => void
+  disabled?: boolean
 }) {
   const { t } = useLanguage()
+  const card = useFilterCard()
   const clean = (value: string) => value.replace(/\D/g, "")
+  // Compact card: the reference's plain caption above two bold "От (дней)" / "До (дней)" inputs.
+  const input = card ? `${fieldClass} placeholder:font-semibold placeholder:text-black` : fieldClass
   return (
-    <Field label={label}>
+    <div className="flex flex-col gap-1">
+      <span className={card ? "text-[13px] text-[#333]" : "text-sm text-[#586174]"}>{t(label)}</span>
       <span className="grid grid-cols-2 gap-2">
-        <input inputMode="numeric" value={min} onChange={(event) => onChange({ min: clean(event.target.value), max })} placeholder={t("От (дней)")} className={fieldClass} />
-        <input inputMode="numeric" value={max} onChange={(event) => onChange({ min, max: clean(event.target.value) })} placeholder={t("До (дней)")} className={fieldClass} />
+        <input inputMode="numeric" disabled={disabled} value={min} onChange={(event) => onChange({ min: clean(event.target.value), max })} placeholder={t("От (дней)")} className={input} />
+        <input inputMode="numeric" disabled={disabled} value={max} onChange={(event) => onChange({ min, max: clean(event.target.value) })} placeholder={t("До (дней)")} className={input} />
       </span>
-    </Field>
+    </div>
+  )
+}
+
+/** Compact card: «Период создания клиента» as one field ("Укажите дату" until a range is picked) with the date range picker. */
+export function ClientPeriodField({ from, to, onChange, label = "Период создания клиента" }: { from: string; to: string; onChange: (from: string, to: string) => void; label?: string }) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative flex flex-col gap-1">
+      <span className="text-[11px] font-semibold text-black">{t(label)}</span>
+      <button type="button" onClick={() => setOpen((value) => !value)} className="flex h-9 w-full items-center justify-between border-b border-[#dbe0e8] text-left text-[13px] text-[#17233b]">
+        <span>{from && to ? `${formatDotDate(from)} - ${formatDotDate(to)}` : t("Укажите дату")}</span>
+      </button>
+      {open && (
+        <DateRangePicker
+          begin={from || to || todayIso()}
+          end={to || from || todayIso()}
+          onClose={() => setOpen(false)}
+          onApply={(begin, end) => {
+            onChange(begin, end)
+            setOpen(false)
+          }}
+        />
+      )}
+    </div>
   )
 }
 
@@ -450,6 +492,7 @@ export function ClientBalanceFilterFields({
   options: ClientBalanceOptions | null
 }) {
   const { t } = useLanguage()
+  const card = useFilterCard()
   const set = <K extends keyof ClientBalanceFilters>(field: K, value: ClientBalanceFilters[K]) => onChange({ ...draft, [field]: value })
   const typeOptions = useMemo(() => {
     const list = names(options?.types ?? [])
@@ -478,13 +521,17 @@ export function ClientBalanceFilterFields({
           onChange={(value) => set("lastVisit", value as ClientBalanceFilters["lastVisit"])}
         />
       </Field>
-      <Field label="Период создания клиента">
+      {card ? (
+        <ClientPeriodField from={draft.clientFrom} to={draft.clientTo} onChange={(from, to) => onChange({ ...draft, clientFrom: from, clientTo: to })} />
+      ) : (
+      <Field label="Период создания клиента" labelAbove>
         <span className="flex items-center gap-2">
           <input type="date" value={draft.clientFrom} onChange={(event) => set("clientFrom", event.target.value)} className={fieldClass} />
           <span className="text-[#586174]">—</span>
           <input type="date" value={draft.clientTo} onChange={(event) => set("clientTo", event.target.value)} className={fieldClass} />
         </span>
       </Field>
+      )}
       <DaysRange label="Прошло дней с последнего заказа" min={draft.orderDaysMin} max={draft.orderDaysMax} onChange={({ min, max }) => onChange({ ...draft, orderDaysMin: min, orderDaysMax: max })} />
       <DaysRange
         label="Прошло дней с последней оплаты"
@@ -530,7 +577,7 @@ export function ClientBalanceFilterFields({
       <Field label="Ответственный инкасатор">
         <SingleSelect value={draft.collector} options={withSelected(options?.collectors, draft.collector ? [draft.collector] : [])} onChange={(value) => set("collector", value)} />
       </Field>
-      <div className="flex flex-col gap-2 pt-2 text-[14px] text-[#17233b] md:col-span-2">
+      <div className={card ? "grid grid-cols-1 gap-2 pt-2 text-[13px] font-semibold text-black md:col-span-4 md:grid-cols-4" : "flex flex-col gap-2 pt-2 text-[14px] text-[#17233b] md:col-span-2"}>
         {(
           [
             ["releasedOrders", "Учитывать только реализованных заказов"],

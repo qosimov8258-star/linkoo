@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { Check, ChevronDown, X } from "lucide-react"
+import { useEffect, useState } from "react"
 
-import { BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterDialog, FilterCardOptionSelect } from "@/components/analytics/balance/filter-bar"
+import { ClientPeriodField, DaysRange, MultiSelect } from "@/components/analytics/client-balance-filters"
 import type { BalanceQuery } from "@/components/analytics/balance/use-balance"
 import type { AccountDebtOptions } from "@/lib/finance-account-debts-types"
 import { isIsoDay } from "@/lib/finance/dates"
@@ -159,126 +159,16 @@ function useAccountDebtOptions(enabled: boolean): { options: AccountDebtOptions;
 
 // --- fields ------------------------------------------------------------------
 
-const fieldClass = "h-10 w-full rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b] disabled:cursor-not-allowed disabled:bg-[#f2f5f8] disabled:text-[#9aa3b6]"
-
-function Field({ label, children, disabled = false, wide = false }: { label: string; children: ReactNode; disabled?: boolean; wide?: boolean }) {
-  const { t } = useLanguage()
-  return (
-    <div className={`flex flex-col gap-1 ${wide ? "md:col-span-2" : ""}`} title={disabled ? t("Нет данных") : undefined}>
-      <span className={`text-sm ${disabled ? "text-[#9aa3b6]" : "text-[#586174]"}`}>{t(label)}</span>
-      {children}
-    </div>
-  )
-}
-
-function SelectField({
-  label,
-  value,
-  options,
-  onChange,
-  disabled = false,
-}: {
-  label: string
-  value: string
-  /** [value, label] pairs (labels already translated where needed). */
-  options: Array<[string, string]>
-  onChange: (value: string) => void
-  disabled?: boolean
-}) {
-  const { t } = useLanguage()
-  return (
-    <Field label={label} disabled={disabled}>
-      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className={fieldClass}>
-        <option value="">{disabled ? t("Нет данных") : t("Все")}</option>
-        {options.map(([optionValue, optionLabel]) => (
-          <option key={optionValue} value={optionValue}>
-            {optionLabel}
-          </option>
-        ))}
-      </select>
-    </Field>
-  )
-}
-
-function MultiSelectField({ label, value, options, onChange }: { label: string; value: string[]; options: string[]; onChange: (value: string[]) => void }) {
-  const { t } = useLanguage()
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState("")
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", close)
-    return () => document.removeEventListener("mousedown", close)
-  }, [open])
-  // Keep selected values that are not (or no longer) among the options visible.
-  const all = useMemo(() => [...value.filter((item) => !options.includes(item)), ...options], [value, options])
-  const shown = all.filter((item) => item.toLowerCase().includes(query.trim().toLowerCase()))
-  const toggle = (item: string) => onChange(value.includes(item) ? value.filter((selected) => selected !== item) : [...value, item])
-  return (
-    <Field label={label}>
-      <div ref={ref} className="relative">
-        <button type="button" onClick={() => setOpen((current) => !current)} className={`${fieldClass} flex items-center justify-between gap-2 text-left`}>
-          <span className="truncate">{value.length ? value.join(", ") : t("Все")}</span>
-          <span className="flex shrink-0 items-center gap-1 text-[#9aa3b6]">
-            {value.length > 0 && (
-              <X
-                className="h-4 w-4 hover:text-[#e57373]"
-                aria-label={t("Очистить")}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onChange([])
-                }}
-              />
-            )}
-            <ChevronDown className="h-4 w-4" />
-          </span>
-        </button>
-        {open && (
-          <div className="absolute left-0 right-0 z-[110] mt-1 max-h-64 overflow-y-auto rounded-md border border-[#e1e5eb] bg-white shadow-lg">
-            <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="h-9 w-full border-b border-[#e1e5eb] px-3 outline-none" />
-            {shown.map((item) => (
-              <button key={item} type="button" onClick={() => toggle(item)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[#17233b] hover:bg-[#f2f5f8]">
-                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(item) ? "border-[#1E4A9A] bg-[#1E4A9A] text-white" : "border-[#c5ccd8]"}`}>
-                  {value.includes(item) && <Check className="h-3 w-3" />}
-                </span>
-                <span className="truncate">{item}</span>
-              </button>
-            ))}
-            {!shown.length && <p className="px-3 py-3 text-sm text-[#9aa3b6]">{t("Ничего не найдено")}</p>}
-          </div>
-        )}
-      </div>
-    </Field>
-  )
-}
-
-function DaysRangeField({ label, min, max, onChange, disabled = false }: { label: string; min: string; max: string; onChange: (next: { min: string; max: string }) => void; disabled?: boolean }) {
-  const { t } = useLanguage()
-  const clean = (value: string) => value.replace(/\D/g, "")
-  return (
-    <Field label={label} disabled={disabled}>
-      <span className="flex items-center gap-2">
-        <input inputMode="numeric" value={min} disabled={disabled} onChange={(event) => onChange({ min: clean(event.target.value), max })} placeholder={t("От (дней)")} className={fieldClass} />
-        <input inputMode="numeric" value={max} disabled={disabled} onChange={(event) => onChange({ min, max: clean(event.target.value) })} placeholder={t("До (дней)")} className={fieldClass} />
-      </span>
-    </Field>
-  )
-}
-
 function CheckField({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   const { t } = useLanguage()
   return (
-    <label className={`flex items-center gap-2 ${disabled ? "cursor-not-allowed text-[#9aa3b6]" : "text-[#17233b]"}`} title={disabled ? t("Нет данных") : undefined}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
+    <label className={`flex items-center gap-2 ${disabled ? "cursor-not-allowed text-[#9aa3b6]" : "text-black"}`} title={disabled ? t("Нет данных") : undefined}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
       {t(label)}
     </label>
   )
 }
 
-const names = (values: string[]): Array<[string, string]> => values.map((value) => [value, value])
 
 export function AccountDebtFilterDialog({
   open,
@@ -298,7 +188,7 @@ export function AccountDebtFilterDialog({
   onApply: (period: { from: string; to: string }, filters: AccountDebtFilters) => void
 }) {
   const { t } = useLanguage()
-  const { options, loading } = useAccountDebtOptions(open)
+  const { options } = useAccountDebtOptions(open)
   const [draft, setDraft] = useState(filters)
   const [lastOpen, setLastOpen] = useState(open)
   if (open !== lastOpen) {
@@ -309,72 +199,53 @@ export function AccountDebtFilterDialog({
   const set = <K extends keyof AccountDebtFilters>(key: K, value: AccountDebtFilters[K]) => setDraft((current) => ({ ...current, [key]: value }))
 
   return (
+    // The reference's compact card (four columns): its fields in its order. Filters it does not offer here
+    // (Зона, Клиенты агента, Ответственные доставщики, …) still apply from the URL.
     <BalanceFilterDialog
       open={open}
+      columns={4}
       onClose={onClose}
       from={from}
       to={to}
       dateLabel={mode === "realization" ? "Период реализации" : "Период создания транзакции"}
       onApply={(period) => onApply(period, draft)}
     >
-      {loading && <p className="text-sm text-[#9aa3b6] md:col-span-2">{t("Загрузка...")}</p>}
-      <MultiSelectField label="Филиалы" value={draft.branch} options={options.branches} onChange={(value) => set("branch", value)} />
-      <MultiSelectField label="Зона" value={draft.border} options={options.zones} onChange={(value) => set("border", value)} />
-      <SelectField
-        label="Последнее посещение"
+      <MultiSelect label={t("Филиалы")} value={draft.branch} options={optionList(options.branches)} onChange={(value) => set("branch", value)} />
+      <FilterCardOptionSelect
+        label={t("Последнее посещение")}
         value=""
         options={[
-          ["success", t("Успешный")],
-          ["unsuccess", t("Не успешно")],
+          { value: "success", label: t("Успешный") },
+          { value: "unsuccess", label: t("Не успешно") },
         ]}
         onChange={() => undefined}
         disabled
       />
-      <Field label="Период создания клиента">
-        <span className="flex items-center gap-2">
-          <input type="date" value={draft.marketFromDate} max={draft.marketToDate || undefined} onChange={(event) => set("marketFromDate", event.target.value)} className={fieldClass} />
-          <span className="text-[#586174]">—</span>
-          <input type="date" value={draft.marketToDate} min={draft.marketFromDate || undefined} onChange={(event) => set("marketToDate", event.target.value)} className={fieldClass} />
-        </span>
-      </Field>
-      <DaysRangeField
-        label="Прошло дней с последнего заказа"
-        min={draft.minOrderDays}
-        max={draft.orderDays}
-        onChange={({ min, max }) => setDraft((current) => ({ ...current, minOrderDays: min, orderDays: max }))}
-      />
-      <DaysRangeField
-        label="Прошло дней с последней оплаты"
-        min={draft.minPaymentDays}
-        max={draft.paymentDays}
-        onChange={({ min, max }) => setDraft((current) => ({ ...current, minPaymentDays: min, paymentDays: max }))}
-      />
-      <DaysRangeField label="Прошло дней с последнего отказа" min="" max="" onChange={() => undefined} disabled />
-      <DaysRangeField label="Прошло дней с последнего визита" min="" max="" onChange={() => undefined} disabled />
-      <MultiSelectField label="Организация" value={draft.division} options={options.organizations} onChange={(value) => set("division", value)} />
-      <SelectField label="Тип клиента" value={draft.marketTypeParent} options={names(withValue(options.clientTypes, draft.marketTypeParent))} onChange={(value) => set("marketTypeParent", value)} />
-      {draft.marketTypeParent && <SelectField label="Подкатегория" value="" options={[]} onChange={() => undefined} disabled />}
-      <MultiSelectField label="Клиенты агента" value={draft.user} options={options.agents} onChange={(value) => set("user", value)} />
-      <SelectField label="Доставщик" value={draft.deliveryMan} options={names(withValue(options.deliverers, draft.deliveryMan))} onChange={(value) => set("deliveryMan", value)} />
-      <SelectField
-        label="Тип баланса"
+      <ClientPeriodField from={draft.marketFromDate} to={draft.marketToDate} onChange={(fromDay, toDay) => setDraft((current) => ({ ...current, marketFromDate: fromDay, marketToDate: toDay }))} />
+      <DaysRange label="Прошло дней с последнего заказа" min={draft.minOrderDays} max={draft.orderDays} onChange={({ min, max }) => setDraft((current) => ({ ...current, minOrderDays: min, orderDays: max }))} />
+      <DaysRange label="Прошло дней с последней оплаты" min={draft.minPaymentDays} max={draft.paymentDays} onChange={({ min, max }) => setDraft((current) => ({ ...current, minPaymentDays: min, paymentDays: max }))} />
+      <DaysRange label="Прошло дней с последнего отказа" min="" max="" onChange={() => undefined} disabled />
+      <DaysRange label="Прошло дней с последнего визита" min="" max="" onChange={() => undefined} disabled />
+      <MultiSelect label={t("Организация")} value={draft.division} options={optionList(options.organizations)} onChange={(value) => set("division", value)} />
+      <FilterCardOptionSelect label={t("Тип клиента")} value={draft.marketTypeParent} options={optionList(withValue(options.clientTypes, draft.marketTypeParent))} onChange={(value) => set("marketTypeParent", value)} />
+      <FilterCardOptionSelect label={t("Доставщик")} value={draft.deliveryMan} options={optionList(withValue(options.deliverers, draft.deliveryMan))} onChange={(value) => set("deliveryMan", value)} />
+      <FilterCardOptionSelect
+        label={t("Тип баланса")}
         value={draft.balanceType}
-        options={BALANCE_TYPES.map((type) => [type, t(BALANCE_TYPE_LABELS[type])])}
+        options={BALANCE_TYPES.map((type) => ({ value: type, label: t(BALANCE_TYPE_LABELS[type]) }))}
         onChange={(value) => set("balanceType", value as AccountDebtFilters["balanceType"])}
       />
-      <MultiSelectField label="Ответственные доставщики" value={draft.responsibleDeliveryMan} options={options.deliverers} onChange={(value) => set("responsibleDeliveryMan", value)} />
-      <SelectField label="Ответственный инкасатор" value={draft.collectorMan} options={names(withValue(options.collectors, draft.collectorMan))} onChange={(value) => set("collectorMan", value)} />
-      <div className="flex flex-col gap-2 border-t border-[#e1e5eb] pt-4 md:col-span-2">
+      <div className="grid grid-cols-1 gap-2 pt-2 text-[13px] font-semibold text-black md:col-span-4 md:grid-cols-4">
         <CheckField label="Учитывать только реализованных заказов" checked={draft.releasedOrders} onChange={(checked) => set("releasedOrders", checked)} />
-        <CheckField label="Только доставленные заказы" checked={draft.isOnlyDelivered} onChange={(checked) => set("isOnlyDelivered", checked)} />
         <CheckField label="Только оплаты с счет фактурой" checked={false} onChange={() => undefined} disabled />
-        <CheckField label="Исключить закрытие магазины" checked={draft.excludeClosedClients} onChange={(checked) => set("excludeClosedClients", checked)} />
-        <button type="button" onClick={() => setDraft({ ...EMPTY_ACCOUNT_DEBT_FILTERS })} className="self-start text-sm text-[#1E4A9A] hover:underline">
-          {t("Сбросить фильтр")}
-        </button>
       </div>
     </BalanceFilterDialog>
   )
+}
+
+/** Plain names as select options. */
+function optionList(values: string[]): Array<{ value: string; label: string }> {
+  return values.map((value) => ({ value, label: value }))
 }
 
 /** Options plus the current value (a URL value may not be among the options). */
