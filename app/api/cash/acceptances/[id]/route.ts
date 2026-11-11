@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { getAcceptance, updateAcceptance } from "@/lib/cash/accept"
 import { cashErrorResponse, updateAcceptanceSchema } from "@/lib/cash/api"
 import { isDbId } from "@/lib/cash/common"
@@ -17,8 +17,8 @@ function parseId(value: string): number | null {
 // GET /api/cash/acceptances/[id] → AcceptanceDetail (type-8 info: header + payments).
 // PUT /api/cash/acceptances/[id]  { payments?, branch?, organization?, cashboxId?, deliveryManId?, date?, comment? } → AcceptanceDetail.
 export async function GET(_request: Request, { params }: Params) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
   const id = parseId((await params).id)
   const detail = id ? await getAcceptance(id) : null
   if (!detail) return NextResponse.json({ error: "Операция не найдена" }, { status: 404 })

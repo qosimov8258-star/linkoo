@@ -7,3 +7,19 @@ data
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# Secrets and business data never go into an image layer (the app gets its settings from
+# docker-compose's environment at run time, not from a baked-in .env).
+.env
+.env.*
+!.env.example
+backups
+*.dump
+*.sql
+# Local tooling that the build does not need
+.claude
+.ui-check
+.next-*
+tools
+image*.png
+diag-files.png

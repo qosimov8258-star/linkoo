@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { routeId } from "@/lib/finance/api"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
+import { parseJsonBody } from "@/lib/validation"
 import { branchBalanceTransactionSchema, createBranchBalanceTransaction, listBranchBalanceTransactions } from "@/lib/branch-balance-repo"
 
 // GET  /api/branch-balance-transactions[?branchId=N] → the manual branch ledger rows.
 // POST /api/branch-balance-transactions (manager+) → "Добавить" / "Добавить расход"
 // of the Баланс филиалов page (balances: GET /api/balances/branch).
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
   const branchId = routeId(new URL(request.url).searchParams.get("branchId") ?? "")
   return NextResponse.json(await listBranchBalanceTransactions(branchId ?? undefined))
 }

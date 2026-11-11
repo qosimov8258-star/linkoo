@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { cashErrorResponse } from "@/lib/cash/api"
 import { getReceipt } from "@/lib/cash/cashboxes"
-import { notSignedInResponse } from "@/lib/validation"
 
 // GET /api/cash/operations/[key]/receipt → CashReceipt ("Квитанция № …").
 export async function GET(_request: Request, { params }: { params: Promise<{ key: string }> }) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
   try {
     return NextResponse.json(await getReceipt((await params).key))
   } catch (error) {

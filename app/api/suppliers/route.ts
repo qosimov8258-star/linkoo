@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requirePurchaseReader } from "@/lib/company-money"
 import { requireRole } from "@/lib/rbac"
 import { createSupplier, listSuppliers, parseSupplierInput, supplierSchema } from "@/lib/suppliers-repo"
 import { parseProcurementBody, procurementWrite } from "@/lib/supplier-refs"
 
 export async function GET() {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  const reader = await requirePurchaseReader()
+  if (reader.error) return reader.error
   return NextResponse.json((await listSuppliers()))
 }
 

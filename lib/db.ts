@@ -49,7 +49,7 @@ const IDLE_IN_TRANSACTION_MS = 120_000
 const MAINTENANCE_MAX = 4
 /** Bumped when the pool options change: a running dev server (globalThis survives hot
  * reloads) then opens a new pool; the old one's idle connections close by themselves. */
-const POOL_VERSION = 2
+const POOL_VERSION = 3
 
 type PoolKind = "request" | "maintenance"
 type VersionedPool = Pool & { linkoVersion?: number }
@@ -112,7 +112,11 @@ function createPool(max: number): VersionedPool {
     connectionTimeoutMillis: POOL_WAIT_MS,
     idleTimeoutMillis: 30_000,
     // Session defaults of every connection (pool reads and lazy DDL included).
-    options: `-c lock_timeout=${LOCK_TIMEOUT_MS} -c idle_in_transaction_session_timeout=${IDLE_IN_TRANSACTION_MS}`,
+    // jit=off: the report queries are long texts over small tables. Their estimated cost is far
+    // above jit_above_cost, so Postgres compiled every one of them to machine code first — about
+    // 3 s of compiling for 0.1 s of work (the field event stream of Активность, measured
+    // 2026-11-11 on 480 orders). JIT only pays off on scans of millions of rows.
+    options: `-c lock_timeout=${LOCK_TIMEOUT_MS} -c idle_in_transaction_session_timeout=${IDLE_IN_TRANSACTION_MS} -c jit=off`,
   })
   // An idle connection the server closed must not crash the process (pg emits 'error').
   pool.on("error", (error) => console.warn("[db] idle connection error:", error.message))

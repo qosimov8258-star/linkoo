@@ -87,7 +87,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   const session = await verifySession(token)
   if (!session || !session.sessionId) return null
 
-  if (await isSessionRevoked(session.sessionId)) return null
+  if (await isSessionRevoked(session.sessionId, session.userId)) return null
 
   await ensureUserEmployeeLink()
   const db = getDb()

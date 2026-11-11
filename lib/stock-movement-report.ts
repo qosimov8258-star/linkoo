@@ -647,10 +647,11 @@ export async function movementRequest(url: string): Promise<{ filters: MoveFilte
   return { filters: parsed.filters, params }
 }
 
-/** 500 with the message (e.g. the stock core is not ready yet). */
+/** 500 of a failed report. The cause goes to the server log only: a database error text
+ * (table and column names, a piece of the query) is not for the browser. */
 export function movementFailure(error: unknown): NextResponse {
   const busy = dbErrorResponse(error)
   if (busy) return busy
   console.error("stock movement report:", error)
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 })
+  return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 })
 }

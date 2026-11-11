@@ -16,6 +16,9 @@ const COLORS = ["#00e096", "#0095ff", "#ff3d71", "#ffaa00", "#7a5af8", "#fd7e14"
 const MAX_SLICES = 9
 
 const fmt = (value: number, digits = 2) => value.toLocaleString("ru-RU", { maximumFractionDigits: digits })
+/** ECharts puts what a tooltip formatter returns into the page as HTML: a name typed by a user
+ * (a product, a client, an agent) must go in as text, never as markup. */
+const escapeHtml = (text: string) => String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char)
 
 /** "2026-10-05" → "05.10"; a week starts on its Monday ("05.10 – 11.10"); "2026-10" → "10.2026". */
 function timeLabel(group: string, name: string): string {
@@ -72,7 +75,7 @@ export function RightPanel({ begin, end }: { begin: string; end: string }) {
     const chart = echarts.init(chartRef.current)
     chart.setOption({
       animation: false,
-      tooltip: { trigger: "item", formatter: (item: { name: string; value: number; percent: number }) => `${item.name}<br/><b>${fmt(item.value)}</b> (${item.percent}%)` },
+      tooltip: { trigger: "item", formatter: (item: { name: string; value: number; percent: number }) => `${escapeHtml(item.name)}<br/><b>${fmt(item.value)}</b> (${item.percent}%)` },
       series: [
         {
           type: "pie",

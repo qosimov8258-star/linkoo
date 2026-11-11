@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
+import { parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse, cashOperationSchema, parseCashListQuery } from "@/lib/cash/api"
 import { listCashOperations } from "@/lib/cash/list"
 import { createCashOperation } from "@/lib/cash/write"
@@ -10,8 +10,8 @@ import { createCashOperation } from "@/lib/cash/write"
 // GET  /api/cash/operations?… → CashListResult (the "Управления кассой" list).
 // POST /api/cash/operations  CashOperationInput → 201 CashWriteResult ("Приход" / "Расход").
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
   const parsed = parseCashListQuery(request.url)
   if (parsed.error) return parsed.error
   return NextResponse.json(await listCashOperations(parsed.data))

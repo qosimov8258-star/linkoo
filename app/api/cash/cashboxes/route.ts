@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { listCashboxesWithBalances } from "@/lib/cash/cashboxes"
-import { notSignedInResponse } from "@/lib/validation"
 
 // GET /api/cash/cashboxes → CashboxListResult: every cashbox (position order)
 // with its all-time ledger balance (left column of "Управления кассой").
 export async function GET() {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
   return NextResponse.json(await listCashboxesWithBalances())
 }

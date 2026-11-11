@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requirePurchaseReader } from "@/lib/company-money"
 import { requireRole } from "@/lib/rbac"
 import { addIncomingExpense, listIncomingExpenses } from "@/lib/supplier-incomings-repo"
 import { incomingChangeResponse, incomingExpenseSchema, incomingNotFound } from "@/lib/supplier-incomings-api"
 import { parseProcurementBody, parseRouteId, procurementWrite } from "@/lib/supplier-refs"
-import { notSignedInResponse } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
-  if (!(await getCurrentUser())) return notSignedInResponse()
+  const reader = await requirePurchaseReader()
+  if (reader.error) return reader.error
   const id = parseRouteId((await params).id)
   const expenses = id ? await listIncomingExpenses(id) : null
   return expenses ? NextResponse.json(expenses) : incomingNotFound()

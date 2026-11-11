@@ -1,4 +1,3 @@
-import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -121,7 +120,6 @@ export default async function RootLayout({
             <AlertHost />
           </AppCurrencyProvider>
         </LanguageProvider>
-        {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )

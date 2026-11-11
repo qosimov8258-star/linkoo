@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { isSelfServiceRoute } from "@/lib/capabilities-catalog"
 import { checkRateLimit, clientIp } from "@/lib/rate-limit"
-import { SESSION_COOKIE, verifySession } from "@/lib/session"
+import { SESSION_COOKIE, signRequestMark, verifySession } from "@/lib/session"
 
 // Resources sensitive enough to gate by role at the edge (using the signed
 // JWT's role claim) in addition to each route's own DB-backed requireRole()
@@ -32,10 +32,44 @@ const RATE_LIMIT_EXEMPT = new Set(["/api/auth/logout", "/api/auth/me"])
 const PASSWORD_CHANGE_OPEN_PREFIXES = ["/api/user-sessions"]
 
 // Headers the route handlers read (lib/rbac.ts, app/layout.tsx). Always
-// overwritten here, so a client cannot supply them.
+// overwritten here, so a client cannot supply them; the path and the method are
+// also signed (MARK_HEADER, lib/session.ts signRequestMark), so lib/rbac.ts can
+// tell the values of this proxy from ones a client sent past it.
 const PATH_HEADER = "x-linko-path"
 const METHOD_HEADER = "x-linko-method"
 const URL_HEADER = "x-linko-url"
+const MARK_HEADER = "x-linko-mark"
+
+// --- Content Security Policy of the pages ---------------------------------------
+// Scripts run only with the nonce made for this one response ('strict-dynamic': what they load
+// is trusted too), so markup injected into a page — a stored <script>, an inline handler, a
+// script from another host — does not execute. Next.js reads the nonce from the CSP *request*
+// header and puts it on its own script tags (every page is rendered per request: app/layout.tsx
+// reads the headers). Styles stay 'unsafe-inline' (React style attributes, Leaflet, ECharts);
+// pictures may come from anywhere over HTTPS (map tiles, photos kept by URL), frames only from
+// this site and the YouTube lesson of Подписки, nothing may frame the app, and forms post home.
+// `next dev` needs eval (React's debugging) and a websocket (hot reload).
+const IS_DEV = process.env.NODE_ENV !== "production"
+const CSP_HEADER = "Content-Security-Policy"
+
+function pagePolicy(nonce: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${IS_DEV ? " 'unsafe-eval'" : ""}`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",
+    `connect-src 'self'${IS_DEV ? " ws: wss:" : ""}`,
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
+    "worker-src 'self' blob:",
+    "media-src 'self' data: blob:",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ")
+}
 
 type MessageKey =
   | "origin"
@@ -209,9 +243,18 @@ export async function proxy(request: NextRequest) {
   forwarded.set(PATH_HEADER, pathname)
   forwarded.set(METHOD_HEADER, method)
   forwarded.set(URL_HEADER, `${pathname}${search}`)
+  // Never a client's value: without the secret no mark can be made (the request then fails in lib/rbac.ts).
+  forwarded.delete(MARK_HEADER)
+  if (isApi) forwarded.set(MARK_HEADER, await signRequestMark(method, pathname).catch(() => ""))
+  // Pages get their own policy and nonce; an API answer keeps the site-wide header of
+  // next.config.mjs. The request copy is what Next.js takes the nonce from: never a client's.
+  const policy = isApi ? null : pagePolicy(btoa(crypto.randomUUID()))
+  if (policy) forwarded.set(CSP_HEADER, policy)
+  else forwarded.delete(CSP_HEADER)
   const next = () => {
     const response = NextResponse.next({ request: { headers: forwarded } })
     for (const [key, value] of Object.entries(corsHeaders(origin))) response.headers.set(key, value)
+    if (policy) response.headers.set(CSP_HEADER, policy)
     return response
   }
 
@@ -223,6 +266,14 @@ export async function proxy(request: NextRequest) {
     if (method === "OPTIONS") {
       return new NextResponse(null, { status: 204, headers: corsHeaders(origin) })
     }
+  }
+
+  // A browser marks where a request comes from (Sec-Fetch-Site). A write sent by another site
+  // without an Origin header (old or unusual clients) is refused by that mark; same-origin
+  // requests, the address bar ("none") and non-browser clients (no mark) are not affected.
+  if (isApi && MUTATING_METHODS.has(method) && !origin) {
+    const site = request.headers.get("sec-fetch-site")
+    if (site === "cross-site" || site === "same-site") return fail(request, "origin", 403)
   }
 
   if (isApi && badUrl(request)) return fail(request, "badText", 400)

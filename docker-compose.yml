@@ -6,8 +6,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-linko}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-linko}
+    # Published on this machine only (psql / backups over SSH). Docker publishes ports past the
+    # host firewall (ufw), so "5432:5432" would offer the database to the whole internet; the app
+    # itself reaches it over the compose network and needs no published port at all.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - linko_postgres_data:/var/lib/postgresql/data
     healthcheck:

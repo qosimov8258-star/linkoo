@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requirePurchaseReader } from "@/lib/company-money"
 import { getNetCostOptions } from "@/lib/net-cost-repo"
-import { notSignedInResponse } from "@/lib/validation"
 
 /** Pickers of the page: catalog items, warehouses, base currency, check (fault) types. */
 export async function GET() {
-  if (!(await getCurrentUser())) return notSignedInResponse()
+  const reader = await requirePurchaseReader()
+  if (reader.error) return reader.error
   return NextResponse.json(await getNetCostOptions())
 }

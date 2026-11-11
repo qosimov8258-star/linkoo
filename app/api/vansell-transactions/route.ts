@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { dateReasonFirst } from "@/lib/document-dates"
 import { vansellTransactionCreateSchema } from "@/lib/finance-vansell-balance-api"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { createVansellTransaction, listVansellTransactions } from "@/lib/vansell-transactions-repo"
 
 // Manual van-sell movements ("Баланс вансел"). Balances / statements are
@@ -12,8 +12,8 @@ import { createVansellTransaction, listVansellTransactions } from "@/lib/vansell
 
 /** GET ?employeeId= → manual movements, newest first. */
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
   const param = (new URL(request.url).searchParams.get("employeeId") ?? "").trim()
   if (!param) return NextResponse.json(await listVansellTransactions({}))
   // An id that is not a positive int4 matches no employee (never a 500).

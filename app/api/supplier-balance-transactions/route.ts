@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireSupplierMoneyReader } from "@/lib/company-money"
 import { supplierBalanceCreateSchema, supplierBalanceListQuerySchema, supplierBalanceResponse } from "@/lib/finance-supplier-balance"
 import { requireRole } from "@/lib/rbac"
 import { createSupplierBalanceTransaction, listSupplierBalanceTransactions } from "@/lib/supplier-balance-repo"
-import { notSignedInResponse, parseJsonBody, zodErrorResponse } from "@/lib/validation"
+import { parseJsonBody, zodErrorResponse } from "@/lib/validation"
 
 // Manual supplier balance entries of "Баланс поставщиков". Balances, totals
 // and the act are read from /api/balances/supplier(/statement).
 
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireSupplierMoneyReader()
+  if (reader.error) return reader.error
 
   const params = new URL(request.url).searchParams
   const query = supplierBalanceListQuerySchema.safeParse({ supplierId: params.get("supplierId") || undefined, kind: params.get("kind") || undefined })

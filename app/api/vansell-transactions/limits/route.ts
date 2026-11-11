@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { vansellLimitsSchema } from "@/lib/finance-vansell-balance-api"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
+import { parseJsonBody } from "@/lib/validation"
 import { listVansellLimits, saveVansellLimits } from "@/lib/vansell-transactions-repo"
 
 // Van-sell debt limits ("Изменить лимит", demo van_sell_debt_limit).
 // canUpdate tells the page whether to offer the write actions (manager+).
 
 export async function GET() {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
+  const user = reader.user
   return NextResponse.json({ canUpdate: user.role === "admin" || user.role === "manager", limits: await listVansellLimits() })
 }
 

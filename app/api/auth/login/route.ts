@@ -8,6 +8,7 @@ import { parseBody } from "@/lib/auth-request"
 import { toRole } from "@/lib/current-user"
 import { getDb } from "@/lib/db"
 import { recordAuthLog } from "@/lib/auth-logs-repo"
+import { DEVICE_COOKIE, knownDeviceCookieOptions, readKnownDevice, signKnownDevice } from "@/lib/known-device"
 import { clearFailures, clientIp, reserveAttempt } from "@/lib/rate-limit"
 import { REMEMBER_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, sessionCookieOptions, signSession } from "@/lib/session"
 import { recordSession, revokeSession } from "@/lib/user-sessions-repo"
@@ -38,6 +39,10 @@ const loginSchema = z.object({
 // reserveAttempt), so requests sent in parallel get no more checks than that;
 // a correct password gives its attempt back. Wrong current passwords at the
 // password change (app/api/auth/password) share the per-account counter.
+//
+// A browser that signed in to the account before (lib/known-device.ts) is
+// counted per device instead of on the account-wide counter: otherwise anyone
+// who knows a login could keep its owner locked out by sending wrong passwords.
 const MAX_FAILURES_PER_CLIENT = 5
 const MAX_FAILURES_PER_ACCOUNT = 20
 const FAILURE_WINDOW_MS = 10 * 60_000
@@ -113,10 +118,13 @@ export async function POST(request: NextRequest) {
   const ip = clientIp(request)
   const clientKey = `login-failures:${key}:${ip}`
   const accountKey = `login-failures:${key}`
+  const device = await readKnownDevice(request.cookies.get(DEVICE_COOKIE)?.value)
+  const knownDevice = device !== null && device.logins.includes(key)
+  const deviceKey = `login-failures:${key}:device:${device?.id ?? ""}`
   const attempt = reserveAttempt(
     [
       { key: clientKey, limit: MAX_FAILURES_PER_CLIENT },
-      { key: accountKey, limit: MAX_FAILURES_PER_ACCOUNT },
+      knownDevice ? { key: deviceKey, limit: MAX_FAILURES_PER_CLIENT } : { key: accountKey, limit: MAX_FAILURES_PER_ACCOUNT },
     ],
     FAILURE_WINDOW_MS,
   )
@@ -135,6 +143,7 @@ export async function POST(request: NextRequest) {
   if (!user || !valid) return NextResponse.json({ error: "Неверный логин или пароль" }, { status: 401 })
   attempt.release()
   clearFailures(clientKey)
+  if (knownDevice) clearFailures(deviceKey)
 
   // The account's employee (Сотрудники) was deactivated or lost "Доступ к системе".
   if (!user.has_access) {
@@ -177,5 +186,7 @@ export async function POST(request: NextRequest) {
   })
   // Without "remember me" a session cookie that the browser clears on close.
   response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(remember === true, ttlMs))
+  // This browser now knows the account (see the note on the failure counters above).
+  response.cookies.set(DEVICE_COOKIE, await signKnownDevice(device, key), knownDeviceCookieOptions())
   return response
 }

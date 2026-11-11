@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { requireRole } from "@/lib/rbac"
 import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse } from "@/lib/cash/api"
@@ -13,8 +13,8 @@ import { cashManagementEntrySchema, createCashManagementEntry, listCashManagemen
 // GET  /api/cash-management-entries?cashboxId → CashManagementEntry[] (not deleted)
 // POST /api/cash-management-entries { cashboxId, category | categoryId, amount ±, … } → 201 { key, source, id, docNo, entry }
 export async function GET(request: NextRequest) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
 
   const cashboxIdParam = request.nextUrl.searchParams.get("cashboxId")
   const cashboxId = cashboxIdParam ? (parseIdSegment(cashboxIdParam.trim()) ?? 0) : undefined

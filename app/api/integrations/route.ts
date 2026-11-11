@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
 import { integrationSchema } from "@/lib/integrations-schema"
 import { createIntegration, listIntegrations } from "@/lib/integrations-repo"
-import { requireRole } from "@/lib/rbac"
+import { requirePermission, requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 
 function intParam(value: string | null): number | null {
@@ -11,9 +10,12 @@ function intParam(value: string | null): number | null {
   return value && Number.isInteger(parsed) && parsed > 0 ? parsed : null
 }
 
+// An integration row holds the token of the external service (a secret), so even reading the
+// list needs the settings permission that changes it: administrators, role-only managers and the
+// access rights that grant settings.manage. Everybody else gets 403, also for one row ([id]).
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  const auth = await requirePermission("settings.manage")
+  if ("error" in auth) return auth.error
   const params = new URL(request.url).searchParams
   const pageSize = Math.min(2000, intParam(params.get("pageSize")) ?? 25)
   return NextResponse.json(

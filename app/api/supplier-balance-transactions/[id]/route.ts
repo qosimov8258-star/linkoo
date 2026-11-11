@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireSupplierMoneyReader } from "@/lib/company-money"
 import { fundRequestStatusSchema, supplierBalanceResponse, supplierBalanceUpdateSchema } from "@/lib/finance-supplier-balance"
 import { requireRole } from "@/lib/rbac"
 import {
@@ -11,7 +11,7 @@ import {
   type SupplierBalanceResult,
 } from "@/lib/supplier-balance-repo"
 import { parseRouteId } from "@/lib/supplier-refs"
-import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
+import { parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -26,8 +26,8 @@ function respond(result: SupplierBalanceResult) {
 }
 
 export async function GET(_request: Request, { params }: RouteParams) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requireSupplierMoneyReader()
+  if (reader.error) return reader.error
 
   const id = parseRouteId((await params).id)
   const transaction = id ? await getSupplierBalanceTransaction(id) : null

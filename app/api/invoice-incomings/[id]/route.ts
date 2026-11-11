@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requirePurchaseReader } from "@/lib/company-money"
 import { invoiceBodySchema, invoiceErrorResponse, invoiceStatusSchema, parseIdParam, toInvoiceInput } from "@/lib/invoice-incomings-api"
 import { changeInvoiceStatus, deleteInvoice, getInvoice, updateInvoice } from "@/lib/invoice-incomings-repo"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
+import { parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 const notFound = () => NextResponse.json({ error: "Счет-фактура не найдена" }, { status: 404 })
 
 export async function GET(_request: Request, { params }: RouteParams) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requirePurchaseReader()
+  if (reader.error) return reader.error
   const id = parseIdParam((await params).id)
   if (!id) return notFound()
   const invoice = await getInvoice(id)

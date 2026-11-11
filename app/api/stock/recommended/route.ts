@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { parseRecommendedPaging, recommendedList, recommendedRequest } from "@/lib/stock-recommended"
 
 // GET /api/stock/recommended?from&to&warehouse*&organization*&type*&subcategory*&brand*&search
@@ -13,6 +14,6 @@ export async function GET(request: Request) {
     return NextResponse.json(await recommendedList(parsed.filters, parseRecommendedPaging(parsed.params)))
   } catch (error) {
     console.error("recommended stock:", error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 })
+    return dbErrorResponse(error) ?? NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 })
   }
 }

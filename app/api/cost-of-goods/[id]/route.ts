@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requirePurchaseReader } from "@/lib/company-money"
 import { entryBodySchema, entryResponse, toEntryInput } from "@/lib/net-cost-api"
 import { deleteNetCostEntry, updateNetCostEntry } from "@/lib/net-cost-entries"
 import { getNetCostDetail } from "@/lib/net-cost-repo"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -15,7 +15,8 @@ const recordId = async (params: RouteParams["params"]) => {
 
 /** One cost record with its documents and the negative-balance transactions. */
 export async function GET(_request: NextRequest, { params }: RouteParams) {
-  if (!(await getCurrentUser())) return notSignedInResponse()
+  const reader = await requirePurchaseReader()
+  if (reader.error) return reader.error
   const id = await recordId(params)
   const detail = id ? await getNetCostDetail(id) : null
   return detail ? NextResponse.json(detail) : NextResponse.json({ error: "Себестоимость не найдена" }, { status: 404 })

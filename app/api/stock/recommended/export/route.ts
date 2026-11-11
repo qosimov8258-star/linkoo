@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx"
 import { NextResponse } from "next/server"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { formatDotDate } from "@/lib/finance/dates"
 import { getServerT } from "@/lib/i18n/server"
 import { parseRecommendedPaging, recommendedList, recommendedRequest, recommendedSheet } from "@/lib/stock-recommended"
@@ -28,6 +29,6 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     console.error("recommended stock export:", error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 })
+    return dbErrorResponse(error) ?? NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 })
   }
 }

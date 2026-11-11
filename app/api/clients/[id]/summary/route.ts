@@ -39,8 +39,10 @@ export async function GET(request: Request, { params }: RouteParams) {
 
   const search = new URL(request.url).searchParams
   const to = search.get("to") ?? todayIso()
+  // `to` first: the default `from` is counted back from it (a bad `to` used to end in a 500).
+  if (!validDay(to)) return invalidFieldResponse("to", "YYYY-MM-DD")
   const from = search.get("from") ?? shift(to, -30)
-  if (!validDay(from) || !validDay(to)) return invalidFieldResponse(validDay(from) ? "to" : "from", "YYYY-MM-DD")
+  if (!validDay(from)) return invalidFieldResponse("from", "YYYY-MM-DD")
   if (from > to) return invalidFieldResponse("from", "from ≤ to", "Неверный период")
 
   const keys = [String(id)]

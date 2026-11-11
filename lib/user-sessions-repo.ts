@@ -74,16 +74,17 @@ export async function touchSession(id: string): Promise<void> {
   await db.prepare("UPDATE user_sessions SET last_seen_at = datetime('now') WHERE id = ?").run(id)
 }
 
-/** True when the session was revoked (logout, "Завершить", password change) or
- * is unknown: every sign-in records its session first, so a token whose id has
- * no row cannot be trusted either. */
-export async function isSessionRevoked(id: string): Promise<boolean> {
+/** True when the session was revoked (logout, "Завершить", password change), is
+ * unknown (every sign-in records its session first, so a token whose id has no
+ * row cannot be trusted either) or was recorded for another account: a token
+ * must name the user its session was opened by, never just any live session. */
+export async function isSessionRevoked(id: string, userId: number): Promise<boolean> {
   const db = getDb()
   await ensureSchema()
-  const row = (await db.prepare("SELECT revoked_at FROM user_sessions WHERE id = ?").get(id)) as
-    | { revoked_at: string | null }
+  const row = (await db.prepare("SELECT revoked_at, user_id FROM user_sessions WHERE id = ?").get(id)) as
+    | { revoked_at: string | null; user_id: number }
     | undefined
-  if (!row) return true
+  if (!row || Number(row.user_id) !== userId) return true
   return row.revoked_at !== null
 }
 

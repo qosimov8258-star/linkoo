@@ -90,6 +90,15 @@ const QTY_ERROR = "Количество должно быть больше 0 и 
 const amount = strictNum(z.number({ error: QTY_ERROR }).finite(QTY_ERROR).positive(QTY_ERROR).max(MAX_QTY, QTY_ERROR), QTY_ERROR)
 const name = z.string({ error: "Заполните наименование" }).trim().min(1, "Заполните наименование").max(255, "Не более 255 символов")
 const text = () => z.string().trim().max(2000, "Не более 2000 символов").default("")
+
+/** A picture of a machine or of a defect: empty, a raster data URL (what the forms send: the page
+ * shows it in an <img> and links to it), or an http(s) / site path kept from older data. Anything
+ * else — a "javascript:" link first of all — is refused: the value becomes an href. */
+const image = z
+  .string()
+  .max(3_000_000, "Изображение слишком большое")
+  .refine((value) => value === "" || /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(value) || /^(https?:\/\/|\/(?!\/))[^\s"'<>\\]*$/.test(value), "Неверный формат изображения")
+  .default("")
 const TIME_ERROR = "Время должно быть в формате ЧЧ:ММ"
 const time = z.string().trim().refine((value) => value === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(value), TIME_ERROR).default("")
 const id = dbId()
@@ -121,7 +130,7 @@ export const schemas = {
     name,
     // Omitted: a new machine is "работает" (as the form starts it), an edit keeps its status.
     status: z.enum(["0", "1"]).optional(),
-    image: z.string().max(3_000_000).default(""),
+    image,
   }),
   operation: z.object({
     stageId: id,
@@ -173,7 +182,7 @@ export const schemas = {
     key: itemKeySchema,
     amount,
     comment: text(),
-    image: z.string().max(3_000_000).default(""),
+    image,
   }),
   autoFinish: z.object({
     recipeId: id,

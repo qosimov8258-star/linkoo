@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requirePurchaseReader } from "@/lib/company-money"
 import { invoiceBodySchema, invoiceErrorResponse, parseInvoiceListQuery, toInvoiceInput } from "@/lib/invoice-incomings-api"
 import { createInvoice, listInvoices } from "@/lib/invoice-incomings-repo"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
+import { parseJsonBody } from "@/lib/validation"
 
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return notSignedInResponse()
+  const reader = await requirePurchaseReader()
+  if (reader.error) return reader.error
   const query = parseInvoiceListQuery(request.url)
   if (query.error) return query.error
   return NextResponse.json(await listInvoices(query.data))

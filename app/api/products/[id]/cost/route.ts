@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requirePurchaseReader } from "@/lib/company-money"
 import { dbErrorResponse } from "@/lib/db-errors"
 import { MAX_PRICE } from "@/lib/item-prices"
 import { parseCatalogId } from "@/lib/products-api"
 import { requireRole } from "@/lib/rbac"
-import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
+import { parseJsonBody } from "@/lib/validation"
 import { getProductCostInfo, setProductInitialCost } from "@/lib/supplier-incomings-repo"
 import { strictNum } from "@/lib/strict-number"
 
@@ -28,7 +28,8 @@ function clientError(error: unknown): NextResponse | null {
 
 /** Initial cost, accepted supplies with running average, current net cost (the one cost of goods). */
 export async function GET(_request: NextRequest, { params }: RouteParams) {
-  if (!(await getCurrentUser())) return notSignedInResponse()
+  const reader = await requirePurchaseReader()
+  if (reader.error) return reader.error
   const id = parseCatalogId((await params).id)
   if (!id) return NOT_FOUND()
   const info = await getProductCostInfo(id)

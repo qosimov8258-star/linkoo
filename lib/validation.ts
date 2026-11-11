@@ -233,6 +233,18 @@ export function parseIdSegment(value: string | null | undefined): number | null 
   return id > 0 && id <= MAX_ROUTE_ID ? id : null
 }
 
+/** A route segment that names a record by a text key ("raw_material:14", a client name): decoded
+ * when it still holds percent escapes, returned as it is when it does not decode (a "%" typed
+ * into the key itself) — never an exception, which the route would answer with a 500. */
+export function decodeSegment(value: string | null | undefined): string {
+  const text = String(value ?? "")
+  try {
+    return decodeURIComponent(text)
+  } catch {
+    return text
+  }
+}
+
 /** 400 answer for a route id that is not a positive integer. */
 export function invalidIdResponse() {
   return NextResponse.json({ error: "Неверный идентификатор" }, { status: 400 })
