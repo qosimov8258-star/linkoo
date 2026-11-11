@@ -64,8 +64,11 @@ const DIALOG = '[role=dialog]:visible, [aria-modal="true"]:visible, div.fixed.in
             const c = await inputs.count()
             for (let k = 0; k < Math.min(c, 25); k++) {
               const inp = inputs.nth(k)
-              const type = (await inp.getAttribute("type").catch(() => "")) || ""
-              const role = (await inp.getAttribute("role").catch(() => "")) || ""
+              const found = await inp.getAttribute("type", { timeout: 500 }).catch(() => undefined)
+              // The field left the dialog (e.g. a search box that filtered the rows away): nothing to fill.
+              if (found === undefined) continue
+              const type = found || ""
+              const role = (await inp.getAttribute("role", { timeout: 500 }).catch(() => "")) || ""
               if (role === "combobox" || type === "date" || type === "time") continue
               const v = type === "number" ? "-99999999999999" : "Тест<script>x</script>'\";-- " + "Ж".repeat(400)
               await inp.fill(v, { timeout: 800 }).catch(() => {})
