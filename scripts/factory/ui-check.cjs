@@ -5,12 +5,13 @@
 //
 //   node scripts/factory/ui-check.cjs [outDir] [routeFilter]
 //
-// Uses playwright-core from tools/reference-test (see its README) and the routes list there.
+// Uses playwright-core from tools/reference-test (see its README; PW_CORE=<folder of another
+// playwright-core install> when that one is missing) and the routes list there.
 // Read-only towards data: buttons that save, delete, confirm, pay, import or sign out are skipped.
 
 const path = require("path")
 const fs = require("fs")
-const { chromium } = require(path.join(__dirname, "../../tools/reference-test/node_modules/playwright-core"))
+const { chromium } = require(process.env.PW_CORE || path.join(__dirname, "../../tools/reference-test/node_modules/playwright-core"))
 
 const BASE = process.env.FACTORY_URL || "http://localhost:3001"
 const USER = process.env.FACTORY_USER || "admin"
@@ -19,6 +20,8 @@ const EXE = process.env.CHROME || `${process.env.HOME}/Library/Caches/ms-playwri
 const OUT = process.argv[2] || path.join(__dirname, "../../.ui-check")
 const FILTER = process.argv[3] ? new RegExp(process.argv[3]) : null
 const CLICKS = Number(process.env.CLICKS ?? 30)
+// Longest wait for a page to go quiet after it loads (a page that polls never does).
+const IDLE_MS = Number(process.env.IDLE_MS ?? 15000)
 const SKIP = /удал|сохран|отправ|подтвер|выйти|выход|перерасч|пересчит|сверить|принять|закрыть|очист|сброс|импорт|загруз|архив|отмен|оплат|провест|создать|^да$|^ok$|начать|завершить|копир|дублир|блок|актив|зачисл|списат|выдать|передать|рассчитать|применить|telegram|excel|скачать|печать|экспорт|синхрон/i
 
 if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) throw new Error("ui-check only runs against a local server")
@@ -65,7 +68,7 @@ const mine = routes.map((route, index) => ({ route, index })).filter(({ index })
     try {
       const response = await page.goto(BASE + route, { timeout: 120000 })
       status = response ? response.status() : 0
-      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {})
+      await page.waitForLoadState("networkidle", { timeout: IDLE_MS }).catch(() => {})
       await page.waitForTimeout(1200)
       text = await page.evaluate(() => document.body.innerText).catch(() => "")
       await page.screenshot({ path: path.join(OUT, "shots", `${String(index).padStart(3, "0")}${route.replace(/[^a-z0-9]+/gi, "_")}.png`) }).catch(() => {})

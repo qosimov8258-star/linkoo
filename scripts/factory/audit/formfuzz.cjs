@@ -3,9 +3,9 @@
 const path = require("path")
 const fs = require("fs")
 const ROOT = path.join(__dirname, "../../..")
-const { chromium } = require(path.join(ROOT, "tools/reference-test/node_modules/playwright-core"))
+const { chromium } = require(process.env.PW_CORE || path.join(ROOT, "tools/reference-test/node_modules/playwright-core"))
 const BASE = "http://localhost:3001"
-const EXE = `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
+const EXE = process.env.CHROME || `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
 const OUT = process.env.AUDIT_OUT || path.join(ROOT, ".ui-check/audit/forms")
 fs.mkdirSync(OUT, { recursive: true })
 const routes = fs.readFileSync(path.join(ROOT, "tools/reference-test/routes.txt"), "utf8").split("\n").map((s) => s.trim()).filter(Boolean)
