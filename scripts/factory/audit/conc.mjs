@@ -8,7 +8,14 @@ const P = rowsOf(await get("/api/products")).find((p) => p.name === "Zilol Cola 
 const b0 = await bal(`product:${P.id}`)
 console.log("before", b0)
 const base = { clientId: 60, warehouse: WH, priceList: "Ulgurji", currency: "SUM", agent: "Aziz Ismoilov", organization: "Zilol Ichimliklar MChJ", paymentType: "cash", dealType: "standard", delivery: "2026-10-31" }
-const qty = Math.ceil(b0.available * 0.6)
+// What an order may still take: on hand minus the reservations of CONFIRMED orders. The balance
+// row's `available` also subtracts the unconfirmed («Не подтвержден») orders, which show as
+// reserved but block nothing, so it can be far lower (even negative) than what is really free.
+// The server names the true figure when it refuses an order that asks for too much.
+const probe = await q("POST", "/api/orders", { ...base, items: [{ productId: P.id, quantity: 1e9, unitPrice: 5000 }] })
+const free = probe.d?.shortage?.[0]?.available ?? b0.available
+console.log("free for a confirmed order:", free, "(shown as available:", b0.available, ")")
+const qty = Math.ceil(free * 0.6)
 const res = await Promise.all(Array.from({ length: 5 }, () => q("POST", "/api/orders", { ...base, items: [{ productId: P.id, quantity: qty, unitPrice: 5000 }] })))
 console.log("5 parallel orders of", qty, "→", res.map((r) => (r.ok ? `OK#${r.d.id}` : r.status)).join(" "))
 console.log("after", await bal(`product:${P.id}`))
@@ -24,7 +31,8 @@ console.log("4 parallel payments of 60% →", pays.map((r) => (r.ok ? "OK" : r.s
 const o = rowsOf(await get(`/api/orders?pageSize=50`)).find((r) => r.id === id)
 console.log("order paid", o?.paidAmount, "of", o?.totalPrice, "rest", o?.payableRest)
 // parallel transfers of the whole remaining stock
-const left = (await bal(`product:${P.id}`)).available
+const probe2 = await q("POST", "/api/orders", { ...base, items: [{ productId: P.id, quantity: 1e9, unitPrice: 5000 }] })
+const left = probe2.d?.shortage?.[0]?.available ?? (await bal(`product:${P.id}`)).available
 const tr = await Promise.all(Array.from({ length: 3 }, () => q("POST", "/api/internal-transfers", { fromWarehouse: WH, toWarehouse: "Samarqand ombori", createdAt: "2026-10-31 13:00:00", organization: "Zilol Ichimliklar MChJ", autoAccept: true, items: [{ key: `product:${P.id}`, quantity: left }] })))
 console.log("3 parallel transfers of all", left, "→", tr.map((r) => (r.ok ? "OK" : r.status)).join(" "))
 console.log("final", await bal(`product:${P.id}`))

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation"
 
 import { navSectionLabel } from "@/components/dashboard/top-nav"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { routeTitle } from "@/lib/route-titles"
 
 type FavoriteItem = { label: string; href: string }
 
@@ -39,6 +40,50 @@ const LEGACY_DEFAULT: ReadonlyArray<readonly [string, string]> = [
 ]
 
 const STORAGE_KEY = "linko-favorites-v2"
+
+/** Longest name of a starred page (a page title is a few words). */
+const MAX_LABEL = 120
+/** Marks the elements this component renders inside the page heading (the star, the drawer with
+ * the list): they are left out when the heading is read for the page's name. */
+const OWN_UI = "data-favorites-ui"
+/** "Избранные" in every UI language: a stored name that starts with it was read from a heading
+ * together with the drawer (see pageName). */
+const DRAWER_TITLES = ["Избранные", "Sevimlilar", "Saýlananlar", "Favorites"]
+
+const EMPTY_LIST = "По вашему запросу ничего не найдено..."
+
+const tidy = (text: string) => text.replace(/\s+/g, " ").trim()
+
+/**
+ * The name of the page a star is clicked on: the text of its heading without this component's own
+ * elements. The drawer is rendered inside the heading, so reading the heading as it is returned
+ * the drawer's title and the name of every page starred before in front of the page's own name —
+ * each new star was as long as all the earlier ones together, and after some twenty stars the
+ * list weighed megabytes and every page froze while drawing it.
+ */
+function pageName(heading: Element | null | undefined): string {
+  if (!heading) return ""
+  const copy = heading.cloneNode(true) as Element
+  copy.querySelectorAll(`[${OWN_UI}]`).forEach((node) => node.remove())
+  return tidy(copy.textContent ?? "").slice(0, MAX_LABEL)
+}
+
+/** A stored name written by the older reading of the heading (too long, or starting with the
+ * drawer's title): the page's menu name instead, or the last words when the page has none. */
+function repairLabel(item: FavoriteItem, t: (text: string) => string): FavoriteItem {
+  const label = tidy(item.label)
+  const broken = label.length > MAX_LABEL || DRAWER_TITLES.some((title) => label.startsWith(title))
+  if (!broken) return label === item.label ? item : { ...item, label }
+  const title = routeTitle(item.href.split("?")[0])
+  if (title) return { ...item, label: t(title) }
+  // No menu name: drop what the older reading put in front (the drawer's title and its "nothing
+  // found" line); of a name that swallowed a whole list only the end is the page's own.
+  let rest = label
+  for (const text of DRAWER_TITLES) if (rest.startsWith(text)) rest = rest.slice(text.length)
+  for (const text of [EMPTY_LIST, t(EMPTY_LIST)]) if (rest.startsWith(text)) rest = rest.slice(text.length)
+  rest = tidy(rest)
+  return { ...item, label: rest && rest.length <= MAX_LABEL ? rest : rest.slice(-40).trim() }
+}
 
 function loadItems(): FavoriteItem[] {
   try {
@@ -97,7 +142,17 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
   }, [sectionLabel, pathname])
 
   useEffect(() => {
-    setItems(loadItems())
+    const stored = loadItems()
+    const repaired = stored.map((item) => repairLabel(item, t))
+    setItems(repaired)
+    // Names written by the older build are replaced in the browser's storage too (once).
+    if (repaired.some((item, index) => item !== stored[index])) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(repaired))
+      } catch {}
+    }
+    // Only when the page opens: the stored list is this browser's own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const save = (next: FavoriteItem[]) => {
@@ -109,8 +164,7 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
 
   // Like the reference app, the star never turns "on": every click appends the current page again.
   const addFavorite = () => {
-    const heading = rowRef.current?.closest("h1")
-    const label = (heading?.textContent ?? pageTitle).replace(t("Избранные"), "").trim() || document.title.split("—")[0].trim()
+    const label = pageName(rowRef.current?.closest("h1")) || pageTitle || document.title.split("—")[0].trim().slice(0, MAX_LABEL)
     save([...items, { label, href: pathname }])
     setPageTitle(label)
   }
@@ -143,6 +197,7 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
           const header = row.closest("header")
           if (header) header.setAttribute("data-ref-header", "")
         }}
+        {...{ [OWN_UI]: "" }}
         className="relative flex items-center"
       >
         <button
@@ -180,11 +235,13 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
           document.body,
         )}
       <div
+        {...{ [OWN_UI]: "" }}
         aria-hidden={!open}
         onClick={() => setOpen(false)}
         className={`fixed inset-0 z-[1200] bg-black/[0.54] transition-opacity duration-[400ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
       />
       <aside
+        {...{ [OWN_UI]: "" }}
         aria-hidden={!open}
         className={`fixed left-0 top-0 z-[1300] h-full w-[334px] max-w-full overflow-y-auto bg-white [&::-webkit-scrollbar-button]:h-0 [&::-webkit-scrollbar-thumb]:rounded-[10px] [&::-webkit-scrollbar-thumb]:bg-[#0d99ff] [&::-webkit-scrollbar-thumb]:shadow-[inset_0_0_6px_rgba(0,0,0,0.3)] [&::-webkit-scrollbar-track-piece]:bg-transparent [&::-webkit-scrollbar]:w-[8px] font-sans text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)] transition-transform duration-[450ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${open ? "translate-x-0" : "-translate-x-full invisible"}`}
       >
@@ -196,7 +253,7 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
             </svg>
           </button>
         </header>
-        {items.length === 0 && <div className="p-[10px] text-[13px] leading-[16.25px] text-[#333]">{t("По вашему запросу ничего не найдено...")}</div>}
+        {items.length === 0 && <div className="p-[10px] text-[13px] leading-[16.25px] text-[#333]">{t(EMPTY_LIST)}</div>}
         <ul data-no-translate="" className="m-0 mb-20 list-none p-0">
           {items.map((item, index) => {
             const isHovered = hovered === index
