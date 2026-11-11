@@ -79,7 +79,7 @@ const mine = routes.map((route, index) => ({ route, index })).filter(({ index })
       const seen = new Set()
       for (let i = 0; i < Math.min(count, CLICKS); i++) {
         const button = buttons.nth(i)
-        const label = ((await button.innerText({ timeout: 1000 }).catch(() => "")) || (await button.getAttribute("aria-label").catch(() => "")) || "").trim().replace(/\s+/g, " ")
+        const label = ((await button.innerText({ timeout: 1000 }).catch(() => "")) || (await button.getAttribute("aria-label", { timeout: 1000 }).catch(() => "")) || "").trim().replace(/\s+/g, " ")
         if (!label || SKIP.test(label) || label.length > 40 || seen.has(label)) continue
         seen.add(label)
         const before = page.url()
