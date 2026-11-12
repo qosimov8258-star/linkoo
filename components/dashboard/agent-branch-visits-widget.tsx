@@ -298,6 +298,38 @@ const agentKey = (value: string) => value.replace(/[\u00a0\u202f]/g, " ").replac
  * `ownAgents` (DashboardSummary.ownAgents): the reader sees only these agents' orders; undefined = every
  * order (the company figures); while the summary is loading the caller passes [] so nothing leaks.
  */
+type DelivererWidgetData = {
+  rows: Array<{ id: number; name: string; order: number; orderReturn: number; dateReturn: number; plan: number; done: number; undone: number; collect: number; taken: number; cashierColor: "green" | "blue" | "red"; differenceMin: number }>
+  total: { order: number; orderMarkets: number; orderReturn: number; dateReturn: number; plan: number; done: number; undone: number; donePercent: number; collect: number; collectMarkets: number; taken: number }
+}
+
+/** The deliverer widget's figures (GET /api/dashboard-deliverers, Linko's stats/widget/delivery). */
+function useDelivererWidget(begin: string, end: string, enabled: boolean): DelivererWidgetData | null {
+  const [data, setData] = useState<DelivererWidgetData | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    const controller = new AbortController()
+    fetch(`/api/dashboard-deliverers?begin=${begin}&end=${end}`, { cache: "no-store", signal: controller.signal })
+      .then((response) => (response.ok ? (response.json() as Promise<DelivererWidgetData>) : null))
+      .then((body) => {
+        if (!controller.signal.aborted) setData(body)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [begin, end, enabled])
+  return data
+}
+
+/** Linko's widget numbers: grouped, up to 3 decimals. */
+const formatWidgetNumber = (value: number) => (Math.round(value * 1000) / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 }).replace(/[\u00a0\u202f]/g, " ")
+
+/** «Кассир принял»: green = all of the payments accepted, blue = some, red = none. */
+const CASHIER_BADGE: Record<"green" | "blue" | "red", string> = {
+  green: "bg-[#d4f5e0] text-[#2e9e5b]",
+  blue: "bg-[#e3f2fd] text-[#2196f3]",
+  red: "bg-[#fde4e4] text-[#e57373]",
+}
+
 export function AgentBranchVisitsWidget({
   showTrends = true,
   showCouriers = true,
@@ -347,7 +379,6 @@ export function AgentBranchVisitsWidget({
     for (const order of rangedOrders) if (order.status !== "Отменен") map.set(order.product || "—", (map.get(order.product || "—") ?? 0) + 1)
     return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
   }, [rangedOrders])
-  const cancelled = rangedOrders.filter((order) => order.status === "Отменен").length
   const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0)
   const visitTotals = stats.agents.reduce(
     (sum, row) => ({ plan: sum.plan + row.plan, visited: sum.visited + row.visited, outside: sum.outside + row.outside, notVisited: sum.notVisited + row.notVisited }),
@@ -379,15 +410,7 @@ export function AgentBranchVisitsWidget({
     return counts
   }, [orders, endDay])
 
-  const courierStats = (name: string) => {
-    const own = rangedOrders.filter((order) => order.agent === name)
-    const shipped = own.filter((order) => order.status === "В пути" || order.status === "Доставлено").length
-    const delivered = own.filter((order) => order.status === "Доставлено").length
-    const returned = own.filter((order) => order.status === "Отменен").length
-    return { shipped, delivered, returned }
-  }
-  const totalShipped = rangedOrders.filter((order) => order.status === "В пути" || order.status === "Доставлено").length
-  const totalDelivered = rangedOrders.filter((order) => order.status === "Доставлено").length
+  const deliverers = useDelivererWidget(begin, end, showCouriers)
 
   // Orders per agent over the 10 days ending at the end of the selected range.
   const trends = useMemo(() => {
@@ -448,7 +471,7 @@ export function AgentBranchVisitsWidget({
   // The sales / AKB trend lists the active employees with «Показывать в отслеживании», by id (Linko's stats/widget/agent).
   const trendAgents = useMemo(() => (tracked ? agents.filter((person) => tracked.has(person.id)).sort((a, b) => a.id - b.id) : agents), [agents, tracked])
   const agentRows = agentsExpanded ? trendAgents : trendAgents.slice(0, 7)
-  const courierRows = couriersExpanded ? agents : agents.slice(0, 7)
+  const courierRows = couriersExpanded ? (deliverers?.rows ?? []) : (deliverers?.rows ?? []).slice(0, 7)
 
   return (
     <div className="space-y-5">
@@ -629,12 +652,16 @@ export function AgentBranchVisitsWidget({
       <div className={`${CARD_CLASS} overflow-hidden`}>
         <div className="grid grid-cols-2 sm:grid-cols-6">
           {[
-            { value: String(totalShipped), label: `Отгружено: ${totalShipped} точек`, color: "#0d99ff" },
-            { value: String(cancelled), label: "Возвраты с отг. заказов", color: "#e57373" },
-            { value: String(cancelled), label: "Возвраты за период", color: "#e57373" },
-            { value: `${totalDelivered} / ${totalShipped} (${totalShipped ? Math.round((totalDelivered / totalShipped) * 100) : 0}%)`, label: `Доставлено. Осталось: ${totalShipped - totalDelivered}`, color: "#0d99ff" },
-            { value: String(totalDelivered), label: `Оплаты: ${totalDelivered} точек`, color: "#81c784" },
-            { value: String(totalDelivered), label: "Кассир принял", color: "#81c784" },
+            { value: formatWidgetNumber(deliverers?.total.order ?? 0), label: `Отгружено: ${deliverers?.total.orderMarkets ?? 0} точек`, color: "#0d99ff" },
+            { value: formatWidgetNumber(deliverers?.total.orderReturn ?? 0), label: "Возвраты с отг. заказов", color: "#e57373" },
+            { value: formatWidgetNumber(deliverers?.total.dateReturn ?? 0), label: "Возвраты за период", color: "#e57373" },
+            {
+              value: `${deliverers?.total.done ?? 0} / ${deliverers?.total.plan ?? 0} (${deliverers?.total.donePercent ?? 0}%)`,
+              label: `Доставлено. Осталось: ${deliverers?.total.undone ?? 0}`,
+              color: "#0d99ff",
+            },
+            { value: formatWidgetNumber(deliverers?.total.collect ?? 0), label: `Оплаты: ${deliverers?.total.collectMarkets ?? 0} точек`, color: "#81c784" },
+            { value: formatWidgetNumber(deliverers?.total.taken ?? 0), label: "Кассир принял", color: "#81c784" },
           ].map((cell) => (
             <div key={cell.label} className="border-r border-[#efefef] py-4 text-center last:border-r-0">
               <div className="text-[18px] leading-6" style={{ color: cell.color }}>{cell.value}</div>
@@ -647,30 +674,36 @@ export function AgentBranchVisitsWidget({
             <thead>
               <tr className="bg-[#f7f9fb]">
                 <th className="px-[17px] py-[10px] text-left font-semibold">{t("Доставщик")}</th>
-                {["Отгружено", "Возвраты с отг. заказов", "Возвраты за период", "Посещено", "Не посещено", "Оплаты", "Кассир принял"].map((column) => (
+                {["Отгружено", "Возвраты с отг. заказов", "Возвраты за период", "Посещено", "Не посещено", "Оплаты", "Кассир принял", "Посл.Активность"].map((column) => (
                   <SortHead key={column}>{t(column)}</SortHead>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {courierRows.map((person) => (
-                <tr key={person.id} className="h-[46px] border-b border-[#efefef]">
-                  <td className="px-[17px]">{fullName(person)}</td>
-                  <td className="border-l border-[#efefef] px-[17px]">{courierStats(fullName(person)).shipped}</td>
-                  <td className="border-l border-[#efefef] px-[17px]">{courierStats(fullName(person)).returned}</td>
-                  <td className="border-l border-[#efefef] px-[17px]">{courierStats(fullName(person)).returned}</td>
-                  <td className="border-l border-[#efefef] px-[17px]">{courierStats(fullName(person)).delivered} / {courierStats(fullName(person)).shipped}</td>
-                  <td className="border-l border-[#efefef] px-[17px]">{courierStats(fullName(person)).shipped - courierStats(fullName(person)).delivered}</td>
-                  <td className="border-l border-[#efefef] px-[17px]">{courierStats(fullName(person)).delivered}</td>
+              {courierRows.map((row) => (
+                <tr key={row.id} className="h-[46px] border-b border-[#efefef]">
+                  <td className="px-[17px]">{row.name}</td>
+                  <td className="border-l border-[#efefef] px-[17px]">{formatWidgetNumber(row.order)}</td>
+                  <td className="border-l border-[#efefef] px-[17px]">{formatWidgetNumber(row.orderReturn)}</td>
+                  <td className="border-l border-[#efefef] px-[17px]">{formatWidgetNumber(row.dateReturn)}</td>
+                  <td className="border-l border-[#efefef] px-[17px]">{row.done} / {row.plan}</td>
+                  <td className="border-l border-[#efefef] px-[17px]">{row.undone}</td>
+                  <td className="border-l border-[#efefef] px-[17px]">{formatWidgetNumber(row.collect)}</td>
                   <td className="border-l border-[#efefef] px-[17px]">
-                    <span className={`rounded px-[10px] py-[6px] ${courierStats(fullName(person)).delivered ? "bg-[#d4f5e0] text-[#2e9e5b]" : "bg-[#fde4e4] text-[#e57373]"}`}>{courierStats(fullName(person)).delivered}</span>
+                    <span className={`rounded px-[10px] py-[6px] ${CASHIER_BADGE[row.cashierColor]}`}>{formatWidgetNumber(row.taken)}</span>
+                  </td>
+                  <td className="border-l border-[#efefef] px-[17px]">
+                    {/* Linko: -1 = «Не вышел» (blue), else the minutes since the last action (red). */}
+                    <span className={`whitespace-nowrap rounded px-[10px] py-[6px] ${row.differenceMin === -1 ? "bg-[#e3f2fd] text-[#2196f3]" : "bg-[#fde4e4] text-[#e57373]"}`}>
+                      {row.differenceMin === -1 ? t("Не вышел") : `${row.differenceMin} ${t("мин.")}`}
+                    </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {agents.length > 7 && <ShowMore expanded={couriersExpanded} onClick={() => setCouriersExpanded((value) => !value)} />}
+        {(deliverers?.rows.length ?? 0) > 7 && <ShowMore expanded={couriersExpanded} onClick={() => setCouriersExpanded((value) => !value)} />}
       </div>
       )}
     </div>

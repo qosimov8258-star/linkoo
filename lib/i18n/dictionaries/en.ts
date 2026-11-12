@@ -83,6 +83,7 @@ export const en: Record<string, string> = {
   "мин": "min",
   "Первый визит": "First visit",
   "Посл.Визит": "Last visit",
+  "Посл.Активность": "Last activity",
   "План визитов": "Visit plan",
   "Посещено": "Visited",
   "Заказы": "Orders",

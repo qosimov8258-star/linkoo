@@ -83,6 +83,7 @@ export const uz: Record<string, string> = {
   "мин": "daq",
   "Первый визит": "Ilk tashrif",
   "Посл.Визит": "Oxirgi tashrif",
+  "Посл.Активность": "Oxirgi faollik",
   "План визитов": "Tashriflar rejasi",
   "Посещено": "Tashrif bo'ldi",
   "Заказы": "Buyurtmalar",

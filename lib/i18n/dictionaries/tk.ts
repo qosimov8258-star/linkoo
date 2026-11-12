@@ -83,6 +83,7 @@ export const tk: Record<string, string> = {
   "мин": "min",
   "Первый визит": "Ilkinji sapar",
   "Посл.Визит": "Soňky sapar",
+  "Посл.Активность": "Soňky işjeňlik",
   "План визитов": "Sapar meýilnamasy",
   "Посещено": "Baryp görüldi",
   "Заказы": "Sargytlar",
