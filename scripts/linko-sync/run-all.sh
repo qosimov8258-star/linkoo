@@ -30,6 +30,7 @@ run import-finance-suppliers.mjs
 run import-finance-ledgers.mjs
 run import-finance-contracts.mjs
 run import-document-accounts.mjs
+run import-document-rates.mjs
 run remove-demo-salary-plans.mjs
 # Clients and settings lists
 run import-client-options.mjs

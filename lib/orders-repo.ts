@@ -9,6 +9,7 @@ import { parseDocDate, parseDocDay } from "@/lib/document-dates"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { localToUtcText, parseAnyDate, todayIso } from "@/lib/finance/dates"
 import { placeName } from "@/lib/finance/entities"
+import { accountInternalBalances } from "@/lib/finance/internal-balance"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { lockWarehouseStock } from "@/lib/internal-transfers-stock"
@@ -1187,14 +1188,34 @@ export async function clientLedgerBalances(
   return out
 }
 
+/** «Баланс» of the order list, as Linko's market_internal_balance: the balance of the financial account the order is
+ * booked on (orders.financial_account_id, else its shop's account), its accepted documents each at its own rate, in
+ * the base currency (lib/finance/internal-balance.ts). */
 async function attachBalances<T extends Order>(orders: T[]): Promise<T[]> {
   if (!orders.length) return orders
-  const ids = [...new Set(orders.map((order) => order.clientId).filter((id): id is number => typeof id === "number"))]
-  const balances = await clientLedgerBalances(ids.length <= 50 ? { keys: ids.map(String) } : {})
-  for (const order of orders) {
-    const balance = order.clientId ? balances.get(order.clientId) : undefined
-    order.balance = balance?.lines.join(", ") || ""
-    order.negative = balance?.negative ?? false
+  try {
+    const db = getDb()
+    const [balances, booked] = await Promise.all([
+      accountInternalBalances(db),
+      db
+        .prepare("SELECT id, financial_account_id FROM orders WHERE id = ANY(@ids::int[]) AND financial_account_id IS NOT NULL")
+        .all({ ids: orders.map((order) => order.id).filter((id) => Number.isSafeInteger(id)) })
+        .catch(() => []) as Promise<Array<{ id: number; financial_account_id: number }>>,
+    ])
+    const bookedOn = new Map(booked.map((row) => [Number(row.id), `acc:${Number(row.financial_account_id)}`]))
+    for (const order of orders) {
+      const account = bookedOn.get(order.id) ?? (typeof order.clientId === "number" ? balances.accountOf(order.clientId) : null)
+      if (!account) {
+        order.balance = ""
+        order.negative = false
+        continue
+      }
+      const value = Math.round((balances.byAccount.get(account) ?? 0) * 100) / 100
+      order.balance = formatMoney(Object.is(value, -0) ? 0 : value, balances.currency)
+      order.negative = value < 0
+    }
+  } catch (error) {
+    console.error("order list balances unavailable", error)
   }
   return orders
 }

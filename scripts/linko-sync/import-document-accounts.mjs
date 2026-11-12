@@ -6,9 +6,10 @@
 // the document says which account it was booked on: financial_account_id on orders (type 4), client_returns (3),
 // customer_payments (1), client_balance_corrections (9) and cash_management_entries (5, withdrawals), set only where
 // it differs from the shop's current account (lib/finance/sources.ts reads it as the movement's "acc"). A payment
-// without a shop also loses its client_id (it was the account's id, which is some other shop's id).
+// without a shop also loses its client_id (it was the account's id, which is some other shop's id). An order without a
+// debt (cancelled, «без долга») carries the account written on the order (Заказы «Баланс» shows its balance).
 //
-//   node scripts/linko-sync/import-document-accounts.mjs     (raw: client_transactions; after the finance imports)
+//   node scripts/linko-sync/import-document-accounts.mjs     (raw: client_transactions, orders; after the finance imports)
 import { connect, ensureRegistry, raw, register, runId } from "./lib.mjs"
 
 const run = runId("document-accounts")
@@ -44,6 +45,17 @@ try {
     const booked = Number(t.client.id)
     wanted.get(table).set(Number(id), shop !== null && accountOf.get(Number(shop)) === booked ? null : booked)
     if (shop === null && table === "customer_payments") shopless.push(Number(id))
+  }
+  // An order Linko booked no debt for (cancelled, or «без долга»: no transaction, orders.no_debt) still belongs to the
+  // account on the order (orders.client): Linko's order list shows that account's balance in «Баланс». The ledger does
+  // not count these orders, so the account changes no balance.
+  const debited = new Set(transactions.filter((t) => t.type === 4 && t.order).map((t) => Number(t.order?.id ?? t.order)))
+  for (const order of raw("orders")) {
+    const id = Number(order.id)
+    const booked = Number(order.client?.id ?? order.client)
+    if (debited.has(id) || !Number.isInteger(booked) || booked <= 0) continue
+    const shop = order.market?.id ?? null
+    wanted.get("orders").set(id, shop !== null && accountOf.get(Number(shop)) === booked ? null : booked)
   }
 
   for (const table of TABLES) {

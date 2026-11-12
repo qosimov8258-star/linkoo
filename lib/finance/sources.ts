@@ -490,11 +490,17 @@ function clientSources(ctx: SourceContext): string[] {
   // Orders follow their client by orders.client_id (renaming a client keeps
   // its orders), legacy rows by name; they carry their own organization and
   // payment type, so the Организация / Тип оплаты filters keep them.
-  const acceptedDay = realization && ctx.o.acceptedDay && ctx.s.col("orders", "accepted_date")
+  // Realization date = the day Linko accepted the order (orders.accepted_date: its accepted_time, the delivery day — not
+  // always the day the goods left, 372 of 574 imported orders differ) at the time it was shipped; the deliverer ledger
+  // keeps the day alone. Without an accepted day: the shipping moment.
+  const withAcceptedDay = realization && ctx.s.col("orders", "accepted_date")
+  const realizedAt = orderRealizationTs(ctx.s, "o")
   const orderTs = realization
-    ? acceptedDay
-      ? `COALESCE(fin_ts(NULLIF(o.accepted_date, '')), ${orderRealizationTs(ctx.s, "o")})`
-      : orderRealizationTs(ctx.s, "o")
+    ? withAcceptedDay
+      ? ctx.o.acceptedDay
+        ? `COALESCE(fin_ts(NULLIF(o.accepted_date, '')), ${realizedAt})`
+        : `COALESCE(fin_ts(NULLIF(o.accepted_date, ''))::date + (${realizedAt})::time, ${realizedAt})`
+      : realizedAt
     : utcTs("o.created_at")
   const orderFields = (cur: string, amount: string): Partial<Record<Field, string>> => ({
     ek: "oc.id",
@@ -544,7 +550,9 @@ function clientSources(ctx: SourceContext): string[] {
         : "JOIN clients rc ON rc.id = r.client_id"
       : "JOIN client_keys rk ON rk.k = fin_key(r.client) JOIN clients rc ON rc.id = rk.id"
     // A return imported from Linko credits what Linko credited (client_credit, also for a return still pending there);
-    // the app's own returns credit their amount once accepted.
+    // the app's own returns credit their amount once accepted. A pending one's credit is "pending": Linko books it when
+    // the return is made, so it counts by creation date, but not by realization date (Linko's only_accepted, e.g.
+    // Сверка счетов «По дате реализации», Заказы «Баланс») until the return is accepted.
     const override = ctx.s.col(CR, "client_credit")
     const credited = override ? "(CASE WHEN r.client_credit IS NOT NULL THEN true ELSE r.status = 'accepted' END)" : "r.status = 'accepted'"
     const creditAmount = override ? "COALESCE(r.client_credit, COALESCE(r.amount, 0))" : "COALESCE(r.amount, 0)"
@@ -553,12 +561,19 @@ function clientSources(ctx: SourceContext): string[] {
       ctx.s.col(CR, "return_date") ? "fin_ts(r.return_date::text)" : "",
       ctx.s.col(CR, "created_at") ? utcTs("r.created_at::text") : "",
     ].filter(Boolean)
+    const acceptedAt = acceptedTs.length ? ts(...acceptedTs) : "NULL::timestamp"
+    // By creation date a credit Linko booked when the return was made (client_credit) is dated then (return_date: the
+    // creation moment, local), as Linko's transaction is, not when the return was accepted; the app's own returns credit
+    // on acceptance. The deliverer ledger keeps the acceptance.
+    const byCreation = !realization && override && !ctx.o.acceptedDay && ctx.s.col(CR, "return_date")
+    const returnTs = byCreation ? `CASE WHEN r.client_credit IS NOT NULL THEN COALESCE(fin_ts(r.return_date::text), ${acceptedAt}) ELSE ${acceptedAt} END` : acceptedAt
     const returnFields = (cur: string, amt: string): Partial<Record<Field, string>> => ({
       ek: "rc.id",
       cur,
-      ts: acceptedTs.length ? ts(...acceptedTs) : "NULL::timestamp",
+      ts: returnTs,
       col: "'order_return'",
       amt,
+      pending: override ? "(r.client_credit IS NOT NULL AND r.status <> 'accepted')" : "false",
       // The return's own organization first (returns without an order carry one too).
       org: ctx.s.col(CR, "organization")
         ? returnOrder && ctx.s.col("orders", "organization")
@@ -1316,8 +1331,8 @@ function delivererSources(ctx: SourceContext): string[] {
     LEFT JOIN dlv_returns dr ON m.src = 'client_return' AND dr.id = m.src_id
     LEFT JOIN dlv_client_corrections dcc ON m.src = 'client_correction' AND dcc.id = m.src_id
     -- A payment not yet accepted into a cashbox is still the deliverer's money: like Linko, it does not lower his debt
-    -- (the client's ledger counts it already).
-    WHERE (m.src <> 'client_correction' OR dcc.dk IS NOT NULL) AND NOT COALESCE(m.pending, false)`
+    -- (the client's ledger counts it already). A pending return stays as it was (not the deliverer's, see dlv_returns).
+    WHERE (m.src <> 'client_correction' OR dcc.dk IS NOT NULL) AND NOT (COALESCE(m.pending, false) AND m.src <> 'client_return')`
   const out = [
     select(
       ctx,
@@ -1328,7 +1343,8 @@ function delivererSources(ctx: SourceContext): string[] {
         ts: "d.ts",
         col: "CASE WHEN d.col IN ('none_type_plus', 'none_type_minus') THEN 'none_type' ELSE d.col END",
         amt: "d.amt",
-        pending: "d.pending",
+        // A pending return counts for the deliverer ledger as before (its "pending" only matters by realization date).
+        pending: "(d.pending AND d.src <> 'client_return')",
         org: "CASE WHEN d.order_org <> '' THEN d.order_org ELSE d.org END",
         pt: "CASE WHEN d.order_pt <> '' THEN d.order_pt ELSE d.pt END",
         src: "d.src",

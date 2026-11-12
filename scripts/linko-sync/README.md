@@ -63,6 +63,17 @@ the importers at another database of the same server; a remote host is refused u
   account (`financial_account_id` on orders, returns, payments, corrections, withdrawals — `import-document-accounts.mjs`),
   so «Долги по счетам» and the client list's balance (the shop's account, as Linko shows it) equal Linko's; the shop's
   own balance (Баланс клиентов, its card) is unchanged. A deleted account is not listed but still holds its shops' money.
+  An order Linko booked no debt for (cancelled, «без долга») carries the account written on the order.
+- **Заказы «Баланс»** (Linko's market_internal_balance): the order's financial account, its accepted documents only,
+  each at the rate Linko booked it at (`linko_document_rates`, `import-document-rates.mjs`; the app's own documents at
+  their debt rate or the rate history) — 928 of 928 orders equal Linko's.
+- **By realization date** (Баланс клиентов, Сверка счетов / магазина «По дате реализации»): a return Linko still holds
+  as pending counts only once accepted (by creation date from the day it was made), and an order counts on the day
+  Linko accepted it (`orders.accepted_date`, its delivery day — 372 of 574 imported orders left the warehouse on
+  another day).
+- **Tracking, catalog, branches**: «Показывать в отслеживании» and the live locations (`import-employee-tracking.mjs`,
+  needs `fetch.mjs` step `employee-details`), Linko's raw materials and product boxes (`import-product-boxes.mjs`),
+  every «Основной филиал» flag (`import-branch-flags.mjs`).
 - **Reservations** follow Linko: unconfirmed orders ("Не подтвержден") and confirmed transfers reserve stock.
 - **Same names**: document lines carry the catalog key (`"key": "product:<id>"`), supplies and supplier returns the
   supplier id, shops their financial account — so Linko products, suppliers and accounts that share a name stay apart.
