@@ -21,6 +21,7 @@ import { holidaysOf } from "@/lib/attendance-weekend-days-repo"
 import { listCheckInsOf } from "@/lib/check-ins-repo"
 import { AttendanceError, type AttendanceIssue } from "@/lib/attendance-errors"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { LOGIN_ORDER } from "@/lib/field-activity/employees"
 import { normCurrency } from "@/lib/finance/currency"
 import { parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { ORDER_EXCLUDED_STATUSES } from "@/lib/finance/types"
@@ -31,7 +32,7 @@ import { keySql, nameKey } from "@/lib/platform-refs"
 // design-attendance.md. Effective day = manual/import row > derived row (past days,
 // attendance_auto_days) > live derivation (today) > none (future, before the employee's start).
 
-type EmployeeRow = { id: number; first_name: string; last_name: string; position: string; branch: string; created_at: string; active: number }
+type EmployeeRow = { id: number; first_name: string; last_name: string; login?: string; position: string; branch: string; created_at: string; active: number }
 
 export type AttendanceEmployee = { id: number; name: string; position: string; branch: string; createdDay: string | null; active: boolean }
 
@@ -149,30 +150,6 @@ async function materialize(tx: PgDb, ctx: MonthContext, employees: AttendanceEmp
   return rows.emp.length
 }
 
-/** Makes sure every past day of the shown employees is derived (once; under the month lock). */
-async function ensureMaterialized(ctx: MonthContext, employees: AttendanceEmployee[], starts: Map<number, string | null>): Promise<void> {
-  let expected = 0
-  let from = ctx.last
-  let to = ctx.first
-  for (const employee of employees) {
-    const window = storedWindow(ctx, starts.get(employee.id))
-    if (!window) continue
-    expected += monthDays(ctx.year, ctx.month).filter((day) => day >= window[0] && day <= window[1]).length
-    if (window[0] < from) from = window[0]
-    if (window[1] > to) to = window[1]
-  }
-  if (!expected) return
-  const ids = employees.map((employee) => employee.id)
-  const count = (await getDb()
-    .prepare("SELECT COUNT(*)::int AS n FROM attendance_auto_days WHERE employee_id = ANY(@ids::int[]) AND day BETWEEN @from AND @to")
-    .get({ ids, from, to })) as { n: number }
-  if (Number(count.n) >= expected) return
-  await withTransaction(async (tx) => {
-    await lockAttendanceMonth(tx, ctx.first)
-    await materialize(tx, ctx, employees, starts)
-  })
-}
-
 // ---------------------------------------------------------------------------
 // The month matrix
 // ---------------------------------------------------------------------------
@@ -185,7 +162,8 @@ async function computeMonth(db: PgDb, ctx: MonthContext, employees: AttendanceEm
   if (!employees.length) return result
   const ids = employees.map((employee) => employee.id)
   const starts = await startsOf(db, employees)
-  await ensureMaterialized(ctx, employees, starts)
+  // Past days are not derived on view: as in Linko, a month shows the marks it has (arrivals, «Изменить», Excel)
+  // and the derived ones only once «Перерасчет» (recalcMonth) has computed them.
 
   const auto = (await db
     .prepare(
@@ -252,10 +230,11 @@ async function computeMonth(db: PgDb, ctx: MonthContext, employees: AttendanceEm
   return result
 }
 
-const EMPLOYEE_COLUMNS = "id, first_name, last_name, position, branch, created_at, active"
+const EMPLOYEE_COLUMNS = "id, first_name, last_name, login, position, branch, created_at, active"
 
-/** Active employees, newest first, by name search and branch ids; `employeeIds` (the reader's field
- * scope, lib/field-activity/actor.ts) keeps only those employees (undefined = every employee). */
+/** Active employees in Linko's login order (staff/attendance lists them so), by name search and branch ids;
+ * `employeeIds` (the reader's field scope, lib/field-activity/actor.ts) keeps only those employees
+ * (undefined = every employee). */
 async function shownEmployees(db: PgDb, search: string, branchIds: number[], employeeIds?: number[]): Promise<AttendanceEmployee[]> {
   if (employeeIds && !employeeIds.length) return []
   const where = ["active = 1"]
@@ -281,7 +260,8 @@ async function shownEmployees(db: PgDb, search: string, branchIds: number[], emp
       `(strpos(${keySql("first_name || ' ' || last_name")}, @needle) > 0 OR strpos(${keySql("last_name || ' ' || first_name")}, @needle) > 0)`,
     )
   }
-  const rows = (await db.prepare(`SELECT ${EMPLOYEE_COLUMNS} FROM employees WHERE ${where.join(" AND ")} ORDER BY id DESC`).all(...(Object.keys(params).length ? [params] : []))) as EmployeeRow[]
+  const rows = (await db.prepare(`SELECT ${EMPLOYEE_COLUMNS} FROM employees WHERE ${where.join(" AND ")} ORDER BY id`).all(...(Object.keys(params).length ? [params] : []))) as EmployeeRow[]
+  rows.sort((a, b) => LOGIN_ORDER.compare(a.login ?? "", b.login ?? "") || Number(a.id) - Number(b.id))
   return rows.map(toEmployee)
 }
 
