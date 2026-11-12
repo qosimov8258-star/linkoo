@@ -96,18 +96,19 @@ export function TrackingMap({ showClients, showZones, clients, zones, draft, onM
     }
   }, [clients, t])
 
-  // Zone outlines: drawn ones solid, the ones around the clients dashed.
+  // Zone outlines: drawn ones solid, the ones around the clients dashed. Every zone in Linko's one style (Территория:
+  // a light blue fill, about 20 % #039be5, and a dark navy 2 px outline), not a colour per zone.
   useEffect(() => {
     const layer = zoneLayerRef.current
     if (!layer) return
     layer.clearLayers()
     for (const zone of zones) {
       L.polygon(zone.ring, {
-        color: zone.color,
+        color: "#113460",
         weight: 2,
         dashArray: zone.derived ? "6 6" : undefined,
-        fillColor: zone.color,
-        fillOpacity: zone.derived ? 0.12 : 0.25,
+        fillColor: "#039be5",
+        fillOpacity: zone.derived ? 0.1 : 0.2,
       })
         .bindTooltip(escapeHtml(zone.name), { permanent: true, direction: "center", className: "zone-label" })
         .addTo(layer)
