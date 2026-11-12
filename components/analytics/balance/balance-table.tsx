@@ -1,7 +1,6 @@
 "use client"
 
 import { useRef, type ReactNode } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 
 import { BalanceAmount } from "@/components/analytics/balance/amount"
 import { ScrollButtons } from "@/components/ref/scroll-buttons"
@@ -31,11 +30,17 @@ export function nextOrdering(ordering: string[], key: string, cycle: SortCycle =
   return rest
 }
 
+/** Linko's header sort mark: two small solid triangles; the sorted direction keeps only its own. */
 function SortIcon({ ordering, sortKey, show = true }: { ordering: string[]; sortKey: string; show?: boolean }) {
   if (!show) return null
-  if (ordering.includes(sortKey)) return <ArrowUp className="h-3.5 w-3.5" />
-  if (ordering.includes(`-${sortKey}`)) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+  const asc = ordering.includes(sortKey)
+  const desc = ordering.includes(`-${sortKey}`)
+  return (
+    <svg viewBox="0 0 8 12" className="ml-[7px] h-[11px] w-[7px] shrink-0 fill-current" aria-hidden="true">
+      {!desc && <path d="M4 0.5 7.5 4.8H0.5Z" />}
+      {!asc && <path d="M4 11.5 0.5 7.2H7.5Z" />}
+    </svg>
+  )
 }
 
 export type BalanceTableProps<R extends BalanceRow> = {
