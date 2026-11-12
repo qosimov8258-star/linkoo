@@ -1041,8 +1041,10 @@ export function useSignedInLine(): { name: string; origin: string } {
     setOrigin(window.location.origin)
     fetch("/api/auth/me")
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: { displayName?: string } | null) => {
-        if (!cancelled && data?.displayName) setName(data.displayName)
+      // The linked employee's full name first, as Linko and the dashboard's own card show it («Admin Ritm»).
+      .then((data: { fullName?: string; displayName?: string } | null) => {
+        const shown = data?.fullName || data?.displayName
+        if (!cancelled && shown) setName(shown)
       })
       .catch(() => {})
     return () => {

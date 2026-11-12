@@ -40,9 +40,10 @@ export function CoverageAnalysisView() {
   const now = useMemo(() => new Date(), [])
   // Like the reference, the tab opens on the current calendar month — of the business day (Asia/Tashkent),
   // the day the server's field counts use.
-  const [period, setPeriod] = useState("МЕСЯЦ")
-  const [from, setFrom] = useState(() => monthStartIso(todayIso()))
-  const [to, setTo] = useState(() => monthEndIso(todayIso()))
+  // Linko opens the tab on its own range of today (its menus link it with ?beginDate=<today>&endDate=<today>, «СВОЯ»).
+  const [period, setPeriod] = useState("СВОЯ")
+  const [from, setFrom] = useState(() => todayIso())
+  const [to, setTo] = useState(() => todayIso())
   const [clients, setClients] = useState<ClientRecord[]>([])
   const [orders, setOrders] = useState<OrderRecord[]>([])
   // Visits and refusals of the period per client: the agents' field records (lib/field-activity), by client id.
@@ -266,7 +267,7 @@ export function CoverageAnalysisView() {
         rangeSlot={
           <div className="relative ml-auto mr-[15px]">
             <button type="button" onClick={() => setDateOpen((open) => !open)} className="text-[13px] font-bold capitalize text-[#1E4A9A]">
-              {`${formatStatementDate(from, language, false)} - ${formatStatementDate(to, language, false)}`}
+              {from === to ? formatStatementDate(from, language, false) : `${formatStatementDate(from, language, false)} - ${formatStatementDate(to, language, false)}`}
             </button>
             {dateOpen && (
               <DateRangePicker

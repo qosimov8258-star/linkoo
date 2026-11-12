@@ -67,17 +67,25 @@ export function DashboardContent() {
   }
 
   const { begin, end } = rangeForPeriod(period, today, { begin: customBegin, end: customEnd })
-  // Like the reference, the own range stays "Укажите Дату" until a date is picked (the widgets show today meanwhile).
-  const label = period === "СВОЯ" && !touched && !hasUrlCustomRange ? "Укажите Дату" : formatRangeLabel(begin, end)
+  // Like the reference, a fresh dashboard is the own range of today: Linko writes ?beginDate=<today>&endDate=<today> and
+  // shows the day («13 Нояб. 2026»).
+  const label = formatRangeLabel(begin, end)
   const beginISO = toISODate(begin)
   const endISO = toISODate(end)
 
-  // keep the range in the address bar (beginDate / endDate / typeDate), as the reference app does
+  // keep the range in the address bar (beginDate / endDate / typeDate), as the reference app does; on arrival only the
+  // day, as Linko's own redirect (#/?beginDate=…&endDate=…)
   useEffect(() => {
-    if (!touched) return
-    const params = new URLSearchParams({ beginDate: beginISO, endDate: endISO, typeDate: PERIOD_TO_TYPE[period] })
+    if (!touched && hasUrlCustomRange) return
+    let params: URLSearchParams
+    if (touched) params = new URLSearchParams({ beginDate: beginISO, endDate: endISO, typeDate: PERIOD_TO_TYPE[period] })
+    else {
+      params = new URLSearchParams(window.location.search)
+      params.set("beginDate", beginISO)
+      params.set("endDate", endISO)
+    }
     window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params}`)
-  }, [touched, period, beginISO, endISO])
+  }, [touched, hasUrlCustomRange, period, beginISO, endISO])
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [selectedWidgets, setSelectedWidgets] = useState<string[]>(() => loadSelectedHomeWidgets())
