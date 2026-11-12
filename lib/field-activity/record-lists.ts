@@ -48,6 +48,16 @@ export type FieldRecordListFilter = {
   refusalTypeIds?: number[]
   /** Photo reports only. */
   statuses?: string[]
+  /** Photo reports only (the reference's filter card): the author's supervisor (employees.details.supervisorId), the
+   * shop's branch / client type (client_types ids) / Категория канала (clients.sales_channel) / ИНН, a photo group
+   * name (Категория фотоотчета), and whether the shop has equipment (inventory_items.client_id). */
+  supervisorIds?: number[]
+  branches?: string[]
+  clientTypeIds?: number[]
+  channels?: string[]
+  inns?: string[]
+  categories?: string[]
+  withEquipment?: boolean
   /** Free text: client, employee, comment, reason or the record number. */
   search?: string
 }
@@ -128,6 +138,15 @@ export function recordListQueryOf(kind: FieldRecordKind, params: URLSearchParams
   if (before.value && paging.value.page > 1) return { ok: false, field: "page", error: "Неверное значение" }
   const facets = boolParam(params.get("facets"), "facets")
   if (!facets.ok) return facets
+  const supervisors = idsParam(params, "supervisorId")
+  if (!supervisors.ok) return supervisors
+  const clientTypes = idsParam(params, "clientTypeId")
+  if (!clientTypes.ok) return clientTypes
+  const equipment = boolParam(params.get("withEquipment"), "withEquipment")
+  if (!equipment.ok) return equipment
+  const texts = textsParam(params, ["branch", "channel", "inn", "category"])
+  if (!texts.ok) return texts
+  const photo = kind === "photo_report"
   return {
     ok: true,
     value: {
@@ -138,6 +157,13 @@ export function recordListQueryOf(kind: FieldRecordKind, params: URLSearchParams
         clientIds: clients.value.length ? clients.value : undefined,
         refusalTypeIds: kind === "refusal" && types.value.length ? types.value : undefined,
         statuses: kind === "photo_report" && statuses.length ? statuses : undefined,
+        supervisorIds: photo && supervisors.value.length ? supervisors.value : undefined,
+        branches: photo && texts.value.branch.length ? texts.value.branch : undefined,
+        clientTypeIds: photo && clientTypes.value.length ? clientTypes.value : undefined,
+        channels: photo && texts.value.channel.length ? texts.value.channel : undefined,
+        inns: photo && texts.value.inn.length ? texts.value.inn : undefined,
+        categories: photo && texts.value.category.length ? texts.value.category : undefined,
+        withEquipment: photo ? equipment.value : undefined,
         search: search || undefined,
       },
       page: paging.value.page,
@@ -146,6 +172,22 @@ export function recordListQueryOf(kind: FieldRecordKind, params: URLSearchParams
       facets: Boolean(facets.value),
     },
   }
+}
+
+/** Repeated or comma-separated text values of each name (trimmed, control characters dropped, at most 50 of 200 chars). */
+function textsParam<K extends string>(params: URLSearchParams, names: K[]): QueryResult<Record<K, string[]>> {
+  const out = {} as Record<K, string[]>
+  for (const name of names) {
+    const values: string[] = []
+    for (const part of params.getAll(name).flatMap((value) => value.split(","))) {
+      const value = [...part].filter((char) => char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127).join("").trim()
+      if (!value) continue
+      if (value.length > MAX_SEARCH || values.length >= 50) return { ok: false, field: name, error: "Неверное значение" }
+      if (!values.includes(value)) values.push(value)
+    }
+    out[name] = values
+  }
+  return { ok: true, value: out }
 }
 
 function likePattern(text: string): string {
@@ -162,7 +204,7 @@ async function hasRefusalTypes(): Promise<boolean> {
 }
 
 /** WHERE clause + parameters of a list filter (aliases: f = record, e = employee, c = client). */
-function whereOf(kind: FieldRecordKind, filter: FieldRecordListFilter, types: boolean) {
+function whereOf(kind: FieldRecordKind, filter: FieldRecordListFilter, types: boolean, columns: PhotoFilterColumns = NO_PHOTO_COLUMNS) {
   const where: string[] = []
   const params: Record<string, unknown> = {}
   if (filter.from) {
@@ -189,6 +231,41 @@ function whereOf(kind: FieldRecordKind, filter: FieldRecordListFilter, types: bo
     where.push("f.status = ANY(@statuses::text[])")
     params.statuses = filter.statuses
   }
+  if (kind === "photo_report") {
+    if (filter.supervisorIds) {
+      // The authors whose supervisor is one of them (resolved from employees.details by photoFilterColumns' caller).
+      where.push("f.employee_id = ANY(@supervisedIds::int[])")
+      params.supervisedIds = columns.supervisedIds ?? []
+    }
+    if (filter.branches) {
+      where.push("fin_key(c.branch) = ANY(SELECT fin_key(x) FROM unnest(@branches::text[]) AS x)")
+      params.branches = filter.branches
+    }
+    if (filter.clientTypeIds) {
+      where.push(columns.clientTypes ? "fin_key(c.type) IN (SELECT fin_key(t.name) FROM client_types t WHERE t.id = ANY(@clientTypeIds::int[]))" : "false")
+      params.clientTypeIds = filter.clientTypeIds
+    }
+    if (filter.channels) {
+      where.push(columns.channel ? "fin_key(c.sales_channel) = ANY(SELECT fin_key(x) FROM unnest(@channels::text[]) AS x)" : "false")
+      params.channels = filter.channels
+    }
+    if (filter.inns) {
+      where.push("btrim(COALESCE(c.inn, '')) = ANY(@inns::text[])")
+      params.inns = filter.inns
+    }
+    if (filter.categories) {
+      // photo_types is JSON text written by JSON.stringify ([{"name":"Polka","before":1,"after":1}]): a group is matched
+      // by its "name":<json string> pair, so a damaged value matches nothing instead of failing the list.
+      where.push(`EXISTS (SELECT 1 FROM unnest(@categories::text[]) AS x WHERE position(('"name":' || to_json(x)::text) IN COALESCE(f.photo_types, '')) > 0)`)
+      params.categories = filter.categories
+    }
+    if (filter.withEquipment !== undefined) {
+      const equipment = columns.equipment
+        ? `EXISTS (SELECT 1 FROM inventory_items ii WHERE ii.client_id = f.client_id${columns.equipmentDeleted ? " AND COALESCE(ii.deleted, 0) = 0" : ""})`
+        : "false"
+      where.push(filter.withEquipment ? equipment : `NOT ${equipment}`)
+    }
+  }
   const search = (filter.search ?? "").trim()
   if (search) {
     const reason = kind === "refusal" ? (types ? "COALESCE(rt.name, f.reason, '')" : "COALESCE(f.reason, '')") : "''"
@@ -200,6 +277,37 @@ function whereOf(kind: FieldRecordKind, filter: FieldRecordListFilter, types: bo
     params.search = search
   }
   return { sql: where.length ? `WHERE ${where.join(" AND ")}` : "", params }
+}
+
+/** Optional tables / columns the photo report filters read (clients.sales_channel, client_types, inventory_items). */
+type PhotoFilterColumns = { channel: boolean; clientTypes: boolean; equipment: boolean; equipmentDeleted: boolean; supervisedIds?: number[] }
+const NO_PHOTO_COLUMNS: PhotoFilterColumns = { channel: false, clientTypes: false, equipment: false, equipmentDeleted: false }
+
+async function photoFilterColumns(supervisorIds: number[] | undefined): Promise<PhotoFilterColumns> {
+  const columns = await columnsOf(["clients", "client_types", "inventory_items"])
+  return {
+    channel: Boolean(columns.get("clients")?.has("sales_channel")),
+    clientTypes: Boolean(columns.get("client_types")?.has("name")),
+    equipment: Boolean(columns.get("inventory_items")?.has("client_id")),
+    equipmentDeleted: Boolean(columns.get("inventory_items")?.has("deleted")),
+    supervisedIds: supervisorIds ? await supervisedEmployees(supervisorIds) : undefined,
+  }
+}
+
+/** Employees whose supervisor (employees.details.supervisorId, lib/employees-repo.ts) is one of `supervisorIds`. */
+async function supervisedEmployees(supervisorIds: number[]): Promise<number[]> {
+  const wanted = new Set(supervisorIds)
+  const rows = (await getDb().prepare("SELECT id, details FROM employees").all()) as Array<{ id: number; details: string | null }>
+  return rows.filter((row) => wanted.has(Number(supervisorOf(row.details)))).map((row) => Number(row.id))
+}
+
+function supervisorOf(details: string | null): number | null {
+  try {
+    const value = (JSON.parse(details || "{}") as { supervisorId?: unknown }).supervisorId
+    return Number.isInteger(Number(value)) && value !== null && value !== "" ? Number(value) : null
+  } catch {
+    return null
+  }
 }
 
 type Row = {
@@ -254,7 +362,7 @@ export async function listFieldRecords(
   if ((filter.employeeIds && !filter.employeeIds.length) || (filter.clientIds && !filter.clientIds.length)) return EMPTY_PAGE
   if ((filter.refusalTypeIds && !filter.refusalTypeIds.length) || (filter.statuses && !filter.statuses.length)) return EMPTY_PAGE
   const types = kind === "refusal" && (await hasRefusalTypes())
-  const { sql: whereSql, params } = whereOf(kind, filter, types)
+  const { sql: whereSql, params } = whereOf(kind, filter, types, kind === "photo_report" ? await photoFilterColumns(filter.supervisorIds) : NO_PHOTO_COLUMNS)
   const joins = `FROM ${TABLE[kind]} f
          LEFT JOIN employees e ON e.id = f.employee_id
          LEFT JOIN clients c ON c.id = f.client_id
@@ -339,7 +447,41 @@ export async function fieldRecordFacets(kind: FieldRecordKind, employeeIds?: num
     list
       .map((option) => ({ id: Number(option.id), name: String(option.name ?? "").trim() || `#${option.id}` }))
       .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.id - b.id)
-  return { employees: byName(employees), clients: byName(clients), refusalTypes: byName(refusalTypes) }
+  const base = { employees: byName(employees), clients: byName(clients), refusalTypes: byName(refusalTypes) }
+  if (kind !== "photo_report") return base
+  return { ...base, ...(await photoReportFacets(byName, employeeIds)) }
+}
+
+/** The extra lists of the photo report filter card (the reference's: Супервайзер, Бренд, Категория фотоотчета,
+ * Филиалы, Категория канала, Тип клиента, ИНН магазина). */
+async function photoReportFacets(byName: (list: FieldOption[]) => FieldOption[], employeeIds?: number[]): Promise<Partial<FieldRecordFacets>> {
+  const db = getDb()
+  // A reader limited to some employees sees the supervisors of those employees, and the ИНН and photo groups of
+  // their reports only.
+  const only = employeeIds ? "AND f.employee_id = ANY(@employeeIds::int[])" : ""
+  const scoped = { employeeIds: employeeIds ?? [] }
+  const inScope = employeeIds ? new Set(employeeIds) : null
+  const columns = await columnsOf(["clients", "client_types", "branches", "brands"])
+  const texts = (values: unknown[]) => [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"))
+  const employees = (await db.prepare(`SELECT e.id, ${EMPLOYEE_NAME} AS name, e.details FROM employees e`).all()) as Array<FieldOption & { details: string | null }>
+  const supervisorIds = new Set(
+    employees
+      .filter((row) => !inScope || inScope.has(Number(row.id)))
+      .map((row) => supervisorOf(row.details))
+      .filter((id): id is number => id !== null),
+  )
+  const supervisors = byName(employees.filter((row) => supervisorIds.has(Number(row.id))).map((row) => ({ id: Number(row.id), name: row.name })))
+  const branches = columns.get("branches")?.has("name") ? ((await db.prepare("SELECT name FROM branches").all()) as Array<{ name: string }>).map((row) => row.name) : []
+  const clientTypes = columns.get("client_types")?.has("name") ? byName((await db.prepare("SELECT id, name FROM client_types").all()) as FieldOption[]) : []
+  const channels = columns.get("clients")?.has("sales_channel") ? ((await db.prepare("SELECT DISTINCT sales_channel AS v FROM clients").all()) as Array<{ v: string }>).map((row) => row.v) : []
+  const innSql = `SELECT DISTINCT c.inn AS v FROM field_photo_reports f JOIN clients c ON c.id = f.client_id WHERE true ${only}`
+  const inns = columns.get("clients")?.has("inn") ? ((await db.prepare(innSql).all(...args(innSql, scoped))) as Array<{ v: string }>).map((row) => row.v) : []
+  const groupSql = `SELECT f.photo_types FROM field_photo_reports f WHERE COALESCE(f.photo_types, '') NOT IN ('', '[]') ${only}`
+  const groups = ((await db.prepare(groupSql).all(...args(groupSql, scoped))) as Array<{ photo_types: string | null }>).flatMap((row) =>
+    photoTypesOf(row.photo_types).map((group) => group.name),
+  )
+  const brands = columns.get("brands")?.has("name") ? ((await db.prepare("SELECT name FROM brands").all()) as Array<{ name: string }>).map((row) => row.name) : []
+  return { supervisors, branches: texts(branches), clientTypes, channels: texts(channels), inns: texts(inns), categories: texts(groups), brands: texts(brands) }
 }
 
 /**

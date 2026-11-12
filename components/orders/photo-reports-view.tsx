@@ -3,6 +3,7 @@
 import { Check, Download, Filter, Minus, Search, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { FilterCardOptionSelect } from "@/components/analytics/balance/filter-bar"
 import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
 import { csvText } from "@/lib/csv"
@@ -22,8 +23,10 @@ import { notify } from "@/lib/notify"
 
 // "Фотоотчеты" (Продажи): the photo reports the agents send from the mobile app with their
 // before / after photos — the field data of Активность / Отслеживание (lib/field-activity,
-// GET /api/field-activity/photo-reports). Period, "Создал" (employee) and "Магазин" (client)
-// filter by id on the server; a field employee sees their own reports. Принять / Отклонить set the
+// GET /api/field-activity/photo-reports). The filter card is the reference's: Дата создания, Супервайзер, Создал,
+// Бренд, Категория фотоотчета, Филиалы, Категория канала, Тип клиента, Магазин, ИНН магазина, Магазин с
+// оборудованием — every one applied on the server (Бренд stays disabled: a report records no products here);
+// a field employee sees their own reports. Принять / Отклонить set the
 // review status (PATCH …/photo-reports/[id]/status, clients.manage); clicking the shown state
 // again sets it back to "Ожидает". A scoped reader's own reports (ownEmployeeId of the list) only
 // show their state: an agent never reviews their own report.
@@ -50,7 +53,21 @@ function currentMonth() {
 }
 
 type Period = { begin: string; end: string }
-type Query = { period: Period; status: PhotoReportStatus | "all"; employeeId: number | null; clientId: number | null; search: string }
+/** The card's choices: ids and names as the server takes them ("" = all). */
+type CardFilters = {
+  supervisorId: string
+  employeeId: string
+  category: string
+  branch: string
+  channel: string
+  clientTypeId: string
+  clientId: string
+  inn: string
+  withEquipment: "" | "true" | "false"
+}
+const NO_FILTERS: CardFilters = { supervisorId: "", employeeId: "", category: "", branch: "", channel: "", clientTypeId: "", clientId: "", inn: "", withEquipment: "" }
+
+type Query = { period: Period; status: PhotoReportStatus | "all"; filters: CardFilters; search: string }
 
 function queryParams(query: Query, before: string | null, pageSize: number): URLSearchParams {
   const params = new URLSearchParams({ pageSize: String(pageSize) })
@@ -58,8 +75,7 @@ function queryParams(query: Query, before: string | null, pageSize: number): URL
   if (query.period.begin) params.set("from", query.period.begin)
   if (query.period.end) params.set("to", query.period.end)
   if (query.status !== "all") params.set("status", query.status)
-  if (query.employeeId) params.set("employeeId", String(query.employeeId))
-  if (query.clientId) params.set("clientId", String(query.clientId))
+  for (const [name, value] of Object.entries(query.filters)) if (value) params.set(name, value)
   if (query.search) params.set("q", query.search)
   return params
 }
@@ -152,10 +168,9 @@ export function PhotoReportsView() {
   const [search, setSearch] = useState("")
   const [period, setPeriod] = useState<Period>(currentMonth)
   const [draft, setDraft] = useState<Period>(period)
-  const [employeeId, setEmployeeId] = useState<number | null>(null)
-  const [clientId, setClientId] = useState<number | null>(null)
-  const [draftEmployee, setDraftEmployee] = useState("")
-  const [draftClient, setDraftClient] = useState("")
+  const [filters, setFilters] = useState<CardFilters>(NO_FILTERS)
+  const [draftFilters, setDraftFilters] = useState<CardFilters>(NO_FILTERS)
+  const setDraftField = (name: keyof CardFilters) => (value: string) => setDraftFilters((current) => ({ ...current, [name]: value }))
   const [rows, setRows] = useState<FieldRecordRow[]>([])
   const [count, setCount] = useState(0)
   // Keyset paging: "Загрузить еще..." asks for the reports after the previous page's nextCursor
@@ -178,7 +193,7 @@ export function PhotoReportsView() {
   }, [query])
 
   const status = TABS.find(([label]) => label === tab)?.[1] ?? "all"
-  const current = useMemo<Query>(() => ({ period, status, employeeId, clientId, search }), [period, status, employeeId, clientId, search])
+  const current = useMemo<Query>(() => ({ period, status, filters, search }), [period, status, filters, search])
   // A new filter (or search) starts again from its newest reports.
   const cursor = more && more.query === current ? more.cursor : null
   // The filter options come with the first answer only (a later filter change does not ask again).
@@ -226,7 +241,7 @@ export function PhotoReportsView() {
     rows.forEach((row, index) => result[index % COLUMNS].push(row))
     return result
   }, [rows])
-  const activeFilters = 1 + (employeeId ? 1 : 0) + (clientId ? 1 : 0)
+  const activeFilters = 1 + Object.values(filters).filter(Boolean).length
 
   const changeFilter = useCallback((apply: () => void) => {
     apply()
@@ -288,8 +303,7 @@ export function PhotoReportsView() {
     }
     changeFilter(() => {
       setPeriod(draft)
-      setEmployeeId(draftEmployee ? Number(draftEmployee) : null)
-      setClientId(draftClient ? Number(draftClient) : null)
+      setFilters(draftFilters)
     })
     setFilterOpen(false)
   }
@@ -332,7 +346,7 @@ export function PhotoReportsView() {
       <section className="overflow-hidden bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <RefTabs labels={TABS.map(([label]) => label)} value={tab} onChange={(value) => changeFilter(() => setTab(value as typeof tab))} />
         <div className="flex h-[50px] items-center gap-5 px-[10px]">
-          <button onClick={() => { setDraft(period); setDraftEmployee(employeeId ? String(employeeId) : ""); setDraftClient(clientId ? String(clientId) : ""); setFilterOpen(true) }} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Filter className="h-4 w-4" />{t("Фильтр")} / {activeFilters}</button>
+          <button onClick={() => { setDraft(period); setDraftFilters(filters); setFilterOpen(true) }} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Filter className="h-4 w-4" />{t("Фильтр")} / {activeFilters}</button>
           <span className="text-[12px] font-bold text-[#1E4A9A]">{dotted(period.begin)} - {dotted(period.end)}</span>
           <div className="relative mx-auto w-[260px]"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-[#d0d0d0] py-1 text-[13px] font-semibold outline-none placeholder:text-black" /><Search className="absolute right-1 top-1 hidden h-4 w-4 text-slate-400" /></div>
           <span className="text-[13px]">{t("Фотоотчеты")}: <b className="text-[16px] font-medium">{count} {t("шт")}</b></span>
@@ -355,21 +369,43 @@ export function PhotoReportsView() {
         </button>
       )}
       {filterOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/20 p-8 pt-20">
-          <section className="mx-auto max-w-[1840px] bg-white p-10 shadow-2xl">
-            <div className="mb-10 flex justify-between"><h2 className="text-xl font-semibold">{t("Фильтр")}</h2><button onClick={() => setFilterOpen(false)} aria-label={t("Закрыть")}><X className="h-7 w-7 text-slate-500" /></button></div>
-            <div className="grid grid-cols-4 gap-x-6 gap-y-10">
-              <div className="text-sm">{t("Дата создания")}
-                <div className="mt-2 flex items-center gap-2 border-b">
-                  <input type="date" min="2000-01-01" max="2100-12-31" value={draft.begin} onChange={(event) => setDraft((value) => ({ ...value, begin: event.target.value }))} className="p-2 text-base outline-none" />
+        // The reference's card: four columns, the label inside each select, a full-width green «Применить».
+        <div className="fixed inset-x-0 bottom-0 top-[50px] z-[100] overflow-y-auto bg-black/10" onClick={() => setFilterOpen(false)}>
+          <section className="mx-[30px] mt-[117px] bg-white p-[30px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <h2 className="text-[13px] font-semibold text-[#333]">{t("Фильтр")}</h2>
+              <button type="button" onClick={() => setFilterOpen(false)} aria-label={t("Закрыть")} className="text-[#333]"><X className="h-6 w-6" /></button>
+            </div>
+            <div className="mt-[22px] grid grid-cols-1 gap-x-[22px] gap-y-[18px] px-[20px] md:grid-cols-4">
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold text-black">{t("Дата создания")}</span>
+                <div className="flex h-[26px] items-center gap-1 border-b border-[#d5dae1] text-[13px]">
+                  <input type="date" min="2000-01-01" max="2100-12-31" value={draft.begin} onChange={(event) => setDraft((value) => ({ ...value, begin: event.target.value }))} className="min-w-0 flex-1 bg-transparent outline-none" />
                   <span>-</span>
-                  <input type="date" min="2000-01-01" max="2100-12-31" value={draft.end} onChange={(event) => setDraft((value) => ({ ...value, end: event.target.value }))} className="p-2 text-base outline-none" />
+                  <input type="date" min="2000-01-01" max="2100-12-31" value={draft.end} onChange={(event) => setDraft((value) => ({ ...value, end: event.target.value }))} className="min-w-0 flex-1 bg-transparent outline-none" />
                 </div>
               </div>
-              <label className="pt-5 font-semibold">{t("Создал")}<select value={draftEmployee} onChange={(event) => setDraftEmployee(event.target.value)} className="mt-2 block w-full border-b bg-white p-2 font-normal outline-none"><option value="">{t("Все")}</option>{(facets?.employees ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <label className="pt-5 font-semibold">{t("Магазин")}<select value={draftClient} onChange={(event) => setDraftClient(event.target.value)} className="mt-2 block w-full border-b bg-white p-2 font-normal outline-none"><option value="">{t("Все")}</option>{(facets?.clients ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <FilterCardOptionSelect label={t("Супервайзер")} value={draftFilters.supervisorId} onChange={setDraftField("supervisorId")} options={(facets?.supervisors ?? []).map((item) => ({ value: String(item.id), label: item.name }))} />
+              <FilterCardOptionSelect label={t("Создал")} value={draftFilters.employeeId} onChange={setDraftField("employeeId")} options={(facets?.employees ?? []).map((item) => ({ value: String(item.id), label: item.name }))} />
+              {/* A photo report records no products here, so there is no brand to filter by. */}
+              <FilterCardOptionSelect label={t("Бренд")} value="" onChange={() => undefined} options={(facets?.brands ?? []).map((name) => ({ value: name, label: name }))} disabled />
+              <FilterCardOptionSelect label={t("Категория фотоотчета")} value={draftFilters.category} onChange={setDraftField("category")} options={(facets?.categories ?? []).map((name) => ({ value: name, label: name }))} />
+              <FilterCardOptionSelect label={t("Филиалы")} value={draftFilters.branch} onChange={setDraftField("branch")} options={(facets?.branches ?? []).map((name) => ({ value: name, label: name }))} />
+              <FilterCardOptionSelect label={t("Категория канала")} value={draftFilters.channel} onChange={setDraftField("channel")} options={(facets?.channels ?? []).map((name) => ({ value: name, label: name }))} />
+              <FilterCardOptionSelect label={t("Тип клиента")} value={draftFilters.clientTypeId} onChange={setDraftField("clientTypeId")} options={(facets?.clientTypes ?? []).map((item) => ({ value: String(item.id), label: item.name }))} />
+              <FilterCardOptionSelect label={t("Магазин")} value={draftFilters.clientId} onChange={setDraftField("clientId")} options={(facets?.clients ?? []).map((item) => ({ value: String(item.id), label: item.name }))} />
+              <FilterCardOptionSelect label={t("ИНН магазина")} value={draftFilters.inn} onChange={setDraftField("inn")} options={(facets?.inns ?? []).map((inn) => ({ value: inn, label: inn }))} />
+              <FilterCardOptionSelect
+                label={t("Магазин с оборудованием")}
+                value={draftFilters.withEquipment}
+                onChange={(value) => setDraftFilters((current) => ({ ...current, withEquipment: value === "true" || value === "false" ? value : "" }))}
+                options={[
+                  { value: "true", label: t("Да") },
+                  { value: "false", label: t("Нет") },
+                ]}
+              />
             </div>
-            <button onClick={applyFilter} className="mt-6 w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white">{t("Применить")}</button>
+            <button type="button" onClick={applyFilter} className="mt-[22px] h-9 w-full rounded-[3px] bg-[#71ce87] text-[13px] font-semibold text-white">{t("Применить")}</button>
           </section>
         </div>
       )}

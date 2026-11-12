@@ -41,8 +41,20 @@ export type PhotoTypeGroup = { name: string; before: number; after: number }
 
 export type FieldOption = { id: number; name: string }
 
-/** Filter options of a list page: the employees / clients / refusal types its records use. */
-export type FieldRecordFacets = { employees: FieldOption[]; clients: FieldOption[]; refusalTypes: FieldOption[] }
+/** Filter options of a list page: the employees / clients / refusal types its records use; photo reports also the
+ * reference card's lists (supervisors, branches, client types, Категория канала, ИНН, photo groups, brands). */
+export type FieldRecordFacets = {
+  employees: FieldOption[]
+  clients: FieldOption[]
+  refusalTypes: FieldOption[]
+  supervisors?: FieldOption[]
+  branches?: string[]
+  clientTypes?: FieldOption[]
+  channels?: string[]
+  inns?: string[]
+  categories?: string[]
+  brands?: string[]
+}
 
 export type FieldRecordPage = {
   /** Every record of the filter (a `before` cursor does not narrow it). */
