@@ -3,6 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { linkedWarehouseNames } from "@/lib/user-warehouses"
 import { getDb, type PgDb } from "@/lib/db"
 import { dbErrorResponse } from "@/lib/db-errors"
 import { normCurrency } from "@/lib/finance/currency"
@@ -430,7 +431,31 @@ export async function stockMovementRows(filters: MoveFilters, ordering = "", db:
     cache.set(cacheKey, entry)
   }
   const { rows, needPriceList, units } = await entry.value
-  return { rows: [...rows].sort(compareRows(ordering || "name")), needPriceList, units }
+  if (ordering || filters.groupBy !== "product") return { rows: [...rows].sort(compareRows(ordering || "name")), needPriceList, units }
+  // Linko's own order of its product lists: «Порядковый номер» first (products.order_number, none last), then the name
+  // in its database collation (case and punctuation ignored).
+  const ordinals = await productOrdinals(db)
+  const ordinal = (row: MoveRow) => ordinals.get(row.key) ?? Number.POSITIVE_INFINITY
+  const idOf = (row: MoveRow) => Number(row.key.split(":")[1]) || 0
+  const sorted = [...rows].sort(
+    (a, b) => ordinal(a) - ordinal(b) || LINKO_NAME_ORDER.compare(a.name, b.name) || LINKO_NAME_TIE.compare(a.name, b.name) || idOf(b) - idOf(a),
+  )
+  return { rows: sorted, needPriceList, units }
+}
+
+const LINKO_NAME_ORDER = new Intl.Collator("en", { sensitivity: "base", ignorePunctuation: true })
+/** Names equal but for case: lowercase first ("Pepsi" before "PEPSI"); the very same name: the newer product first. */
+const LINKO_NAME_TIE = new Intl.Collator("en", { ignorePunctuation: true, caseFirst: "lower" })
+
+/** "product:<id>" → its «Порядковый номер» (products.order_number), for the ones that have one. */
+async function productOrdinals(db: PgDb): Promise<Map<string, number>> {
+  const rows = (await db.prepare("SELECT id, order_number::text AS order_number FROM products").all()) as Array<{ id: number; order_number: string | null }>
+  const ordinals = new Map<string, number>()
+  for (const row of rows) {
+    const text = String(row.order_number ?? "").trim()
+    if (text && Number.isFinite(Number(text))) ordinals.set(`product:${row.id}`, Number(text))
+  }
+  return ordinals
 }
 
 async function stockMovementRowsFresh(filters: MoveFilters, db: PgDb): Promise<MoveRowsResult> {
@@ -644,6 +669,8 @@ export async function movementRequest(url: string): Promise<{ filters: MoveFilte
   if (parsed.error !== undefined) {
     return { error: invalidFieldResponse(parsed.error, "YYYY-MM-DD") }
   }
+  // Without a warehouse or branch filter, the warehouses linked to the user's employee card (as Linko scopes it).
+  if (!parsed.filters.warehouses.length && !parsed.filters.branches.length) parsed.filters.warehouses = await linkedWarehouseNames(user)
   return { filters: parsed.filters, params }
 }
 

@@ -3,6 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { linkedWarehouseNames } from "@/lib/user-warehouses"
 import { getDb, type PgDb } from "@/lib/db"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { stockOrphanNames } from "@/lib/stock/level"
@@ -222,5 +223,7 @@ export async function recommendedRequest(url: string): Promise<{ filters: Recomm
   if (parsed.error !== undefined) {
     return { error: invalidFieldResponse(parsed.error, "YYYY-MM-DD") }
   }
+  // Without a warehouse filter, the warehouses linked to the user's employee card (as Linko scopes the report).
+  if (!parsed.filters.warehouses.length) parsed.filters.warehouses = await linkedWarehouseNames(user)
   return { filters: parsed.filters, params }
 }
