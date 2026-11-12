@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { dbErrorResponse } from "@/lib/db-errors"
+import { formatStatementDate } from "@/lib/finance/dates"
 import { listClientTypes } from "@/lib/client-types-repo"
 import { getDb, outsideTransaction } from "@/lib/db"
 import { listOrganizations } from "@/lib/organizations-repo"
@@ -118,13 +119,10 @@ function ensureSchema(): Promise<void> {
 }
 
 function formatDate(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-      .format(new Date(iso.replace(" ", "T") + "Z"))
-      .replace(" г.", "")
-  } catch {
-    return iso
-  }
+  // The stored digits as they are ("YYYY-MM-DD HH:MM:SS"), as the reference prints them: "30 сент. 2025, 16:09",
+  // with moment's month forms ("июня", "июля").
+  const text = String(iso ?? "").replace(" ", "T")
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text) ? formatStatementDate(text.slice(0, 16), "ru", true) : iso
 }
 
 /** "Не указано" / empty = no client type. */

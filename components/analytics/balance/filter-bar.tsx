@@ -6,7 +6,7 @@ import { CalendarDays, Pencil, X, XCircle } from "lucide-react"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { RI } from "@/components/ref/list-kit"
 
-import { formatDotDate } from "@/lib/finance/dates"
+import { formatDotDate, formatStatementDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Filter header pieces of the balance pages:
@@ -283,5 +283,6 @@ export function BalanceFilterDialog({
 function rangeLabel(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number)
   if (!year || !month || !day) return iso
-  return new Date(year, month - 1, day).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).replace(/\s?г\.$/, "")
+  // moment "ru" "DD MMM YYYY" as the reference prints it ("01 июня 2026", not Intl's "июн.").
+  return formatStatementDate(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`, "ru", false)
 }

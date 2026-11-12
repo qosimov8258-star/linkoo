@@ -5,6 +5,7 @@ import { RefHeader, RefPage } from "@/components/ref/list-kit";
 import Link from "next/link";
 import { useState } from "react";
 import { csvText } from "@/lib/csv";
+import { formatStatementDate } from "@/lib/finance/dates";
 import { useLanguage } from "@/lib/i18n/language-context";
 
 const tabs = ["Не подтверждён", "Подтверждён", "Все"];
@@ -14,7 +15,7 @@ export function PerfectStoreView() {
   const [tab, setTab] = useState("Все");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notice, setNotice] = useState("");
-  const displayDate = new Date(`${date}T00:00:00`).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).replace(" г.", "");
+  const displayDate = formatStatementDate(date, "ru", false);
 
   const download = () => {
     const csv = csvText([["ID", "Создал", "Агент", "Магазин", "Дата создания", "Присутствие", "Доля", "Задача", "Комментарий", "Статус задачи"]]) + "\n";

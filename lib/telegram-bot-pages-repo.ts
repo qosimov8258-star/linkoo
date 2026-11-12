@@ -29,7 +29,8 @@ function toPage(data: Record<string, unknown>): BotPage {
   }
 }
 
-const MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сент.", "окт.", "нояб.", "дек."]
+// moment "ru" in "DD MMM YYYY" (the reference): "июня", "июля", not Intl's "июн." / "июл.".
+const MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
 
 function formatNow(): string {
   const date = new Date()

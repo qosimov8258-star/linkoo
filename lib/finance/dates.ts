@@ -143,6 +143,12 @@ const INTL_LOCALES: Record<string, string> = { ru: "ru-RU", en: "en-GB" }
 // Browsers often lack ICU month names for uz-Latn / tk (they print "M10"),
 // so those two languages use explicit tables.
 const MONTHS: Record<string, { long: string[]; short: string[] }> = {
+  ru: {
+    // The reference app's moment "ru" locale in its "DD MMM YYYY" / "D MMMM" formats (the genitive "format"
+    // forms): "06 июля 2026", "23 июня 2026", "05 мая 2026" — Intl ru prints "июл." / "июн." instead.
+    long: ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"],
+    short: ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."],
+  },
   uz: {
     // The reference app's moment "uz" locale (updateLocale).
     long: ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentyabr", "oktyabr", "noyabr", "dekabr"],
