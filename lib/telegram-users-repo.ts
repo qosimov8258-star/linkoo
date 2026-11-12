@@ -8,7 +8,7 @@ import { getDb, outsideTransaction, withTransaction } from "@/lib/db"
 export type TelegramUser = {
   /** telegram_id */
   id: string
-  /** first_name + last_name, concatenated like the reference list does. */
+  /** first_name and last_name with a space between, as the reference list shows them ("mm xue"). */
   name: string
   /** @username */
   handle: string
@@ -109,7 +109,7 @@ export async function listTelegramUsers(): Promise<TelegramUser[]> {
     .all()) as Row[]
   return rows.map((row) => ({
     id: String(row.id),
-    name: `${row.first_name}${row.last_name}`.trim(),
+    name: [row.first_name, row.last_name].map((part) => String(part ?? "").trim()).filter(Boolean).join(" "),
     handle: row.username ? `@${row.username}` : "",
     client: (row.market_name || row.client_name || "").trim(),
     phone: row.phone,

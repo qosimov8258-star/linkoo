@@ -403,7 +403,7 @@ export function SupplierPaymentsView() {
           onQuery={setSearchInput}
           pageSize={paging.pageSize}
           onPageSize={(size) => setPaging({ page: 1, pageSize: size })}
-          from={data?.count ? (paging.page - 1) * paging.pageSize + 1 : 0}
+          from={(paging.page - 1) * paging.pageSize + 1}
           to={Math.min(paging.page * paging.pageSize, data?.count ?? 0)}
           total={data?.count ?? 0}
           page={paging.page}

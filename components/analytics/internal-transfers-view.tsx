@@ -205,7 +205,7 @@ export function InternalTransfersView() {
   const td = "px-2 py-[7px] align-middle leading-[16.25px]"
   const menuItem = "block w-full px-4 py-2 text-left text-[13px] hover:bg-[#f2f5f8]"
   const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
-  const from = data?.count ? (state.page - 1) * state.pageSize + 1 : 0
+  const from = (state.page - 1) * state.pageSize + 1
   const to = Math.min(state.page * state.pageSize, data?.count ?? 0)
   return (
     <RefPage>

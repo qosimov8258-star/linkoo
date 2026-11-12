@@ -6790,4 +6790,5 @@ export const tk: Record<string, string> = {
   "Не принятый": "Kabul edilmedik",
   "На кассу": "Kassa",
   "Количество оплат": "Tölegleriň sany",
+  "Старые долги с заказов": "Sargytlardan köne bergiler",
 }

@@ -582,7 +582,7 @@ export function CustomerPaymentsView() {
           onQuery={setSearchDraft}
           pageSize={state.pageSize}
           onPageSize={(size) => update({ page: 1, pageSize: size })}
-          from={list.data?.count ? (state.page - 1) * state.pageSize + 1 : 0}
+          from={(state.page - 1) * state.pageSize + 1}
           to={Math.min(state.page * state.pageSize, list.data?.count ?? 0)}
           total={list.data?.count ?? 0}
           page={state.page}

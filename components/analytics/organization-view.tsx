@@ -192,7 +192,7 @@ function OrganizationGrid() {
         searchPos={{ left: 335, top: 19 }}
         pageSize={state.pageSize}
         onPageSize={(pageSize) => update({ page: 1, pageSize })}
-        from={count ? start + 1 : 0}
+        from={start + 1}
         to={Math.min(start + state.pageSize, count)}
         total={count}
         onPrev={state.page > 1 ? () => update({ page: state.page - 1 }) : undefined}

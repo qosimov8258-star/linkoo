@@ -587,7 +587,15 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                 {row.id}
               </span>
             ) : (
-              row.id
+              <span key="n">
+                {row.id}
+                {/* A return with a comment: «(ком.)» under its number, the comment on hover (as the reference). */}
+                {row.reason ? (
+                  <span title={row.reason} className="block text-[12px] text-[#1E4A9A]">
+                    ({t("ком.")})
+                  </span>
+                ) : null}
+              </span>
             ),
             row.fromWhom,
             row.warehouse,

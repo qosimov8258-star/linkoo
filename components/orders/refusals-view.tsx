@@ -130,7 +130,7 @@ export function RefusalsView() {
             setPageSize(size)
             setPage(1)
           }}
-          from={result.count ? start + 1 : 0}
+          from={start + 1}
           to={Math.min(start + result.rows.length, result.count)}
           total={result.count}
           page={Math.min(page, pageCount)}
@@ -144,7 +144,8 @@ export function RefusalsView() {
           rowKey={(row) => row.id}
           render={(row) => [
             row.id,
-            formatDateText(row.at, language, { withTime: true }),
+            // The reference prints the day only ("10 мар. 2026").
+            formatDateText(row.at, language, { withTime: false }),
             row.employeeName || `#${row.employeeId}`,
             row.clientName || `#${row.clientId}`,
             <span key="reason" title={row.reason && row.comment ? row.comment : undefined}>

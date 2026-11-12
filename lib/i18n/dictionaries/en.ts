@@ -6791,4 +6791,5 @@ export const en: Record<string, string> = {
   "Не принятый": "Not accepted",
   "На кассу": "To cash desk",
   "Количество оплат": "Number of payments",
+  "Старые долги с заказов": "Old order debts",
 }

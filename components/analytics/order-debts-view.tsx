@@ -583,13 +583,14 @@ export function OrderDebtsView() {
   const filterCount = countFilters(state.filters)
   const scope = [...state.filters.division, ...state.filters.branch]
   const lastPage = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
-  const from = data?.count ? (state.page - 1) * state.pageSize + 1 : 0
+  const from = (state.page - 1) * state.pageSize + 1
   const to = Math.min(state.page * state.pageSize, data?.count ?? 0)
 
   return (
     <main className="min-h-screen bg-white font-sans text-[13px] text-[#333]">
       <div className="border-b border-[#dde1e5] bg-[#f2f5f8] pl-[30px] pr-[30px]">
-        <RefHeader title={t("Долги с заказов")} />
+        {/* The menu item is «Долги с заказов»; the page itself is titled «Старые долги с заказов» in the reference. */}
+        <RefHeader title={t("Старые долги с заказов")} />
       </div>
 
       <section className="flex h-[34px] items-center justify-between px-[30px] mt-[20px]">

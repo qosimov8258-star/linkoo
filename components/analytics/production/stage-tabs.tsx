@@ -88,7 +88,7 @@ function TabCard({ addLabel, onAdd, query, onQuery, count, filter, paging, addAs
           }}
           pageSize={paging.pageSize}
           onPageSize={paging.setPageSize}
-          from={count ? paging.start + 1 : 0}
+          from={paging.start + 1}
           to={count ? paging.end : 0}
           total={count}
           page={paging.page}

@@ -105,7 +105,7 @@ export function LoyaltyInfoDialog({
 
   const count = data?.count ?? 0
   const lastPage = Math.max(1, Math.ceil(count / DETAIL_PAGE_SIZE))
-  const start = count ? (page - 1) * DETAIL_PAGE_SIZE + 1 : 0
+  const start = (page - 1) * DETAIL_PAGE_SIZE + 1
   const end = Math.min(page * DETAIL_PAGE_SIZE, count)
   const column = "w-1/4 px-2 text-left"
 

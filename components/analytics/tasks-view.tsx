@@ -174,7 +174,8 @@ export function TasksView() {
   const count = data?.count ?? 0
   const pageCount = Math.max(1, Math.ceil(count / state.pageSize))
   const rows = data?.results ?? []
-  const from = count ? (state.page - 1) * state.pageSize + 1 : 0
+  // As the reference's pager: "1 - 0 из 0" on an empty list.
+  const from = (state.page - 1) * state.pageSize + 1
   const to = Math.min(state.page * state.pageSize, count)
 
   // A page beyond the end (the list shrank) goes back to the last page.

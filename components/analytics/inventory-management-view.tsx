@@ -236,7 +236,7 @@ export function InventoryManagementView() {
           onQuery={setSearchDraft}
           pageSize={state.pageSize}
           onPageSize={(size) => update({ page: 1, pageSize: size, detailId: null })}
-          from={count ? (state.page - 1) * state.pageSize + 1 : 0}
+          from={(state.page - 1) * state.pageSize + 1}
           to={Math.min(state.page * state.pageSize, count)}
           total={count}
           page={state.page}

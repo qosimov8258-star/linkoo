@@ -34,6 +34,7 @@ run remove-demo-salary-plans.mjs
 # Clients and settings lists
 run import-client-options.mjs
 run import-settings-lists.mjs
+run import-branch-flags.mjs
 run import-surveys.mjs
 # Field work and staff
 run import-zones.mjs

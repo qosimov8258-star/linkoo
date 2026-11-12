@@ -322,10 +322,10 @@ export function EmployeesView() {
             <span className={`leading-[16px] ${selectMode ? "" : "pl-[8px]"}`}>{employee.id}</span>
           </span>
           <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.name}</span>
-          <span className="min-w-0 break-words pr-3 leading-[16px]">
+          {/* A login that signs in nobody (older rows, or saved without a password) only says so on hover: the list
+              shows the login alone, as the reference does; the form creates the account. */}
+          <span className="min-w-0 break-words pr-3 leading-[16px]" title={employee.active && employee.login && !employee.account ? t("Нет учетной записи") : undefined}>
             {employee.active ? employee.login : t("Не указано")}
-            {/* A login that signs in nobody (older rows, or saved without a password): the form creates the account. */}
-            {employee.active && employee.login && !employee.account && <span className="block text-[11px] text-[#9e9e9e]">{t("Нет учетной записи")}</span>}
           </span>
           <span className="min-w-0 pr-6 leading-[16px]">
             {employee.accessRight || t("Не выбрано")}

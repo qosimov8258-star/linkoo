@@ -678,7 +678,7 @@ export function EmptyBlock({ text, className = "py-16" }: { text: string; classN
 export function MiniPager({ page, pageSize, count, onPage }: { page: number; pageSize: number; count: number; onPage: (page: number) => void }) {
   const { t } = useLanguage()
   const last = Math.max(1, Math.ceil(count / pageSize))
-  const start = count ? (page - 1) * pageSize + 1 : 0
+  const start = (page - 1) * pageSize + 1
   const end = Math.min(page * pageSize, count)
   return (
     <div className="flex items-center gap-2 text-[13px] font-normal normal-case text-[#586174]">

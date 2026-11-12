@@ -302,7 +302,7 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
             <RefPager
               pageSize={state.pageSize}
               onPageSize={(pageSize) => update({ page: 1, pageSize, detailId: null })}
-              from={count ? (page - 1) * state.pageSize + 1 : 0}
+              from={(page - 1) * state.pageSize + 1}
               to={Math.min(page * state.pageSize, count)}
               total={count}
               page={page}

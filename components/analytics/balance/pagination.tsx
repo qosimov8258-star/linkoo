@@ -23,7 +23,7 @@ export function BalancePagination({
   const { t } = useLanguage()
   const lastPage = Math.max(1, Math.ceil(count / pageSize))
   const current = Math.min(page, lastPage)
-  const start = count ? (current - 1) * pageSize + 1 : 0
+  const start = (current - 1) * pageSize + 1
   const end = Math.min(current * pageSize, count)
   return (
     <div className="flex items-center text-[13px] text-[#5d6474]">

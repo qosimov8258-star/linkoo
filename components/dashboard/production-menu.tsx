@@ -2,6 +2,8 @@
 
 import Link from "next/link"
 
+import { MENU_BOX, MENU_COLUMN, MENU_HEADING, MENU_ITEM, MENU_LINK } from "./menu-style"
+
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type MenuItem = { label: string; href: string }
@@ -19,22 +21,22 @@ const items: MenuItem[] = [
 
 export function ProductionMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
   const { t } = useLanguage()
+  // As the other menus of the reference: one column under the blue heading «Производство».
   return (
-    <div onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="w-[200px]">
-      <div className="mt-1 rounded-b-xl border border-slate-200 bg-white px-5 py-3 text-slate-700 shadow-2xl duration-150 animate-in fade-in-0 slide-in-from-top-2">
-        <ul className="flex flex-col">
-          {items.map((item, index) => (
-            <li key={item.label} className={index === 0 ? "" : "border-t border-slate-100"}>
-              <Link
-                href={item.href}
-                onClick={() => onSelect(item.label)}
-                className="block w-full py-2.5 text-left text-[13px] font-semibold text-slate-700 transition-colors hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
-              >
-                {t(item.label)}
-              </Link>
-            </li>
-          ))}
-        </ul>
+    <div onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="w-max">
+      <div className={MENU_BOX}>
+        <div className={MENU_COLUMN}>
+          <h3 className={MENU_HEADING}>{t("Производство")}</h3>
+          <ul className="flex flex-col">
+            {items.map((item) => (
+              <li key={item.label} className={MENU_ITEM}>
+                <Link href={item.href} onClick={() => onSelect(item.label)} className={MENU_LINK}>
+                  {t(item.label)}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   )

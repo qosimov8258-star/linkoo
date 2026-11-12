@@ -6773,4 +6773,5 @@ export const uz: Record<string, string> = {
   "Не принятый": "Qabul qilinmagan",
   "На кассу": "Kassaga",
   "Количество оплат": "To'lovlar soni",
+  "Старые долги с заказов": "Buyurtmalardan eski qarzlar",
 }

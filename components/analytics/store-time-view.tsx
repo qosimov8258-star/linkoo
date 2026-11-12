@@ -194,7 +194,8 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
           )}
         </ReportFilters>
 
-        {stayMode ? (
+        {/* No stays: the reference shows its robot «По вашему запросу ничего не найдено…», not an empty grid. */}
+        {stayMode && (staysLoading || shownStays.length) ? (
           <ReportGridTable
             minWidth={1500}
             loading={staysLoading}

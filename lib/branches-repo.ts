@@ -56,17 +56,13 @@ async function ensureSchema() {
           END IF;
         END $$;
       `)
-      // One branch name per company (case- and space-insensitive) and at most
-      // one main branch. Older databases with several mains keep the oldest;
-      // an index is skipped (and the API still refuses new twins) while
-      // duplicate names exist.
+      // One branch name per company (case- and space-insensitive); the index is
+      // skipped (and the API still refuses new twins) while duplicate names exist.
+      // «Основной филиал» is a flag of each branch, as in Linko (its account has 66):
+      // the older one-main-branch index goes.
       await db.exec(`
         DO $$ BEGIN
-          IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'branches_one_main') THEN
-            UPDATE branches SET is_main = 0
-             WHERE is_main = 1 AND id <> (SELECT min(id) FROM branches WHERE is_main = 1);
-            CREATE UNIQUE INDEX branches_one_main ON branches ((is_main)) WHERE is_main = 1;
-          END IF;
+          DROP INDEX IF EXISTS branches_one_main;
           IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'branches_name_key') THEN
             BEGIN
               CREATE UNIQUE INDEX branches_name_key ON branches (lower(btrim(name)));
@@ -257,10 +253,9 @@ export async function createBranch(input: BranchInput): Promise<BranchRecord> {
       await assertNameFree(tx, input.name, 0)
       const priceList = await resolvePriceList(tx, input.priceList)
       const currency = await resolveCurrency(tx, input.currency)
-      // The first branch of a company is its main branch; a new main replaces the old one.
+      // The first branch of a company is a main branch; others are main when ticked (any number, as in Linko).
       const hasMain = await tx.prepare("SELECT 1 FROM branches WHERE is_main = 1").get()
       const isMain = input.isMain || !hasMain
-      if (isMain) await tx.prepare("UPDATE branches SET is_main = 0, updated_at = datetime('now') WHERE is_main = 1").run()
       const result = await tx
         .prepare(
           `INSERT INTO branches (name, price_list, currency, debt_tracking, is_main, location_lat, location_lng)
@@ -284,8 +279,8 @@ export async function createBranch(input: BranchInput): Promise<BranchRecord> {
 }
 
 /** Updates the branch. A new name is carried into every record that stores the
- * branch by name; making it main unsets the previous main branch; the main
- * branch cannot be "un-mained" directly (make another branch main instead). */
+ * branch by name; «Основной филиал» is the branch's own flag (several branches
+ * may have it, as in Linko). */
 export async function updateBranch(id: number, patch: BranchPatch): Promise<BranchRecord | null> {
   await ensureSchema()
   try {
@@ -295,14 +290,8 @@ export async function updateBranch(id: number, patch: BranchPatch): Promise<Bran
       if (!current) return false
       if (nameKey(current.name) !== nameKey(patch.name)) await assertNameFree(tx, patch.name, id)
       const isMain = patch.isMain ?? current.is_main === 1
-      if (!isMain && current.is_main === 1) {
-        throw new BranchError("Нельзя снять признак основного филиала: сделайте основным другой филиал", 400)
-      }
       const priceList = await resolvePriceList(tx, patch.priceList, current)
       const currency = await resolveCurrency(tx, patch.currency, current)
-      if (isMain && current.is_main !== 1) {
-        await tx.prepare("UPDATE branches SET is_main = 0, updated_at = datetime('now') WHERE is_main = 1 AND id <> ?").run(id)
-      }
       await tx
         .prepare(
           `UPDATE branches SET name = @name, price_list = @priceList, currency = @currency,

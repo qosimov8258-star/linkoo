@@ -176,7 +176,7 @@ export function StockLevelView() {
 
   const lastPage = Math.max(1, Math.ceil((data?.count ?? 0) / state.pageSize))
   const currentPage = Math.min(data?.page ?? state.page, lastPage)
-  const from = data?.count ? (currentPage - 1) * state.pageSize + 1 : 0
+  const from = (currentPage - 1) * state.pageSize + 1
   const to = Math.min(currentPage * state.pageSize, data?.count ?? 0)
   return (
     <RefPage>

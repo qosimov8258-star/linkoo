@@ -208,7 +208,7 @@ export function InventoryPage() {
           onQuery={setSearchDraft}
           pageSize={state.pageSize}
           onPageSize={(size) => update({ page: 1, pageSize: size, detailId: null })}
-          from={data?.count ? (state.page - 1) * state.pageSize + 1 : 0}
+          from={(state.page - 1) * state.pageSize + 1}
           to={Math.min(state.page * state.pageSize, data?.count ?? 0)}
           total={data?.count ?? 0}
           page={state.page}

@@ -165,7 +165,7 @@ export function RepricingView() {
   const th = "whitespace-nowrap px-2 py-0 text-left font-semibold"
   const td = "px-2 py-0 align-middle leading-[16.25px]"
   const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
-  const from = data?.count ? (state.page - 1) * state.pageSize + 1 : 0
+  const from = (state.page - 1) * state.pageSize + 1
   const to = Math.min(state.page * state.pageSize, data?.count ?? 0)
   return (
     <RefPage>
