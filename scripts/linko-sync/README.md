@@ -39,6 +39,11 @@ the importers at another database of the same server; a remote host is refused u
 - **Client ledger**: an order Linko booked no debt for is `orders.no_debt = 1`; a return carries what Linko credited
   (`client_returns.client_credit`, also for returns still pending there; a credit in another currency than the
   return's in `client_credit_other`).
+- **Prices**: every product's price per price list (`price_list_items`, read product by product: Linko's paged list
+  answers 500 for some pages) goes to `products.price_lists` with the derived `price_min` / `price_max` (the app's rule:
+  positive prices in the base currency) and Linko's last price change day in `price_updated_date`
+  (`import-price-list-items.mjs`). Linko's own Цена(мин) / Цена(макс) are snapshots taken when a price was last saved
+  (old currency rates, prices changed since), so about 100 of 805 differ from the app's live values.
 - **Долги доставщиков**: Linko books every client transaction with its own delivery man and counts it for him once
   accepted (an order once В пути / Доставлено, on its accepted day; an accepted payment or return; a correction). An
   order whose delivery man was changed after it was booked keeps the one Linko booked in `orders.debt_delivery_man_id`

@@ -7,7 +7,8 @@
 // Steps: lists (fetch-manifest.json "lists": every list, all pages, no filter), details (each document of a list),
 // returns-patch (return documents Linko answers 500 for), manufacture-returns (per production stage), attendance,
 // months (per-month salary / KPI / plan lists), gps (every employee's GPS points), visit-sessions (timed visits),
-// finance-entities (van-sell / branch / employee / supplier acts), cashback-details.
+// finance-entities (van-sell / branch / employee / supplier acts), cashback-details, price-list-items (every product's
+// prices per price list, read product by product).
 // LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
 // The raw files hold business data: backups/ is git-ignored, never commit them.
 import fs from "node:fs"
@@ -278,8 +279,26 @@ async function cashbackDetails() {
   console.log("fin_cashback_details", Object.keys(out).length)
 }
 
+/** Prices of every product in every price list. Linko's paged list (sales/price_list_item/) answers 500 for some pages
+ * (≈340 of its rows break its serializer), so the items are read product by product, where every row comes back. */
+async function priceListItems() {
+  const items = []
+  const failed = []
+  await Promise.all(
+    load("products").map(async (product) => {
+      const r = await getAll("sales/price_list_item/", { product: product.id }, 200)
+      if (r.rows) items.push(...r.rows)
+      if (r.status !== 200 || r.error) failed.push(product.id)
+    }),
+  )
+  items.sort((a, b) => a.id - b.id)
+  save("price_list_items", { path: "sales/price_list_item/?product=<id>", count: items.length, failedProducts: failed, data: items })
+  console.log("price_list_items".padEnd(36), items.length, failed.length ? `failed products ${failed.join(",")}` : "")
+}
+
 const STEPS = {
   lists,
+  "price-list-items": priceListItems,
   details,
   "returns-patch": returnsPatch,
   "manufacture-returns": manufactureReturns,

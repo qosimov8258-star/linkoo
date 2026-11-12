@@ -283,10 +283,6 @@
    "path": "manufacture/operations/"
   },
   {
-   "name": "price_list_items",
-   "path": "sales/price_list_item/"
-  },
-  {
    "name": "providers",
    "path": "stock/provider/"
   },
