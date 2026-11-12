@@ -5,7 +5,7 @@ import { z } from "zod"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import type { ParsedQuery } from "@/lib/finance/api"
 import { loadCurrencyContext } from "@/lib/finance/context"
-import { convertAmount, currencyLabel, roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
+import { compareCurrencyCodes, convertAmount, currencyLabel, roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
@@ -339,6 +339,9 @@ export type SplitOptions = {
   /** "account": movements keyed as the account balances key them (a document booked on another financial account
    * than its shop's is keyed "acc:<id>"; see lib/finance/sources.ts movementCte). Default "client" (by shop). */
   kind?: "client" | "account"
+  /** Keep the sums unrounded: the list adds an account's shops and its own key up first and rounds once (rounding
+   *  each part to 3 decimals first can move the account's figure by 0.001 away from Linko's). */
+  exact?: boolean
 }
 
 export type ClientSplit = { currencies: Map<string, ReconciliationMoney>; orders: number }
@@ -386,9 +389,10 @@ export async function clientBalanceSplit(db: PgDb, s: FinanceSchema, base: strin
       entry.orders = Number(row.orders ?? 0)
       continue
     }
-    const total = roundMoney(Number(row.total ?? 0))
-    const bank = roundMoney(Number(row.bank ?? 0))
-    entry.currencies.set(row.cur, { cash: roundMoney(total - bank), bank, total })
+    const round = options.exact ? (value: number) => value : roundMoney
+    const total = round(Number(row.total ?? 0))
+    const bank = round(Number(row.bank ?? 0))
+    entry.currencies.set(row.cur, { cash: round(total - bank), bank, total })
   }
   return out
 }
@@ -435,9 +439,9 @@ function emptyMoney(): ReconciliationMoney {
   return { cash: 0, bank: 0, total: 0 }
 }
 
-/** Demo column order: currencies by label (Euro, SUM, USD). */
+/** Linko's column order: its currency names Euro, SUM, USD, i.e. the codes alphabetically (not the labels shown here). */
 function demoOrder(currencies: FinanceCurrency[]): FinanceCurrency[] {
-  return [...currencies].sort((a, b) => a.label.localeCompare(b.label, "en"))
+  return [...currencies].sort((a, b) => compareCurrencyCodes(a.code, b.code))
 }
 
 /** Row id for the default order: clients.id, or the newest client of an INN account. */
@@ -533,7 +537,7 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
   // The SQL default of rows without a currency is the real base currency (the list's is the app currency when one is chosen).
   // Accounts: by the account each movement was booked on (as the account balances), so an account's money is its
   // shops' plus what was booked on the account itself, as in Linko.
-  const split = await clientBalanceSplit(db, s, (await loadCurrencyContext(db)).base, { to: asOf, mode: params.mode, organizations: params.organizations, orderStatuses, kind: variant })
+  const split = await clientBalanceSplit(db, s, (await loadCurrencyContext(db)).base, { to: asOf, mode: params.mode, organizations: params.organizations, orderStatuses, kind: variant, exact: true })
   const seen = new Set(list.currencies.map((currency) => currency.code))
   const currencies = [...list.currencies]
   for (const entry of split.values()) {
@@ -549,6 +553,9 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
   const missing = new Set<string>()
 
   let rows: StoreReconciliationRow[] = []
+  // The unrounded figures of each row: the totals add these up and round once, as Linko does (adding the rows'
+  // 3-decimal figures can land 0.001 off).
+  const exactOf = new WeakMap<StoreReconciliationRow, Record<string, ReconciliationMoney>>()
   for (const balanceRow of list.rows) {
     // A shop row is one client; an account row sums its clients (ledger members) and the money booked on the account
     // itself (its "acc:<id>" key). An account without shops is listed too (Linko lists every account).
@@ -563,6 +570,7 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
       orders += entry.orders
       for (const [code, value] of entry.currencies) if (money[code]) addMoney(money[code], value)
     }
+    const exact = Object.fromEntries(codes.map((code) => [code, { ...money[code] }]))
     let total = 0
     for (const code of codes) {
       money[code] = { cash: roundMoney(money[code].cash), bank: roundMoney(money[code].bank), total: roundMoney(money[code].total) }
@@ -574,7 +582,7 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
     const status = statuses.get(balanceRow.key)
     const lastOrder = (balanceRow.info.last_order as string | null) || null
     const lastPayment = (balanceRow.info.last_payment as string | null) || null
-    rows.push({
+    const row: StoreReconciliationRow = {
       key: balanceRow.key,
       id: balanceRow.id,
       name: balanceRow.name,
@@ -600,7 +608,9 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
       total: roundMoney(total),
       currencies: money,
       orders,
-    })
+    }
+    rows.push(row)
+    exactOf.set(row, exact)
   }
 
   // Page filters the shared list does not know.
@@ -628,18 +638,19 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
     grandTotal += row.total
     for (const code of codes) {
       const money = row.currencies[code]
-      totals[code].cash += money.cash
-      totals[code].bank += money.bank
-      totals[code].total += money.total
+      const exact = exactOf.get(row)?.[code] ?? money
+      totals[code].cash += exact.cash
+      totals[code].bank += exact.bank
+      totals[code].total += exact.total
       const sum = balances.get(code)!
-      const primary = convertAmount(money.total, code, list.baseCurrency, rates) ?? 0
+      const primary = convertAmount(exact.total, code, list.baseCurrency, rates) ?? 0
       if (money.total > 1e-9) {
         sum.loaners_count += 1
-        sum.loaners_sum += money.total
+        sum.loaners_sum += exact.total
         sum.loaners_sum_primary += primary
       } else if (money.total < -1e-9) {
         sum.borrowers_count += 1
-        sum.borrowers_sum += money.total
+        sum.borrowers_sum += exact.total
         sum.borrowers_sum_primary += primary
       }
     }
