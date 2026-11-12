@@ -207,6 +207,7 @@ export async function getClientBalanceList(params: ClientBalanceParams, db: PgDb
   else if (!types) rows = [...rows].sort((a, b) => (b.id ?? 0) - (a.id ?? 0))
   const pageSize = Math.max(0, Math.floor(params.pageSize ?? 0))
   const page = Math.max(1, Math.floor(params.page ?? 1))
+  const pageRows = pageSize ? rows.slice((page - 1) * pageSize, page * pageSize) : rows
 
   return {
     ...list,
@@ -214,9 +215,16 @@ export async function getClientBalanceList(params: ClientBalanceParams, db: PgDb
     count: rows.length,
     page,
     pageSize,
-    rows: pageSize ? rows.slice((page - 1) * pageSize, page * pageSize) : rows,
+    rows: types ? pageRows : pageRows.map(withInn),
     totals,
   }
+}
+
+/** Linko's Баланс клиентов (stats/client_balances_expanded) names a shop that has an INN "name (inn)" — on the page,
+ *  in its act and in the Excel file; the order and the search still go by the shop's own name. */
+function withInn(row: BalanceRow): BalanceRow {
+  const inn = String(row.info.inn ?? "").trim()
+  return inn ? { ...row, name: `${row.name} (${inn})` } : row
 }
 
 const AGENT_POSITION = /агент|agent|торгов|представит/i
