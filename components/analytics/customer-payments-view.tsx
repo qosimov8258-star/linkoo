@@ -461,6 +461,8 @@ export function CustomerPaymentsView() {
           </>
         )
       case "cashbox":
+        // The column is as narrow as Linko's (69 of the weights): a long cashbox name wraps inside it, as there, instead of
+        // running over «Комментарий».
         return (
           <>
             {row.accepted && row.cashbox ? (
@@ -469,19 +471,19 @@ export function CustomerPaymentsView() {
                   href={`/analytics/cash-management?search=${row.cashDocNo}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="whitespace-nowrap font-medium text-[#1E4A9A] hover:underline"
+                  className="font-medium text-[#1E4A9A] [overflow-wrap:anywhere] hover:underline"
                 >
                   {row.cashbox.name}
                 </a>
               ) : (
-                <span className="whitespace-nowrap">{row.cashbox.name}</span>
+                <span className="[overflow-wrap:anywhere]">{row.cashbox.name}</span>
               )
             ) : (
-              <span className="whitespace-nowrap">{t("Не принято")}</span>
+              <span className="[overflow-wrap:anywhere]">{t("Не принято")}</span>
             )}
-            {!row.accepted && row.cashbox && <div className="whitespace-nowrap text-[11px] text-[#9aa3b6]">{row.cashbox.name}</div>}
+            {!row.accepted && row.cashbox && <div className="text-[11px] text-[#9aa3b6] [overflow-wrap:anywhere]">{row.cashbox.name}</div>}
             {row.agentCashbox && (
-              <div title={t("Касса агента")} className="whitespace-nowrap text-[11px] text-[#9aa3b6]">
+              <div title={t("Касса агента")} className="text-[11px] text-[#9aa3b6] [overflow-wrap:anywhere]">
                 {row.agentCashbox.name}
               </div>
             )}
