@@ -10,6 +10,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import { KNOWLEDGE_BASE_API, KNOWLEDGE_BASE_PERMISSION, type KnowledgeBaseListResult } from "@/lib/knowledge-base-types"
 import {
   DictionaryDeleteDialog,
+  DictionaryPage,
   DictionaryToolbar,
   MessageRow,
   dictionaryListUrl,
@@ -51,7 +52,8 @@ function KnowledgeBaseGrid() {
   const showEmpty = !error && data !== null && rows.length === 0
 
   return (
-    <section className="min-w-0 flex-1 px-6 pb-6 pt-4 text-[13px] text-[#333] lg:px-9">
+    // Full width next to the settings menu, as Linko's other dictionary lists (no inset card).
+    <DictionaryPage>
       <DictionaryToolbar addLabel={canManage ? t("Добавить") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} />
 
       <div className="overflow-x-auto">
@@ -142,6 +144,6 @@ function KnowledgeBaseGrid() {
       )}
 
       <CashSnackbar message={notice} onClose={closeNotice} />
-    </section>
+    </DictionaryPage>
   )
 }
