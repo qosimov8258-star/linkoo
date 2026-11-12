@@ -38,7 +38,44 @@ export async function insertGpsPoints(actor: FieldActor, input: GpsBatchInput): 
       speed: points.map((point) => point.speed ?? null),
       battery: points.map((point) => point.battery ?? null),
     })
+  // The newest point of the batch becomes the live location when it is newer than the one stored.
+  const newest = points.reduce<GpsBatchInput["points"][number] | null>((best, point) => (!best || point.recordedAt > best.recordedAt ? point : best), null)
+  if (newest && newest.lat != null && newest.lng != null) {
+    await getDb()
+      .prepare(
+        `INSERT INTO field_live_locations (employee_id, lat, lng, located_at, battery, updated_at)
+         VALUES (@employeeId, @lat, @lng, @at::timestamptz, @battery, now())
+         ON CONFLICT (employee_id) DO UPDATE SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, located_at = EXCLUDED.located_at,
+           battery = COALESCE(EXCLUDED.battery, field_live_locations.battery), updated_at = now()
+         WHERE field_live_locations.located_at IS NULL OR field_live_locations.located_at < EXCLUDED.located_at`,
+      )
+      .run({ employeeId: actor.employee.id, lat: newest.lat, lng: newest.lng, at: new Date(newest.recordedAt).toISOString(), battery: newest.battery ?? null })
+  }
   return { accepted: result.changes, duplicates: input.points.length - result.changes }
+}
+
+/** The employees' live locations (Отслеживание's list: Linko's market/way): position, when it was taken and the
+ * battery then, whatever day the page shows. Employees without one are left out. */
+export async function liveLocations(employeeIds: number[]): Promise<LastLocation[]> {
+  await ensureFieldSchema()
+  if (!employeeIds.length) return []
+  const rows = (await getDb()
+    .prepare(
+      `SELECT employee_id, lat, lng, located_at, battery FROM field_live_locations
+        WHERE employee_id = ANY(@ids::int[]) ORDER BY employee_id`,
+    )
+    .all({ ids: employeeIds })) as Array<{ employee_id: number; lat: number; lng: number; located_at: Date | null; battery: number | null }>
+  const now = Date.now()
+  return rows.map((row) => {
+    const atMs = row.located_at ? new Date(row.located_at).getTime() : null
+    return {
+      employeeId: Number(row.employee_id),
+      point: { id: 0, at: atMs === null ? "" : localIso(atMs), lat: Number(row.lat), lng: Number(row.lng), accuracy: null, speed: null, battery: num(row.battery) },
+      lastActivityAt: atMs === null ? null : localIso(atMs),
+      battery: num(row.battery),
+      online: atMs !== null && now - atMs <= ONLINE_MINUTES * 60_000 && atMs <= now + 5 * 60_000,
+    }
+  })
 }
 
 type PointRow = { id: string | number; recorded_at: Date; lat: number; lng: number; accuracy: number | null; speed: number | null; battery: number | null }

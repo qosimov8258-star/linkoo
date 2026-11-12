@@ -127,13 +127,13 @@ export async function activityBoard(query: ActivityQuery, scope: FieldScope): Pr
   else if (!scopeAllows(scope, query.employeeId)) columns = columnsOf({}, base)
   else columns = columnsOf(perEmployee.get(query.employeeId)?.byKind ?? {}, base)
 
-  const employees = await listFieldEmployees({ activeOnly: false, branchId: query.branchId, employeeIds: stripIds })
+  // As Linko's market/agent/done_plan: the active employees with «Показывать в отслеживании», in login order.
+  const employees = await listFieldEmployees({ activeOnly: true, trackedOnly: true, branchId: query.branchId, employeeIds: stripIds })
   const agents: ActivityAgent[] = []
   for (const employee of employees) {
     const entry = perEmployee.get(employee.employeeId)
     const visits = entry?.byKind.visit?.count ?? 0
     const sales = moneyOf(salesOf.get(employee.employeeId), base)
-    if (!employee.active && visits === 0 && sales.length === 0) continue
     agents.push({
       employeeId: employee.employeeId,
       name: employee.name,
@@ -143,8 +143,6 @@ export async function activityBoard(query: ActivityQuery, scope: FieldScope): Pr
       sales,
     })
   }
-  // Most visits first; ties keep the name order of listFieldEmployees (stable sort).
-  agents.sort((a, b) => b.visits - a.visits)
 
   return {
     from: query.from,

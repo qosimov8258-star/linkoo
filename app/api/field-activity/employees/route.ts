@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import { requireFieldReader, scopedEmployeeIds } from "@/lib/field-activity/actor"
 import { listFieldEmployees } from "@/lib/field-activity/employees"
-import { lastLocations } from "@/lib/field-activity/gps-repo"
+import { lastLocations, liveLocations } from "@/lib/field-activity/gps-repo"
 import { badQuery, fieldRoute, idParam } from "@/lib/field-activity/http"
 import { boolParam, dayParam, dayStartMs } from "@/lib/field-activity/input"
 import { dayStatus } from "@/lib/field-activity/routes-repo"
@@ -13,8 +13,10 @@ const DAY_MS = 24 * 60 * 60_000
 
 // GET /api/field-activity/employees — field employees with their live location and their day:
 // ?date (local day, default today) &group=all|agent|merch|delivery|collector|other &branchId
-// &tracked=true (only "Показывать в отслеживании") &includeInactive=true.
-// → {date, rows: [FieldEmployee & {location: LastLocation, done, todo, unplanned}]}. For a past
+// &tracked=true (only "Показывать в отслеживании") &includeInactive=true
+// &live=true (Отслеживание, as Linko's market/way: the tracked employees — deleted ones too — that have a live
+// location, with that location, its time as the last activity and its battery, whatever the date).
+// → {date, rows: [FieldEmployee & {location: LastLocation, done, todo, unplanned}]}. Without `live`, for a past
 // date the location is the last point of that day. A reader restricted to their own data gets
 // only their employee.
 export async function GET(request: NextRequest) {
@@ -31,17 +33,22 @@ export async function GET(request: NextRequest) {
   if (!tracked.ok) return badQuery(tracked)
   const inactive = boolParam(params.get("includeInactive"), "includeInactive")
   if (!inactive.ok) return badQuery(inactive)
+  const live = boolParam(params.get("live"), "live")
+  if (!live.ok) return badQuery(live)
   return fieldRoute(async () => {
-    const employees = await listFieldEmployees({
-      activeOnly: !inactive.value,
-      trackedOnly: Boolean(tracked.value),
+    const listed = await listFieldEmployees({
+      activeOnly: !inactive.value && !live.value,
+      trackedOnly: Boolean(tracked.value) || Boolean(live.value),
       branchId: branch.value,
       groups: groupText && groupText !== "all" ? [groupText as FieldGroup] : undefined,
       employeeIds: scopedEmployeeIds(reader.scope, undefined),
     })
+    const liveRows = live.value ? await liveLocations(listed.map((employee) => employee.employeeId)) : []
+    const liveIds = new Set(liveRows.map((row) => row.employeeId))
+    const employees = live.value ? listed.filter((employee) => liveIds.has(employee.employeeId)) : listed
     const ids = employees.map((employee) => employee.employeeId)
     const until = day.value < todayIso() ? dayStartMs(day.value) + DAY_MS : Date.now()
-    const [locations, statuses] = await Promise.all([lastLocations(ids, until), dayStatus(ids, day.value)])
+    const [locations, statuses] = await Promise.all([live.value ? liveRows : lastLocations(ids, until), dayStatus(ids, day.value)])
     const locationOf = new Map(locations.map((location) => [location.employeeId, location]))
     const statusOf = new Map(statuses.map((status) => [status.employeeId, status]))
     return NextResponse.json({

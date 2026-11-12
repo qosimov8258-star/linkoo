@@ -36,7 +36,12 @@ export type FieldEmployeeQuery = {
   employeeIds?: number[]
 }
 
-/** Employees with their tracking group and linked account, sorted by name. */
+/** Linko lists its field employees (Активность, Анализ маршрутов, Отслеживание, Посещаемость) in login order: its
+ * database collation compares letters without case and skips spaces and punctuation ("aziz1" before "aziz@123",
+ * "feruz2" before "feruz bob", "ADMIN99" among "admin…"). Intl reproduces it exactly. */
+export const LOGIN_ORDER = new Intl.Collator("en", { sensitivity: "base", ignorePunctuation: true })
+
+/** Employees with their tracking group and linked account, in Linko's login order (LOGIN_ORDER, then id). */
 export async function listFieldEmployees(query: FieldEmployeeQuery = {}): Promise<FieldEmployee[]> {
   if (query.employeeIds && !query.employeeIds.length) return []
   await ensureUserEmployeeLink()
@@ -47,11 +52,11 @@ export async function listFieldEmployees(query: FieldEmployeeQuery = {}): Promis
   if (query.branchId) {
     where.push(`${keySql("e.branch")} = (SELECT ${keySql("b.name")} FROM branches b WHERE b.id = @branchId)`)
   }
-  const sql = `SELECT e.id, e.first_name, e.last_name, e.position, e.branch, e.active, e.show_in_tracking, e.gps_check, u.id AS user_id, u.username
+  const sql = `SELECT e.id, e.first_name, e.last_name, e.login, e.position, e.branch, e.active, e.show_in_tracking, e.gps_check, u.id AS user_id, u.username
        FROM employees e
        LEFT JOIN LATERAL (SELECT id, username FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) u ON true
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-      ORDER BY ${keySql("e.first_name || ' ' || e.last_name")}, e.id`
+      ORDER BY e.id`
   // Named parameters only when the statement has any (an unused one would be sent as a bind value).
   const rows = (await getDb()
     .prepare(sql)
@@ -64,6 +69,7 @@ export async function listFieldEmployees(query: FieldEmployeeQuery = {}): Promis
     id: number
     first_name: string | null
     last_name: string | null
+    login: string | null
     position: string | null
     branch: string | null
     active: number
@@ -72,6 +78,7 @@ export async function listFieldEmployees(query: FieldEmployeeQuery = {}): Promis
     user_id: number | null
     username: string | null
   }>
+  rows.sort((a, b) => LOGIN_ORDER.compare(a.login ?? "", b.login ?? "") || Number(a.id) - Number(b.id))
   const employees = rows.map((row) => ({
     employeeId: Number(row.id),
     name: `${(row.first_name ?? "").trim()} ${(row.last_name ?? "").trim()}`.trim(),

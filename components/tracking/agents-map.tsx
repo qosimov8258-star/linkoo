@@ -67,7 +67,9 @@ type AgentsMapProps = {
   onClientOpen: (clientId: number) => void
 }
 
-const DEFAULT_CENTER: LatLng = [41.31, 69.27]
+// Linko's DEFAULT_LOCATION (Tashkent) and zoom 11: its tracking map opens there (setView), not on the agents.
+const DEFAULT_CENTER: LatLng = [41.31115127095392, 69.2797140777111]
+const DEFAULT_ZOOM = 11
 
 function element(tag: string, style: Partial<CSSStyleDeclaration> = {}, text?: string): HTMLElement {
   const node = document.createElement(tag)
@@ -166,7 +168,7 @@ export function AgentsMap({ agents, onAgentClick, clients, visitClose, actualVis
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
-    const map = L.map(containerRef.current, { center: DEFAULT_CENTER, zoom: 12, zoomControl: false, attributionControl: false, preferCanvas: true })
+    const map = L.map(containerRef.current, { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, zoomControl: false, attributionControl: false, preferCanvas: true })
     mapRef.current = map
     L.control.zoom({ position: "topleft" }).addTo(map)
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map)
@@ -298,11 +300,17 @@ export function AgentsMap({ agents, onAgentClick, clients, visitClose, actualVis
     sync(map, all.polyline, layers.polyline)
   }, [layers.markets, layers.zones, layers.visitTrack, layers.actualVisits, layers.polyline])
 
-  // Fit to the shown data when the view changes (agent, date, mode).
+  // Fit to the shown data when the view changes (an agent's day). The agents list keeps Linko's opening view
+  // (Tashkent, zoom 11), even with an agent far away.
   const lastFit = useRef("")
   useEffect(() => {
     const map = mapRef.current
     if (!map || lastFit.current === fitKey) return
+    if (fitKey.startsWith("list|")) {
+      lastFit.current = fitKey
+      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM)
+      return
+    }
     const points: LatLng[] = [
       ...agents.map((agent) => [agent.lat, agent.lng] as LatLng),
       ...clients.map((client) => [client.lat, client.lng] as LatLng),

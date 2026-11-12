@@ -143,7 +143,8 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
   const agentsKey = `${state.date}|${state.group}`
   useEffect(() => {
     let cancelled = false
-    const params = new URLSearchParams({ date: state.date, tracked: "true" })
+    // As Linko's market/way: the tracked employees that have a live location (deleted ones too).
+    const params = new URLSearchParams({ date: state.date, tracked: "true", live: "true" })
     if (state.group !== "all") params.set("group", state.group)
     setAgents((current) => ({ ...current, loading: true, error: "" }))
     fetch(`/api/field-activity/employees?${params}`, { cache: "no-store" })

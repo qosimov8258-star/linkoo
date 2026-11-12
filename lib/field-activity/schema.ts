@@ -8,7 +8,7 @@ import { getDb, outsideTransaction, withTransaction } from "@/lib/db"
 // never deadlock. Every statement is idempotent (fresh and existing databases alike). No other
 // module reads these tables, so they are not part of the lib/db.ts bootstrap.
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS field_visits (
@@ -113,6 +113,18 @@ CREATE TABLE IF NOT EXISTS field_gps_points (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS field_gps_points_employee_at ON field_gps_points (employee_id, recorded_at);
 
+-- The employee's live location (Linko's market/agents_location): where the tracker last put them, when, and the
+-- battery then. The mobile tracker keeps it current (insertGpsPoints); a copy of Linko brings Linko's own.
+-- Отслеживание lists the tracked employees that have one.
+CREATE TABLE IF NOT EXISTS field_live_locations (
+  employee_id INTEGER PRIMARY KEY,
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  located_at TIMESTAMPTZ,
+  battery DOUBLE PRECISION,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS field_route_plans (
   id SERIAL PRIMARY KEY,
   employee_id INTEGER NOT NULL,
@@ -154,7 +166,7 @@ export function ensureFieldSchema(): Promise<void> {
 }
 
 /** Names of the tables above (for usage checks of other modules). */
-export const FIELD_TABLES = ["field_visits", "field_refusals", "field_photo_reports", "field_photos", "field_gps_points", "field_route_plans"] as const
+export const FIELD_TABLES = ["field_visits", "field_refusals", "field_photo_reports", "field_photos", "field_gps_points", "field_live_locations", "field_route_plans"] as const
 
 /** Columns of those of `tables` that exist (lazily created tables of other modules); a missing
  * table has no entry. */

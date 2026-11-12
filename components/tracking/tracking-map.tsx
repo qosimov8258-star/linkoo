@@ -21,7 +21,10 @@ type TrackingMapProps = {
   focus?: { key: number; points: LatLng[] } | null
 }
 
-const DEFAULT_CENTER: LatLng = [41.31, 69.27]
+// Linko's zones map opens on its DEFAULT_LOCATION (Tashkent) at zoom 13, not on all the zones and clients
+// (some zones lie on other continents).
+const DEFAULT_CENTER: LatLng = [41.31115127095392, 69.2797140777111]
+const DEFAULT_ZOOM = 13
 
 /** Names and addresses are data: never let them become markup inside Leaflet's HTML. */
 function escapeHtml(text: string): string {
@@ -36,7 +39,6 @@ export function TrackingMap({ showClients, showZones, clients, zones, draft, onM
   const zoneLayerRef = useRef<L.LayerGroup | null>(null)
   const draftLayerRef = useRef<L.LayerGroup | null>(null)
   const clickRef = useRef(onMapClick)
-  const fittedRef = useRef(false)
 
   useEffect(() => {
     clickRef.current = onMapClick
@@ -49,7 +51,7 @@ export function TrackingMap({ showClients, showZones, clients, zones, draft, onM
 
     const map = L.map(containerRef.current, {
       center: DEFAULT_CENTER,
-      zoom: 12,
+      zoom: DEFAULT_ZOOM,
       zoomControl: false,
       attributionControl: false,
     })
@@ -69,7 +71,6 @@ export function TrackingMap({ showClients, showZones, clients, zones, draft, onM
       clientLayerRef.current = null
       zoneLayerRef.current = null
       draftLayerRef.current = null
-      fittedRef.current = false
     }
   }, [])
 
@@ -131,16 +132,6 @@ export function TrackingMap({ showClients, showZones, clients, zones, draft, onM
     syncLayer(map, clientLayerRef.current, showClients)
     syncLayer(map, zoneLayerRef.current, showZones)
   }, [showClients, showZones])
-
-  // First data: show all of it.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || fittedRef.current) return
-    const points: LatLng[] = [...clients.map((client) => client.position), ...zones.flatMap((zone) => zone.ring)]
-    if (!points.length) return
-    fittedRef.current = true
-    fit(map, points)
-  }, [clients, zones])
 
   useEffect(() => {
     const map = mapRef.current

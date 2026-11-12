@@ -6,7 +6,8 @@
 //
 // Steps: lists (fetch-manifest.json "lists": every list, all pages, no filter), details (each document of a list),
 // returns-patch (return documents Linko answers 500 for), manufacture-returns (per production stage), attendance,
-// months (per-month salary / KPI / plan lists), gps (every employee's GPS points), visit-sessions (timed visits),
+// months (per-month salary / KPI / plan lists), employee-details (each employee's card: «Показывать в отслеживании»),
+// gps (every employee's GPS points), visit-sessions (timed visits),
 // finance-entities (van-sell / branch / employee / supplier acts), cashback-details, price-list-items (every product's
 // prices per price list, read product by product).
 // LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
@@ -213,6 +214,27 @@ async function employees() {
   return [...load("employees_active"), ...load("employees_inactive")]
 }
 
+/** Each employee's own card (main/crud/<id>/): the list answers leave out «Показывать в отслеживании»
+ * (track_the_plan), which decides who the field pages list (Активность, Анализ маршрутов, Отслеживание).
+ * Deleted employees too (employees_inactive), and the users Linko still tracks (agents_location). */
+async function employeeDetails() {
+  const ids = new Set([...(await employees()).map((e) => e.id), ...load("agents_location").map((a) => a.id)])
+  const out = {}
+  let failed = 0
+  await Promise.all(
+    [...ids].map(async (id) => {
+      const r = await get(`main/crud/${id}/`)
+      if (r.status === 200) out[id] = r.json
+      else {
+        failed++
+        out[id] = { __status: r.status }
+      }
+    }),
+  )
+  save("employees_detail", { tpl: "main/crud/{id}/", data: out })
+  console.log("employees_detail".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
+}
+
 async function gps() {
   fs.mkdirSync(path.join(RAW, "gps"), { recursive: true })
   for (const e of await employees()) {
@@ -303,6 +325,7 @@ const STEPS = {
   "returns-patch": returnsPatch,
   "manufacture-returns": manufactureReturns,
   attendance,
+  "employee-details": employeeDetails,
   months: monthLists,
   gps,
   "visit-sessions": visitSessions,

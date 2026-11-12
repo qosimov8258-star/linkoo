@@ -441,7 +441,8 @@ function MapNotice({ children, tone = "info" }: { children: React.ReactNode; ton
 
 export function TrackingView({ view = "clients" }: TrackingViewProps) {
   const { t } = useLanguage()
-  const [showClients, setShowClients] = useState(true)
+  // Like the reference, the map opens with the zones only; «Показать клиентов» (the filter) puts the clients on it.
+  const [showClients, setShowClients] = useState(false)
   const [showZones, setShowZones] = useState(true)
   const [filterOpen, setFilterOpen] = useState(false)
   const [managePanel, setManagePanel] = useState(false)
@@ -614,7 +615,16 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
             />
           )}
         </div>
-        {filterOpen && <ClientsFilterModal value={mapFilter} onApply={setMapFilter} onClose={() => setFilterOpen(false)} />}
+        {filterOpen && (
+          <ClientsFilterModal
+            value={mapFilter}
+            onApply={(filter) => {
+              setMapFilter(filter)
+              setShowClients(true)
+            }}
+            onClose={() => setFilterOpen(false)}
+          />
+        )}
         {videoOpen && <VideoLessonDialog onClose={() => setVideoOpen(false)} />}
       </main>
     )
