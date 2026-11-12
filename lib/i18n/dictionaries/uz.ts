@@ -6768,4 +6768,9 @@ export const uz: Record<string, string> = {
   "№ транзакции": "Tranzaksiya №",
   // Конструктор отчетов: order history actions
   "Изменена счет-фактура": "Hisob-faktura o'zgartirildi",
+  // Оплаты от клиентов: cashbox cards
+  "Принятый": "Qabul qilingan",
+  "Не принятый": "Qabul qilinmagan",
+  "На кассу": "Kassaga",
+  "Количество оплат": "To'lovlar soni",
 }

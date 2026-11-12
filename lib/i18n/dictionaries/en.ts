@@ -6786,4 +6786,9 @@ export const en: Record<string, string> = {
   "№ транзакции": "Transaction No.",
   // Конструктор отчетов: order history actions
   "Изменена счет-фактура": "Invoice changed",
+  // Оплаты от клиентов: cashbox cards
+  "Принятый": "Accepted",
+  "Не принятый": "Not accepted",
+  "На кассу": "To cash desk",
+  "Количество оплат": "Number of payments",
 }

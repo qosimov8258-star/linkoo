@@ -6785,4 +6785,9 @@ export const tk: Record<string, string> = {
   "№ транзакции": "Tranzaksiýa №",
   // Конструктор отчетов: order history actions
   "Изменена счет-фактура": "Hasap-faktura üýtgedildi",
+  // Оплаты от клиентов: cashbox cards
+  "Принятый": "Kabul edilen",
+  "Не принятый": "Kabul edilmedik",
+  "На кассу": "Kassa",
+  "Количество оплат": "Tölegleriň sany",
 }

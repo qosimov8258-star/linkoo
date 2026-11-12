@@ -24,6 +24,7 @@ import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { AcceptCashboxDialog, BulkUpdateDialog, ConfirmDialog, EditPaymentDialog } from "@/components/analytics/customer-payments-dialogs"
+import { CustomerPaymentCards } from "@/components/analytics/customer-payment-cards"
 import {
   countCustomerPaymentFilters,
   CustomerPaymentsFilterPanel,
@@ -558,6 +559,8 @@ export function CustomerPaymentsView() {
       <RefHeader title={t("Оплаты от клиентов")}>
         <RefButton green icon={RI.download} label={exporting ? t("Загрузка...") : t("Скачать Excel")} onClick={() => void exportAll()} disabled={exporting || !list.data} />
       </RefHeader>
+
+      {totals.data?.totals.length ? <CustomerPaymentCards totals={totals.data.totals} /> : null}
 
       <div className={`relative px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white ${hasSelection ? "bg-[#09890f]" : "bg-[#1E4A9A]"}`} aria-live="polite">
         {t("Оплаты от клиентов")}: {summary || "0"}
