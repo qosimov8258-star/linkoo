@@ -10,7 +10,7 @@ import { FilterPopup, FilterToggle, PeriodField, orderedPeriod } from "@/compone
 import { docDate } from "@/components/analytics/internal-transfers-shared"
 import { WriteOffDetailPanel, WriteOffStatusLabel } from "@/components/analytics/write-offs-detail"
 import { WriteOffFormDialog } from "@/components/analytics/write-offs-form"
-import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefCard, RefEmpty, RefHeader, RefIconButton, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { roundMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -238,7 +238,7 @@ export function WriteOffsView() {
                         </td>
                       </tr>
                     ) : (
-                      <tr onClick={() => update({ detailId: row.id })} className="h-[50px] cursor-pointer border-b-2 border-dotted border-[#d9e0e5] hover:bg-[#f2f5f8]">
+                      <tr onClick={() => update({ detailId: row.id })} className="h-[50px] cursor-pointer border-b-2 border-dotted border-[#d9e0e5] bg-white hover:bg-[#f2f5f8]">
                         <td className={`${td} pl-[38px]`}>{row.id}</td>
                         <td className={td}>{row.creator || t("Не указано")}</td>
                         <td className={td}>{row.warehouse}</td>
@@ -253,8 +253,13 @@ export function WriteOffsView() {
               })}
               {!rows.length && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-16 text-center text-[#9aa3b6]">
-                    {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
+                  <td colSpan={5} className="bg-white p-0">
+                    {/* Linko: the robot on a white card when nothing is found */}
+                    {list.loading || list.error ? (
+                      <div className="px-4 py-16 text-center text-[#9aa3b6]">{list.loading ? t("Загрузка...") : ""}</div>
+                    ) : (
+                      <RefEmpty text="По вашему запросу ничего не найдено" />
+                    )}
                   </td>
                 </tr>
               )}

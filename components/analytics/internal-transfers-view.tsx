@@ -11,7 +11,7 @@ import { EMPTY_TRANSFER_FILTERS, FilterToggle, TransferFilterPanel, transferFilt
 import { TransferFormDialog } from "@/components/analytics/internal-transfers-form"
 import { TransferInvoices } from "@/components/analytics/internal-transfers-print"
 import { TransferStatusLabel, docDate, formatSum, formatWeight, transfersListSheet } from "@/components/analytics/internal-transfers-shared"
-import { RI, RefButton, RefCard, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefButton, RefCard, RefEmpty, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { Transfer, TransferListResult, TransferOptions } from "@/lib/internal-transfers-types"
@@ -342,7 +342,7 @@ export function InternalTransfersView() {
                 return (
                   <Fragment key={row.id}>
                     {!open && (
-                      <tr onClick={() => update({ detailId: open ? null : row.id })} className={`h-[50px] cursor-pointer bg-[linear-gradient(to_right,#d5d5d5_2px,transparent_2px)] bg-[length:8px_2px] bg-[position:0_100%] bg-repeat-x ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
+                      <tr onClick={() => update({ detailId: open ? null : row.id })} className={`h-[50px] cursor-pointer bg-[linear-gradient(to_right,#d5d5d5_2px,transparent_2px)] bg-[length:8px_2px] bg-[position:0_100%] bg-repeat-x ${open ? "bg-[#eef2ff]" : "bg-white hover:bg-[#f2f5f8]"}`}>
                         {selectMode && <td className="pl-6" onClick={(event) => event.stopPropagation()}>
                           <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggle(row.id)} aria-label={`№ ${row.id}`} className="h-4 w-4 accent-[rgb(79,113,220)]" />
                         </td>}
@@ -382,8 +382,13 @@ export function InternalTransfersView() {
               })}
               {!rows.length && (
                 <tr>
-                  <td colSpan={selectMode ? 9 : 8} className="px-4 py-16 text-center text-[#9aa3b6]">
-                    {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
+                  <td colSpan={selectMode ? 9 : 8} className="bg-white p-0">
+                    {/* Linko: the robot on a white card when nothing is found */}
+                    {list.loading || list.error ? (
+                      <div className="px-4 py-16 text-center text-[#9aa3b6]">{list.loading ? t("Загрузка...") : ""}</div>
+                    ) : (
+                      <RefEmpty text="По вашему запросу ничего не найдено" />
+                    )}
                   </td>
                 </tr>
               )}

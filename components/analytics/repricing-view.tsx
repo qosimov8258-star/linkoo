@@ -7,7 +7,7 @@ import { ArrowDown, ArrowUp } from "lucide-react"
 import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { docDate, formatSum } from "@/components/analytics/internal-transfers-shared"
-import { RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefButton, RefCard, RefEmpty, RefFilterPanel, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { RefMultiField } from "@/components/ref/multi-field"
 import { RefTip } from "@/components/ref/ref-tip"
 import { downloadExcelTable } from "@/lib/excel-export"
@@ -259,7 +259,7 @@ export function RepricingView() {
                         </td>
                       </tr>
                     ) : (
-                      <tr onClick={() => update({ detailId: row.id })} className="h-[50px] cursor-pointer border-b-2 border-dotted border-[#d9e0e5] hover:bg-[#f2f5f8]">
+                      <tr onClick={() => update({ detailId: row.id })} className="h-[50px] cursor-pointer border-b-2 border-dotted border-[#d9e0e5] bg-white hover:bg-[#f2f5f8]">
                         <td className={`${td} pl-[38px]`}>{row.id}</td>
                         <td className={td}>{row.createdBy || t("Не указано")}</td>
                         <td className={`${td} whitespace-nowrap`}>{docDate(row.createdAt, language)}</td>
@@ -275,8 +275,13 @@ export function RepricingView() {
               })}
               {!rows.length && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-16 text-center text-[#9aa3b6]">
-                    {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
+                  <td colSpan={6} className="bg-white p-0">
+                    {/* Linko: the robot on a white card when nothing is found */}
+                    {list.loading || list.error ? (
+                      <div className="px-4 py-16 text-center text-[#9aa3b6]">{list.loading ? t("Загрузка...") : ""}</div>
+                    ) : (
+                      <RefEmpty text="По вашему запросу ничего не найдено" />
+                    )}
                   </td>
                 </tr>
               )}
