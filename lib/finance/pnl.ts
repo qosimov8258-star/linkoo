@@ -45,6 +45,13 @@ export type SalesLine = {
   amount: number
   /** Base currency (quantity × the ledger's unit cost of the document's goods). */
   cost: number
+  /** orders.id / client_returns.id. */
+  docId: number | null
+  /** The shop of the order / return (clients.id and name). */
+  clientId: number | null
+  client: string
+  /** Base currency: what the line's discount took off (quantity × price × discount %); returns 0. */
+  discount: number
 }
 
 export type SalesFilters = {
@@ -73,6 +80,11 @@ type RawLine = {
   qty: number | string | null
   amount: number | string | null
   cur: string
+  client_id: number | string | null
+  client: string | null
+  discount_amt: number | string | null
+  /** The document's creation moment (UTC text) — the rate date of `historicalRates`. */
+  doc_ts: string | null
 }
 
 const EMPTY = (): PnlTotals => ({ realization: 0, returns: 0, cost: 0, returnCost: 0, quantity: 0 })
@@ -121,8 +133,9 @@ async function rawMaterialsTable(db: PgDb): Promise<RawMaterialsTable> {
 }
 
 /** Raw sale / return lines dated inside [from, to] ("realization" = released
- * orders by realization day, "created" = counted orders by creation day). */
-async function loadLines(db: PgDb, s: FinanceSchema, base: string, from: string, to: string, basis: "realization" | "created"): Promise<RawLine[]> {
+ * orders by realization day, "accepted" = released orders by the day they were accepted
+ * (orders.accepted_date, as Linko's reports date them), "created" = counted orders by creation day). */
+async function loadLines(db: PgDb, s: FinanceSchema, base: string, from: string, to: string, basis: SalesBasis): Promise<RawLine[]> {
   if (!s.has("orders") || !s.has("clients")) return []
   const raw = await rawMaterialsTable(db)
   const parts: string[] = []
@@ -135,26 +148,34 @@ async function loadLines(db: PgDb, s: FinanceSchema, base: string, from: string,
   const orderWarehouse = hasWarehouses && s.col("orders", "warehouse")
   const orderBranch = orderWarehouse ? `COALESCE(NULLIF(wb.branch, ''), ${clientBranch})` : clientBranch
   const orderOrg = s.col("orders", "organization") ? "fin_place(o.organization)" : "''"
-  const orderTs = basis === "realization" ? orderRealizationTs(s, "o") : "fin_ts(o.created_at, true)"
-  const orderWhere = `${basis === "realization" ? orderReleasedSql("o") : orderCountedSql("o")} AND (${orderTs})::date BETWEEN @from::date AND @to::date`
+  const orderTs =
+    basis === "realization"
+      ? orderRealizationTs(s, "o")
+      : basis === "accepted"
+        ? `COALESCE(${s.col("orders", "accepted_date") ? "fin_ts(NULLIF(o.accepted_date, ''))" : "NULL::timestamp"}, ${orderRealizationTs(s, "o")})`
+        : "fin_ts(o.created_at, true)"
+  const orderWhere = `${basis === "created" ? orderCountedSql("o") : orderReleasedSql("o")} AND (${orderTs})::date BETWEEN @from::date AND @to::date`
   const orderJoins = `${orderClientJoin(s, "o", "oc", "ck")} ${orderWarehouse ? "LEFT JOIN wb ON wb.k = fin_key(o.warehouse)" : ""}`
 
   if (s.has("order_items")) {
     const product = productJoin(s, raw, s.col("order_items", "product_id") ? "oi.product_id" : "NULL::int", "oi.product_name")
     for (const cte of product.ctes) if (!ctes.includes(cte)) ctes.push(cte)
     const discount = s.col("order_items", "discount_percent") ? "(1 - COALESCE(oi.discount_percent, 0)::float8 / 100)" : "1"
+    const discountShare = s.col("order_items", "discount_percent") ? "COALESCE(oi.discount_percent, 0)::float8 / 100" : "0"
     const currency = s.col("order_items", "currency") ? "COALESCE(fin_cur(oi.currency), @base)" : "@base"
     parts.push(`SELECT 'sale' AS kind, o.id AS doc_id, to_char(${orderTs}, 'YYYY-MM-DD') AS day, ${orderBranch} AS branch,
         COALESCE(NULLIF(fin_place(o.zone), ''), ${clientZone}) AS zone, COALESCE(NULLIF(fin_place(o.agent), ''), ${clientAgent}) AS agent, ${orderOrg} AS organization,
         ${product.type} AS product_type, ${product.brand} AS brand, ${product.name} AS product, ${product.key} AS item_key,
-        oi.quantity::float8 AS qty, oi.quantity::float8 * oi.unit_price::float8 * ${discount} AS amount, ${currency} AS cur
+        oi.quantity::float8 AS qty, oi.quantity::float8 * oi.unit_price::float8 * ${discount} AS amount, ${currency} AS cur,
+        oc.id AS client_id, oc.name AS client, oi.quantity::float8 * oi.unit_price::float8 * ${discountShare} AS discount_amt, o.created_at::text AS doc_ts
       FROM orders o ${orderJoins} JOIN order_items oi ON oi.order_id = o.id ${product.joins}
       WHERE ${orderWhere}`)
   }
   // Orders without lines (legacy free-text amount "1 000 SUM, 12 USD").
   parts.push(`SELECT 'sale' AS kind, o.id AS doc_id, to_char(${orderTs}, 'YYYY-MM-DD') AS day, ${orderBranch} AS branch,
       COALESCE(NULLIF(fin_place(o.zone), ''), ${clientZone}) AS zone, COALESCE(NULLIF(fin_place(o.agent), ''), ${clientAgent}) AS agent, ${orderOrg} AS organization,
-      '' AS product_type, '' AS brand, '' AS product, '' AS item_key, 0::float8 AS qty, a.amount AS amount, COALESCE(a.currency, @base) AS cur
+      '' AS product_type, '' AS brand, '' AS product, '' AS item_key, 0::float8 AS qty, a.amount AS amount, COALESCE(a.currency, @base) AS cur,
+      oc.id AS client_id, oc.name AS client, 0::float8 AS discount_amt, o.created_at::text AS doc_ts
     FROM orders o ${orderJoins} CROSS JOIN LATERAL fin_amounts(o.amount) a
     WHERE ${orderWhere} ${s.has("order_items") ? "AND NOT EXISTS (SELECT 1 FROM order_items z WHERE z.order_id = o.id)" : ""}`)
 
@@ -180,7 +201,9 @@ async function loadLines(db: PgDb, s: FinanceSchema, base: string, from: string,
         ${withOrder && s.col("orders", "organization") ? "fin_place(ro.organization)" : "''"} AS organization,
         ${product.type} AS product_type, ${product.brand} AS brand, ${product.name} AS product, ${product.key} AS item_key,
         COALESCE(ri.quantity, 0)::float8 AS qty, COALESCE(ri.quantity, 0)::float8 * COALESCE(ri.price, 0)::float8 AS amount,
-        COALESCE(fin_cur(${s.col(CR, "currency") ? "r.currency" : "NULL"}), @base) AS cur
+        COALESCE(fin_cur(${s.col(CR, "currency") ? "r.currency" : "NULL"}), @base) AS cur,
+        oc.id AS client_id, oc.name AS client, 0::float8 AS discount_amt,
+        ${withOrder && s.col("orders", "created_at") ? `COALESCE(ro.created_at::text, ${s.col(CR, "created_at") ? "r.created_at::text" : "NULL::text"})` : s.col(CR, "created_at") ? "r.created_at::text" : "NULL::text"} AS doc_ts
       FROM ${CR} r ${client} JOIN ${CRI} ri ON ri.return_id = r.id ${product.joins}
       ${withOrder ? "LEFT JOIN orders ro ON ro.id = r.order_id" : ""}
       ${returnWarehouse ? "LEFT JOIN wb wr ON wr.k = fin_key(r.warehouse)" : ""}
@@ -207,13 +230,51 @@ function matches(line: SalesLine, filters: SalesFilters): boolean {
 }
 
 /** Sale / return lines of [from, to] in the base currency with their cost of goods. */
+export type SalesBasis = "realization" | "accepted" | "created"
+
+/** Rate history of the currencies (Валюты → «Установить курс»): per code, [UTC moment, rate] oldest first. */
+export async function loadRateHistory(db: PgDb): Promise<Map<string, Array<[string, number]>>> {
+  const exists = (await db.prepare("SELECT to_regclass('currency_rates') IS NOT NULL AS ok").get()) as { ok: boolean }
+  const history = new Map<string, Array<[string, number]>>()
+  if (!exists?.ok) return history
+  const rows = (await db
+    .prepare("SELECT fin_cur(c.code) AS code, r.rate::float8 AS rate, r.created_at::text AS at FROM currency_rates r JOIN currencies c ON c.id = r.currency_id ORDER BY r.created_at, r.id")
+    .all()) as Array<{ code: string; rate: number; at: string }>
+  for (const row of rows) {
+    const list = history.get(row.code) ?? []
+    list.push([String(row.at).replace("T", " ").slice(0, 19), Number(row.rate)])
+    history.set(row.code, list)
+  }
+  return history
+}
+
+/** The rate of `code` set last at or before `at` (UTC "YYYY-MM-DD HH:MM:SS"); the oldest one before any. */
+export function rateAt(history: Map<string, Array<[string, number]>>, code: string, at: string): number | null {
+  const list = history.get(code)
+  if (!list?.length) return null
+  let rate = list[0][1]
+  for (const [moment, value] of list) {
+    if (moment > at) break
+    rate = value
+  }
+  return rate
+}
+
 export async function loadSalesLines(
-  params: { from: string; to: string; basis: "realization" | "created"; withCost: boolean },
+  params: {
+    from: string
+    to: string
+    basis: SalesBasis
+    withCost: boolean
+    /** Convert each document at the rate of its creation day (Linko's reports) instead of today's rates. */
+    historicalRates?: boolean
+  },
   db: PgDb = getDb(),
 ): Promise<{ base: string; lines: SalesLine[]; missingRates: string[] }> {
   const s = await ensureFinanceSchema(db)
   const cc = await loadCurrencyContext(db)
   const raw = await loadLines(db, s, cc.base, params.from, params.to, params.basis)
+  const history = params.historicalRates ? await loadRateHistory(db) : null
   const missing = new Set<string>()
   // Unit costs of each document's goods in the cost ledger (one load per report); the
   // end-of-day average only for lines the ledger did not move.
@@ -230,7 +291,8 @@ export async function loadSalesLines(
   const lines: SalesLine[] = []
   for (const row of raw) {
     if (!row.day) continue
-    const rate = cc.rates[row.cur]
+    const docTs = String(row.doc_ts ?? "").replace("T", " ").slice(0, 19)
+    const rate = (history && docTs && row.cur !== cc.base ? rateAt(history, row.cur, docTs) : null) ?? cc.rates[row.cur]
     const amount = Number(row.amount ?? 0)
     if (!rate) {
       if (amount) missing.add(row.cur)
@@ -254,6 +316,10 @@ export async function loadSalesLines(
       quantity,
       amount: amount * rate * shown.factor,
       cost: quantity * unitCost * shown.factor,
+      docId: row.doc_id === null || row.doc_id === undefined ? null : Number(row.doc_id),
+      clientId: row.client_id === null || row.client_id === undefined ? null : Number(row.client_id),
+      client: String(row.client ?? "").trim(),
+      discount: Number(row.discount_amt ?? 0) * rate * shown.factor,
     })
   }
   return { base: shown.code, lines, missingRates: [...missing].sort() }
