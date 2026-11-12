@@ -220,6 +220,21 @@ async function attachLedger(clients: Client[], byAccount = false): Promise<Clien
   return clients
 }
 
+/** Clients with an agent route (Маршруты: field_route_plans) — «В маршруте» is that, as Linko's with_plan counts it;
+ * the stored clients.in_route only stands in on a database without route plans. */
+async function routedClientIds(db: PgDb, ids?: number[]): Promise<Set<number> | null> {
+  const present = (await db.prepare("SELECT to_regclass('field_route_plans') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!present?.ok) return null
+  const rows = (await db
+    .prepare(`SELECT DISTINCT client_id FROM field_route_plans${ids ? " WHERE client_id = ANY(@ids::int[])" : ""}`)
+    .all(...(ids ? [{ ids }] : []))) as Array<{ client_id: number }>
+  return new Set(rows.map((row) => Number(row.client_id)))
+}
+
+function withRoutes(clients: Client[], routed: Set<number> | null): Client[] {
+  return routed ? clients.map((client) => ({ ...client, inRoute: routed.has(client.id) })) : clients
+}
+
 export async function listClients(search?: string, options: { withBalances?: boolean } = {}): Promise<Client[]> {
   await ensureClientsSchema()
   const db = getDb()
@@ -229,7 +244,7 @@ export async function listClients(search?: string, options: { withBalances?: boo
         .prepare(`${SELECT_CLIENT} WHERE (c.name ILIKE @q OR c.phone ILIKE @q) AND (@branch::text = '' OR c.branch = @branch) ORDER BY c.id DESC`)
         .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`, branch })) as ClientRow[])
     : ((await db.prepare(`${SELECT_CLIENT} WHERE (@branch::text = '' OR c.branch = @branch) ORDER BY c.id DESC`).all({ branch })) as ClientRow[])
-  const clients = rows.map(rowToClient)
+  const clients = withRoutes(rows.map(rowToClient), await routedClientIds(db))
   return options.withBalances === false ? clients : attachLedger(clients, true)
 }
 
@@ -238,7 +253,7 @@ export async function getClient(id: number, options: { withBalances?: boolean } 
   await ensureClientsSchema()
   const row = (await getDb().prepare(`${SELECT_CLIENT} WHERE c.id = ?`).get(id)) as ClientRow | undefined
   if (!row) return null
-  const client = rowToClient(row)
+  const [client] = withRoutes([rowToClient(row)], await routedClientIds(getDb(), [id]))
   return options.withBalances === false ? client : (await attachLedger([client]))[0]
 }
 
