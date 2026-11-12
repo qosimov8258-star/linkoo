@@ -12,9 +12,7 @@ import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/ba
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useLookup } from "@/components/analytics/balance/use-balance"
 import { BranchDetailDialog, BranchTransactionDialog, type BranchOption } from "@/components/analytics/branch-balance-dialogs"
-import { withRecordedBalances, type BranchRow, type ManualEntry } from "@/components/analytics/branch-tab-view"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
-import { useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { isIsoDay, monthEndIso, monthStartIso } from "@/lib/finance/dates"
 import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow, type CurrencyBalance } from "@/lib/finance/types"
@@ -137,7 +135,6 @@ function readUrlState(params: Pick<URLSearchParams, "get" | "getAll">): UrlState
 
 export function BranchBalanceView() {
   const { t } = useLanguage()
-  const app = useAppCurrencyInfo()
   const searchParams = useSearchParams()
   const [initial] = useState(() => readUrlState(searchParams))
 
@@ -160,31 +157,14 @@ export function BranchBalanceView() {
 
   const branchOptions = useLookup<BranchOption>("/api/branches")
   const organizationOptions = useLookup<{ id: number; name: string }>("/api/organizations")
-  // Like the reference, the list holds only the branches that have manual balance entries, in the order of their first entry;
-  // their opening / closing balances come from those entries (same rule as the dashboard tab ФИЛИАЛ).
-  const [entries, setEntries] = useState<ManualEntry[] | null>(null)
-  useEffect(() => {
-    fetch("/api/branch-balance-transactions")
-      .then((response) => (response.ok ? (response.json() as Promise<ManualEntry[]>) : []))
-      .then(setEntries)
-      .catch(() => setEntries([]))
-  }, [])
-  const entryOrder = useMemo(() => {
-    if (!entries) return null
-    const first = new Map<number, number>()
-    for (const entry of entries) if (!first.has(entry.branchId) || entry.id < first.get(entry.branchId)!) first.set(entry.branchId, entry.id)
-    return [...first.entries()].sort((a, b) => a[1] - b[1]).map(([branchId]) => String(branchId))
-  }, [entries])
+  // Like the reference (main/branch/balance): the branches the ledger lists (the ones kept in the balance), with the
+  // ledger's own figures — Linko's history and the app's documents, this page's manual entries included.
   const query = useMemo(
-    () => ({ from: period.from, to: period.to, search, key: branchIds.length ? branchIds : (entryOrder ?? ["0"]), organization: organization ? [organization] : undefined, ordering, page: 1, pageSize: 1000, totalsIgnoreSearch: true }),
-    [period, search, branchIds, entryOrder, organization, ordering],
+    () => ({ from: period.from, to: period.to, search, key: branchIds.length ? branchIds : undefined, organization: organization ? [organization] : undefined, ordering, page: 1, pageSize: 1000, totalsIgnoreSearch: true }),
+    [period, search, branchIds, organization, ordering],
   )
   const { data, loading, error, reload } = useBalanceList("branch", query)
-  const processed = useMemo(() => {
-    const all = data?.rows ?? []
-    const listed = ordering.length || branchIds.length || !entryOrder ? all : entryOrder.map((key) => all.find((row) => row.key === key)).filter((row): row is (typeof all)[number] => !!row)
-    return entries ? listed.map((row) => withRecordedBalances(row as unknown as BranchRow, entries, period.from, period.to, app) as unknown as (typeof all)[number]) : listed
-  }, [data, entries, entryOrder, ordering, branchIds, period, app])
+  const processed = useMemo(() => data?.rows ?? [], [data])
   const count = processed.length
   const rows = processed.slice((paging.page - 1) * paging.pageSize, paging.page * paging.pageSize)
   const totals = useMemo(() => {

@@ -4,14 +4,13 @@ import { useEffect, useMemo, useState } from "react"
 import { CashOverview, useBalanceOverview, WarehouseOverview } from "@/components/analytics/balance-sections"
 import { MoreButton, SortArrows, ToggleButtons, formatAmount, signedColor, useWidgetPeriod } from "@/components/analytics/widget-table-kit"
 import { ReportPage, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
-import { inAppCurrency, useAppCurrencyInfo, type AppCurrencyInfo } from "@/lib/app-currency-context"
+import { useAppCurrencyInfo } from "@/lib/app-currency-context"
 import type { PeriodKey } from "@/lib/dashboard-date-range"
 import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type Amounts = Record<string, number>
 export type BranchRow = { key: string; name: string; currencies: Record<string, Amounts> }
-export type ManualEntry = { id: number; branchId: number; kind: string; currency: string; amount: number; date: string; createdBy: string }
 type BranchReport = { rows: BranchRow[]; totals: Record<string, Amounts>; visibleCurrencies: string[]; currencies: { code: string; label: string }[] }
 
 // Column groups of the table, in the reference order: [field of the balance row, header, summary label, summary colour].
@@ -30,44 +29,6 @@ const TABLE_CURRENCIES = ["SUM", "USD"] as const
 const COLLAPSED_ROWS = 7
 const CARD_SHADOW = "shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
 
-// Manual rows without an author are the balances carried over when the ledger was opened. Like the reference they feed the
-// opening and closing balance (by their date) and are not "other income / expense" of the period; rows entered by a user are.
-const CURRENCY_CODE: Record<string, string> = { sum: "SUM", usd: "USD", eur: "EUR", euro: "EUR" }
-
-/** `app`: with an app currency (Настройки → Валюта приложения) the manual entries are converted into it,
- * like the ledger rows of `row` already are. */
-export function withRecordedBalances(row: BranchRow, entries: ManualEntry[], begin: string, end: string, app?: AppCurrencyInfo): BranchRow {
-  const own = entries
-    .filter((entry) => String(entry.branchId) === row.key)
-    .map((entry) => {
-      if (!app?.code) return entry
-      const code = CURRENCY_CODE[entry.currency.toLowerCase()] ?? entry.currency.toUpperCase()
-      return { ...entry, currency: app.code, amount: inAppCurrency(app, entry.amount, code) ?? 0 }
-    })
-  const carriedOver = entries.filter((entry) => !entry.createdBy).map((entry) => entry.date)
-  const openedOn = carriedOver.length ? carriedOver.reduce((a, b) => (a > b ? a : b)) : ""
-  const currencies: Record<string, Amounts> = {}
-  for (const [code, figures] of Object.entries(row.currencies)) {
-    const signed = (entry: ManualEntry) => (entry.kind === "expense" ? -Math.abs(entry.amount) : Math.abs(entry.amount))
-    const mine = own.filter((entry) => (CURRENCY_CODE[entry.currency.toLowerCase()] ?? entry.currency.toUpperCase()) === code)
-    const upTo = (limit: (date: string) => boolean) => mine.filter((entry) => limit(entry.date)).reduce((sum, entry) => sum + signed(entry), 0)
-    const authored = mine.filter((entry) => entry.createdBy && entry.date >= begin && entry.date <= end)
-    const plus = authored.filter((entry) => entry.kind !== "expense").reduce((sum, entry) => sum + signed(entry), 0)
-    const minus = authored.filter((entry) => entry.kind === "expense").reduce((sum, entry) => sum + signed(entry), 0)
-    const opening = upTo((date) => date < begin)
-    // After the opening date the balance moves with the period's transfers and payments; before it the recorded balance is final.
-    const moves = figures.stock_transfer_minus + figures.stock_transfer_plus + figures.payments + plus + minus
-    currencies[code] = {
-      ...figures,
-      none_type_plus: plus,
-      none_type_minus: minus,
-      begin_balance: opening,
-      end_balance: begin > openedOn ? opening + moves : upTo((date) => date <= end),
-    }
-  }
-  return { ...row, currencies }
-}
-
 export function BranchTabView() {
   const { t } = useLanguage()
   const app = useAppCurrencyInfo()
@@ -81,16 +42,6 @@ export function BranchTabView() {
   const [chartMode, setChartMode] = useState<"type" | "brand">("type")
   const [sort, setSort] = useState<{ field: string; currency: string; dir: "asc" | "desc" } | null>(null)
   const [expanded, setExpanded] = useState(false)
-  // Like the reference, the table lists only branches that have manual balance entries, in the order of their first entry.
-  const [entries, setEntries] = useState<ManualEntry[] | null>(null)
-
-  useEffect(() => {
-    fetch("/api/branch-balance-transactions")
-      .then((response) => (response.ok ? (response.json() as Promise<ManualEntry[]>) : []))
-      .then(setEntries)
-      .catch(() => {})
-  }, [])
-
   useEffect(() => {
     const controller = new AbortController()
     fetch(`/api/balances/branch?from=${beginIso}&to=${endIso}&pageSize=1000`, { signal: controller.signal })
@@ -100,21 +51,13 @@ export function BranchTabView() {
     return () => controller.abort()
   }, [beginIso, endIso])
 
-  const entryOrder = useMemo(() => {
-    if (!entries) return null
-    const first = new Map<number, number>()
-    for (const entry of entries) if (!first.has(entry.branchId) || entry.id < first.get(entry.branchId)!) first.set(entry.branchId, entry.id)
-    return [...first.entries()].sort((a, b) => a[1] - b[1]).map(([branchId]) => String(branchId))
-  }, [entries])
-
+  // As Linko's stats/widget/branch: the branches the ledger keeps in the balance, with the ledger's own figures.
   const rows = useMemo(() => {
-    const all = report?.rows ?? []
-    const listed = entryOrder ? entryOrder.map((key) => all.find((row) => row.key === key)).filter((row): row is BranchRow => !!row) : all
-    const list = entries ? listed.map((row) => withRecordedBalances(row, entries, beginIso, endIso, app)) : listed
+    const list = report?.rows ?? []
     if (!sort) return list
     const value = (row: BranchRow) => row.currencies[sort.currency]?.[sort.field] ?? 0
     return [...list].sort((a, b) => (sort.dir === "asc" ? value(a) - value(b) : value(b) - value(a)))
-  }, [report, sort, entryOrder, entries, beginIso, endIso, app])
+  }, [report, sort])
 
   // The summary strip adds up the listed branches only (the reference does not count the others).
   const totals = useMemo(() => {

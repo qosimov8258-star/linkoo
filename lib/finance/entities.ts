@@ -159,10 +159,9 @@ function employeeRecord(row: EmployeeRow): EntityRecord {
   }
 }
 
+/** Баланс сотрудников lists the employees by id, as Linko's staff/salary_balance does. */
 async function employees(db: PgDb): Promise<EntityRecord[]> {
-  const rows = (await db
-    .prepare("SELECT id, first_name, last_name, position, branch, active FROM employees ORDER BY lower(first_name), lower(last_name), id")
-    .all()) as EmployeeRow[]
+  const rows = (await db.prepare("SELECT id, first_name, last_name, position, branch, active FROM employees ORDER BY id").all()) as EmployeeRow[]
   return rows.map(employeeRecord)
 }
 
