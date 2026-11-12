@@ -33,8 +33,11 @@ import { STOCK_TABLES } from "@/lib/stock/schema"
  *    the average; items that feed each other in production solved exactly.
  * 6: a manual entry entered on its own day takes effect at the moment it was entered
  *    (net_cost_entries.entered_at, else created_at), after that day's earlier documents.
- * 7: older entries (no entered_at) keep the start-of-day rule they were entered under. */
-export const NET_COST_VERSION = "7"
+ * 7: older entries (no entered_at) keep the start-of-day rule they were entered under.
+ * 8: up to the day of Linko's copied cost history (linko_history 'net_cost') production output comes in at the
+ *    average; Linko's cost records are manual entries.
+ * 9: a supply generated from an inventory surplus (supplier_incomings.is_inventory) comes in at the average. */
+export const NET_COST_VERSION = "9"
 const CHUNK = 1000
 const EPS = 1e-6
 
@@ -106,6 +109,10 @@ export type LedgerInputs = {
   /** fin_key → canonical warehouse name (warehouses table spelling). */
   warehouses: Map<string, string>
   production: ProductionLinks
+  /** The day up to which Linko's own cost history is this copy's (linko_history 'net_cost', '' = none): before it
+   * Linko's cost records are the ledger's manual entries (scripts/linko-sync/import-net-cost-history.mjs), and
+   * production output comes in at the average, as Linko books it (a manufactured item keeps its cost). */
+  linkoUntil: string
 }
 
 const AT = (expr: string) => `to_char(${expr}, 'YYYY-MM-DD"T"HH24:MI:SS.MS')`
@@ -210,10 +217,16 @@ export async function loadLedgerInputs(db: PgDb, itemKey?: string): Promise<Ledg
     qty: number
     value: number
   }>
+  // Supplies Linko generated from an inventory surplus (is_inventory = 1, scripts/linko-sync): the surplus comes in at
+  // the average, as Linko books it, not as a purchase that blends its price into the cost.
+  const inventorySupplies = has("supplier_incomings", "is_inventory")
+    ? new Set(((await db.prepare("SELECT id FROM supplier_incomings WHERE COALESCE(is_inventory, 0) = 1").all()) as Array<{ id: number }>).map((row) => Number(row.id)))
+    : new Set<number>()
   const moves = new Map<string, LedgerMove[]>()
   const ids = new Map<string, Set<number>>()
   for (const row of rows) {
     const list = moves.get(row.item_key) ?? []
+    const atAverage = row.doc_type === "supplier_incomings" && inventorySupplies.has(Number(row.doc_id)) && Number(row.qty) > 0
     list.push({
       day: row.day,
       wk: row.wk,
@@ -224,6 +237,7 @@ export async function loadLedgerInputs(db: PgDb, itemKey?: string): Promise<Ledg
       docType: row.doc_type,
       docId: Number(row.doc_id),
       isDefect: Number(row.is_defect) === 1,
+      ...(atAverage ? { atAverage: true } : {}),
     })
     moves.set(row.item_key, list)
     if (!ids.has(row.doc_type)) ids.set(row.doc_type, new Set())
@@ -354,7 +368,13 @@ export async function loadLedgerInputs(db: PgDb, itemKey?: string): Promise<Ledg
     const products = (await db.prepare(`SELECT id, ${initial} AS cost FROM products`).all()) as Array<{ id: number; cost: number | null }>
     for (const row of products) defaults.set(`product:${row.id}`, Number(row.cost) || 0)
   }
-  return { moves, entries, meta, defaults, fallbacks, labels, warehouses, production }
+  let linkoUntil = ""
+  const history = (await db.prepare("SELECT to_regclass('linko_history') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (history?.ok) {
+    const row = (await db.prepare("SELECT until FROM linko_history WHERE ledger = 'net_cost'").get()) as { until: string } | undefined
+    linkoUntil = String(row?.until ?? "").slice(0, 10)
+  }
+  return { moves, entries, meta, defaults, fallbacks, labels, warehouses, production, linkoUntil }
 }
 
 export function itemLabel(inputs: Pick<LedgerInputs, "labels">, key: string): string {
@@ -502,6 +522,12 @@ function valuedMoves(item: string, inputs: LedgerInputs, plan: ProductionPlan, r
   let changed = false
   const valued = moves.map((move) => {
     if (move.docType !== "production_movements" || move.kind !== "manufacture_in" || move.isDefect || !(move.qty > 0)) return move
+    // Linko's history: its production output never blended into the cost (it books a cost record when it sets one,
+    // and that record is an entry here).
+    if (inputs.linkoUntil && move.day < inputs.linkoUntil) {
+      changed = true
+      return { ...move, atAverage: true }
+    }
     const party = inputs.production.party.get(move.docId)
     if (party !== undefined) {
       const batch = plan.batches.get(party)

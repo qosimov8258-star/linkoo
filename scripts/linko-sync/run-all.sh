@@ -20,6 +20,7 @@ run import-returns.mjs
 run import-supplies.mjs
 run import-stock-docs.mjs
 run import-production.mjs
+run import-net-cost-history.mjs
 # Finance
 run import-account-links.mjs
 run import-finance-cash.mjs

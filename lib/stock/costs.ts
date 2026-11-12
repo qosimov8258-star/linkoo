@@ -235,6 +235,34 @@ export function warehouseItemCosts(ledger: CostLedger, date?: string): Warehouse
   return { costs, byWarehouse, costOf: (key, warehouse) => byWarehouse.get(key)?.get(finKey(warehouse)) ?? costs.get(key) }
 }
 
+/** Per item the cost of the scope that changed last: the "Общий" average or a warehouse that is its own scope — like
+ * Linko's Формирование цен (stock/products_net_costs), which shows the product's latest cost record whatever its
+ * warehouse. Items without a ledger history are left out (the caller falls back to the catalog cost). */
+export function latestScopeCosts(ledger: CostLedger, date?: string): Map<StockItemKey, number> {
+  const until = date ?? todayIso()
+  const result = new Map<StockItemKey, number>()
+  const lastChange = (list: Array<{ day: string; avg: number }> | undefined) => {
+    let found: { day: string; avg: number } | undefined
+    let previous: number | undefined
+    for (const entry of list ?? []) {
+      if (entry.day > until) break
+      if (previous === undefined || Math.abs(entry.avg - previous) > 1e-9) found = entry
+      previous = entry.avg
+    }
+    return found
+  }
+  for (const [key, list] of ledger.averages) {
+    let best = lastChange(list)
+    for (const own of ledger.own.get(key)?.values() ?? []) {
+      const change = lastChange(own)
+      // On the same day the warehouse's own entry wins (its scope began or changed on that day).
+      if (change && (!best || change.day >= best.day)) best = change
+    }
+    if (best) result.set(key, best.avg)
+  }
+  return result
+}
+
 /** Cost per item in one warehouse (its own cost scope's when it has one). */
 export function costsInWarehouse(costs: WarehouseItemCosts, warehouse: string): Map<StockItemKey, number> {
   const wanted = finKey(warehouse)

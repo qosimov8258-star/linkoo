@@ -28,7 +28,7 @@ import { claimInvoiceForIncoming, ensureInvoiceIncomingsSchema } from "@/lib/inv
 import { ensureRepricingsSchema } from "@/lib/repricings-read"
 import { availableByKey } from "@/lib/repricings-items"
 import { createRepricingTx } from "@/lib/repricings-repo"
-import { getItemCosts, refreshProductCostCache } from "@/lib/stock/costs"
+import { getItemCosts, latestScopeCosts, loadCostLedger, refreshProductCostCache } from "@/lib/stock/costs"
 import { ensureStockSchema } from "@/lib/stock/schema"
 import { notifySafely } from "@/lib/notify-event"
 import type { SupplierIncomingBody, IncomingExpenseBody } from "@/lib/supplier-incomings-api"
@@ -1047,19 +1047,26 @@ export async function setProductInitialCost(productId: number, initialCost: numb
   return found ? getProductCostInfo(productId) : null
 }
 
-/** Cost of goods (contract 1, base currency, today) of every live product, for the
- * Формирование цен list. */
-export async function listProductCosts(): Promise<{ baseCurrency: string; costs: Record<number, number> }> {
+/** Cost of goods (base currency, today) of every live product, for the Формирование цен list: like Linko's
+ * (stock/products_net_costs), the cost of the scope that changed last — the common average, or the average of a
+ * warehouse that keeps its own cost when that one was booked later (lib/stock/costs.ts latestScopeCosts). */
+export async function listProductCosts(): Promise<{ baseCurrency: string; costs: Record<number, number>; unset: number[] }> {
   const db = await incomingsDb()
-  const [rows, costs, rates] = await Promise.all([
+  const [rows, costs, ledger, rates] = await Promise.all([
     db.prepare("SELECT id, cost FROM products WHERE COALESCE(deleted, 0) = 0").all() as Promise<Array<{ id: number; cost: number | null }>>,
     getItemCosts({}, db),
+    loadCostLedger(db),
     currencyRates(db),
   ])
+  const latest = latestScopeCosts(ledger)
   const out: Record<number, number> = {}
+  // Products the ledger never valued (no cost receipt, no entry, no default cost): «Не установлена», like Linko.
+  const unset: number[] = []
   for (const row of rows) {
-    const cost = costs.get(`product:${row.id}`)
+    const key = `product:${row.id}` as const
+    const cost = latest.get(key) ?? costs.get(key)
+    if (!latest.has(key) && !(ledger.fallback.get(key) ?? 0) && !(cost ?? 0)) unset.push(Number(row.id))
     out[Number(row.id)] = round6(cost !== undefined && Number.isFinite(cost) ? cost : Number(row.cost) || 0)
   }
-  return { baseCurrency: rates.base, costs: out }
+  return { baseCurrency: rates.base, costs: out, unset }
 }

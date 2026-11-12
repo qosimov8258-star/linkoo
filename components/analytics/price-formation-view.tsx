@@ -36,7 +36,7 @@ type SupplyLine = { incomingId: number; date: string; qty: number; onStock: numb
 /** currentCost = the one cost of goods (lib/stock/costs.ts), base currency. */
 type CostInfo = { initialCost: number; currentCost: number; history: SupplyHistoryLine[]; lines?: SupplyLine[]; baseCurrency?: string }
 /** GET /api/supplier-incomings/product-costs. */
-type ProductCosts = { baseCurrency: string; costs: Record<string, number> }
+type ProductCosts = { baseCurrency: string; costs: Record<string, number>; unset?: number[] }
 
 const PRICE_ICON = "M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"
 const EDIT_ICON = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
@@ -95,6 +95,8 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   const [priceInputs, setPriceInputs] = useState<Record<string, { cash: string; nonCash: string }>>({})
   const [costInfo, setCostInfo] = useState<CostInfo | null>(null)
   const [baseCurrency, setBaseCurrency] = useState(currencies[0])
+  /** Products whose cost was never set (no receipt, no entry, no default): «Не установлена», like the reference. */
+  const [unsetCosts, setUnsetCosts] = useState<Set<number>>(new Set())
   const [selectedCurrency, setSelectedCurrency] = useState("")
   const [importMode, setImportMode] = useState<"manual" | "excel">("manual")
   const [separateTransferPrice, setSeparateTransferPrice] = useState(false)
@@ -117,6 +119,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
       .then(([data, live]) => {
         if (cancelled) return
         if (live?.baseCurrency) setBaseCurrency(live.baseCurrency)
+        setUnsetCosts(new Set(live?.unset ?? []))
         setRows(
           data
             .filter((product) => !product.deleted && !product.isInventory)
@@ -137,7 +140,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   }, [])
 
   // The one cost of goods (lib/stock/costs.ts), as the product list loaded above carries it.
-  const costOf = (row: Product) => row.cost || 0
+  const costOf = (row: Product) => (unsetCosts.has(row.id) ? 0 : row.cost || 0)
 
   useEffect(() => {
     let cancelled = false
@@ -186,10 +189,10 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
       if (brandFilter !== "all" && row.brand !== brandFilter) return false
       if (supplierFilter !== "all" && row.supplier !== supplierFilter) return false
       if (canSellFilter !== "all" && String(row.canSell) !== canSellFilter) return false
-      if (noCostOnly && costOf(row) !== 0) return false
+      if (noCostOnly && (unsetCosts.has(row.id) ? 0 : row.cost || 0) !== 0) return false
       return true
     })
-  }, [rows, query, typeFilter, unitFilter, organizationFilter, brandFilter, supplierFilter, canSellFilter, noCostOnly])
+  }, [rows, query, typeFilter, unitFilter, organizationFilter, brandFilter, supplierFilter, canSellFilter, noCostOnly, unsetCosts])
 
   const paging = usePaging(filtered.length)
   const visible = filtered.slice(paging.start, paging.end)
@@ -306,7 +309,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   function downloadList() {
     downloadExcelTable("formirovanie-tsen", [
       [t("Название"), t("Штрих-код товара"), t("Себестоимость"), t("Цена(мин)"), t("Цена(макс)"), t("Дата обновления")],
-      ...filtered.map((row) => [row.name, row.barcode, row.cost, row.priceMin, row.priceMax, row.priceUpdatedDate]),
+      ...filtered.map((row) => [row.name, row.barcode, unsetCosts.has(row.id) ? t("Не установлена") : row.cost, row.priceMin, row.priceMax, row.priceUpdatedDate]),
     ])
   }
 
@@ -471,7 +474,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
           render={(row) => [
             row.name,
             t(notSet(row.barcode)),
-            formatMoney(costOf(row), baseCurrency),
+            unsetCosts.has(row.id) ? t("Не установлена") : formatMoney(costOf(row), baseCurrency),
             <div key="min" className="text-right">{formatMoney(row.priceMin || priceBounds(row.priceLists).priceMin)}</div>,
             <div key="max" className="text-center">{formatMoney(row.priceMax || priceBounds(row.priceLists).priceMax)}</div>,
             t(row.priceUpdatedDate),
