@@ -2,7 +2,7 @@ import "server-only"
 
 import type { PgDb } from "@/lib/db"
 import { normCurrency } from "@/lib/finance/currency"
-import type { FinanceSchema } from "@/lib/finance/schema"
+import { ensureFinanceSchema, type FinanceSchema } from "@/lib/finance/schema"
 import { DELIVERER_CORRECTIONS_TABLE } from "@/lib/finance/sources"
 import type { BalanceEntityKind, BalanceInfoValue } from "@/lib/finance/types"
 
@@ -180,12 +180,40 @@ async function vansellAgents(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]
     const ids = (await db.prepare("SELECT DISTINCT employee_id FROM vansell_transactions").all()) as Array<{ employee_id: number }>
     for (const row of ids) withRows.add(Number(row.employee_id))
   }
+  // Like Linko's «Баланс вансел»: the managers (Зав. склад) of the van-sell warehouses are listed, with or without
+  // movements (info.is_vansell = 1); other van-sell agents are listed once they have movements (lib/finance/ledger.ts).
+  const managers = await vansellManagers(db, s, rows)
   return rows
-    .filter((row) => VANSELL_POSITION.test(row.position) || cashiers.has(nameKey(fullName(row.first_name, row.last_name))) || withRows.has(row.id))
-    .map(employeeRecord)
+    .filter((row) => managers.has(row.id) || VANSELL_POSITION.test(row.position) || cashiers.has(nameKey(fullName(row.first_name, row.last_name))) || withRows.has(row.id))
+    .map((row) => {
+      const record = employeeRecord(row)
+      record.info.is_vansell = managers.has(row.id) ? 1 : 0
+      return record
+    })
 }
 
-/** True when the employee is a van-sell agent: a "Вансел…" position or the
+/** Employees who manage a van-sell warehouse (warehouses.online = «Вэнсел»): by manager_id, else by the manager's name
+ * (the lowest employee id of that name, like the ledger's emp_keys). */
+async function vansellManagers(db: PgDb, s: FinanceSchema, employees?: EmployeeRow[]): Promise<Set<number>> {
+  if (!s.has("warehouses") || !s.col("warehouses", "online") || !s.col("warehouses", "manager")) return new Set()
+  const rows = (await db
+    .prepare(`SELECT manager, ${s.col("warehouses", "manager_id") ? "manager_id" : "NULL::int AS manager_id"} FROM warehouses WHERE COALESCE(online, 0) = 1`)
+    .all()) as Array<{ manager: string | null; manager_id: number | null }>
+  const list = employees ?? ((await db.prepare("SELECT id, first_name, last_name, position, branch, active FROM employees").all()) as EmployeeRow[])
+  const byName = new Map<string, number>()
+  for (const row of [...list].sort((a, b) => a.id - b.id)) {
+    const key = nameKey(fullName(row.first_name, row.last_name))
+    if (key && !byName.has(key)) byName.set(key, row.id)
+  }
+  const out = new Set<number>()
+  for (const row of rows) {
+    const id = row.manager_id !== null && row.manager_id !== undefined ? Number(row.manager_id) : byName.get(nameKey(row.manager ?? ""))
+    if (id) out.add(id)
+  }
+  return out
+}
+
+/** True when the employee is a van-sell agent: a "Вансел…" position, the manager of a van-sell warehouse or the
  * cashier of a van-sell cashbox (the rule of the Баланс вансел list, without
  * its "already has van-sell rows" fallback). Manual van-sell movements may
  * only be written for such an employee (404 "Вансел не найден" otherwise). */
@@ -195,6 +223,7 @@ export async function isVansellAgent(db: PgDb, employeeId: number): Promise<bool
     | undefined
   if (!row) return false
   if (VANSELL_POSITION.test(row.position ?? "")) return true
+  if ((await vansellManagers(db, await ensureFinanceSchema(db))).has(Number(row.id))) return true
   const cashier = (await db
     .prepare("SELECT 1 AS ok FROM cashboxes WHERE vansell = 1 AND lower(btrim(regexp_replace(cashier, '\\s+', ' ', 'g'))) = @name LIMIT 1")
     .get({ name: nameKey(fullName(row.first_name, row.last_name)) })) as { ok: number } | undefined

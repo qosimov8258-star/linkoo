@@ -423,8 +423,9 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
   const columns = [...MOVEMENT_COLUMNS[kind], ...extraColumns(kind)]
   const { byEntity, meta } = indexAgg(agg, columns, kind)
 
-  // Van-sell agents are listed once they have any ledger movement (like the demo's staff balance list), not for every vansell-looking employee.
-  const all = kind === "deliverer" ? delivererEntities(entities) : kind === "vansell" ? entities.filter((entity) => byEntity.has(entity.key)) : [...entities]
+  // Van-sell agents: the managers of the van-sell warehouses (as Linko lists them), and anyone else once they have a
+  // ledger movement — not every vansell-looking employee.
+  const all = kind === "deliverer" ? delivererEntities(entities) : kind === "vansell" ? entities.filter((entity) => entity.info.is_vansell || byEntity.has(entity.key)).sort((a, b) => Number(a.id) - Number(b.id)) : [...entities]
   if (kind === "supplier") {
     // Suppliers that exist only as a name on supplies/returns/payments.
     const known = new Set(entities.map((entity) => entity.key))
