@@ -46,9 +46,10 @@ function fullName(first: unknown, last: unknown) {
 
 const VANSELL_POSITION = /(ван|вэн|van)[\s-]*(сел|sel)/i
 
+/** Баланс кассы lists the cashboxes newest first (by id), as Linko's stats/cashboxes_sum_list does. */
 async function cashboxes(db: PgDb): Promise<EntityRecord[]> {
   const rows = (await db
-    .prepare("SELECT id, name, currency, cashier, branch, payment_type, vansell, order_number FROM cashboxes ORDER BY order_number, lower(name), id")
+    .prepare("SELECT id, name, currency, cashier, branch, payment_type, vansell, order_number FROM cashboxes ORDER BY id DESC")
     .all()) as Array<{ id: number; name: string; currency: string; cashier: string; branch: string; payment_type: string; vansell: number; order_number: number }>
   return rows.map((row) => ({
     key: String(row.id),
