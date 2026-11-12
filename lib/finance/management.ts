@@ -61,7 +61,8 @@ const LINES: LineSpec[] = [
   { key: "market_balance", label: "Авансы, полученные от покупателей", section: "passives", perCurrency: true, href: (_b, q) => `/analytics/client-balance?${q}` },
   { key: "provider_balance", label: "Долги поставщикам", section: "passives", perCurrency: true, href: (_b, q) => `/analytics/supplier-balance?${q}` },
   { key: "staff_balance", label: "Задолженность по оплате труда", section: "passives", perCurrency: true, href: (_b, q) => `/analytics/employee-balance?${q}` },
-  { key: "cashback_balance", label: "Кешбэк покупателей", section: "passives", perCurrency: false, href: () => "/analytics/loyalty-card" },
+  // Per currency like the reference's card (90 031 333 708 SUM / 180 000 000 018 USD); the totals still convert to the base.
+  { key: "cashback_balance", label: "Кешбэк покупателей", section: "passives", perCurrency: true, href: () => "/analytics/loyalty-card" },
   { key: "branch_balance", label: "Авансы полученные от филиалов", section: "passives", perCurrency: true, href: (_b, q) => `/analytics/branch-balance?${q}` },
   { key: "supply_expense_balance", label: "Неоплаченные доп. расходы", section: "passives", perCurrency: true, href: () => "/analytics/supplier-incomings" },
 ]
@@ -262,7 +263,7 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
   splitBySign(employees, spec("passives", "Задолженность по оплате труда"), spec("assets", "Авансы, выданные по оплате труда"), (info) => info.branch)
   splitBySign(branchRows, spec("assets", "Задолженность филиалов"), spec("passives", "Авансы полученные от филиалов"), (info) => info.branch)
 
-  // Customer cashback (loyalty card balances > 0), converted to base.
+  // Customer cashback (loyalty card balances > 0) per currency; the section totals convert it to the base.
   if (s.has("loyalty_card_transactions")) {
     const clientBranch = new Map(clients.rows.map((row) => [row.key, row.info.branch]))
     const rows = (await db
@@ -274,9 +275,8 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
       )
       .all({ base, from: params.from, to: params.to })) as Array<{ client: string; cur: string; begin_amount: number | null; end_amount: number | null }>
     for (const row of rows) {
-      const rate = cc.rates[row.cur]
-      if (!rate) continue
-      add(clientBranch.get(row.client), spec("passives", "Кешбэк покупателей"), base, Math.max(0, Number(row.begin_amount ?? 0)) * rate, Math.max(0, Number(row.end_amount ?? 0)) * rate)
+      if (!cc.rates[row.cur]) continue
+      add(clientBranch.get(row.client), spec("passives", "Кешбэк покупателей"), row.cur, Math.max(0, Number(row.begin_amount ?? 0)), Math.max(0, Number(row.end_amount ?? 0)))
     }
   }
 

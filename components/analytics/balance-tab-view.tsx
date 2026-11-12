@@ -24,7 +24,8 @@ type Section = "assets" | "passives"
 
 const CARD_SHADOW = "shadow-[rgba(149,157,165,0.2)_0px_8px_24px]"
 
-const money = (value: number) => formatMoney(value)
+/** Like the reference: the cards show whole amounts, the totals (активы / обязательства / капитал) up to two decimals. */
+const money = (value: number, digits = 2) => formatMoney(value, digits)
 
 function shiftDay(iso: string, days: number): string {
   const date = new Date(`${iso}T00:00:00Z`)
@@ -200,7 +201,7 @@ export function BalanceTabView() {
         <Cell key={`${cell.section}:${cell.label}`} label={cell.label} info={cell.info}>
           {cellLines(cell, side).map(([code, value]) => (
             <div key={code}>
-              {money(value)} {currencyLabel(code)}
+              {money(value, 0)} {currencyLabel(code)}
             </div>
           ))}
         </Cell>
