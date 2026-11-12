@@ -64,7 +64,8 @@ export function ClientDynamicsView() {
   const [classes, setClasses] = useState<ClassRow[]>(DEFAULT_CLASSES)
   const [periods, setPeriods] = useState<[Period, Period, Period]>(defaultPeriods)
   const [filters, setFilters] = useState<Record<SelectKey, string>>({ zone: "", status: "", brand: "", productType: "", agent: "", branch: "", clientType: "", dateBy: "Доставки", closing: "Незакрыто" })
-  const [statuses, setStatuses] = useState<string[]>([])
+  // Like the reference, the status field opens with its default chosen: handed to the courier and delivered.
+  const [statuses, setStatuses] = useState<string[]>(["Передан доставщику", "Доставлен"])
   const [selects, setSelects] = useState(emptySelects)
   const [rows, setRows2] = useState<ClassificationRow[]>([])
   const [applied, setApplied] = useState({ periods, filters, statuses, classes })
