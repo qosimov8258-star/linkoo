@@ -337,7 +337,9 @@ export function rowToTransfer(row: TransferRow): Transfer {
     createdAt: localIso(row.created_at_label) || localIso(row.created_at, true),
     deliveredAt: parseAnyDay(row.delivered_at) ?? row.delivered_at,
     amount: round6(Number(row.amount) || 0),
-    weight: round6(storedWeight || items.reduce((sum, item) => sum + item.quantity * item.weight, 0)),
+    // The weight the transfer was saved with (its lines' weight then); Linko's own transfers keep theirs (0 kg there),
+    // so they are not re-weighed with today's product weights.
+    weight: round6(storedWeight),
     status: statusOf(row.status),
     priceList: row.price_list,
     currency: row.currency ?? "",
