@@ -177,6 +177,24 @@ function useEmployees() {
   return people
 }
 
+/** Ids of the active employees with «Показывать в отслеживании» (the agent plan members), null until loaded. */
+function useTrackedIds() {
+  const [ids, setIds] = useState<Set<number> | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/agent-plan-members")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data: Array<{ employeeId: number; active: boolean }>) => {
+        if (!cancelled && Array.isArray(data)) setIds(new Set(data.filter((member) => member.active).map((member) => member.employeeId)))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return ids
+}
+
 type OrderLite = { client: string; agent: string; created: string; status: string; product: string }
 
 const RU_MONTH_INDEX: Record<string, number> = { янв: 0, фев: 1, мар: 2, апр: 3, мая: 4, май: 4, июн: 5, июл: 6, авг: 7, сен: 8, окт: 9, ноя: 10, дек: 11 }
@@ -303,6 +321,7 @@ export function AgentBranchVisitsWidget({
   const [agentsExpanded, setAgentsExpanded] = useState(false)
   const [couriersExpanded, setCouriersExpanded] = useState(false)
   const people = useEmployees()
+  const tracked = useTrackedIds()
   const branchNames = useBranchNames()
   const allOrders = useOrders()
   const orders = useMemo(() => {
@@ -426,7 +445,9 @@ export function AgentBranchVisitsWidget({
   const visibleColumns = COLUMN_DEFS.filter((column) => visibleColumnKeys.includes(column.key))
   const fullName = (person: Person) => `${person.firstName} ${person.lastName}`.trim()
   const agents = people.length ? people : []
-  const agentRows = agentsExpanded ? agents : agents.slice(0, 7)
+  // The sales / AKB trend lists the active employees with «Показывать в отслеживании», by id (Linko's stats/widget/agent).
+  const trendAgents = useMemo(() => (tracked ? agents.filter((person) => tracked.has(person.id)).sort((a, b) => a.id - b.id) : agents), [agents, tracked])
+  const agentRows = agentsExpanded ? trendAgents : trendAgents.slice(0, 7)
   const courierRows = couriersExpanded ? agents : agents.slice(0, 7)
 
   return (
@@ -599,7 +620,7 @@ export function AgentBranchVisitsWidget({
               ))}
             </tbody>
           </table>
-          {agents.length > 7 && <ShowMore expanded={agentsExpanded} onClick={() => setAgentsExpanded((value) => !value)} />}
+          {trendAgents.length > 7 && <ShowMore expanded={agentsExpanded} onClick={() => setAgentsExpanded((value) => !value)} />}
         </div>
       </div>
       )}
