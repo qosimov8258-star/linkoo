@@ -185,6 +185,8 @@ function listWhere(kind: CatalogKind, query: CatalogListQuery, params: Record<st
   const where: string[] = []
   const f = query.filters
   where.push(query.tab === "4" ? "COALESCE(t.deleted, 0) = 1" : "COALESCE(t.deleted, 0) = 0")
+  // Linko's raw materials kept as products (stock items) are listed under Сырье, not here.
+  if (kind === "product") where.push("COALESCE(t.is_raw, 0) = 0")
   // Inventory has its own tab: "Все" is sellable + off-sale items only, as in the reference.
   if (query.tab !== "2" && query.tab !== "4") where.push(`COALESCE(t.${columns.isInventory}, 0) = 0`)
   if (query.tab === "1") where.push("t.can_sell = 1")

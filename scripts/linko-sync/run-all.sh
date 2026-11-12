@@ -11,6 +11,7 @@ run() { echo "== $1"; node "$1"; }
 
 # Catalog and sales documents
 run import-deleted-products.mjs
+run import-product-boxes.mjs
 run import-price-list-items.mjs
 run import-promotions.mjs
 run import-orders.mjs

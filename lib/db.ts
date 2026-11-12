@@ -642,6 +642,9 @@ const BOOTSTRAP_COLUMNS: Record<string, ReadonlyArray<readonly [string, string]>
     ["deleted_at", TEXT_EMPTY],
     ["deleted_by", TEXT_EMPTY],
     ["initial_cost", "DOUBLE PRECISION"],
+    // A Linko raw material kept as the stock item of its raw product (scripts/linko-sync/import-product-boxes.mjs):
+    // Продукты leaves it out, as Linko's main/product/?is_raw=false does; Сырье lists it (raw_materials).
+    ["is_raw", FLAG_OFF],
   ],
   // lib/products-schema.ts COMMON_COLUMNS + RAW_COLUMNS.
   raw_materials: [
