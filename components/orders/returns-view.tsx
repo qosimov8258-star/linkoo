@@ -8,6 +8,7 @@ import { FilterDate, FilterSelect, FilterText, RI, RefBand, RefButton, RefCard, 
 import { useDirectoryNames } from "@/components/clients/use-directory"
 import { askDelete } from "@/lib/ask-confirm"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { compareBandCurrencies } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
@@ -247,7 +248,7 @@ export function ReturnsView({ initialId }: { initialId?: number } = {}) {
         <RefBand compact>
           <span>
             {/* One sum per currency the server reports (never a fixed currency list, never a mixed sum). */}
-            {t("Возвраты")}: {totals.length ? totals.map((entry) => `${money(entry.amount)} ${entry.currency}`).join(" , ") : "0"}
+            {t("Возвраты")}: {totals.length ? [...totals].sort((a, b) => compareBandCurrencies(a.currency, b.currency)).map((entry) => `${money(entry.amount)} ${entry.currency}`).join(" , ") : "0"}
           </span>
         </RefBand>
         <RefToolbar

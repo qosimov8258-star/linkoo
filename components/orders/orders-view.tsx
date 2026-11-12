@@ -12,6 +12,7 @@ import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { inAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { compareBandCurrencies, normCurrency } from "@/lib/finance/currency"
 import { parseAnyDate, parseAnyDay } from "@/lib/finance/dates"
 
 import { AddOrderDialog } from "./add-order-dialog"
@@ -1051,9 +1052,8 @@ function parseAmount(value: string) {
   return Number.isFinite(number) ? { number, currency: match[2] } : null
 }
 
-/** Linko's band lists the currencies SUM, Euro, USD (sales/order/total). Order amounts spell euro "Euro" or "EUR". */
-const CURRENCY_ORDER = ["SUM", "EUR", "USD"]
-const bandCurrency = (currency: string) => (/^(euro|eur|евро)$/i.test(currency) ? "EUR" : currency.toUpperCase())
+/** Order amounts spell euro "Euro" or "EUR": one key per currency in the band. */
+const bandCurrency = (currency: string) => normCurrency(currency)
 
 /** The order's deliverer, else the client's ("Ответственный доставщик"). */
 /** An order as /api/orders sends it (payableRest: what the cash desk still accepts, lib/orders-repo.ts withLedgerDues). */
@@ -1096,11 +1096,8 @@ function addTotal(totals: Map<string, number>, currency: string, value: number) 
 /** "1 234 SUM , 0 USD": one sum per currency of the orders (never added up across currencies, zeros shown as Linko
  * does), "0" when there is no order. */
 function renderTotals(totals: Map<string, number>) {
-  const order = (currency: string) => {
-    const index = CURRENCY_ORDER.indexOf(currency)
-    return index < 0 ? CURRENCY_ORDER.length : index
-  }
-  const shown = [...totals.entries()].sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b))
+  // Linko's band order: SUM, Euro, USD.
+  const shown = [...totals.entries()].sort(([a], [b]) => compareBandCurrencies(a, b))
   if (!shown.length) return <span>0</span>
   return shown.map(([currency, number], index, all) => (
     <span key={currency} className={index < all.length - 1 ? "mr-[5px]" : ""}>

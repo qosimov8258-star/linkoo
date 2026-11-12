@@ -82,6 +82,16 @@ export function compareCurrencyCodes(a: string, b: string): number {
   return normCurrency(a).localeCompare(normCurrency(b), "en")
 }
 
+/** Linko's document bands (Заказы, Возвраты: sales/order/total and the returns' totals) list SUM, Euro, USD — another
+ *  order than its balance summaries (compareCurrencyCodes). */
+export function compareBandCurrencies(a: string, b: string): number {
+  const rank = (code: string) => {
+    const index = ["SUM", "EUR", "USD"].indexOf(normCurrency(code))
+    return index < 0 ? 3 : index
+  }
+  return rank(a) - rank(b) || normCurrency(a).localeCompare(normCurrency(b), "en")
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
