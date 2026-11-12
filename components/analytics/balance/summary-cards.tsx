@@ -3,7 +3,7 @@
 import type { ReactNode } from "react"
 
 import { balanceColor } from "@/components/analytics/balance/amount"
-import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { compareCurrencyCodes, currencyLabel, formatMoney } from "@/lib/finance/currency"
 import type { CurrencyBalance } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -62,8 +62,8 @@ export function BalanceSummaryCards({
 }) {
   const { t } = useLanguage()
   const columns = { 1: "lg:grid-cols-1", 2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4", 5: "lg:grid-cols-5" }[Math.min(5, boxes.length) as 1 | 2 | 3 | 4 | 5]
-  // Reference order of the lines: Euro, SUM, USD (alphabetical by label).
-  const lines = [...currencies].sort((a, b) => currencyLabel(a).localeCompare(currencyLabel(b)))
+  // Reference order of the lines: Euro, SUM, USD (Linko's currency names).
+  const lines = [...currencies].sort(compareCurrencyCodes)
   return (
     <section className={`${marginClass} ${gapped ? "mb-[10px] -mt-px" : compact ? "mb-[10px] mt-[5px]" : "my-[10px]"} grid grid-cols-1 sm:grid-cols-2 ${gapped ? "gap-x-[16px]" : "border border-[#efefef] bg-white"} ${columns} ${loading ? "opacity-60" : ""}`}>
       {boxes.map((box, boxIndex) => (

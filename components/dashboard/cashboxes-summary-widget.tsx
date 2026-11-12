@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { ChevronDown } from "lucide-react"
-import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { compareCurrencyCodes, currencyLabel, formatMoney } from "@/lib/finance/currency"
 import type { BalanceListResult, BalanceRow } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -23,8 +23,6 @@ const TILES: Array<{ field: string; label: string; color: string }> = [
 ]
 const ROW_FIELDS = ["begin_balance", "income", "expenses", "transfer_income", "transfer_expense", "end_balance"]
 
-/** Linko lists its totals by currency name: Euro, SUM, USD — the codes in alphabetical order. */
-const byCode = (a: string, b: string) => a.localeCompare(b)
 
 function SummaryTile({ label, color, text }: { label: string; color: string; text: string }) {
   const { t } = useLanguage()
@@ -66,7 +64,7 @@ export function CashboxesSummaryWidget({ begin, end }: { begin: string; end: str
     return () => controller.abort()
   }, [begin, end])
 
-  const codes = useMemo(() => Object.keys(data?.totals ?? {}).sort(byCode), [data])
+  const codes = useMemo(() => Object.keys(data?.totals ?? {}).sort(compareCurrencyCodes), [data])
   const tileText = (field: string) => codes.map((code) => `${formatMoney(data?.totals[code]?.[field] ?? 0, 3)} ${currencyLabel(code)}`).join(", ")
   const rows = useMemo(
     () =>

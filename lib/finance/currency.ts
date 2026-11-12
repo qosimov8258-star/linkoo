@@ -76,6 +76,12 @@ export function currencyLabel(code: string): string {
   return customLabels[canonical] ?? DEFAULT_LABELS[canonical] ?? canonical
 }
 
+/** Linko lists currencies by its own names (Euro, SUM, USD): the codes in alphabetical order. The labels shown here
+ *  (SOM, USD, ЕВРО, or a name set in Валюты) sort differently, so every list that follows Linko compares the codes. */
+export function compareCurrencyCodes(a: string, b: string): number {
+  return normCurrency(a).localeCompare(normCurrency(b), "en")
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }

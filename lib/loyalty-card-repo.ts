@@ -5,7 +5,7 @@ import { z } from "zod"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { clientCashbackBalance, lockClientCashback, loyaltyCurrency, MAX_MONEY } from "@/lib/cash/common"
 import { loadCurrencyContext, toWork, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
-import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
+import { compareCurrencyCodes, currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { parseAnyDate } from "@/lib/finance/dates"
 import { nameKey } from "@/lib/finance/entities"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
@@ -157,11 +157,12 @@ export function searchParamsObject(params: URLSearchParams): Record<string, stri
 type BalanceRow = { client_id: number; cur: string; amount: number | null; last_created: string | null }
 type ClientRow = { id: number; name: string | null; type: string | null; phone: string | null; inn: string | null; code: string | null }
 
-/** Columns ordered by label as the demo prints them (Euro, SUM, USD). */
+/** Columns in Linko's order: its currency names Euro, SUM, USD, i.e. the codes alphabetically (the labels shown here,
+ *  ЕВРО / SOM / USD, would sort differently). */
 function currencyColumns(cc: CurrencyContext): LoyaltyCurrency[] {
   return cc.currencies
     .map((currency) => ({ code: currency.code, label: currencyLabel(currency.code) }))
-    .sort((a, b) => a.label.localeCompare(b.label, "en"))
+    .sort((a, b) => compareCurrencyCodes(a.code, b.code))
 }
 
 async function balanceRows(db: PgDb, base: string, clientId?: number): Promise<BalanceRow[]> {

@@ -1,6 +1,6 @@
 "use client"
 
-import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { compareCurrencyCodes, currencyLabel, formatMoney } from "@/lib/finance/currency"
 import type { CurrencyBalance } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -48,8 +48,8 @@ export function CashBalanceSummary({
   onMetricClick?: (field: string) => void
 }) {
   const { t } = useLanguage()
-  // The reference lists the currencies alphabetically by label (Euro, SUM, USD).
-  const sortedCurrencies = [...currencies].sort((a, b) => currencyLabel(a).localeCompare(currencyLabel(b)))
+  // The reference lists the currencies by its names (Euro, SUM, USD).
+  const sortedCurrencies = [...currencies].sort(compareCurrencyCodes)
   return (
     <section className={`grid grid-cols-1 gap-[10px] px-[30px] py-5 sm:grid-cols-2 lg:grid-cols-4 ${loading ? "opacity-60" : ""}`}>
       {COLUMNS.map((metrics, index) => (

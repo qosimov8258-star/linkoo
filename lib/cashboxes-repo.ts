@@ -6,7 +6,7 @@ import { dbErrorResponse } from "@/lib/db-errors"
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { withEmployeeLinks } from "@/lib/employees-usage"
 import { loadCurrencyContext } from "@/lib/finance/context"
-import { normCurrency } from "@/lib/finance/currency"
+import { compareCurrencyCodes, normCurrency } from "@/lib/finance/currency"
 import { selectedBranchName } from "@/lib/selected-branch"
 import {
   CASHBOX_TYPE_LABELS,
@@ -218,7 +218,8 @@ export async function getCashboxOptions(): Promise<CashboxOptions> {
     ? ((await db.prepare("SELECT id, name FROM branches ORDER BY lower(name), id").all()) as Array<{ id: number; name: string }>)
     : []
   return {
-    currencies: context.currencies.map((currency) => ({ code: currency.code, label: currency.label, name: currency.name })).sort((a, b) => a.label.localeCompare(b.label, "en", { sensitivity: "base" })),
+    // Linko's order (Euro, SUM, USD): the codes alphabetically, not the labels shown here (ЕВРО / SOM / USD).
+    currencies: context.currencies.map((currency) => ({ code: currency.code, label: currency.label, name: currency.name })).sort((a, b) => compareCurrencyCodes(a.code, b.code)),
     employees: employees
       .map((row) => ({ id: Number(row.id), name: employeeName(row), position: String(row.position ?? ""), active: Number(row.active ?? 1) === 1 }))
       .filter((employee) => employee.name),

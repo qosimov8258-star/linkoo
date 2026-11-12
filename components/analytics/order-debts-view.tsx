@@ -34,7 +34,7 @@ import { RefPager } from "@/components/ref/pager-controls"
 import { ScrollButtons } from "@/components/ref/scroll-buttons"
 import { downloadExcelTable } from "@/lib/excel-export"
 import type { CustomerPaymentOptions } from "@/lib/cash/customer-payments-types"
-import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { compareCurrencyCodes, currencyLabel, formatMoney } from "@/lib/finance/currency"
 import {
   DEBT_BUCKETS,
   DEFAULT_ORDER_DEBT_CONFIG,
@@ -300,8 +300,8 @@ export function OrderDebtsView() {
   // --- render pieces ----------------------------------------------------------------------------
 
   const stats = data?.stats
-  // The demo lists the currencies by name: Euro, SUM, USD.
-  const orderedCodes = [...codes].sort((a, b) => currencyLabel(a).localeCompare(currencyLabel(b)))
+  // Linko lists the currencies by name: Euro, SUM, USD.
+  const orderedCodes = [...codes].sort(compareCurrencyCodes)
   const cardWidths = ["299.6px", "299.7px", "299.6px", "316.7px", "1fr"]
   const counterLink = "text-[15px] font-normal leading-5 text-[#129fdd] hover:underline"
   const cards = (
