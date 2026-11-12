@@ -31,6 +31,9 @@ export type Order = {
   /** Date the delivery was accepted (YYYY-MM-DD). */
   acceptedDate?: string
   totalPrice?: number
+  /** The exact sum of the order's lines (the list's band adds these, as Linko does). */
+  linesTotal?: number
+  /** What was returned of the order, pending returns included (Linko's total_return_price). */
   returnPrice?: number
   factPrice?: number
   weight?: number

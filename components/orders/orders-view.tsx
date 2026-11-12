@@ -104,45 +104,29 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     }
     return { rows, skipped }
   }, [selectedRows])
-  // Accepted client returns of the listed orders (Продажи → Возвраты): the one source of the returns figures.
-  const [returnsByOrder, setReturnsByOrder] = useState<Map<number, { currency: string; amount: number }[]>>(new Map())
   const totals = useMemo(() => {
     // Like the reference's band (sales/order/total, exclude_cancelled): every listed order but the cancelled ones,
-    // unconfirmed ones included; each currency is summed on its own.
+    // unconfirmed ones included; per currency of the orders (also when it adds up to 0: «Возвраты: 0 SUM , 0 USD»)
+    // the exact sum of their lines, what was returned of them (pending returns too) and the difference.
     const counted = (selecting ? selectedRows : filtered).filter((row) => row.status !== "Отменен")
     const orderTotals = new Map<string, number>()
     const returnTotals = new Map<string, number>()
     // With an app currency (Настройки → Валюта приложения) every amount is added up in it.
     const add = (totals: Map<string, number>, currency: string, value: number) =>
-      app.code ? addTotal(totals, app.code, inAppCurrency(app, value, currency) ?? 0) : addTotal(totals, currency, value)
+      app.code ? addTotal(totals, app.code, inAppCurrency(app, value, currency) ?? 0) : addTotal(totals, bandCurrency(currency), value)
     for (const row of counted) {
       const amount = parseAmount(row.amount)
-      if (amount) add(orderTotals, amount.currency, amount.number)
-      for (const entry of returnsByOrder.get(row.id) ?? []) add(returnTotals, entry.currency, entry.amount)
+      if (!amount) continue
+      add(orderTotals, amount.currency, row.linesTotal ?? amount.number)
+      add(returnTotals, amount.currency, row.returnPrice ?? 0)
     }
-    const fact = new Map(orderTotals)
-    for (const [currency, amount] of returnTotals) addTotal(fact, currency, -amount)
+    const fact = new Map<string, number>()
+    for (const [currency, amount] of orderTotals) addTotal(fact, currency, amount - (returnTotals.get(currency) ?? 0))
     return { orders: renderTotals(orderTotals), returns: renderTotals(returnTotals), fact: renderTotals(fact) }
-  }, [filtered, returnsByOrder, selectedRows, selecting, app])
+  }, [filtered, selectedRows, selecting, app])
   const unconfirmedCount = orders.filter((row) => row.status === "Не подтвержден").length
   const requestedCount = orders.filter((row) => row.status === "В процессе").length
   const readyCount = orders.filter((row) => row.status === "Есть на складе").length
-
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/client-returns?tab=accepted")
-      .then((response) => (response.ok ? (response.json() as Promise<{ rows: { orderId: number | null; currency: string; amount: number }[] }>) : null))
-      .then((data) => {
-        if (cancelled || !data) return
-        const map = new Map<number, { currency: string; amount: number }[]>()
-        for (const row of data.rows) if (row.orderId) map.set(row.orderId, [...(map.get(row.orderId) ?? []), { currency: row.currency, amount: row.amount }])
-        setReturnsByOrder(map)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -688,10 +672,11 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                 </Tip>
               ))}
               {bulkAction && (
-                <span className="relative flex">
+                // Above the sticky table header (z-20): Linko's caption («Передать» / «Доставлен») sits over the header row.
+                <span className="relative z-30 flex">
                   <button type="button" onClick={() => requireSelection("bulk", bulkAction.onClick)} className="relative flex h-[30px] w-[105.5px] items-center justify-center rounded-[5px] bg-[#71ce87] pl-[12px] hover:brightness-95">
                     <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={bulkAction.path} /></svg>
-                    <span className="pointer-events-none absolute left-[10px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white">{bulkAction.label}</span>
+                    <span className="pointer-events-none absolute left-[17px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white">{bulkAction.label}</span>
                   </button>
                   {noSelection === "bulk" && <NoSelectionPopover onClose={() => setNoSelection(null)} />}
                 </span>
@@ -741,7 +726,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                     <OrderRow
                       key={row.id}
                       row={row}
-                      returned={(returnsByOrder.get(row.id) ?? []).reduce((sum, entry) => sum + entry.amount, 0)}
+                      returned={row.returnPrice ?? 0}
                       selectMode={selectMode}
                       checked={checkedIds.includes(row.id)}
                       onToggle={() => toggleChecked(row.id)}
@@ -1066,7 +1051,9 @@ function parseAmount(value: string) {
   return Number.isFinite(number) ? { number, currency: match[2] } : null
 }
 
-const CURRENCY_ORDER = ["SUM", "USD", "Euro"]
+/** Linko's band lists the currencies SUM, Euro, USD (sales/order/total). Order amounts spell euro "Euro" or "EUR". */
+const CURRENCY_ORDER = ["SUM", "EUR", "USD"]
+const bandCurrency = (currency: string) => (/^(euro|eur|евро)$/i.test(currency) ? "EUR" : currency.toUpperCase())
 
 /** The order's deliverer, else the client's ("Ответственный доставщик"). */
 /** An order as /api/orders sends it (payableRest: what the cash desk still accepts, lib/orders-repo.ts withLedgerDues). */
@@ -1106,13 +1093,14 @@ function addTotal(totals: Map<string, number>, currency: string, value: number) 
   if (currency && Number.isFinite(value)) totals.set(currency, (totals.get(currency) ?? 0) + value)
 }
 
-/** "1 234 SUM , 56 USD": one sum per currency (never added up across currencies), "0" when there is none. */
+/** "1 234 SUM , 0 USD": one sum per currency of the orders (never added up across currencies, zeros shown as Linko
+ * does), "0" when there is no order. */
 function renderTotals(totals: Map<string, number>) {
   const order = (currency: string) => {
     const index = CURRENCY_ORDER.indexOf(currency)
     return index < 0 ? CURRENCY_ORDER.length : index
   }
-  const shown = [...totals.entries()].filter(([, number]) => Math.abs(number) > 1e-9).sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b))
+  const shown = [...totals.entries()].sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b))
   if (!shown.length) return <span>0</span>
   return shown.map(([currency, number], index, all) => (
     <span key={currency} className={index < all.length - 1 ? "mr-[5px]" : ""}>

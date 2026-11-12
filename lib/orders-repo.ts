@@ -1239,8 +1239,57 @@ export async function listOrders(search?: string, options: { withBalances?: bool
         .prepare(`${ORDER_SELECT} WHERE (o.client ILIKE @q OR o.agent ILIKE @q OR o.id::text = @id) AND (@branch::text = '' OR o.branch_name = @branch) ORDER BY o.id DESC`)
         .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`, id: search.trim(), branch })) as OrderRow[])
     : ((await db.prepare(`${ORDER_SELECT} WHERE (@branch::text = '' OR o.branch_name = @branch) ORDER BY o.id DESC`).all({ branch })) as OrderRow[])
-  const orders = await withLedgerDues(rows.map(rowToOrder), options.withBalances !== false)
+  const orders = await withReturned(await withLedgerDues(rows.map(rowToOrder), options.withBalances !== false))
   return options.withBalances === false ? orders : attachBalances(orders)
+}
+
+/**
+ * Linko's order totals (the list's band, sales/order/total; the red «-…» under an order's amount):
+ * - `linesTotal`: the exact sum of the order's lines (quantity × price − line discount; the stored total keeps 2 decimals,
+ *   Linko adds the lines: 52 340 368 108,558 SUM, not ,56);
+ * - `returnPrice`: what was returned of the order (total_return_price: every pending or accepted return of it) — the
+ *   copied figure (orders.return_price; it also holds the returns Linko ties to the order through their lines and its
+ *   split of a return over two orders) plus the returns made in the app since (client_returns without a Linko
+ *   credit, not cancelled; tied by the return's order or its lines' order).
+ */
+async function withReturned<T extends Order>(orders: T[]): Promise<T[]> {
+  if (!orders.length) return orders
+  try {
+    const db = getDb()
+    const s = await ensureFinanceSchema(db)
+    const ids = orders.map((order) => order.id).filter((id) => Number.isSafeInteger(id))
+    const viaLines = s.has("client_return_items") && s.col("client_return_items", "order_item_id")
+      ? "(SELECT oi.order_id FROM client_return_items ri JOIN order_items oi ON oi.id = ri.order_item_id WHERE ri.return_id = r.id ORDER BY ri.id LIMIT 1)"
+      : "NULL::int"
+    const appOnly = s.col("client_returns", "client_credit") ? "AND r.client_credit IS NULL" : ""
+    const [lines, returns] = await Promise.all([
+      db
+        .prepare(
+          `SELECT order_id, SUM(quantity::numeric * unit_price::numeric * (1 - COALESCE(discount_percent, 0)::numeric / 100))::float8 AS total
+             FROM order_items WHERE order_id = ANY(@ids::int[]) GROUP BY order_id`,
+        )
+        .all({ ids }) as Promise<Array<{ order_id: number; total: number | null }>>,
+      s.has("client_returns")
+        ? (db
+            .prepare(
+              `SELECT oid, SUM(amount)::float8 AS amount FROM (
+                 SELECT COALESCE(r.order_id, ${viaLines}) AS oid, r.amount::numeric AS amount
+                   FROM client_returns r WHERE r.status <> 'cancelled' ${appOnly}
+               ) x WHERE oid = ANY(@ids::int[]) GROUP BY oid`,
+            )
+            .all({ ids }) as Promise<Array<{ oid: number; amount: number | null }>>)
+        : Promise.resolve([] as Array<{ oid: number; amount: number | null }>),
+    ])
+    const lineTotals = new Map(lines.map((row) => [Number(row.order_id), Number(row.total ?? 0)]))
+    const appReturns = new Map(returns.map((row) => [Number(row.oid), Number(row.amount ?? 0)]))
+    for (const order of orders) {
+      if (lineTotals.has(order.id)) order.linesTotal = lineTotals.get(order.id)
+      order.returnPrice = roundMoney(Number(order.returnPrice ?? 0) + (appReturns.get(order.id) ?? 0), 9)
+    }
+  } catch (error) {
+    console.error("order returns unavailable", error)
+  }
+  return orders
 }
 
 export async function getOrder(id: number, options: { withBalances?: boolean } = {}): Promise<OrderWithDues | null> {
