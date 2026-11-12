@@ -25,7 +25,8 @@ export function UnitStatCards({ begin, end, visible, summary }: { begin: Date; e
       {cards.map((card) => (
         <div key={card.key} className={`${CARD_CLASS} min-h-[92.3px] px-5 pb-5 pt-[17px]`}>
           <p className="text-[13px] leading-[18px]">{card.title}</p>
-          <p className="mt-2 text-[16px] font-bold leading-5">{summary ? card.value : ""}</p>
+          {/* No order in the period: blank, as the reference (its widget answers an empty list then). */}
+          <p className="mt-2 text-[16px] font-bold leading-5">{summary && summary.akb > 0 ? card.value : ""}</p>
         </div>
       ))}
     </div>

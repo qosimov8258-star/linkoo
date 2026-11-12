@@ -2,26 +2,27 @@ import "server-only"
 
 import { getFieldSummary, type FieldSummary } from "@/lib/agent-visits-repo"
 import { customerPaymentTotals } from "@/lib/cash/customer-payments"
-import { acceptedReturnTotals } from "@/lib/client-returns-repo"
+import { acceptedReturnTotals, periodReturnTotals } from "@/lib/client-returns-repo"
 import { getDb } from "@/lib/db"
 import { foldToWork, loadCurrencyContext } from "@/lib/finance/context"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
-import { orderCountedSql, ownAgentSql } from "@/lib/finance/sources"
+import { ownAgentSql } from "@/lib/finance/sources"
 import { ensureOrdersSchema } from "@/lib/orders-repo"
 import { selectedBranchName } from "@/lib/selected-branch"
 
 // Home dashboard (/) cards, computed from the same cores as the money and
 // order pages, per currency (never one "primary" currency), by LOCAL day
 // (Asia/Tashkent):
-// - Продажи: orders the client ledger counts (not Отменен / Не подтвержден)
-//   created in the period; the total of an order = its lines (qty × price ×
-//   (1 − discount)) per line currency, else its amount text (fin_amounts) —
-//   exactly the client ledger's "created" mode.
+// - Продажи: every order created in the period that is not Отменен — «Не подтвержден» ones too, as Linko's
+//   stats/widget/sales counts them (April 2026: 720 000 = 300 000 В пути + 420 000 Не подтвержден); the total of
+//   an order = its lines (qty × price × (1 − discount)) per line currency, else its amount text (fin_amounts).
 // - Оплаты: live customer payments of the period (payment day), the same
 //   query as Оплаты от клиентов (lib/cash/customer-payments.ts).
-// - Возвраты: ACCEPTED client returns of the period (lib/client-returns-repo.ts).
-// - АКБ: distinct clients of the counted orders.
-// - Продажи в Штуках / Блоках / Весе: Σ quantity of the counted orders' lines,
+// - Возвраты: client returns made in the period that are not cancelled (pending ones too), as Linko's
+//   stats/widget/returns (lib/client-returns-repo.ts periodReturnTotals); the «Возврат с отгруженных заказов»
+//   count stays the accepted ones.
+// - АКБ: distinct clients of those orders.
+// - Продажи в Штуках / Блоках / Весе: Σ quantity of those orders' lines,
 //   Σ quantity / products.box_amount, Σ quantity × products.weight (kg).
 // - field: the attendance tiles (employee-days of Посещаемость) and the share of
 //   successful visits (field activity), see lib/agent-visits-repo.ts getFieldSummary, of the
@@ -85,9 +86,9 @@ export async function getDashboardSummary(begin: string, end: string, fieldEmplo
     : undefined
   const params = { from: begin, to: end, base, branch, scoped, agentIds }
   const own = ownAgentSql("o.agent")
-  const counted = `o.id IN (SELECT o.id FROM orders o WHERE ${orderCountedSql("o")} AND ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text) AND ${own})`
+  const counted = `o.id IN (SELECT o.id FROM orders o WHERE o.status <> 'Отменен' AND ${ORDER_DAY} BETWEEN @from::date AND @to::date AND (@branch::text = '' OR o.branch_name = @branch::text) AND ${own})`
 
-  const [salesRows, unitRow, akbRow, statusRows, payments, returns] = await Promise.all([
+  const [salesRows, unitRow, akbRow, statusRows, payments, returns, madeReturns] = await Promise.all([
     db
       .prepare(
         `SELECT cur, SUM(amount)::float8 AS amount FROM (
@@ -122,6 +123,7 @@ export async function getDashboardSummary(begin: string, end: string, fieldEmplo
     // A scoped reader: the payments of the clients whose responsible agent is in the scope (none without one).
     ownAgents && !ownAgents.length ? Promise.resolve({ totals: [] as Array<{ currency: string; total: number }> }) : customerPaymentTotals({ from: begin, to: end, tab: "all", responsibleAgents: ownAgents }),
     acceptedReturnTotals(begin, end, db, salesEmployeeIds),
+    periodReturnTotals(begin, end, db, salesEmployeeIds),
   ])
 
   const count = (status: string) => statusRows.find((row) => row.status === status)?.n ?? 0
@@ -135,7 +137,7 @@ export async function getDashboardSummary(begin: string, end: string, fieldEmplo
     end,
     sales: inWork(salesRows.map((row) => ({ currency: row.cur, value: round(row.amount) })).filter((row) => row.value !== 0)),
     payments: inWork(payments.totals.map((row) => ({ currency: row.currency, value: round(row.total) })).filter((row) => row.value !== 0)),
-    returns: inWork(returns.totals.map((row) => ({ currency: row.currency, value: row.amount }))),
+    returns: inWork(madeReturns.totals.map((row) => ({ currency: row.currency, value: row.amount }))),
     akb: akbRow?.n ?? 0,
     field: await getFieldSummary(begin, end, fieldEmployeeIds),
     units: {

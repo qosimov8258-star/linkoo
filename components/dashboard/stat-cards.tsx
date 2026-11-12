@@ -5,11 +5,11 @@ import { useLanguage } from "@/lib/i18n/language-context"
 export const CARD_CLASS = "rounded-[10px] bg-white shadow-[0_8px_24px_rgba(149,157,165,0.2)]"
 
 /** One line per currency ("0 SUM" when there is nothing). */
-export function formatAmounts(amounts: CurrencyAmount[] | undefined, fallbackCurrency = "SUM"): string[] {
-  const lines = (amounts ?? [])
+/** One line per currency with money; none at all for an empty period (the reference leaves the card blank then). */
+export function formatAmounts(amounts: CurrencyAmount[] | undefined): string[] {
+  return (amounts ?? [])
     .filter((amount) => amount.value)
     .map((amount) => `${amount.value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${amount.currency}`)
-  return lines.length ? lines : [`0 ${fallbackCurrency}`]
 }
 
 export function StatCards({

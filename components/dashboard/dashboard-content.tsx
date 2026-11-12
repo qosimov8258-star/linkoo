@@ -182,7 +182,7 @@ export function DashboardContent() {
 
       {visibleWidgets.has("cashboxes") && (
         <div className="mt-5">
-          <CashboxesSummaryWidget />
+          <CashboxesSummaryWidget begin={beginISO} end={endISO} />
         </div>
       )}
 

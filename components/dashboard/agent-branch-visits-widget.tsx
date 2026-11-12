@@ -184,10 +184,12 @@ const RU_MONTH_INDEX: Record<string, number> = { янв: 0, фев: 1, мар: 2
 function orderDay(created: string): number | null {
   const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(created)
   if (iso) return Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])) / 86400000
-  const ru = /^(\d{1,2})\s+([А-Яа-я]+)/.exec(created)
+  // "13 нояб. 2024 21:34": the label carries its year (only a label without one is of this year), else an order of
+  // 13 Nov 2024 counted as today's.
+  const ru = /^(\d{1,2})\s+([А-Яа-я]+)\.?(?:\s+(\d{4}))?/.exec(created)
   if (ru) {
     const month = RU_MONTH_INDEX[ru[2].slice(0, 3).toLowerCase()]
-    if (month !== undefined) return Date.UTC(new Date().getFullYear(), month, Number(ru[1])) / 86400000
+    if (month !== undefined) return Date.UTC(ru[3] ? Number(ru[3]) : new Date().getFullYear(), month, Number(ru[1])) / 86400000
   }
   return null
 }

@@ -852,4 +852,29 @@ export async function acceptedReturnTotals(
   }
 }
 
+/** Returns of the period that are not cancelled (pending and accepted), by the day they were made, per currency —
+ * the dashboard's «Возвраты» card, as Linko's stats/widget/returns counts them (2026-01-01…11-05: 97 425 940 SUM
+ * pending + 3 670 883,88 SUM accepted). */
+export async function periodReturnTotals(
+  from: string,
+  to: string,
+  db: PgDb = getDb(),
+  agentIds?: number[],
+): Promise<{ totals: Array<{ currency: string; amount: number }>; orders: number }> {
+  const exists = (await db.prepare("SELECT to_regclass('client_returns') IS NOT NULL AS ok").get()) as { ok: boolean }
+  if (!exists.ok) return { totals: [], orders: 0 }
+  const day = "COALESCE(fin_ts(NULLIF(r.return_date, '')), fin_ts(r.created_at, true))::date"
+  const rows = (await db
+    .prepare(
+      `SELECT r.currency, SUM(r.amount)::float8 AS amount, COUNT(DISTINCT r.order_id)::int AS orders
+         FROM client_returns r WHERE r.status <> 'cancelled' AND ${day} BETWEEN @from::date AND @to::date AND ${ownAgentSql("r.agent")} GROUP BY 1`,
+    )
+    .all({ from, to, scoped: agentIds !== undefined, agentIds: agentIds ?? [] })) as Array<{ currency: string; amount: number; orders: number }>
+  const base = await baseCurrency(db)
+  return {
+    totals: rows.map((row) => ({ currency: row.currency || base, amount: round2(Number(row.amount) || 0) })).filter((row) => row.amount !== 0),
+    orders: rows.reduce((sum, row) => sum + (Number(row.orders) || 0), 0),
+  }
+}
+
 export { formatMoney }
