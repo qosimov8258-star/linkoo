@@ -440,7 +440,8 @@ async function summarize(from: string, to: string, days: ClientDay[], { baseCurr
         visitsByDay: Object.fromEntries([...value.byDay.entries()].sort(([a], [b]) => a.localeCompare(b))),
       }
     })
-    .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.employeeId - b.employeeId)
+    // By employee id, as Linko's agent_visit / system_distribution reports list them.
+    .sort((a, b) => a.employeeId - b.employeeId)
   return { from, to, baseCurrency, agents }
 }
 

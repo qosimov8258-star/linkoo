@@ -6,8 +6,10 @@ import { ScrollButtons } from "./scroll-buttons"
 
 /**
  * Grid table of the reference app's "dynamic report" pages (visits by day, agent visits, system distribution …):
- * 46px headers on #f8f9fa with #efefef cell borders, 42px body rows, a #f4f8fb "Итого" row and a thin empty row
- * closing the table. Columns have fixed widths, so wide reports scroll sideways behind the "»" half-disc.
+ * 46px headers on #f8f9fa, #c0c0c0 cell borders, 42px body rows striped white / #f4f8fb (its react-table
+ * .rt-tr-group:nth-child(even)) and the "Итого" row last in #505050 with white semibold text (.table-total); the table
+ * ends there (`filler` adds a thin empty row). Columns have fixed widths, so wide reports scroll sideways behind the
+ * "»" half-disc.
  */
 
 export type MatrixHead = {
@@ -47,10 +49,13 @@ function SortIcons({ dir }: { dir?: "asc" | "desc" }) {
 
 const TONE: Record<NonNullable<MatrixRow["tone"]>, string> = {
   data: "bg-white text-[#333]",
-  total: "bg-[#f4f8fb] text-[#333]",
+  total: "bg-[#505050] font-semibold text-white",
   dark: "bg-[#505050] text-white",
   sub: "bg-white text-[#333]",
 }
+
+/** Even body rows of the plain tones are #f4f8fb, as the reference stripes its react-table rows. */
+const STRIPED = "bg-[#f4f8fb] text-[#333]"
 
 export function ReportMatrix({
   heads,
@@ -62,7 +67,7 @@ export function ReportMatrix({
   sortKey,
   sortDir,
   onSort,
-  filler = true,
+  filler = false,
   className = "",
 }: {
   heads: MatrixHead[]
@@ -98,7 +103,7 @@ export function ReportMatrix({
                   <th
                     key={index}
                     colSpan={group.span}
-                    className={`border-b border-r border-[#efefef] bg-[#f8f9fa] px-[5px] text-center align-middle font-semibold text-[#374557] ${index === 0 && stickyFirst ? "sticky left-0 z-20" : ""}`}
+                    className={`border-b border-r border-[#c0c0c0] bg-[#f8f9fa] px-[5px] text-center align-middle font-semibold text-[#374557] ${index === 0 && stickyFirst ? "sticky left-0 z-20" : ""}`}
                   >
                     {group.title}
                   </th>
@@ -111,7 +116,7 @@ export function ReportMatrix({
                   key={index}
                   style={{ lineHeight: `${headLeading}px` }}
                   onClick={head.sortable && onSort ? () => onSort(index) : undefined}
-                  className={`border-b border-r border-[#efefef] bg-[#f8f9fa] px-[5px] text-center align-middle font-semibold text-[#374557] ${head.sortable ? "cursor-pointer select-none" : ""} ${index === 0 && stickyFirst ? "sticky left-0 z-20" : ""}`}
+                  className={`border-b border-r border-[#c0c0c0] bg-[#f8f9fa] px-[5px] text-center align-middle font-semibold text-[#374557] ${head.sortable ? "cursor-pointer select-none" : ""} ${index === 0 && stickyFirst ? "sticky left-0 z-20" : ""}`}
                 >
                   <span className="inline-flex items-center justify-center">
                     {head.label}
@@ -124,6 +129,7 @@ export function ReportMatrix({
           <tbody>
             {rows.map((row, rowIndex) => {
               const tone = row.tone ?? "data"
+              const toneClass = (tone === "data" || tone === "sub") && rowIndex % 2 === 1 ? STRIPED : TONE[tone]
               return (
                 <tr key={row.key ?? rowIndex} style={{ height: 42 }} onClick={row.onClick} className={row.onClick ? "cursor-pointer" : undefined}>
                   {row.cells.map((cell, index) => {
@@ -131,7 +137,7 @@ export function ReportMatrix({
                     return (
                       <td
                         key={index}
-                        className={`border-b border-r border-[#efefef] px-[5px] align-middle ${TONE[tone]} ${align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"} ${sticky(index)} ${row.cellClass?.(index) ?? ""}`}
+                        className={`border-b border-r border-[#c0c0c0] px-[5px] align-middle ${toneClass} ${align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"} ${sticky(index)} ${row.cellClass?.(index) ?? ""}`}
                       >
                         {cell}
                       </td>
@@ -143,7 +149,7 @@ export function ReportMatrix({
             {filler && (
               <tr style={{ height: 22 }}>
                 {heads.map((_, index) => (
-                  <td key={index} className={`border-b border-r border-[#efefef] bg-white ${sticky(index)}`} />
+                  <td key={index} className={`border-b border-r border-[#c0c0c0] bg-white ${sticky(index)}`} />
                 ))}
               </tr>
             )}

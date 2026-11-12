@@ -187,7 +187,8 @@ export function SystemDistributionView() {
 
 function SystemDistributionTable({ rows, totals }: { rows: Row[]; totals: Row }) {
   const { t } = useLanguage()
-  const [sort, setSort] = useState<{ key: number; dir: "asc" | "desc" }>({ key: 0, dir: "asc" })
+  // No column sorted at first: the report's own order (by employee id, as the reference).
+  const [sort, setSort] = useState<{ key: number | null; dir: "asc" | "desc" }>({ key: null, dir: "asc" })
   const heads = useMemo<MatrixHead[]>(
     () =>
       HEADERS_SHORT.map((label, index) => ({
@@ -200,9 +201,11 @@ function SystemDistributionTable({ rows, totals }: { rows: Row[]; totals: Row })
   )
   const ordered = useMemo(() => {
     const dir = sort.dir === "asc" ? 1 : -1
+    if (sort.key === null) return rows
+    const column = sort.key
     return [...rows].sort((a, b) => {
-      const x = a[sort.key]
-      const y = b[sort.key]
+      const x = a[column]
+      const y = b[column]
       return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "ru")) * dir
     })
   }, [rows, sort])

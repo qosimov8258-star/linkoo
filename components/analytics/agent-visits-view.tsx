@@ -45,7 +45,8 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
   const { t } = useLanguage()
-  const [sort, setSort] = useState<{ key: number; dir: "asc" | "desc" }>({ key: 0, dir: "asc" })
+  // No column sorted at first: the report's own order (by employee id, as the reference).
+  const [sort, setSort] = useState<{ key: number | null; dir: "asc" | "desc" }>({ key: null, dir: "asc" })
   const [collapsed, setCollapsed] = useState<string[]>([])
   const [summary, setSummary] = useState<AgentRouteSummary | null>(null)
   const overlayOpen = dashboardOpen
@@ -135,7 +136,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
   const matrixRows = useMemo<MatrixRow[]>(() => {
     const dir = sort.dir === "asc" ? 1 : -1
     const compare = (a: { name: string; values: number[] }, b: { name: string; values: number[] }) =>
-      (sort.key === 0 ? a.name.localeCompare(b.name, "ru") : (a.values[sort.key - 1] ?? 0) - (b.values[sort.key - 1] ?? 0)) * dir
+      sort.key === null ? 0 : (sort.key === 0 ? a.name.localeCompare(b.name, "ru") : (a.values[sort.key - 1] ?? 0) - (b.values[sort.key - 1] ?? 0)) * dir
     const sum = (list: number[][]) => SUB_HEADS.map((_, index) => list.reduce((acc, values) => acc + (values[index] ?? 0), 0))
     const fmt = (values: number[]) => values.map((value) => matrixNumber(value))
 
