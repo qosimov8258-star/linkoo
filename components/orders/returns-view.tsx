@@ -30,6 +30,8 @@ export type ClientReturnRow = {
   client: string
   zone: string
   warehouse: string
+  /** The return's organization (shown under the warehouse, like the reference). */
+  organization?: string
   orderId: number | null
   returnDate: string
   status: "pending" | "accepted" | "cancelled"
@@ -62,6 +64,15 @@ const EMPTY_FILTERS: Filters = { warehouse: "", deliverer: "", creator: "", agen
 function displayDay(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "")
   return match ? `${match[3]} ${SHORT_MONTHS[Number(match[2]) - 1] ?? ""} ${match[1]}` : value
+}
+
+/** The return's own day with its time when it has one ("17 июля 2026, 08:24"), like the reference's list; the time is
+ * the stored local (Tashkent) time, not converted. */
+function displayDayTime(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(value ?? "")
+  if (!match) return value
+  const day = `${match[3]} ${SHORT_MONTHS[Number(match[2]) - 1] ?? ""} ${match[1]}`
+  return match[4] ? `${day}, ${match[4]}:${match[5]}` : day
 }
 
 function displayMoment(value: string | null) {
@@ -324,11 +335,12 @@ export function ReturnsView({ initialId }: { initialId?: number } = {}) {
             <>
               {row.warehouse || t("Не указан")}
               <br />
-              <span className="text-[#1E4A9A]">{row.orderId ? `${t("Заказ №")}${row.orderId}` : ""}</span>
+              {/* Like the reference: the organization under the warehouse (the order is on the return's card). */}
+              <span className="text-[#1E4A9A]">{row.organization}</span>
             </>,
-            row.deliverer || t("Не указано"),
+            row.deliverer || "N/A",
             <>
-              {t(displayDay(row.returnDate))}
+              {t(displayDayTime(row.returnDate))}
               <br />
               <span className="text-[#1E4A9A]">{t(displayMoment(row.acceptedAt))}</span>
             </>,
