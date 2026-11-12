@@ -107,8 +107,9 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
   // Accepted client returns of the listed orders (Продажи → Возвраты): the one source of the returns figures.
   const [returnsByOrder, setReturnsByOrder] = useState<Map<number, { currency: string; amount: number }[]>>(new Map())
   const totals = useMemo(() => {
-    // Cancelled and unconfirmed orders are no sales; each currency is summed on its own.
-    const counted = (selecting ? selectedRows : filtered).filter((row) => row.status !== "Отменен" && row.status !== "Не подтвержден")
+    // Like the reference's band (sales/order/total, exclude_cancelled): every listed order but the cancelled ones,
+    // unconfirmed ones included; each currency is summed on its own.
+    const counted = (selecting ? selectedRows : filtered).filter((row) => row.status !== "Отменен")
     const orderTotals = new Map<string, number>()
     const returnTotals = new Map<string, number>()
     // With an app currency (Настройки → Валюта приложения) every amount is added up in it.
