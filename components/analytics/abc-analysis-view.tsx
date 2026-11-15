@@ -8,12 +8,12 @@ import { currencyLabel } from "@/lib/finance/currency"
 import type { AbcResult } from "@/lib/finance/pnl-types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-// ABC analysis computed on the server (GET /api/balances/abc): the orders
-// created in the period (cancelled / unconfirmed excluded), sales in the base
-// currency, grouped by product / brand / branch; filters come from the
-// factory's own product types, brands, branches and order agents.
+// ABC analysis computed on the server (GET /api/balances/abc, lib/finance/pnl.ts getAbc): Linko's abc_analysis —
+// the actual sales of the period (accepted orders minus accepted returns) in the base currency, grouped by
+// product / product type / brand (Linko's «Группировать по» choices); filters come from the factory's own
+// product types, brands, branches and order agents.
 
-const GROUP_BY: Record<string, "product" | "brand" | "branch"> = { "Продукт": "product", "Бренд": "brand", "Филиал": "branch" }
+const GROUP_BY: Record<string, "product" | "productType" | "brand"> = { "Продукт": "product", "Тип продукта": "productType", "Бренд": "brand" }
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -27,10 +27,15 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
+/** The last day of this month: Linko's default «Дата создания до» of its dynamic reports. */
+function monthEnd() {
+  const today = new Date()
+  return inputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+}
+
 export function AbcAnalysisView() {
-  const today = useMemo(() => inputDate(new Date()), [])
   const [from, setFrom] = useState(monthStart)
-  const [to, setTo] = useState(today)
+  const [to, setTo] = useState(monthEnd)
   const [productType, setProductType] = useState("")
   const [brand, setBrand] = useState("")
   const [branch, setBranch] = useState("")
@@ -58,7 +63,7 @@ export function AbcAnalysisView() {
   }, [overlayOpen])
 
   const { t } = useLanguage()
-  const [query, setQuery] = useState(() => ({ from: monthStart(), to: inputDate(new Date()), productType: "", brand: "", branch: "", orderUser: "", groupBy: "Продукт" }))
+  const [query, setQuery] = useState(() => ({ from: monthStart(), to: monthEnd(), productType: "", brand: "", branch: "", orderUser: "", groupBy: "Продукт" }))
   const [data, setData] = useState<AbcResult | null>(null)
   const [itemsLoading, setItemsLoading] = useState(true)
   const [itemsError, setItemsError] = useState("")
@@ -96,7 +101,7 @@ export function AbcAnalysisView() {
   function downloadCsv() {
     downloadExcelTable("abc-analysis.xls", [
       ["ИД", "Наименование", "Кол-во проданного товара", "Кол-во проданного товара в %", "Сумма продаж", "Сумма продаж в %", "Класс"],
-      ...rows.map((row) => [row.id, row.name, row.quantity, row.quantityPercent.toFixed(1), row.sales, row.salesPercent.toFixed(1), row.abcClass]),
+      ...rows.map((row) => [row.id, row.name, row.quantity, row.quantityPercent.toFixed(1), row.sales, row.salesPercent.toFixed(2), row.abcClass]),
       ["", "Итого", totals.quantity, 100, totals.sales, 100, ""],
     ])
   }
@@ -116,7 +121,7 @@ export function AbcAnalysisView() {
             label="Группировать по"
             value={groupBy}
             clearable={false}
-            options={["Продукт", "Бренд", "Филиал"]}
+            options={Object.keys(GROUP_BY)}
             onChange={(value) => {
               // Group by follows the chip at once; the other filters apply with "Применить".
               setGroupBy(value)
@@ -144,14 +149,14 @@ export function AbcAnalysisView() {
               ) : (
                 <>
                   {rows.map((row) => (
-                    <tr key={row.id}>
+                    <tr key={`${row.id}-${row.name}`}>
                       <td className="border px-2 py-4">{row.id}</td>
                       <td className="border px-2 py-4">{row.name}</td>
                       <td className="border px-2 py-4 text-right">{row.quantity.toLocaleString("ru-RU")}</td>
                       <td className="border px-2 py-4 text-right">{row.quantityPercent.toFixed(1)}</td>
                       <td className="border px-2 py-4 text-right">{row.sales.toLocaleString("ru-RU")}</td>
-                      <td className="border px-2 py-4 text-right">{row.salesPercent.toFixed(1)}</td>
-                      <td className={`border px-2 py-4 ${row.abcClass === "A" ? "bg-[#94f56f]" : row.abcClass === "B" ? "bg-yellow-300" : "bg-red-300"}`}>{row.abcClass}</td>
+                      <td className="border px-2 py-4 text-right">{row.salesPercent.toFixed(2)}</td>
+                      <td className={`border px-2 py-4 ${row.abcClass === "A" ? "bg-[#a0fc7e]" : row.abcClass === "B" ? "bg-[#faec55]" : "bg-[#f54242]"}`}>{row.abcClass}</td>
                     </tr>
                   ))}
                   <tr className="bg-slate-50 font-semibold">

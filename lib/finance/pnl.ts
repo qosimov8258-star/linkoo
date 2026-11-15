@@ -429,17 +429,23 @@ export async function getPnl(params: { periods: Array<{ from: string; to: string
 
 export type AbcGroupBy = "product" | "brand" | "branch" | "productType"
 
-/** ABC classification of the counted orders created in [from, to] by sales
- * amount (base currency): A up to 80 % cumulative share, B up to 95 %, C beyond. */
+/** ABC classification as Linko's abc_analysis: the actual sales of [from, to] (released orders by the day they
+ * were accepted, minus the returns accepted then; each document at its creation day's rate) per product / type /
+ * brand, ranked by amount (base currency): A up to 80 % cumulative share, B up to 95 %, C beyond. Rows sold and
+ * returned in full (0) or returned beyond their sales (below 0) stay, as Linko lists them (2026-01: 49 rows,
+ * 9 494,9 pcs, 165 371 798,60 SUM). */
 export async function getAbc(params: { from: string; to: string; groupBy: AbcGroupBy; filters: SalesFilters }, db: PgDb = getDb()): Promise<AbcResult> {
-  const { base, lines, missingRates } = await loadSalesLines({ from: params.from, to: params.to, basis: "created", withCost: false }, db)
-  const buckets = new Map<string, { quantity: number; sales: number }>()
+  const { base, lines, missingRates } = await loadSalesLines({ from: params.from, to: params.to, basis: "accepted", withCost: false, historicalRates: true }, db)
+  const buckets = new Map<string, { quantity: number; sales: number; productId: number | null }>()
   for (const line of lines) {
-    if (line.kind !== "sale" || !matches(line, params.filters)) continue
+    if (!matches(line, params.filters)) continue
     const key = line[params.groupBy] || NONE
-    const bucket = buckets.get(key) ?? { quantity: 0, sales: 0 }
-    bucket.quantity += line.quantity
-    bucket.sales += line.amount
+    // Linko's «ИД» of a product row is the product's id.
+    const productId = params.groupBy === "product" && line.itemKey.startsWith("product:") ? Number(line.itemKey.slice("product:".length)) : null
+    const bucket = buckets.get(key) ?? { quantity: 0, sales: 0, productId }
+    const sign = line.kind === "return" ? -1 : 1
+    bucket.quantity += sign * line.quantity
+    bucket.sales += sign * line.amount
     buckets.set(key, bucket)
   }
   const totalQuantity = [...buckets.values()].reduce((sum, bucket) => sum + bucket.quantity, 0)
@@ -451,13 +457,14 @@ export async function getAbc(params: { from: string; to: string; groupBy: AbcGro
       cumulative += bucket.sales
       const share = totalSales ? (cumulative / totalSales) * 100 : 0
       return {
-        id: index + 1,
+        id: bucket.productId ?? index + 1,
         name,
         quantity: roundMoney(bucket.quantity, 3),
         quantityPercent: totalQuantity ? roundMoney((bucket.quantity / totalQuantity) * 100, 1) : 0,
         sales: roundMoney(bucket.sales),
-        salesPercent: totalSales ? roundMoney((bucket.sales / totalSales) * 100, 1) : 0,
-        abcClass: share <= 80 + 1e-9 ? "A" : share <= 95 + 1e-9 ? "B" : "C",
+        salesPercent: totalSales ? roundMoney((bucket.sales / totalSales) * 100, 2) : 0,
+        // The first row is always A (Linko: a brand with 94,37 % alone is A), then by the cumulative share.
+        abcClass: index === 0 || share <= 80 + 1e-9 ? "A" : share <= 95 + 1e-9 ? "B" : "C",
       }
     })
   return { baseCurrency: base, missingRates, from: params.from, to: params.to, groupBy: params.groupBy, rows, totals: { quantity: roundMoney(totalQuantity, 3), sales: roundMoney(totalSales) }, options: await getSalesReportOptions(db) }

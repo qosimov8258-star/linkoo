@@ -10,8 +10,9 @@ import { useDirectoryNames } from "@/components/clients/use-directory"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Filter lists come from the factory's own directories (branches, clients,
-// employees). Surveys have no directory yet, so that list is empty.
-const surveys: string[] = []
+// employees) and the surveys of Опросы (GET /api/surveys), as Linko's «Опрос» lists them.
+// Store check по продуктам / Анализ цен read the answers of the surveys (SKU, faces, prices): this app does not
+// collect survey answers yet, so their result is the empty state.
 const productGroups = ["Наши продукты", "Продукты конкурентов"]
 
 function inputDate(date: Date) {
@@ -71,6 +72,22 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
   const [survey, setSurvey] = useState("")
   const [productGroup, setProductGroup] = useState("")
   const [, setApplied] = useState("")
+  const [surveys, setSurveys] = useState<string[]>([])
+  useEffect(() => {
+    if (!productCheckMode) return
+    let cancelled = false
+    fetch("/api/surveys", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<Array<{ name: string }>>) : Promise.reject()))
+      .then((list) => {
+        if (!cancelled) setSurveys(Array.from(new Set(list.map((survey) => survey.name).filter(Boolean))))
+      })
+      .catch(() => {
+        if (!cancelled) setSurveys([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [productCheckMode])
   // "Время нахождения в магазинах": the visits of the period with a measured stay, narrowed by the filters.
   const [stays, setStays] = useState<StoreTimeRow[]>([])
   const [staysLoading, setStaysLoading] = useState(false)
@@ -225,8 +242,8 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
       {overlayOpen && <button type="button" aria-label={t("Закрыть окно")} onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}
       {dashboardOpen && (
         <DashboardDialog
-          reportSlug="store-time"
-          reportLabel="Время на точке"
+          reportSlug={title ? "price-analysis" : productCheckMode ? "product-store-check" : storeCheckMode ? "store-check-completion" : "store-time"}
+          reportLabel={title ?? (productCheckMode ? "Store check по продуктам" : storeCheckMode ? "Выполнение Store Check" : "Время на точке")}
           visibility={visibility}
           setVisibility={setVisibility}
           dashboard={dashboard}
