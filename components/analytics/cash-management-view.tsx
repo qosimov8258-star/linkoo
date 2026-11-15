@@ -188,6 +188,17 @@ function CashManagementContent() {
     openOperation({ kind: operation.amount < 0 ? "expense" : "income", mode: "edit", operationKey: operation.key })
   }
 
+  // ?search=<№>&updateTransaction=<№> (Linko's link from «Оплаты от клиентов»: a payment already in a cashbox is edited
+  // as the cash transaction): the edit dialog of that row opens once the list holds it; the key then leaves the URL.
+  const updateTransaction = Math.floor(Number(get("updateTransaction"))) || 0
+  const wantedEdit = rows.find((operation) => updateTransaction > 0 && operation.docNo === updateTransaction)
+  useEffect(() => {
+    if (!wantedEdit || !canWrite) return
+    update({ updateTransaction: null })
+    if (wantedEdit.type === 8) setDialog({ kind: "acceptanceEdit", id: wantedEdit.id })
+    else setDialog({ kind: "operation", state: { kind: wantedEdit.amount < 0 ? "expense" : "income", mode: "edit", operationKey: wantedEdit.key } })
+  }, [wantedEdit, canWrite, update])
+
   const duplicateOperation = (operation: CashOperation) => openOperation({ kind: operation.amount < 0 ? "expense" : "income", mode: "duplicate", operationKey: operation.key })
 
   const payRequest = (request: MoneyRequest) => openOperation({ kind: "expense", mode: "pay", request })

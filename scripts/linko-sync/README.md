@@ -31,6 +31,11 @@ the importers at another database of the same server; a remote host is refused u
 - **Inventories**: Linko books an inventory's differences as separate documents (a supply from "Инвенторизация" for a
   surplus, a write-off for a shortage). Imported inventories are `booked_by_documents = 1`, so the stock ledger does not
   count their differences twice; those supplies are `is_inventory = 1` and charge no supplier.
+- **Переоценка**: Linko's list has no products; `import-reprice-items.mjs` puts each document's products (from
+  `main/reprice/{id}/`) into `repricings.items`, with the factor Linko used for the old price, so lines and totals equal
+  Linko's. Linko answers 500 for a few documents: they stay without lines.
+- **Передачи между складами → Логи**: fetch step `transfer-logs` reads `stock/stock_transfer/{id}/logs/`;
+  `import-transfer-logs.mjs` writes them to `internal_transfer_logs` (a transfer with the app's own log is left alone).
 - **Production**: what reached the stock follows Linko's stock history (`stock/barcode_history`): a batch line Linko never
   booked keeps `in_stock = 0`; booked movements a batch no longer lists become batch-less movements of its stage.
 - **Stock without a document** (balances loaded by Linko's 1C integration into the "Ожидается синхронизация: …"

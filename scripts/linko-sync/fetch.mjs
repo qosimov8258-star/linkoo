@@ -9,7 +9,7 @@
 // months (per-month salary / KPI / plan lists), employee-details (each employee's card: «Показывать в отслеживании»),
 // gps (every employee's GPS points), visit-sessions (timed visits),
 // finance-entities (van-sell / branch / employee / supplier acts), cashback-details, price-list-items (every product's
-// prices per price list, read product by product).
+// prices per price list, read product by product), transfer-logs («Логи» of the transfers between warehouses).
 // LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
 // The raw files hold business data: backups/ is git-ignored, never commit them.
 import fs from "node:fs"
@@ -318,6 +318,24 @@ async function priceListItems() {
   console.log("price_list_items".padEnd(36), items.length, failed.length ? `failed products ${failed.join(",")}` : "")
 }
 
+/** «Логи» of every transfer between warehouses (stock/stock_transfer/{id}/logs/: who created, gave and accepted it). */
+async function transferLogs() {
+  const out = {}
+  let failed = 0
+  await Promise.all(
+    load("stock_transfers").map(async (row) => {
+      const r = await get(`stock/stock_transfer/${row.id}/logs/`)
+      if (r.status === 200) out[row.id] = r.json
+      else {
+        failed++
+        out[row.id] = { __status: r.status }
+      }
+    }),
+  )
+  save("stock_transfers_logs", { tpl: "stock/stock_transfer/{id}/logs/", data: out })
+  console.log("stock_transfers_logs".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
+}
+
 const STEPS = {
   lists,
   "price-list-items": priceListItems,
@@ -331,6 +349,7 @@ const STEPS = {
   "visit-sessions": visitSessions,
   "finance-entities": financeEntities,
   "cashback-details": cashbackDetails,
+  "transfer-logs": transferLogs,
 }
 
 await login()

@@ -20,6 +20,8 @@ run import-returns.mjs
 # Warehouse documents (supplies, returns to suppliers, write-offs, transfers, inventories) and production
 run import-supplies.mjs
 run import-stock-docs.mjs
+run import-transfer-logs.mjs
+run import-reprice-items.mjs
 run import-production.mjs
 run import-net-cost-history.mjs
 # Finance

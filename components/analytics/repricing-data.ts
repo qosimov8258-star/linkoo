@@ -88,7 +88,7 @@ export type RepricingPickRow = {
 
 export type RepricingCreateBody = {
   priceListId: number
-  /** Must be the price list's currency (400 "Валюта переоценки должна совпадать с валютой прайс-листа"). */
+  /** The new prices' currency (Linko's Валюта): the list's or another known one. */
   currency: string
   comment?: string
   products: Array<{ kind: RepricingItemKind; id: number; price: number }>

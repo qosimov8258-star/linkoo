@@ -1,11 +1,12 @@
 "use client"
 
-import { Ban, FileSpreadsheet } from "lucide-react"
+import { Ban } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { ConfirmDialog, ErrorBlock, LoadingBlock } from "@/components/analytics/cash-management-shared"
 import { docDate, formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
+import { RI, RefButton } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { mutateJson, mutationMessage } from "./price-lists-data"
@@ -75,7 +76,7 @@ export function RepricingDetailPanel({
   if (detail.loading && !doc) return <LoadingBlock className="py-10" />
   if (detail.error || !doc) return <ErrorBlock error={detail.error || "Переоценка не найдена"} onRetry={detail.reload} />
 
-  // Reference layout (measured on #/revaluation/88): 65 px title row with a single "sync" icon, 320 px info column,
+  // Reference layout (measured on #/revaluation/88): 65 px title row, 320 px info column,
   // lines Товар | Кол-во | Сумма до | Сумма после | Разница on a 340/169/170/170/170 px grid under a dashed rule.
   const cols = "grid grid-cols-[340px_169px_170px_170px_170px]"
   const exportLines = () =>
@@ -91,17 +92,10 @@ export function RepricingDetailPanel({
         <h3 className="relative z-[1] text-[18px] font-semibold">
           {t("Переоценка")} № {doc.id}
         </h3>
-        <div className="relative z-[3] flex items-center">
-          <button type="button" onClick={exportLines} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className={iconButton}>
-            <FileSpreadsheet className="h-[22px] w-[22px] text-[#666]" aria-hidden />
-          </button>
-          {canEdit && (
-            <button type="button" onClick={() => setConfirm("recalc")} title={t("Перерасчет по текущей дате")} aria-label={t("Перерасчет по текущей дате")} className={iconButton}>
-              <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]" aria-hidden>
-                <path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z" />
-              </svg>
-            </button>
-          )}
+        {/* Linko (#/revaluation/88/, 2026-11-16): a blue «Перерасчет» and a green «Скачать Excel» button, 9 px apart. */}
+        <div className="relative z-[3] flex items-center gap-[9px] pr-[18px]">
+          {canEdit && <RefButton icon={RI.sync} label="Перерасчет" onClick={() => setConfirm("recalc")} />}
+          <RefButton green icon={RI.download} label="Скачать Excel" onClick={exportLines} />
           {/* Cancelling restores the old prices (and cancels the linked repricings derived from this one). */}
           {canEdit && doc.status === "finished" && (
             <button type="button" onClick={() => setConfirm("cancel")} title={t("Отменить")} aria-label={t("Отменить")} className={`${iconButton} text-[#666] hover:text-[#e57373]`}>
@@ -186,7 +180,9 @@ export function RepricingDetailPanel({
 
       {confirm && (
         <ConfirmDialog
-          title={confirm === "recalc" ? t("Перерасчет по текущей дате") : t("Отменить переоценку")}
+          // Linko's «Перерасчет»: «ВЫПОЛНИТЬ» — «Подтверждение запроса», «№ N» on a grey band, «ДА».
+          title={confirm === "recalc" ? t("Выполнить") : t("Отменить переоценку")}
+          kind={confirm === "recalc" ? "request" : undefined}
           text={
             confirm === "recalc"
               ? `№ ${doc.id}`
@@ -195,7 +191,7 @@ export function RepricingDetailPanel({
                   `${t("Старые цены товаров будут восстановлены.")} ${t("Связанные переоценки тоже будут отменены")}: ${doc.children.map((child) => `№ ${child}`).join(", ")}`
                 : t("Старые цены товаров будут восстановлены.")
           }
-          confirmLabel={confirm === "recalc" ? "Подтвердить" : "Отменить переоценку"}
+          confirmLabel={confirm === "recalc" ? "Да" : "Отменить переоценку"}
           tone={confirm === "recalc" ? "blue" : "red"}
           busy={busy}
           error={error}

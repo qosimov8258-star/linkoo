@@ -1,10 +1,10 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { Download, FileSpreadsheet } from "lucide-react"
+import { useState } from "react"
 
 import { buildCashQuery } from "@/components/analytics/cash/use-cash"
-import { CashModal, MultiPick, PrimaryButton, SecondaryButton } from "@/components/analytics/cash-management-shared"
+import { RefSearchSelect, type RefSelectItem } from "@/components/analytics/ref-search-select"
+import { RefImportDialog } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, normalizeHeader, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -59,7 +59,6 @@ const ALIASES: Record<string, string> = {
 
 export function InventoryImportDialog({ options, onClose, onDone }: { options: InventoryOptions | null; onClose: () => void; onDone: (created: number) => void }) {
   const { t } = useLanguage()
-  const inputRef = useRef<HTMLInputElement>(null)
   const [agents, setAgents] = useState<string[]>([])
   const [zones, setZones] = useState<string[]>([])
   const [file, setFile] = useState<File | null>(null)
@@ -67,7 +66,6 @@ export function InventoryImportDialog({ options, onClose, onDone }: { options: I
   const [templateBusy, setTemplateBusy] = useState(false)
   const [error, setError] = useState("")
   const [details, setDetails] = useState<string[]>([])
-  const named = (values: string[]) => values.map((value) => ({ value, label: value }))
 
   const downloadTemplate = async () => {
     setTemplateBusy(true)
@@ -125,56 +123,42 @@ export function InventoryImportDialog({ options, onClose, onDone }: { options: I
     }
   }
 
+  // Linko's «ИМПОРТ С EXCEL» of the gear page (#/inventory-management?excelImportCreateDialog=true): Агент and Зона as
+  // the reference's selects, «1. СКАЧАТЬ ШАБЛОН» (the clients of the chosen agents / zones), the drop area and a green
+  // «СОХРАНИТЬ».
+  const pick = (values: string[]): RefSelectItem[] => values.map((value) => ({ value, label: value }))
   return (
-    <CashModal
-      title={t("Импорт с Excel")}
+    <RefImportDialog
+      file={file}
+      onFile={(next) => {
+        setFile(next)
+        setError("")
+        setDetails([])
+      }}
+      onTemplate={() => !templateBusy && void downloadTemplate()}
+      onSave={() => void submit()}
       onClose={onClose}
-      size="sm"
-      zIndex={150}
-      footer={
-        <>
-          <SecondaryButton onClick={onClose}>{t("Отмена")}</SecondaryButton>
-          <PrimaryButton busy={busy} disabled={!file} onClick={() => void submit()}>
-            {t("Сохранить")}
-          </PrimaryButton>
-        </>
+      saving={busy}
+      top={
+        <div className="mb-[10px]">
+          <RefSearchSelect multi label={t("Агент")} rowHeight={32} items={pick(options?.agents ?? [])} selected={pick(agents)} onChange={(next) => setAgents(next.map((item) => item.value))} />
+          <RefSearchSelect multi label={t("Зона")} rowHeight={32} items={pick(options?.zones ?? [])} selected={pick(zones)} onChange={(next) => setZones(next.map((item) => item.value))} />
+        </div>
       }
-    >
-      <div className="flex flex-col gap-3 text-[14px]">
-        <MultiPick label={t("Агент")} options={named(options?.agents ?? [])} value={agents} onChange={setAgents} />
-        <MultiPick label={t("Зона")} options={named(options?.zones ?? [])} value={zones} onChange={setZones} />
-        {!agents.length && !zones.length && <p className="text-[13px] text-[#9aa3b6]">{t("Выберите агента и зону")}</p>}
-        <button type="button" disabled={templateBusy} onClick={() => void downloadTemplate()} className="flex items-center justify-center gap-2 rounded-md px-4 py-2 font-medium text-[rgb(129,199,132)] hover:bg-[#f4fbf4] disabled:opacity-50">
-          <Download className="h-5 w-5" /> {t("1. Скачать шаблон")}
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,.xls,.csv"
-          className="hidden"
-          onChange={(event) => {
-            setFile(event.target.files?.[0] ?? null)
-            setError("")
-            setDetails([])
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          className="flex items-center justify-center gap-2 rounded-md border border-dashed border-[#81c784] px-4 py-6 font-medium text-[rgb(129,199,132)] hover:bg-[#f4fbf4]"
-        >
-          <FileSpreadsheet className="h-5 w-5" />
-          {file ? `${t("2. Сменить файл")}: ${file.name}` : t("2. Заполните excel и загрузите")}
-        </button>
-        {error && <p className="rounded-md bg-[#fdecec] px-3 py-2 text-[13px] text-[#d64545]">{error}</p>}
-        {details.length > 0 && (
-          <ul className="max-h-40 list-disc overflow-auto pl-5 text-[13px] text-[#d64545]">
-            {details.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </CashModal>
+      error={
+        error || details.length ? (
+          <>
+            {error && <p>{error}</p>}
+            {details.length > 0 && (
+              <ul className="max-h-40 list-disc overflow-auto pl-5">
+                {details.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : undefined
+      }
+    />
   )
 }

@@ -51,10 +51,10 @@ export {
 // Only live items are repriced ("Удалённые" ones are "Товар не найден"). Cancelling a document also
 // cancels the linked documents derived from it (parent_id chain), deepest first, in the same
 // transaction — the linked lists go back too.
-// Currencies: a document is in its price list's currency and writes the prices in it. A manual
-// document in another currency is refused (400 CURRENCY_MISMATCH); a supply's "Наценка" in another
-// currency is converted into the list's currency with the current rates (400 RATE_UNKNOWN without a
-// rate). A linked list is computed from the source list's price IN THE SOURCE LIST'S CURRENCY (an
+// Currencies: a document writes its prices in its own currency. As in Linko (Валюта: Euro / SUM / USD) a
+// manual document may be in another currency than its list: the new entries are kept in that currency
+// (an item price entry carries its own currency); a supply's "Наценка" in another currency is converted
+// into the list's currency with the current rates (400 RATE_UNKNOWN without a rate). A linked list is computed from the source list's price IN THE SOURCE LIST'S CURRENCY (an
 // entry kept in another currency is converted first): "Умножить на курс" multiplies it by the
 // list's own rate (that is how a list in another currency follows); the other methods work in the
 // linked list's currency, so a source price in another currency is converted with the current rates
@@ -78,7 +78,6 @@ function dateLabel(now = new Date()): string {
 type PriceTarget = { kind: RepricingItemKind; id: number; price: number }
 
 export const CURRENCY_NOT_FOUND = "Валюта не найдена"
-export const CURRENCY_MISMATCH = "Валюта переоценки должна совпадать с валютой прайс-листа"
 export const RATE_UNKNOWN = "Не указан курс валюты"
 
 /** Units of `to` per 1 unit of `from` with the current rates (1 for the same currency; null = no rate). */
@@ -98,8 +97,10 @@ async function applyPrices(
   available: Map<string, number>,
   skipUnchanged: boolean,
   rates: RateMap,
+  /** Currency of the new entries (the document's), the list's when not given. */
+  entryCurrency?: string,
 ): Promise<{ lines: StoredLine[]; missing: string[] }> {
-  const currency = normCurrency(list.currency)
+  const currency = normCurrency(entryCurrency || list.currency)
   const lines: StoredLine[] = []
   const missing: string[] = []
   const units = await itemNames(tx, targets.map((target) => `${target.kind}:${target.id}`))
@@ -264,19 +265,22 @@ export async function createRepricingTx(
   let targets = [...unique.values()]
   if (currency !== listCurrency) {
     if (!context.currencies.some((known) => known.code === currency)) throw new RepricingError(CURRENCY_NOT_FOUND)
-    // The document (and every price it writes) is in the list's currency. Only a supply's
-    // "Наценка" may bring prices in another currency: they are converted with the current rates.
-    if (source !== "supplier_incoming") throw new RepricingError(CURRENCY_MISMATCH, 400, { currency: listCurrency })
+  }
+  // A supply's "Наценка" in another currency is converted into the list's currency with the current rates; a
+  // manual document keeps its own currency (Linko's Валюта) and writes its entries in it.
+  const docCurrency = source === "supplier_incoming" ? listCurrency : currency
+  if (currency !== listCurrency && source === "supplier_incoming") {
     const rate = rateBetween(currency, listCurrency, context.rates)
     if (rate === null) throw new RepricingError(RATE_UNKNOWN, 400, { currency })
     targets = targets.map((target) => ({ ...target, price: Math.round(target.price * rate * 100) / 100 }))
     if (targets.some((target) => !isValidPrice(target.price))) throw new RepricingError(INVALID_PRICE)
   }
-  const { lines, missing } = await applyPrices(tx, list, targets, available, false, context.rates)
+  const { lines, missing } = await applyPrices(tx, list, targets, available, false, context.rates, docCurrency)
   if (missing.length) throw new RepricingError("Товар не найден", 400, { missing })
-  const id = await insertDoc(tx, { priceListId: list.id, currency: listCurrency, comment: input.comment, lines, user, source, parentId: null })
+  const id = await insertDoc(tx, { priceListId: list.id, currency: docCurrency, comment: input.comment, lines, user, source, parentId: null })
   const run: LinkedRun = { available, user, comment: input.comment, rates: context.rates, outcome: { ids: [], skipped: [] } }
-  if (input.connected) await repriceDependents(tx, list, targets, id, new Set(), run)
+  // The linked lists follow the new prices in the document's currency.
+  if (input.connected) await repriceDependents(tx, { ...list, currency: docCurrency }, targets, id, new Set(), run)
   return { id, linkedIds: run.outcome.ids, skipped: run.outcome.skipped }
 }
 

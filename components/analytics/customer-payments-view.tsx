@@ -23,6 +23,7 @@ import { nextOrdering } from "@/components/analytics/balance/balance-table"
 import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
+import { clientHref } from "@/components/analytics/cash-management-details"
 import { AcceptCashboxDialog, BulkUpdateDialog, ConfirmDialog, EditPaymentDialog } from "@/components/analytics/customer-payments-dialogs"
 import { CustomerPaymentCards } from "@/components/analytics/customer-payment-cards"
 import {
@@ -402,9 +403,18 @@ export function CustomerPaymentsView() {
       case "id":
         return row.id
       case "client":
+        // Linko opens the client's card in a new tab.
         return (
           <>
-            <div className="min-w-[140px]">{row.client.name}</div>
+            <div className="min-w-[140px]">
+              {row.client.id ? (
+                <a href={clientHref(row.client.id, row.client.name)} target="_blank" rel="noreferrer" className="hover:text-[#1E4A9A] hover:underline">
+                  {row.client.name}
+                </a>
+              ) : (
+                row.client.name
+              )}
+            </div>
             {row.client.inn && <div className="text-[13px] font-medium text-[#1E4A9A]">{row.client.inn}</div>}
           </>
         )
@@ -515,6 +525,11 @@ export function CustomerPaymentsView() {
               <MaterialIcon name="edit" />
             </IconButton>
           )
+        ) : row.accepted && row.cashDocNo && canWrite ? (
+          // Money already in a cashbox: Linko edits it as the cash transaction (#/transaction?search=…&updateTransaction=…).
+          <a href={`/analytics/cash-management?search=${row.cashDocNo}&updateTransaction=${row.cashDocNo}`} target="_blank" rel="noreferrer" title={warn} aria-label={warn} className="p-1 text-[#e5484d] hover:text-[#c53238]">
+            <MaterialIcon name="edit" />
+          </a>
         ) : (
           <IconButton
             label={row.accepted ? warn : t("Изменить")}

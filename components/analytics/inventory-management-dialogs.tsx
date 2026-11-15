@@ -305,7 +305,8 @@ function InfoList({ rows }: { rows: Array<[string, string]> }) {
 export function ChangeDialog({ item, options, onClose, onSaved }: { item: InventoryItemDetail; options: InventoryOptions | null; onClose: () => void; onSaved: (item: InventoryItemDetail) => void }) {
   const { t } = useLanguage()
   const today = todayIso()
-  const [draft, setDraft] = useState({ takeDate: today, giveClientId: "", giveLabel: "", giveDate: today, condition: item.condition, comment: "" })
+  // Linko leaves «Дата передачи» empty (today when saved) and keeps «Дата изъятия» on today.
+  const [draft, setDraft] = useState({ takeDate: today, giveClientId: "", giveLabel: "", giveDate: "", condition: item.condition, comment: "" })
   const [errors, setErrors] = useState<Errors>({})
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -320,7 +321,7 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
     const result = await cashMutate<InventoryItemDetail>("POST", `/api/inventory-items/${item.id}/change`, {
       takeDate: item.client ? draft.takeDate : undefined,
       giveClientId: draft.giveClientId ? Number(draft.giveClientId) : null,
-      giveDate: draft.giveClientId ? draft.giveDate : undefined,
+      giveDate: draft.giveClientId ? draft.giveDate || today : undefined,
       condition: draft.condition,
       comment: draft.comment,
     })
@@ -332,26 +333,35 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
     onSaved(result.data)
   }
 
-  const section = "mb-2 mt-4 text-[13px] font-semibold uppercase text-[#17233b]"
+  // Linko's «ПЕРЕДАЧА / ИЗЪЯТИЕ» (#/inventory-management/:id?openChangeDialog=true): «ИНФОРМАЦИЯ:» as plain label / value
+  // lines over a rule, «ПЕРЕДАЧА» (Передать клиенту, Дата передачи, Состояние, Комментарий…) and one green «СОХРАНИТЬ».
+  const section = "mb-1 mt-4 text-[13px] font-semibold uppercase text-[#17233b]"
   return (
     <CashModal
       title={t("Передача / Изъятие")}
       onClose={onClose}
       size="md"
       zIndex={120}
+      footerButtons="filled"
       footer={
         <>
           {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <SecondaryButton onClick={onClose}>{t("Отмена")}</SecondaryButton>
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
+          <PrimaryButton tone="green" busy={busy} onClick={() => void submit()}>
             {t("Сохранить")}
           </PrimaryButton>
         </>
       }
     >
-      <div className="flex flex-col gap-3 text-[14px]">
-        <p className={section}>{t("Информация")}</p>
-        <InfoList rows={[[t("Тип"), item.product.name], [t("Серийный номер"), item.serialNumber], [t("Инвентарный номер"), item.stockNumber]]} />
+      <div className="flex flex-col gap-3 text-[13px]">
+        <p className={section}>{t("Информация")}:</p>
+        <ul className="-mt-2 border-b border-[#e0e0e0] pb-2">
+          {[[t("Тип"), item.product.name], [t("Серийный номер"), item.serialNumber], [t("Инвентарный номер"), item.stockNumber]].map(([label, value]) => (
+            <li key={label} className="flex justify-between gap-3 leading-[25px]">
+              <span>{label}</span>
+              <span className="text-right font-semibold">{value}</span>
+            </li>
+          ))}
+        </ul>
         {item.client && (
           <>
             <p className={section}>{t("Изъятие")}</p>
@@ -359,25 +369,19 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
               <span>{t("Изъять с клиента")}:</span>
               <b>{item.client.name}</b>
             </p>
-            <FormField label={t("Дата изъятия")}>
-              <input type="date" value={draft.takeDate} onChange={(event) => set({ takeDate: event.target.value })} className={inputClass} />
-            </FormField>
+            <MaterialDate label={t("Дата изъятия")} value={draft.takeDate} onChange={(takeDate) => set({ takeDate })} />
           </>
         )}
         <p className={section}>{t("Передача")}</p>
         <FormField label={t("Передать клиенту")} required={!item.client} error={errors.giveClient}>
           <ClientPicker value={draft.giveClientId} label={draft.giveLabel} invalid={Boolean(errors.giveClient)} onChange={(giveClientId, giveLabel) => set({ giveClientId, giveLabel })} />
         </FormField>
-        {draft.giveClientId && (
-          <FormField label={t("Дата передачи")}>
-            <input type="date" value={draft.giveDate} onChange={(event) => set({ giveDate: event.target.value })} className={inputClass} />
-          </FormField>
-        )}
+        <MaterialDate label={t("Дата передачи")} value={draft.giveDate} onChange={(giveDate) => set({ giveDate })} />
         <FormField label={t("Состояние")} error={errors.condition}>
           <SearchSelect value={draft.condition} allowClear={false} options={conditions.map((value) => ({ value, label: t(value) }))} onChange={(condition) => set({ condition })} />
         </FormField>
         <FormField label={`${t("Комментарий")}...`} className="!min-h-[40px]">
-          <textarea value={draft.comment} maxLength={2000} rows={2} onChange={(event) => set({ comment: event.target.value })} className={`${inputClass} h-auto py-2`} />
+          <input value={draft.comment} maxLength={2000} onChange={(event) => set({ comment: event.target.value })} className={inputClass} />
         </FormField>
       </div>
     </CashModal>

@@ -5,9 +5,9 @@ import { useMemo, useState } from "react"
 
 import { buildCashQuery, useCashJson } from "@/components/analytics/cash/use-cash"
 import { MaterialCheckbox } from "@/components/analytics/cash-material"
-import { CashModal, ConfirmDialog, FormField, SearchSelect, inputClass, parseAmount } from "@/components/analytics/cash-management-shared"
+import { CashModal, ConfirmDialog, FormField, SearchSelect, inputClass, parseAmount, useCashRates } from "@/components/analytics/cash-management-shared"
 import { formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
-import { currencyLabel, normCurrency } from "@/lib/finance/currency"
+import { convertAmount, currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { mutateJson, mutationMessage } from "./price-lists-data"
 import { RepricingImportDialog } from "./repricing-dialogs"
@@ -19,9 +19,9 @@ import { REPRICINGS_API, type RepricingCreateBody, type RepricingCreateResult, t
 // an add row (Наименование with "Доступно", Цена до, Новая цена, Сумма переоценки, Применить) and the
 // lines Товар | Доступно | Цена до | Новая цена | Разница | Сумма до | Сумма после. Changing the
 // price list with lines asks "При изменении прайс листа или валюты, очистится список продуктов!".
-// Валюта is the price list's currency (a document is in its list's currency; the server refuses
-// another one), and every sum is in it: an old price kept in another currency is compared through
-// its list-currency value (RepricingPickRow.listPrice). Saving finishes the repricing and applies
+// Валюта starts as the price list's currency and may be another one (Linko's Euro / SUM / USD): the new
+// prices are written in it and every sum is in it; an old price is compared through its list-currency
+// value (RepricingPickRow.listPrice) converted with the current rates. Saving finishes the repricing and applies
 // the prices (POST /api/repricings).
 
 type Line = { row: RepricingPickRow; price: string }
@@ -54,13 +54,16 @@ export function RepricingFormDialog({
   const [error, setError] = useState("")
 
   const list = options?.priceLists.find((item) => String(item.id) === priceListId) ?? null
-  // Always the chosen list's currency (initial.currency of a deep link is not a choice).
-  const effectiveCurrency = list ? normCurrency(list.currency) : ""
+  // Валюта (Linko: Euro / SUM / USD): the list's currency until another one is chosen; the new prices are in it.
+  const [currencyChoice, setCurrencyChoice] = useState("")
+  const { rates, codes } = useCashRates()
+  const listCurrency = list ? normCurrency(list.currency) : ""
+  const effectiveCurrency = list ? normCurrency(currencyChoice || listCurrency) : ""
   const picker = useCashJson<RepricingPickRow[]>(priceListId ? `${REPRICINGS_API}/products?${buildCashQuery({ priceList: priceListId })}` : null)
   const rows = useMemo(() => picker.data ?? [], [picker.data])
   const rowMap = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows])
   const ready = Boolean(priceListId && effectiveCurrency)
-  const currencyOptions = effectiveCurrency ? [{ value: effectiveCurrency, label: currencyLabel(effectiveCurrency) }] : []
+  const currencyOptions = [...new Set([...codes, ...(listCurrency ? [listCurrency] : [])])].map((code) => ({ value: code, label: currencyLabel(code) }))
   const listOptions = (options?.priceLists ?? []).filter((item) => item.isActive || String(item.id) === priceListId).map((item) => ({ value: String(item.id), label: item.name }))
 
   const change = (value: string) => {
@@ -69,13 +72,18 @@ export function RepricingFormDialog({
   }
   function apply(value: string) {
     setPriceListId(value)
+    setCurrencyChoice("")
     setLines([])
     setAddKey("")
   }
 
   const addRow = rowMap.get(addKey)
-  // Old price in the list's currency (the entry may be kept in another one); 0 when there is none.
-  const oldPrice = (row: RepricingPickRow) => row.listPrice ?? 0
+  // Old price in the document currency (row.listPrice is in the list's currency; the entry may be kept in another
+  // one); 0 when there is none or no rate converts it.
+  const oldPrice = (row: RepricingPickRow) => {
+    const price = row.listPrice ?? 0
+    return listCurrency && effectiveCurrency !== listCurrency ? (convertAmount(price, listCurrency, effectiveCurrency, rates) ?? 0) : price
+  }
   const oldLabel = (row: RepricingPickRow) => (row.price === null ? "—" : formatSum(row.price, row.currency))
   const lineDiff = (line: Line) => (parseAmount(line.price) - oldPrice(line.row)) * line.row.available
   const total = lines.reduce((sum, line) => sum + (valid(line.price) ? lineDiff(line) : 0), 0)
@@ -137,11 +145,9 @@ export function RepricingFormDialog({
           <FormField label={t("Прайс лист")} required showRequired semibold error={showErrors && !priceListId ? t("Это поле обязательно к заполнению") : undefined}>
             <SearchSelect value={priceListId} options={listOptions} invalid={showErrors && !priceListId} onChange={change} />
           </FormField>
-          {/* A repricing is always in its price list's currency (the server refuses another one). */}
           <FormField label={t("Валюта")} required showRequired semibold>
-            <SearchSelect value={effectiveCurrency} options={currencyOptions} disabled allowClear={false} onChange={() => {}} />
+            <SearchSelect value={effectiveCurrency} options={currencyOptions} disabled={!list} allowClear={false} onChange={(value) => setCurrencyChoice(value)} />
           </FormField>
-          {list && <p className="-mt-2 text-[12px] text-[#9aa3b6]">{t("Валюта переоценки — валюта прайс-листа")}</p>}
           <FormField label={`${t("Оставить комментарий")}...`} semibold>
             <input value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} className={inputClass} />
           </FormField>
