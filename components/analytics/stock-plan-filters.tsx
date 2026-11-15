@@ -162,7 +162,8 @@ export function PlanMoveFilterDialog({ state, options, onClose, onApply }: { sta
         selected={directionItems.filter((item) => item.value === draft.direction)}
         onChange={(next) => set("direction", next[0]?.value ?? "")}
       />
-      <FilterDate words className="-mt-[9px]" label={t("Период")} begin={period.from} end={period.to} onChange={(from, to) => setPeriod({ from, to })} />
+      {/* Linko: the period's value 69px under Статус (its label 45px). */}
+      <FilterDate words className="mt-[3px]" iconLeft={188} label={t("Период")} begin={period.from} end={period.to} onChange={(from, to) => setPeriod({ from, to })} />
     </RefFilterPanel>
   )
 }

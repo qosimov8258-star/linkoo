@@ -1,13 +1,14 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronDown, Search } from "lucide-react"
 
 import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
 import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { StockItemDialog } from "@/components/analytics/stock-level-detail"
+import { movementLink } from "@/components/analytics/stock-movement-link"
 import { StockFilterButton, StockFilterDialog } from "@/components/analytics/stock-level-filters"
 import {
   formatQty,
@@ -29,7 +30,9 @@ import type { StockOptions } from "@/lib/stock/options"
 // current balance of every catalog item with reserved / in-transit /
 // available quantities, cards, КОЛ-ВО / СЕБЕСТОИМОСТЬ / ПРАЙС ЛИСТ modes,
 // filters, search, "Показать" units, column settings, pagination, Excel and
-// the item detail. Everything is kept in the URL.
+// the item detail. Everything is kept in the URL. A product's name opens its «Движение товаров»
+// (Linko: #/stock-receives/product-move?pageSize=25&product=<id>); an old ?item= link still opens
+// the item card.
 
 const LIST_URL = "/api/stock/balances"
 const COLUMNS_KEY = "stockLevelColumns"
@@ -54,11 +57,11 @@ const UNITS: Array<{ unit: StockLevelUnit; label: string }> = [
 export function StockLevelView() {
   const { t } = useLanguage()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [state, setState] = useState<StockLevelState>(() => stockStateFromParams(searchParams))
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
   const [hidden, setHidden] = useState<StockColumnId[]>([])
-  const [itemName, setItemName] = useState("")
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState("")
 
@@ -307,17 +310,14 @@ export function StockLevelView() {
             currency={currency}
             ordering={state.ordering}
             onSort={sort}
-            onOpenItem={(row) => {
-              setItemName(row.name)
-              update({ item: row.key })
-            }}
+            onOpenItem={(row) => router.push(movementLink(row.key))}
             loading={list.loading}
           />
         )}
       </div>
 
       <StockFilterDialog open={filterOpen} filters={state.filters} options={options} onApply={(filters) => update({ filters, page: 1 })} onClose={() => setFilterOpen(false)} />
-      {state.item && <StockItemDialog itemKey={state.item} scope={stockScopeQuery(state.filters)} fallbackName={itemName} onClose={() => update({ item: "" })} />}
+      {state.item && <StockItemDialog itemKey={state.item} scope={stockScopeQuery(state.filters)} fallbackName="" onClose={() => update({ item: "" })} />}
     </RefPage>
   )
 }

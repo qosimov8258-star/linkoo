@@ -158,8 +158,8 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
   return result
 }
 
-/** Product picker of the "Товар" filter: every catalog item. */
+/** Product picker of the "Товар" filter: every catalog item by its name, as Linko's picker lists it. */
 export async function listPlanOptions(db: PgDb = getDb()): Promise<PlanOptionsResult> {
   const catalog = await getStockCatalog(db)
-  return { products: catalog.map((item) => ({ key: item.key, name: item.article ? `${item.name} (${item.article})` : item.name })) }
+  return { products: catalog.map((item) => ({ key: item.key, name: item.name })) }
 }

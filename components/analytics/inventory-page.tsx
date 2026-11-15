@@ -7,7 +7,7 @@ import { ArrowDown, ArrowUp } from "lucide-react"
 import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { InventoryDetailPanel } from "@/components/analytics/stock-inventory-detail"
-import { EMPTY_INVENTORY_FILTERS, InventoryFilterBar, type InventoryFilters } from "@/components/analytics/stock-inventory-filter"
+import { EMPTY_INVENTORY_FILTERS, InventoryFilterBar, InventoryFilterPanel, type InventoryFilters } from "@/components/analytics/stock-inventory-filter"
 import { InventoryFormDialog } from "@/components/analytics/stock-inventory-form"
 import { StatusLabel, formatSum, inventoryDateText, inventoryListSheet } from "@/components/analytics/stock-inventory-shared"
 import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
@@ -92,9 +92,10 @@ function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
   }
 }
 
+// Linko marks an ascending column (ordering=createdDate) with ↓ and a descending one with ↑.
 function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
-  if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
-  if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
+  if (ordering === sortKey) return <ArrowDown className="ml-2 h-3.5 w-3.5 text-[#c9ccd3]" />
+  if (ordering === `-${sortKey}`) return <ArrowUp className="ml-2 h-3.5 w-3.5 text-[#c9ccd3]" />
   return null
 }
 
@@ -104,7 +105,8 @@ export function InventoryPage() {
   const canEdit = useCanWrite()
   const [state, setState] = useState<ViewState>(() => stateFromParams(new URLSearchParams(searchParams.toString())))
   const [searchDraft, setSearchDraft] = useState(state.search)
-  const [filterOpen, setFilterOpen] = useState(false)
+  // ?openFilterDialog=true (Linko's link to the open filter) starts with the filter panel open.
+  const [filterOpen, setFilterOpen] = useState(() => searchParams.get("openFilterDialog") === "true")
   // undefined = closed, null = create, detail = edit.
   const [form, setForm] = useState<StockInventoryDetail | null | undefined>(undefined)
   const [detailVersion, setDetailVersion] = useState(0)
@@ -190,20 +192,19 @@ export function InventoryPage() {
 
       <RefCard>
         <RefToolbar
-          leftSlot={
-            <InventoryFilterBar
+          filterOpen={filterOpen}
+          filterPanel={
+            <InventoryFilterPanel
               filters={state.filters}
-              open={filterOpen}
-              onOpen={() => setFilterOpen(true)}
+              options={options.data}
               onClose={() => setFilterOpen(false)}
-              onClear={clearFilters}
               onApply={(filters) => {
                 setFilterOpen(false)
                 update({ filters, page: 1, detailId: null })
               }}
-              options={options.data}
             />
           }
+          leftSlot={<InventoryFilterBar filters={state.filters} open={filterOpen} onOpen={() => setFilterOpen(true)} onClose={() => setFilterOpen(false)} onClear={clearFilters} />}
           query={searchDraft}
           onQuery={setSearchDraft}
           pageSize={state.pageSize}

@@ -35,8 +35,9 @@ function presetRange(preset: Preset): [Date, Date] {
       s.setDate(s.getDate() - 7)
       return [s, today]
     }
+    // Linko's "Текущий месяц" runs from the 1st to today (startDate = today - (day - 1), endDate = today).
     case "Текущий месяц":
-      return [new Date(today.getFullYear(), today.getMonth(), 1), new Date(today.getFullYear(), today.getMonth() + 1, 0)]
+      return [new Date(today.getFullYear(), today.getMonth(), 1), today]
     case "Последние 30 дней": {
       const s = new Date(today)
       s.setDate(s.getDate() - 30)

@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState, type FormEvent } from "react"
 import { CircleAlert, Loader2 } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
@@ -20,6 +21,7 @@ import {
   type MoveToggle,
 } from "@/components/analytics/stock-move-filters"
 import { StockMoveTable } from "@/components/analytics/stock-move-table"
+import { movementLink } from "@/components/analytics/stock-movement-link"
 import { RI, RefHeader, RefPage } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { MOVE_GROUP_BY, moveColumns, type MoveField, type MoveGroupBy } from "@/lib/stock-movement-columns"
@@ -46,6 +48,7 @@ export function StockMoveView() {
 function StockMoveContent() {
   const { t } = useLanguage()
   const { searchParams, update } = useUrlState()
+  const router = useRouter()
   const state = moveStateFromParams(searchParams)
   const priceListMissing = state.toggle === "priceList" && !state.priceList
 
@@ -139,8 +142,10 @@ function StockMoveContent() {
     update({ search: searchDraft.trim(), page: null })
   }
   // Demo: a product row opens its history; a group row drills down to its products.
+  // A product opens its «Движение товаров» for the report's period, as Linko's
+  // #/stock-receives/product-move?fromDate=…&product=<id>&toDate=…; a number cell opens the detail drawer.
   const openRow = (row: MoveRow) => {
-    if (state.groupBy === "product") return update({ product: row.key, kind: null })
+    if (state.groupBy === "product") return row.key ? router.push(movementLink(row.key, { from: state.from, to: state.to })) : undefined
     if (!row.key) return
     const drill: Record<Exclude<MoveGroupBy, "product">, Record<string, string[] | string | null>> = {
       stock: { stock: [row.key], groupBy: null },

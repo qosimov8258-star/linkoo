@@ -6,6 +6,7 @@ import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { usePathname } from "next/navigation"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { REF_COLUMNS } from "@/lib/ref-columns"
+import { todayIso } from "@/lib/finance/dates"
 import { PageSizeSelect } from "@/components/analytics/settings-list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -844,7 +845,7 @@ export function FilterDate({
   end: string
   onChange: (begin: string, end: string) => void
   className?: string
-  /** Print the months as words ("01 окт. 2026") instead of dd.mm.yyyy. */
+  /** Print the months as words ("01 окт. 2026") instead of dd.mm.yyyy, and one day once (Linko's "15 нояб. 2026"). */
   words?: boolean
   placement?: "below" | "above"
   /** Pin the calendar glyph this many px from the field's left edge instead of right after the label. */
@@ -862,7 +863,8 @@ export function FilterDate({
 }) {
   const { t, language } = useLanguage()
   const [open, setOpen] = useState(false)
-  const today = new Date().toISOString().slice(0, 10)
+  // The local (Asia/Tashkent) day: before 05:00 the UTC date is still yesterday.
+  const today = todayIso()
   const wordsLanguage = words ? language : undefined
   return (
     <div className={`relative ${mui ? (tall ? "h-[67px]" : "h-[52px]") : roomy ? "h-[72px]" : "h-[62px]"} ${className}`}>
@@ -872,7 +874,7 @@ export function FilterDate({
           {t(label)}
           {!noIcon && <svg viewBox="0 0 24 24" style={iconLeft == null ? undefined : { position: "absolute", left: iconLeft, top: 0 }} className={`fill-[#ccc] ${mui ? "h-[15px] w-[15px]" : "h-[14px] w-[14px]"}`}><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z" /></svg>}
         </span>
-        <span className={`absolute left-0 font-medium text-black ${mui ? (tall ? "top-[29px]" : "top-[13px]") : roomy ? "top-[20px]" : "top-[14px]"}`}>{begin ? `${formatFilterDate(begin, wordsLanguage)} - ${formatFilterDate(end || begin, wordsLanguage)}` : t("Укажите дату")}</span>
+        <span className={`absolute left-0 font-medium text-black ${mui ? (tall ? "top-[29px]" : "top-[13px]") : roomy ? "top-[20px]" : "top-[14px]"}`}>{begin ? (words && (end || begin) === begin ? formatFilterDate(begin, wordsLanguage) : `${formatFilterDate(begin, wordsLanguage)} - ${formatFilterDate(end || begin, wordsLanguage)}`) : t("Укажите дату")}</span>
       </button>
       {open && (
         <DateRangePicker

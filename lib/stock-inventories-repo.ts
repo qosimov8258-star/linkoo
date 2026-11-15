@@ -317,11 +317,13 @@ async function requireDetail(id: number): Promise<StockInventoryDetail> {
   return detail
 }
 
-/** Warehouses, creators ("Создал" filter) and the base currency. `warehouses` (the list filter) has
- * every warehouse, inactive and document-only ones included; `activeWarehouses` (the form's select)
- * is what a new count may use (resolveWarehouse): the table's active warehouses plus the
- * document-only ones. */
-export async function getStockInventoryOptions(): Promise<StockInventoryOptions> {
+/** Warehouses, creators ("Создал" filter) and the base currency. `warehouses` (the list filter) is,
+ * as Linko's, the warehouses linked to the signed-in user's employee card («Связанные склады», in their
+ * id order: `linked`), else every warehouse, inactive and document-only ones included;
+ * `activeWarehouses` (the form's select) is what a new count may use (resolveWarehouse): the table's
+ * active warehouses plus the document-only ones. `users` are the app's users, the active employees
+ * (Linko lists its users, i.e. the employees) and every creator already on a count. */
+export async function getStockInventoryOptions(linked: string[] = []): Promise<StockInventoryOptions> {
   await ensureStockInventoriesSchema()
   const db = getDb()
   const table = (await db.prepare("SELECT name, COALESCE(active, 1) AS active FROM warehouses WHERE btrim(name) <> ''").all()) as Array<{
@@ -329,8 +331,13 @@ export async function getStockInventoryOptions(): Promise<StockInventoryOptions>
     active: number | boolean
   }>
   const used = (await db.prepare("SELECT DISTINCT warehouse AS name FROM stock_inventories WHERE btrim(warehouse) <> ''").all()) as Array<{ name: string }>
+  const hasEmployees = Boolean(((await db.prepare("SELECT to_regclass('employees') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined)?.ok)
   const users = (await db
-    .prepare("SELECT display_name AS name FROM users WHERE btrim(display_name) <> '' UNION SELECT created_by FROM stock_inventories WHERE btrim(created_by) <> ''")
+    .prepare(
+      `SELECT display_name AS name FROM users WHERE btrim(display_name) <> ''
+       UNION SELECT created_by FROM stock_inventories WHERE btrim(created_by) <> ''
+       ${hasEmployees ? "UNION SELECT btrim(COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) FROM employees WHERE COALESCE(active, 1) = 1 AND btrim(COALESCE(first_name, '') || COALESCE(last_name, '')) <> ''" : ""}`,
+    )
     .all()) as Array<{ name: string }>
   const unique = (names: string[]) => {
     const seen = new Map<string, string>()
@@ -342,7 +349,7 @@ export async function getStockInventoryOptions(): Promise<StockInventoryOptions>
   const active = [...table.filter((row) => Number(row.active)).map((row) => row.name), ...documents.filter((name) => !tableKeys.has(textKey(name)))]
   const currency = (await loadCurrencyContext(db)).base
   return {
-    warehouses: unique([...table.map((row) => row.name), ...used.map((row) => row.name), ...documents]),
+    warehouses: linked.length ? [...new Set(linked)] : unique([...table.map((row) => row.name), ...used.map((row) => row.name), ...documents]),
     activeWarehouses: unique(active),
     users: unique(users.map((row) => row.name)),
     currency,

@@ -28,12 +28,14 @@ import { LineField, Modal, SaveLink } from "./catalog-ui"
 // them save to /api/new-report-builder-saves and behave the same.
 
 /** The constructor pages of this app. */
-export type BuilderPage = "visits" | "sales" | "general"
+export type BuilderPage = "visits" | "sales" | "general" | "stock"
 
 export const BUILDER_PAGE_PATHS: Record<BuilderPage, string> = {
   visits: "/analytics/visit-builder",
   sales: "/analytics/sales-builder",
   general: "/analytics/report-builder",
+  // «Конструктор отчетов по текущим остаткам» (the reference's #/new-quick-report/?category=remainder).
+  stock: "/analytics/current-stock-report-builder",
 }
 
 /** Models of the visit constructor (Конструктор по визитам). */
@@ -48,7 +50,7 @@ export function modelName(type: string): string {
 /** The page a save opens on: the one it was saved from; a save without one by its model. */
 export function builderPageOf(save: Pick<NewReportBuilderSave, "reportType" | "config">): BuilderPage {
   const builder = save.config.builder
-  if (builder === "visits" || builder === "sales" || builder === "general") return builder
+  if (builder === "visits" || builder === "sales" || builder === "general" || builder === "stock") return builder
   return VISIT_MODELS.includes(modelName(save.reportType)) ? "visits" : "general"
 }
 

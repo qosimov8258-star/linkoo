@@ -1497,6 +1497,7 @@ export const uz: Record<string, string> = {
   // new-report-builder-view.tsx
   "01 Авг. 2026 - 31 Авг. 2026": "2026-yil 1-avgust - 31-avgust",
   "Значение фильтра": "Filtr qiymati",
+  "Условие": "Shart",
   "ПОКАЗАТЬ НАСТРОЙКИ": "SOZLAMALARNI KO'RSATISH",
   "СКРЫТЬ НАСТРОЙКИ": "SOZLAMALARNI YASHIRISH",
   "Сохранено ✓": "Saqlandi ✓",

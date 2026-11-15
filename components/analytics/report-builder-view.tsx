@@ -1,407 +1,499 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { Bookmark, ChevronDown, ChevronUp, Download, FolderOpen, Search, X } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { Bookmark, Download, FolderOpen, Search, X } from "lucide-react"
+
 import { RefHeader } from "@/components/ref/list-kit"
-import { ReportPage, monthRangeLabel } from "@/components/ref/report-kit"
-import { CHECKBOX } from "./visit-builder-view"
+import { ReportPage } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
+import type { NewReportBuilderSave } from "@/lib/new-report-builder-types"
+import type { BuilderResult } from "@/lib/report-builder-repo"
+import { BuilderPeriod, currentMonthPeriod, isoParam } from "./builder-period"
+import { savedList, savedPeriod, savedRecord, useBuilderSaves } from "./builder-saves"
+import { BuilderNoData, BuilderTable, builderNumber } from "./builder-table"
+import { CHECKBOX } from "./visit-builder-view"
 
-type Row = {
-  product: string
-  article: string
-  barcode: string
-  code: string
-  type: string
-  brand: string
-  parentType: string
-  productId: string
-  inBlock: string
-  warehouse: string
-  organization: string
-  blocksCount: number
-  stock: number
-  reserved: number
-  stockKg: number
-  reservedKg: number
-  minStock: number
-  skuCount: number
-}
+// «Конструктор отчетов по текущим остаткам» — the reference's #/new-quick-report/?category=remainder: two models
+// in the header, ТЕКУЩИЙ ОСТАТОК (product_balances: what every warehouse holds now, whatever the period) and СКЛАД
+// (stock_transaction: the stock movements of the period); Колонки, Вертикальная / Горизонтальная групировка and
+// Фильтр of the model (Показать итоги, the model's quick filters, individual filters), the period, «Сформировать
+// отчет», «Скачать», «Сохранить» / «Отчеты» (shared with the other constructors, lib builder-saves). The lists and
+// the table come from the report engine of the old builder (GET / POST /api/report-builder kind "old",
+// lib/old-report): the same fields as the reference's report_many_config of the category.
 
-const rows: Row[] = []
-
-const columnFields = [
-  ["blocksCount", "Кол-во блоков"],
-  ["stock", "Остаток"],
-  ["reserved", "Забронировано"],
-  ["stockKg", "Остаток кг"],
-  ["stockMinusMin", "Остаток - минималний остаток"],
-  ["reservedKg", "Забронировано кг"],
-  ["skuCount", "Количество SKU"],
+const MODELS = [
+  { key: "product_balances", label: "ТЕКУЩИЙ ОСТАТОК" },
+  { key: "stock_transaction", label: "СКЛАД" },
 ] as const
+type ModelKey = (typeof MODELS)[number]["key"]
+const isModel = (value: unknown): value is ModelKey => MODELS.some((model) => model.key === value)
 
-const groupFields = [
-  ["warehouse", "Склад"],
-  ["product", "Продукт"],
-  ["article", "Артикул продукта"],
-  ["barcode", "Штрих код продукта"],
-  ["code", "Код продукта"],
-  ["type", "Тип продукта"],
-  ["brand", "Бренд"],
-  ["minStock", "Минималний остаток"],
-  ["parentType", "Родительский тип продукта"],
-  ["productId", "ИД продукта"],
-  ["inBlock", "В блоке"],
-] as const
+type FieldInfo = { id: string; name: string; hint?: string; supported: boolean }
+type ModelInfo = { key: string; name: string; columns: FieldInfo[]; groups: FieldInfo[]; filters: FieldInfo[]; compare: FieldInfo[]; operations: { id: string; name: string }[] }
+type Compare = { field: string; op: string; value: string }
+type Period = { from: string; to: string }
 
-type ColumnKey = (typeof columnFields)[number][0]
-type GroupKey = (typeof groupFields)[number][0]
-
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function fieldValue(row: Row, key: ColumnKey): number {
-  if (key === "stockMinusMin") return row.stock - row.minStock
-  return row[key]
-}
-
-function CheckboxColumn({
+function OptionList({
   title,
-  search,
-  onSearch,
-  options,
+  placeholder,
+  items,
   selected,
   onToggle,
 }: {
   title: string
-  search: string
-  onSearch: (value: string) => void
-  options: readonly (readonly [string, string])[]
-  selected: Set<string>
-  onToggle: (key: string) => void
+  placeholder: string
+  items: FieldInfo[]
+  selected: string[]
+  onToggle: (id: string) => void
 }) {
   const { t } = useLanguage()
-  const needle = search.trim().toLocaleLowerCase()
-  const filtered = options.filter(([, label]) => label.toLocaleLowerCase("ru").includes(needle) || t(label).toLocaleLowerCase().includes(needle))
+  const [query, setQuery] = useState("")
+  const needle = query.trim().toLocaleLowerCase("ru")
+  const visible = items.filter((item) => !needle || t(item.name).toLocaleLowerCase("ru").includes(needle) || item.name.toLocaleLowerCase("ru").includes(needle))
   return (
-    <div className="min-w-0 border-r border-[#ececec] px-[20px] pb-[30px] pt-[20px] last:border-0">
-      <h3 className="text-[15px] font-bold leading-[18px]">{t(title)}</h3>
+    <section className="min-w-0 px-[20px] pb-[30px] pt-[18px]">
+      <h2 className="text-[15px] font-semibold leading-[18.75px]">{t(title)}</h2>
       <label className="relative mt-[11px] block">
-        <input
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
-          placeholder={t(`Поиск ${title.toLocaleLowerCase("ru").startsWith("колон") ? "колонки" : title.toLocaleLowerCase("ru").includes("вертик") ? "вертикальных группировки" : "горизонтальных группировки"}...`)}
-          className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]"
-        />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(placeholder)} className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]" />
         <Search className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />
       </label>
-      <div className="mt-[14px]">
-        {filtered.map(([key, label]) => (
-          <label key={key} className="flex min-h-[30px] cursor-pointer items-center gap-[9px] text-[13px] font-medium">
-            <input type="checkbox" checked={selected.has(key)} onChange={() => onToggle(key)} className={CHECKBOX} />
-            {t(label)}
+      <div className="mt-[11px]">
+        {visible.map((item) => (
+          <label key={item.id} title={item.supported ? item.hint && t(item.hint) : t("Нет данных")} className={`flex min-h-[30px] items-center gap-[9px] text-[13px] font-semibold ${item.supported ? "cursor-pointer" : "cursor-not-allowed text-[#aaa]"}`}>
+            <input type="checkbox" disabled={!item.supported} checked={selected.includes(item.id)} onChange={() => onToggle(item.id)} className={`${CHECKBOX} ml-[3px]`} />
+            {t(item.name)}
           </label>
         ))}
-        {filtered.length === 0 && <p className="text-[13px] text-[#999]">{t("Ничего не найдено")}</p>}
+        {items.length > 0 && visible.length === 0 && <p className="text-[13px] text-[#999]">{t("Ничего не найдено")}</p>}
       </div>
-    </div>
+    </section>
   )
 }
 
-function toggleInSet<T>(set: Set<T>, value: T) {
-  const next = new Set(set)
-  if (next.has(value)) next.delete(value)
-  else next.add(value)
-  return next
+function FilterSelect({ label, value, onChange, options, first = false }: { label: string; value: string; onChange: (value: string) => void; options: string[]; first?: boolean }) {
+  const { t } = useLanguage()
+  return (
+    <label className={`relative ml-[7px] mr-[13px] block h-[45px] border-b border-[#e0e0e0] ${first ? "mt-[9px]" : "mt-[22px]"}`}>
+      <span className={`absolute inset-x-0 top-[21px] truncate pr-6 text-[13px] leading-[18px] ${value ? "font-semibold text-[#1E4A9A]" : "text-black"}`}>{value ? value : t(label)}</span>
+      <select aria-label={t(label)} value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0">
+        <option value="">{t(label)}</option>
+        {options.map((option, index) => (
+          <option key={`${option}-${index}`} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[4px] right-0 h-6 w-6 fill-[#999]" aria-hidden>
+        <path d="M7 10l5 5 5-5z" />
+      </svg>
+    </label>
+  )
 }
+
+/** The URL of the page (the reference keeps beginDate / endDate / openGrouping in it). */
+function writeUrl(changes: Record<string, string | null>) {
+  const params = new URLSearchParams(window.location.search)
+  for (const [name, value] of Object.entries(changes)) {
+    if (value === null) params.delete(name)
+    else params.set(name, value)
+  }
+  const query = params.toString()
+  window.history.replaceState(window.history.state, "", query ? `${window.location.pathname}?${query}` : window.location.pathname)
+}
+
+const toggleIn = (list: string[], item: string) => (list.includes(item) ? list.filter((value) => value !== item) : [...list, item])
 
 export function ReportBuilderView() {
   const { t } = useLanguage()
-  const [mode, setMode] = useState<"stock" | "warehouse">("stock")
-  const [settingsOpen, setSettingsOpen] = useState(true)
-  const [dateRange, setDateRange] = useState(() => monthRangeLabel())
-
-  const [columnSearch, setColumnSearch] = useState("")
-  const [verticalSearch, setVerticalSearch] = useState("")
-  const [horizontalSearch, setHorizontalSearch] = useState("")
-
-  const [selectedColumns, setSelectedColumns] = useState<Set<ColumnKey>>(new Set())
-  const [verticalGroups, setVerticalGroups] = useState<Set<GroupKey>>(new Set())
-  const [horizontalGroups, setHorizontalGroups] = useState<Set<GroupKey>>(new Set())
-
+  const [model, setModel] = useState<ModelKey>("product_balances")
+  const [info, setInfo] = useState<Partial<Record<ModelKey, ModelInfo>>>({})
+  const [settings, setSettings] = useState(true)
+  const [period, setPeriod] = useState<Period>(currentMonthPeriod)
+  const [columns, setColumns] = useState<string[]>([])
+  const [vertical, setVertical] = useState<string[]>([])
+  const [horizontal, setHorizontal] = useState<string[]>([])
   const [showTotals, setShowTotals] = useState(true)
-  const [filterProduct, setFilterProduct] = useState("Все продукты")
-  const [filterWarehouse, setFilterWarehouse] = useState("Все склады")
-  const [filterType, setFilterType] = useState("Все типы")
-  const [filterBrand, setFilterBrand] = useState("Все бренды")
-  const [filterOrganization, setFilterOrganization] = useState("Все организации")
-  const [customFilters, setCustomFilters] = useState<{ id: number; field: GroupKey; value: string }[]>([])
-  const [nextFilterId, setNextFilterId] = useState(1)
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({})
+  const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
+  const [compare, setCompare] = useState<Compare[]>([])
+  const [result, setResult] = useState<BuilderResult | null>(null)
+  /** "none": the generated report is empty (or nothing was chosen). */
+  const [shown, setShown] = useState<"table" | "none" | null>(null)
+  const [dirty, setDirty] = useState(true)
+  const [running, setRunning] = useState(false)
+  const [message, setMessage] = useState("")
+  const current = info[model]
 
-  const [savedReports, setSavedReports] = useState<{ id: number; name: string }[]>([])
-  const [savedFlash, setSavedFlash] = useState(false)
-  const [saving, setSaving] = useState(false)
-
+  // The period and the settings panel of the URL (?beginDate=…&endDate=…&openGrouping=…), as the reference keeps them.
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const from = isoParam(params.get("beginDate"))
+    const to = isoParam(params.get("endDate"))
+    if (from && to && from <= to) setPeriod({ from, to })
+    if (params.get("openGrouping") === "false") setSettings(false)
+  }, [])
+
+  // The panel lists of the model (once per model).
+  useEffect(() => {
+    if (info[model]) return
     let cancelled = false
-    fetch("/api/saved-reports")
-      .then((response) => (response.ok ? (response.json() as Promise<{ id: number; name: string }[]>) : []))
-      .then((reports) => {
-        if (!cancelled) setSavedReports(reports)
+    fetch(`/api/report-builder?kind=old&model=${model}`)
+      .then((response) => (response.ok ? (response.json() as Promise<ModelInfo>) : Promise.reject(response.status)))
+      .then((data) => {
+        if (!cancelled) setInfo((list) => ({ ...list, [model]: data }))
       })
       .catch(() => {
-        // keep the empty local list if the request fails
+        if (!cancelled) setMessage(t("Не удалось загрузить данные"))
       })
     return () => {
       cancelled = true
     }
-  }, [])
-  const [reportsOpen, setReportsOpen] = useState(false)
-  const [generated, setGenerated] = useState<{ columns: ColumnKey[]; vertical: GroupKey[]; horizontal: GroupKey[]; groups: { key: string; label: string; rows: Row[] }[] } | null>(null)
+  }, [info, model, t])
 
-  const filteredRows = useMemo(() => {
-    return rows.filter((row) => {
-      if (filterProduct !== "Все продукты" && row.product !== filterProduct) return false
-      if (filterWarehouse !== "Все склады" && row.warehouse !== filterWarehouse) return false
-      if (filterType !== "Все типы" && row.type !== filterType) return false
-      if (filterBrand !== "Все бренды" && row.brand !== filterBrand) return false
-      if (filterOrganization !== "Все организации" && row.organization !== filterOrganization) return false
-      for (const custom of customFilters) {
-        if (!custom.value.trim()) continue
-        const raw = custom.field === "minStock" ? String(row.minStock) : String(row[custom.field as keyof Row])
-        if (!raw.toLocaleLowerCase("ru").includes(custom.value.trim().toLocaleLowerCase("ru"))) return false
-      }
-      return true
+  // The options of the model's quick filters: what the records of the period hold (Текущий остаток: today's).
+  const filterIds = (current?.filters ?? []).filter((filter) => filter.supported).map((filter) => filter.id).join(",")
+  useEffect(() => {
+    if (!filterIds) return
+    let cancelled = false
+    const ids = filterIds.split(",")
+    void Promise.all(
+      ids.map((id) =>
+        fetch(`/api/report-builder?kind=old&model=${model}&filter=${encodeURIComponent(id)}&from=${period.from}&to=${period.to}`)
+          .then((response) => (response.ok ? (response.json() as Promise<{ options?: string[] }>) : { options: [] }))
+          .then((data) => [id, data.options ?? []] as const)
+          .catch(() => [id, [] as string[]] as const),
+      ),
+    ).then((entries) => {
+      if (!cancelled) setFilterOptions(Object.fromEntries(entries))
     })
-  }, [customFilters, filterBrand, filterOrganization, filterProduct, filterType, filterWarehouse])
-
-  const generateReport = () => {
-    const verticalList = [...verticalGroups]
-    const horizontalList = [...horizontalGroups]
-    const columnsList: ColumnKey[] = selectedColumns.size ? [...selectedColumns] : ["stock"]
-    const groupKeys = verticalList.length ? verticalList : (["product"] as GroupKey[])
-
-    const map = new Map<string, { key: string; label: string; rows: Row[] }>()
-    for (const row of filteredRows) {
-      const key = groupKeys.map((field) => (field === "minStock" ? row.minStock : row[field])).join(" / ")
-      const label = groupKeys.map((field) => (field === "minStock" ? String(row.minStock) : String(row[field]))).join(" / ")
-      const existing = map.get(key)
-      if (existing) existing.rows.push(row)
-      else map.set(key, { key, label, rows: [row] })
+    return () => {
+      cancelled = true
     }
+  }, [filterIds, model, period.from, period.to])
 
-    setGenerated({ columns: columnsList, vertical: groupKeys, horizontal: horizontalList, groups: [...map.values()] })
-    setSettingsOpen(false)
+  const changed = useCallback(() => setDirty(true), [])
+  const toggleColumn = (id: string) => {
+    setColumns((list) => toggleIn(list, id))
+    changed()
+  }
+  // A grouping is either vertical or horizontal: the one chosen in a list leaves the other list.
+  const toggleVertical = (id: string) => {
+    setVertical((list) => toggleIn(list, id))
+    setHorizontal((list) => list.filter((value) => value !== id))
+    changed()
+  }
+  const toggleHorizontal = (id: string) => {
+    setHorizontal((list) => toggleIn(list, id))
+    setVertical((list) => list.filter((value) => value !== id))
+    changed()
   }
 
-  const exportReport = () => {
-    const report = generated ?? (() => {
-      generateReport()
+  const showSettings = (open: boolean) => {
+    setSettings(open)
+    writeUrl({ openGrouping: String(open) })
+  }
+
+  const applyPeriod = (from: string, to: string) => {
+    setPeriod({ from, to })
+    changed()
+    writeUrl({ beginDate: from, endDate: to, openGrouping: String(settings) })
+  }
+
+  /** Another model starts from an empty panel (its fields are not the other model's). */
+  const chooseModel = (next: ModelKey) => {
+    if (next === model) return
+    setModel(next)
+    setColumns([])
+    setVertical([])
+    setHorizontal([])
+    setFilterValues({})
+    setFilterOptions({})
+    setCompare([])
+    setResult(null)
+    setShown(null)
+    setMessage("")
+    changed()
+  }
+
+  async function generate(): Promise<BuilderResult | null> {
+    setMessage("")
+    if (columns.length === 0) {
+      // The reference answers a report without columns with its no-data page.
+      setResult(null)
+      setShown("none")
+      setDirty(false)
+      showSettings(false)
       return null
-    })()
-    if (!report) return
-    const header = [...report.vertical.map((key) => groupFields.find(([k]) => k === key)?.[1] ?? key), ...report.columns.map((key) => columnFields.find(([k]) => k === key)?.[1] ?? key)]
-    const body = report.groups.map((group) => {
-      const labelParts = group.label.split(" / ")
-      const values = report.columns.map((key) => number(group.rows.reduce((sum, row) => sum + fieldValue(row, key), 0)))
-      return [...labelParts, ...values]
-    })
-    downloadExcelTable("konstruktor-otcheta.xls", [header, ...body])
-  }
-
-  const saveReport = async () => {
-    if (saving) return
-    setSaving(true)
-    const name = `Мой отчёт ${savedReports.length + 1}`
-    const config = {
-      mode,
-      dateRange,
-      columns: [...selectedColumns],
-      vertical: [...verticalGroups],
-      horizontal: [...horizontalGroups],
-      showTotals,
-      filterProduct,
-      filterWarehouse,
-      filterType,
-      filterBrand,
-      filterOrganization,
-      customFilters,
     }
+    setRunning(true)
     try {
-      const response = await fetch("/api/saved-reports", {
+      const filters = Object.fromEntries(Object.entries(filterValues).filter(([, value]) => value).map(([id, value]) => [id, [value]]))
+      const response = await fetch("/api/report-builder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, config }),
+        body: JSON.stringify({
+          kind: "old",
+          model,
+          from: period.from,
+          to: period.to,
+          columns,
+          vertical,
+          horizontal,
+          filters,
+          compare: compare.filter((item) => item.field && item.op && item.value.trim()),
+          showTotals,
+        }),
       })
-      if (response.ok) {
-        const saved = (await response.json()) as { id: number; name: string }
-        setSavedReports((current) => [...current, { id: saved.id, name: saved.name }])
-        setSavedFlash(true)
-        setTimeout(() => setSavedFlash(false), 1500)
+      const data = (await response.json().catch(() => null)) as (BuilderResult & { error?: string }) | null
+      if (!response.ok || !data || data.error) {
+        setMessage(t(data?.error || "Не удалось сформировать отчет"))
+        return null
       }
+      setResult(data)
+      setShown(data.rows.length ? "table" : "none")
+      setDirty(false)
+      showSettings(false)
+      const notes = [
+        data.unsupported.length ? `${t("Нет данных для")}: ${data.unsupported.map((item) => t(item)).join(", ")}` : "",
+        data.missingRates?.length ? `${t("Курс валюты не задан")}: ${data.missingRates.join(", ")}` : "",
+      ].filter(Boolean)
+      if (notes.length) setMessage(notes.join(". "))
+      return data
     } catch {
-      // ignore network failures, no flash on failure
+      setMessage(t("Не удалось сформировать отчет"))
+      return null
+    } finally {
+      setRunning(false)
     }
-    setSaving(false)
   }
 
-  const addCustomFilter = () => {
-    setCustomFilters((current) => [...current, { id: nextFilterId, field: "product", value: "" }])
-    setNextFilterId((value) => value + 1)
+  const exportExcel = async () => {
+    const data = !dirty && result ? result : await generate()
+    if (!data || !data.rows.length) return
+    const vert = data.vertical ?? []
+    const cols = data.columns ?? []
+    const keys = data.keys?.length ? data.keys : [""]
+    const header = [...(vert.length ? vert.map((name) => t(name)) : [""]), ...cols.flatMap((column) => keys.map((key) => [key, t(column)].filter(Boolean).join(" · ")))]
+    const cell = (row: (string | number)[], key: number, column: number) => {
+      const value = row[vert.length + key * cols.length + column]
+      return typeof value === "number" ? builderNumber(value) : value
+    }
+    const body = data.rows.map((row) => [...(vert.length ? row.slice(0, vert.length) : [""]), ...cols.flatMap((_, column) => keys.map((__, key) => cell(row, key, column)))])
+    const totals = data.totals ? [[t("Итого"), ...vert.slice(1).map(() => ""), ...cols.flatMap((_, column) => keys.map((__, key) => cell(data.totals as (string | number)[], key, column)))]] : []
+    downloadExcelTable(`${t("Конструктор")}.xls`, [header, ...body, ...totals])
   }
 
-  const productOptions = ["Все продукты", ...new Set(rows.map((row) => row.product))]
-  const warehouseOptions = ["Все склады", ...new Set(rows.map((row) => row.warehouse))]
-  const typeOptions = ["Все типы", ...new Set(rows.map((row) => row.type))]
-  const brandOptions = ["Все бренды", ...new Set(rows.map((row) => row.brand))]
-  const organizationOptions = ["Все организации", ...new Set(rows.map((row) => row.organization))]
+  /** A saved report of this constructor back on screen: its model and every setting. */
+  const loadSavedReport = (report: NewReportBuilderSave) => {
+    const config = report.config
+    const next = isModel(config.model) ? config.model : model
+    setModel(next)
+    setColumns(savedList(config.columns))
+    setVertical(savedList(config.vertical))
+    setHorizontal(savedList(config.horizontal))
+    setShowTotals(typeof config.showTotals === "boolean" ? config.showTotals : true)
+    setFilterValues(savedRecord(config.filterValues))
+    setCompare(
+      Array.isArray(config.compare)
+        ? (config.compare as unknown[]).filter(
+            (item): item is Compare => !!item && typeof item === "object" && typeof (item as Compare).field === "string" && typeof (item as Compare).op === "string" && typeof (item as Compare).value === "string",
+          )
+        : [],
+    )
+    const saved = savedPeriod(config)
+    setPeriod(saved)
+    writeUrl({ beginDate: saved.from, endDate: saved.to, openGrouping: "true" })
+    setSettings(true)
+    setResult(null)
+    setShown(null)
+    setDirty(true)
+  }
+
+  const saves = useBuilderSaves({
+    page: "stock",
+    snapshot: () => ({
+      reportType: MODELS.find((item) => item.key === model)?.label ?? model,
+      config: { model, columns, vertical, horizontal, showTotals, filterValues, compare, from: period.from, to: period.to },
+    }),
+    onLoad: loadSavedReport,
+    onMessage: setMessage,
+  })
+
+  const groups = current?.groups ?? []
+  const compareFields = (current?.compare ?? []).filter((field) => field.supported)
+  const generateIdle = !dirty && shown !== null
 
   return (
     <ReportPage>
-      <div className="pl-[28px] pr-[38px]">
-        <RefHeader title="Конструктор">
-          <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            {([["stock", "ТЕКУЩИЙ ОСТАТОК"], ["warehouse", "СКЛАД"]] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setMode(key)} className={`h-[30px] px-4 text-[13px] font-medium ${mode === key ? "bg-[#2bcd53] text-white" : "bg-white text-black"}`}>{t(label)}</button>
+      <div className="pl-[30px] pr-[38px]">
+        <RefHeader title={t("Конструктор")}>
+          <div className="flex shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            {MODELS.map((item, index) => (
+              <button
+                type="button"
+                key={item.key}
+                onClick={() => chooseModel(item.key)}
+                className={`h-[32px] px-4 text-[13px] font-medium transition-colors ${index === 0 ? "rounded-l-[3px]" : "rounded-r-[3px]"} ${model === item.key ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}
+              >
+                {t(item.label)}
+              </button>
             ))}
           </div>
         </RefHeader>
       </div>
-
-      <div className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-      <section className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
-        <button onClick={() => void saveReport()} disabled={saving} className="flex h-[38px] items-center rounded-[3px] bg-[#1E4A9A] px-[15px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
-          <Bookmark className="mr-3 h-[18px] w-[18px] fill-white" /> {savedFlash ? t("Сохранено ✓") : saving ? t("Сохранение...") : t("Сохранить")}
-        </button>
-
-        <div className="relative">
-          <button onClick={() => setReportsOpen((value) => !value)} className="flex h-[38px] items-center rounded-[3px] bg-[#ff8a6f] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-            <FolderOpen className="mr-3 h-[18px] w-[18px] fill-white" /> {t("Отчеты")}
+      <section className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="flex min-h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
+          <button type="button" onClick={saves.openSave} className="flex h-[36px] items-center rounded-[3px] bg-[#1E4A9A] px-[15px] text-[13px] text-white hover:brightness-95">
+            <Bookmark className="mr-[10px] h-[18px] w-[18px] fill-white" />
+            {t("Сохранить")}
           </button>
-          {reportsOpen && (
-            <div className="absolute left-0 top-[42px] z-30 w-64 border border-[#e8e8e8] bg-white p-3 shadow-xl">
-              {savedReports.length === 0 && <p className="px-2 py-3 text-[13px] text-[#999]">{t("Пока нет сохранённых отчётов")}</p>}
-              {savedReports.map((saved) => (
-                <button key={saved.id} onClick={() => { setReportsOpen(false); generateReport() }} className="block w-full rounded px-2 py-2 text-left text-[13px] hover:bg-[#f2f5f8]">{saved.name}</button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <button onClick={exportReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-          <Download className="mr-3 h-[18px] w-[18px]" /> {t("Скачать")}
-        </button>
-
-        <div className="ml-auto flex items-center gap-[19px]">
-          <input value={dateRange} onChange={(event) => setDateRange(event.target.value)} className="w-[190px] bg-transparent text-right text-[12px] font-bold text-[#1E4A9A] outline-none" />
-          <button onClick={() => setSettingsOpen((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
-            <span>{settingsOpen ? `${t("Скрыть настройки")} ▲` : `${t("Показать настройки")} ▼`}</span>
+          <button type="button" onClick={saves.openReports} className="flex h-[36px] items-center rounded-[3px] bg-[#ff8a65] px-[15px] text-[13px] text-white hover:brightness-95">
+            <FolderOpen className="mr-[10px] h-[18px] w-[18px] fill-white" />
+            {t("Отчеты")}
           </button>
-          <button onClick={generateReport} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
-            {t("Сформировать отчет")}
+          <button type="button" onClick={() => void exportExcel()} className="flex h-[36px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] text-white hover:brightness-95">
+            <Download className="mr-[10px] h-[18px] w-[18px]" />
+            {t("Скачать")}
           </button>
-        </div>
-      </section>
-
-      {settingsOpen && (
-        <section className="grid grid-cols-1 border-t border-[#ececec] shadow-[0_2px_6px_rgba(0,0,0,0.12)] md:grid-cols-4">
-          <CheckboxColumn title="Колонки" search={columnSearch} onSearch={setColumnSearch} options={columnFields} selected={selectedColumns} onToggle={(key) => setSelectedColumns((current) => toggleInSet(current, key as ColumnKey))} />
-          <CheckboxColumn title="Вертикальная группировка" search={verticalSearch} onSearch={setVerticalSearch} options={groupFields} selected={verticalGroups} onToggle={(key) => setVerticalGroups((current) => toggleInSet(current, key as GroupKey))} />
-          <CheckboxColumn title="Горизонтальная группировка" search={horizontalSearch} onSearch={setHorizontalSearch} options={groupFields} selected={horizontalGroups} onToggle={(key) => setHorizontalGroups((current) => toggleInSet(current, key as GroupKey))} />
-
-          <div className="min-w-0 px-[20px] pb-[20px] pt-[20px]">
-            <h3 className="text-[15px] font-bold leading-[18px]">{t("Фильтр")}</h3>
-            <label className="mb-[8px] mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-medium">
-              <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className={CHECKBOX} />
-              {t("Показать итоги")}
-            </label>
-
-            {(
-              [
-                ["Продукт", filterProduct, setFilterProduct, productOptions],
-                ["Склад", filterWarehouse, setFilterWarehouse, warehouseOptions],
-                ["Тип продукта", filterType, setFilterType, typeOptions],
-                ["Бренд", filterBrand, setFilterBrand, brandOptions],
-                ["Организация", filterOrganization, setFilterOrganization, organizationOptions],
-              ] as const
-            ).map(([label, value, setter, options]) => (
-              <label key={label} className="relative mt-[22px] block h-[45px] border-b border-[#e0e0e0]">
-                <span className="absolute inset-x-0 top-[18px] text-[13px] leading-[18px]">{value && !value.startsWith("Все") ? value : t(label)}</span>
-                <select value={value} onChange={(event) => setter(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0">
-                  {options.map((option) => <option key={option} value={option}>{option.startsWith("Все") ? t(option) : option}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute bottom-[8px] right-0 h-4 w-4 text-[#999]" />
-              </label>
-            ))}
-
-            {customFilters.map((filter) => (
-              <div key={filter.id} className="mb-4 flex items-end gap-2">
-                <label className="block flex-1 border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
-                  <select value={filter.field} onChange={(event) => setCustomFilters((current) => current.map((item) => item.id === filter.id ? { ...item, field: event.target.value as GroupKey } : item))} className="block w-full bg-transparent text-[14px] outline-none">
-                    {groupFields.map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}
-                  </select>
-                  <input
-                    value={filter.value}
-                    onChange={(event) => setCustomFilters((current) => current.map((item) => item.id === filter.id ? { ...item, value: event.target.value } : item))}
-                    placeholder={t("Значение...")}
-                    className="mt-1 block w-full bg-transparent text-[14px] outline-none placeholder:text-[#9aa3b6]"
-                  />
-                </label>
-                <button aria-label={t("Удалить фильтр")} onClick={() => setCustomFilters((current) => current.filter((item) => item.id !== filter.id))} className="mb-2 text-[#9aa3b6] hover:text-[#e5484d]">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-
-            <button onClick={addCustomFilter} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium uppercase text-white hover:brightness-95">
-              <span>{t("Добавить индивидуальный фильтр")}</span>
+          <div className="ml-auto flex flex-wrap items-center gap-[19px]">
+            <BuilderPeriod from={period.from} to={period.to} onApply={applyPeriod} align="right" />
+            <button type="button" aria-expanded={settings} onClick={() => showSettings(!settings)} className="flex h-[36px] w-[215px] items-center justify-center gap-[8px] rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
+              <span>{settings ? t("СКРЫТЬ НАСТРОЙКИ") : t("ПОКАЗАТЬ НАСТРОЙКИ")}</span>
+              <svg viewBox="0 0 10 6" aria-hidden className={`h-[6px] w-[10px] fill-white ${settings ? "rotate-180" : ""}`}>
+                <path d="M0 0h10L5 6z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => void generate()}
+              className={`h-[36px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95 disabled:cursor-wait ${generateIdle || running ? "opacity-50" : ""}`}
+            >
+              {t("СФОРМИРОВАТЬ ОТЧЕТ")}
             </button>
           </div>
-        </section>
-      )}
-      </div>
-
-      {generated && (
-        <section className="mx-7 mt-3 overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-          <table className="min-w-[900px] w-full border-collapse text-[15px]">
-            <thead className="bg-[#edf2f7] text-[#253653]">
-              <tr>
-                {generated.vertical.map((key) => (
-                  <th key={key} className="border border-[#e1e5eb] px-4 py-3 text-left font-semibold">{t(groupFields.find(([k]) => k === key)?.[1] ?? "")}</th>
-                ))}
-                {generated.columns.map((key) => (
-                  <th key={key} className="border border-[#e1e5eb] px-4 py-3 text-right font-semibold">{t(columnFields.find(([k]) => k === key)?.[1] ?? "")}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {generated.groups.map((group, index) => (
-                <tr key={group.key} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  {group.label.split(" / ").map((part, partIndex) => (
-                    <td key={partIndex} className="border border-[#e1e5eb] px-4 py-2.5">{part || "—"}</td>
-                  ))}
-                  {generated.columns.map((key) => (
-                    <td key={key} className="border border-[#e1e5eb] px-4 py-2.5 text-right">{number(group.rows.reduce((sum, row) => sum + fieldValue(row, key), 0))}</td>
-                  ))}
-                </tr>
+        </div>
+        {message && (
+          <div className="flex items-center justify-between border-t border-blue-100 bg-blue-50 px-[30px] py-2 text-[13px] text-blue-700">
+            {message}
+            <button type="button" onClick={() => setMessage("")} aria-label={t("Закрыть сообщение")}>
+              ×
+            </button>
+          </div>
+        )}
+        {settings && (
+          <div className="grid grid-cols-1 divide-y divide-[#ececec] border-t border-[#ececec] shadow-[0_2px_6px_rgba(0,0,0,0.12)] lg:grid-cols-4 lg:divide-x lg:divide-y-0">
+            <OptionList key={`c-${model}`} title="Колонки" placeholder="Поиск колонки..." items={current?.columns ?? []} selected={columns} onToggle={toggleColumn} />
+            <OptionList key={`v-${model}`} title="Вертикальная групировка" placeholder="Поиск вертикальных группировки..." items={groups.filter((item) => !horizontal.includes(item.id))} selected={vertical} onToggle={toggleVertical} />
+            <OptionList key={`h-${model}`} title="Горизонтальная групировка" placeholder="Поиск горизонтальных группировки..." items={groups.filter((item) => !vertical.includes(item.id))} selected={horizontal} onToggle={toggleHorizontal} />
+            <section className="pb-[20px] pl-[23px] pr-[17px] pt-[18px]">
+              <h2 className="text-[15px] font-semibold leading-[18.75px]">{t("Фильтр")}</h2>
+              <label className="mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-semibold">
+                <input
+                  type="checkbox"
+                  checked={showTotals}
+                  onChange={(event) => {
+                    setShowTotals(event.target.checked)
+                    changed()
+                  }}
+                  className={CHECKBOX}
+                />
+                {t("Показать итоги")}
+              </label>
+              {(current?.filters ?? []).map((filter, index) => (
+                <FilterSelect
+                  key={filter.id}
+                  first={index === 0}
+                  label={filter.name}
+                  value={filterValues[filter.id] ?? ""}
+                  options={filterOptions[filter.id] ?? []}
+                  onChange={(value) => {
+                    setFilterValues((list) => ({ ...list, [filter.id]: value }))
+                    changed()
+                  }}
+                />
               ))}
-              {showTotals && generated.groups.length > 0 && (
-                <tr className="bg-[#edf2f7] font-semibold">
-                  <td className="border border-[#e1e5eb] px-4 py-2.5" colSpan={generated.vertical.length}>{t("Итого")}</td>
-                  {generated.columns.map((key) => (
-                    <td key={key} className="border border-[#e1e5eb] px-4 py-2.5 text-right">
-                      {number(generated.groups.reduce((sum, group) => sum + group.rows.reduce((rowSum, row) => rowSum + fieldValue(row, key), 0), 0))}
-                    </td>
-                  ))}
-                </tr>
-              )}
-              {generated.groups.length === 0 && (
-                <tr><td colSpan={generated.vertical.length + generated.columns.length} className="border border-[#e1e5eb] px-4 py-10 text-center text-[#9aa3b6]">{t("По заданным фильтрам ничего не найдено")}</td></tr>
-              )}
-            </tbody>
-          </table>
-        </section>
+              {compare.map((item, index) => (
+                <div key={index} className="mt-[18px] flex items-end gap-[8px]">
+                  <select
+                    aria-label={t("Индивидуальный фильтр")}
+                    value={item.field}
+                    onChange={(event) => {
+                      const field = event.target.value
+                      setCompare((list) => list.map((entry, i) => (i === index ? { ...entry, field } : entry)))
+                      changed()
+                    }}
+                    className="h-[36px] min-w-0 flex-1 border-b border-[#e0e0e0] bg-white text-[13px] outline-none"
+                  >
+                    <option value="">{t("Индивидуальный фильтр")}</option>
+                    {compareFields.map((field) => (
+                      <option key={field.id} value={field.id}>
+                        {t(field.name)}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label={t("Условие")}
+                    value={item.op}
+                    onChange={(event) => {
+                      const op = event.target.value
+                      setCompare((list) => list.map((entry, i) => (i === index ? { ...entry, op } : entry)))
+                      changed()
+                    }}
+                    className="h-[36px] w-[110px] border-b border-[#e0e0e0] bg-white text-[13px] outline-none"
+                  >
+                    {(current?.operations ?? []).map((operation) => (
+                      <option key={operation.id} value={operation.id}>
+                        {t(operation.name)}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    aria-label={t("Значение фильтра")}
+                    value={item.value}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCompare((list) => list.map((entry, i) => (i === index ? { ...entry, value } : entry)))
+                      changed()
+                    }}
+                    placeholder={t("Значение фильтра")}
+                    className="h-[36px] w-[80px] min-w-0 border-b border-[#e0e0e0] text-[13px] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompare((list) => list.filter((_, i) => i !== index))
+                      changed()
+                    }}
+                    aria-label={t("Удалить фильтр")}
+                    className="pb-[6px] text-[#777] hover:text-black"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                disabled={!compareFields.length}
+                onClick={() => setCompare((list) => [...list, { field: compareFields[0]?.id ?? "", op: current?.operations[0]?.id ?? "contains", value: "" }])}
+                className="mt-[18px] h-9 w-full rounded-[3px] bg-[#1E4A9A] text-[13px] font-medium uppercase text-white hover:brightness-95 disabled:opacity-50"
+              >
+                {t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР")}
+              </button>
+            </section>
+          </div>
+        )}
+      </section>
+
+      {shown === "none" && <BuilderNoData className="mx-7 mt-[30px]" />}
+      {shown === "table" && result && (
+        <div className="mx-7 mt-[30px] overflow-x-auto rounded-[8px] bg-white">
+          <BuilderTable result={result} />
+        </div>
       )}
+
+      {saves.dialogs}
     </ReportPage>
   )
 }

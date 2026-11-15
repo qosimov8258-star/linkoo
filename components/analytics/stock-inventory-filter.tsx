@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react"
 import { ChevronDown, Pencil, X } from "lucide-react"
 
-import { FormField, MultiPick, SearchSelect, inputClass } from "@/components/analytics/cash-management-shared"
+import { RefSearchSelect, type RefSelectItem } from "@/components/analytics/ref-search-select"
+import { FilterDate, RefFilterPanel } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
   STOCK_INVENTORY_STATUSES,
@@ -12,9 +13,11 @@ import {
   type StockInventoryStatus,
 } from "@/lib/stock-inventories-types"
 
-// Demo InventoryFilter (module 4373): "Показать фильтр" → 310px popup with
-// Склад, Создал (users), Статус (В ожидании / Подтвержденный / Отменено),
-// Период создания and "Применить"; once applied "Фильтр: N элемента" + edit + clear.
+// Linko's inventory filter (#/inventory?openFilterDialog=true): the 310px "Фильтр" panel over the
+// list's top-left corner with Склад (one warehouse), Создал (several users), Статус (В ожидании /
+// Подтвержденный / Отменено), «Период создания» — the range picker (presets and two months) behind
+// "Укажите дату" — and "Применить". A click outside leaves it open; once applied the toolbar shows
+// "Фильтр: N элемента" (the period counts as two: its start and its end) with edit and clear.
 
 export type InventoryFilters = {
   warehouses: string[]
@@ -27,53 +30,38 @@ export type InventoryFilters = {
 export const EMPTY_INVENTORY_FILTERS: InventoryFilters = { warehouses: [], createdBy: [], status: "", fromDate: "", toDate: "" }
 
 export function inventoryFilterCount(filters: InventoryFilters): number {
-  return [filters.warehouses.length > 0, filters.createdBy.length > 0, Boolean(filters.status), Boolean(filters.fromDate || filters.toDate)].filter(Boolean).length
+  return [filters.warehouses.length > 0, filters.createdBy.length > 0, Boolean(filters.status), Boolean(filters.fromDate), Boolean(filters.toDate)].filter(Boolean).length
 }
 
-export function InventoryFilterBar({
-  filters,
-  open,
-  onOpen,
-  onClose,
-  onClear,
-  onApply,
-  options,
-}: {
-  filters: InventoryFilters
-  open: boolean
-  onOpen: () => void
-  onClose: () => void
-  onClear: () => void
-  onApply: (filters: InventoryFilters) => void
-  options: StockInventoryOptions | null
-}) {
+/** The toolbar's left slot: "Показать фильтр ⌄", or the applied filter's chip. */
+export function InventoryFilterBar({ filters, open, onOpen, onClose, onClear }: { filters: InventoryFilters; open: boolean; onOpen: () => void; onClose: () => void; onClear: () => void }) {
   const { t } = useLanguage()
   const count = inventoryFilterCount(filters)
-  return (
-    <div className="relative">
-      {count > 0 ? (
-        <div className="flex items-center gap-2 rounded-md bg-[#efefef] px-4 py-1.5 text-[#666]">
-          <span className="whitespace-nowrap">
-            {t("Фильтр")}: {count} {t("элемента")}
-          </span>
-          <button type="button" onClick={onOpen} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
-            <Pencil className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={onClear} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ) : (
-        <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-[2px] whitespace-nowrap text-[13px] text-[#1E4A9A]">
-          {t("Показать фильтр")} <ChevronDown className={`mt-[2px] h-3 w-3 transition ${open ? "rotate-180" : ""}`} />
+  if (count > 0)
+    return (
+      <div className="flex w-fit items-center gap-2 rounded-md bg-[#efefef] px-4 py-1.5 text-[#666]">
+        <span className="whitespace-nowrap">
+          {t("Фильтр")}: {count} {t("элемента")}
+        </span>
+        <button type="button" onClick={onOpen} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
+          <Pencil className="h-4 w-4" />
         </button>
-      )}
-      {open && <FilterPopup filters={filters} options={options} onClose={onClose} onApply={onApply} />}
-    </div>
+        <button type="button" onClick={onClear} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    )
+  return (
+    <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-[2px] whitespace-nowrap pl-[5px] text-[13px] text-[#1E4A9A]">
+      {t("Показать фильтр")} <ChevronDown className={`mt-[2px] h-3 w-3 transition ${open ? "rotate-180" : ""}`} />
+    </button>
   )
 }
 
-function FilterPopup({
+const named = (values: string[]): RefSelectItem[] => values.map((value) => ({ value, label: value }))
+
+/** Mounted only while open: the draft starts from the applied filters. */
+export function InventoryFilterPanel({
   filters,
   options,
   onClose,
@@ -88,53 +76,55 @@ function FilterPopup({
   const [draft, setDraft] = useState<InventoryFilters>(filters)
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
+      if (event.key === "Escape" && !event.defaultPrevented) onClose()
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
-  const named = (values: string[]) => values.map((value) => ({ value, label: value }))
-  const statusOptions = STOCK_INVENTORY_STATUSES.map((status) => ({ value: status, label: t(STOCK_INVENTORY_STATUS_FILTER_LABELS[status]) }))
+  const set = <K extends keyof InventoryFilters>(key: K, value: InventoryFilters[K]) => setDraft((current) => ({ ...current, [key]: value }))
+  // A value of the URL no longer offered (a renamed warehouse, a removed user) stays choosable.
+  const withChosen = (list: string[], chosen: string[]) => named([...chosen.filter((value) => !list.includes(value)), ...list])
+  const warehouseItems = withChosen(options?.warehouses ?? [], draft.warehouses)
+  const userItems = withChosen(options?.users ?? [], draft.createdBy)
+  const statusItems = STOCK_INVENTORY_STATUSES.map((status) => ({ value: status, label: t(STOCK_INVENTORY_STATUS_FILTER_LABELS[status]) }))
+  const apply = () => {
+    const swap = draft.fromDate && draft.toDate && draft.fromDate > draft.toDate
+    onApply(swap ? { ...draft, fromDate: draft.toDate, toDate: draft.fromDate } : draft)
+  }
   return (
-    <>
-      <div className="fixed inset-0 z-[55]" onMouseDown={onClose} aria-hidden />
-      <form
-        className="absolute left-0 top-0 z-[60] w-[min(310px,calc(100vw-2rem))] bg-white px-5 py-3 shadow-[0_2px_10px_rgba(0,0,0,0.2)]"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const swap = draft.fromDate && draft.toDate && draft.fromDate > draft.toDate
-          onApply(swap ? { ...draft, fromDate: draft.toDate, toDate: draft.fromDate } : draft)
-        }}
-      >
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-[15px] text-[#5d6474]">{t("Фильтр")}</span>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#8f8f8f] hover:text-[#17233b]">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="flex flex-col gap-3">
-          <MultiPick label={t("Склад")} options={named(options?.warehouses ?? [])} value={draft.warehouses} onChange={(warehouses) => setDraft((current) => ({ ...current, warehouses }))} />
-          <MultiPick label={t("Создал")} options={named(options?.users ?? [])} value={draft.createdBy} onChange={(createdBy) => setDraft((current) => ({ ...current, createdBy }))} />
-          <FormField label={t("Статус")}>
-            <SearchSelect
-              value={draft.status}
-              options={statusOptions}
-              placeholder={t("Все")}
-              onChange={(status) => setDraft((current) => ({ ...current, status: status as StockInventoryStatus | "" }))}
-            />
-          </FormField>
-          <FormField label={t("Период создания")}>
-            <span className="flex items-center gap-2">
-              <input type="date" value={draft.fromDate} onChange={(event) => setDraft((current) => ({ ...current, fromDate: event.target.value }))} aria-label={t("С")} className={`${inputClass} px-2`} />
-              <span>—</span>
-              <input type="date" value={draft.toDate} onChange={(event) => setDraft((current) => ({ ...current, toDate: event.target.value }))} aria-label={t("По")} className={`${inputClass} px-2`} />
-            </span>
-          </FormField>
-        </div>
-        <button type="submit" className="mt-4 h-9 rounded-sm bg-[rgb(79,113,220)] px-5 text-[13px] font-semibold uppercase text-white shadow hover:brightness-95">
-          {t("Применить")}
-        </button>
-      </form>
-    </>
+    <RefFilterPanel narrow onClose={onClose} onApply={apply} applyClassName="mt-[15px]">
+      <RefSearchSelect
+        label={t("Склад")}
+        rowHeight={32}
+        items={warehouseItems}
+        selected={warehouseItems.filter((item) => draft.warehouses.includes(item.value)).slice(0, 1)}
+        onChange={(next) => set("warehouses", next.slice(-1).map((item) => item.value))}
+      />
+      <RefSearchSelect
+        multi
+        label={t("Создал")}
+        rowHeight={32}
+        items={userItems}
+        selected={userItems.filter((item) => draft.createdBy.includes(item.value))}
+        onChange={(next) => set("createdBy", next.map((item) => item.value))}
+      />
+      <RefSearchSelect
+        searchable={false}
+        rowHeight={32}
+        label={t("Статус")}
+        items={statusItems}
+        selected={statusItems.filter((item) => item.value === draft.status)}
+        onChange={(next) => set("status", (next[0]?.value ?? "") as StockInventoryStatus | "")}
+      />
+      <FilterDate
+        words
+        className="mt-[3px]"
+        iconLeft={188}
+        label={t("Период создания")}
+        begin={draft.fromDate}
+        end={draft.toDate}
+        onChange={(fromDate, toDate) => setDraft((current) => ({ ...current, fromDate, toDate }))}
+      />
+    </RefFilterPanel>
   )
 }

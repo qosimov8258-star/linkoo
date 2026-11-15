@@ -1510,6 +1510,7 @@ export const tk: Record<string, string> = {
   // new-report-builder-view.tsx
   "01 Авг. 2026 - 31 Авг. 2026": "01 Awg. 2026 - 31 Awg. 2026",
   "Значение фильтра": "Süzgüç bahasy",
+  "Условие": "Şert",
   "ПОКАЗАТЬ НАСТРОЙКИ": "SAZLAMALARY GÖRKEZ",
   "СКРЫТЬ НАСТРОЙКИ": "SAZLAMALARY GIZLE",
   "Сохранено ✓": "Ýatda saklandy ✓",

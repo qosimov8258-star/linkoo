@@ -62,7 +62,8 @@ export function planStateFromParams(params: URLSearchParams): PlanState {
     page: Number.isFinite(page) && page > 0 ? page : 1,
     pageSize: (PLAN_PAGE_SIZES as readonly number[]).includes(size) ? size : 25,
     detail: (params.get("id") ?? "").trim(),
-    products: values(params, "product"),
+    // Linko's links carry the bare product id (product=176): it is the item key "product:176".
+    products: values(params, "product").map((value) => (/^\d+$/.test(value) ? `product:${value}` : value)),
     typeParents: values(params, "typeParent"),
     subcategories: values(params, "typeChild"),
     direction: ["in", "out"].includes(params.get("direction") ?? "") ? (params.get("direction") as string) : "",

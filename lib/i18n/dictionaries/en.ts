@@ -1510,6 +1510,7 @@ export const en: Record<string, string> = {
   // new-report-builder-view.tsx
   "01 Авг. 2026 - 31 Авг. 2026": "Aug 01, 2026 - Aug 31, 2026",
   "Значение фильтра": "Filter value",
+  "Условие": "Condition",
   "ПОКАЗАТЬ НАСТРОЙКИ": "SHOW SETTINGS",
   "СКРЫТЬ НАСТРОЙКИ": "HIDE SETTINGS",
   "Сохранено ✓": "Saved ✓",
