@@ -7,6 +7,7 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { ReportEmpty, ReportPage, WidgetHeader, formatShortReportDate } from "@/components/ref/report-kit"
 import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { nextSort } from "@/components/ref/sort-arrows"
 import type { PnlExpense, PnlFigures, PnlOptions, PnlRow, PnlStats } from "@/lib/pnl-stats-repo"
 
 // "P&L" tab of the dashboard widgets: two periods side by side. Metric tabs choose the figure shown in the
@@ -51,16 +52,14 @@ const HEAD = "whitespace-nowrap bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left te
 type Line = { key: string; name: string; first: number; second: number; raw?: boolean; bold?: boolean; indent?: number; link?: boolean; toggle?: { open: boolean; onToggle: () => void } }
 type SortKey = "first" | "second" | "diff"
 
-function SortArrows({ active, dir, onSort }: { active: boolean; dir: "asc" | "desc"; onSort: (dir: "asc" | "desc") => void }) {
+/** Linko's header sort: a click cycles none → ascending → descending → none; a sorted column keeps one triangle. */
+function SortArrows({ active, dir, onClick }: { active: boolean; dir: "asc" | "desc"; onClick: () => void }) {
+  const { t } = useLanguage()
   return (
-    <span className="relative ml-[5px] inline-block h-[15px] w-[15px] align-middle">
-      <button type="button" aria-label="asc" onClick={() => onSort("asc")} className="absolute left-0 top-0">
-        <svg viewBox="0 0 24 24" className={`h-[15px] w-[15px] ${active && dir === "asc" ? "fill-[#333]" : "fill-[#888]"}`}><path d="M7 14l5-5 5 5z" /></svg>
-      </button>
-      <button type="button" aria-label="desc" onClick={() => onSort("desc")} className="absolute left-0 top-[5px]">
-        <svg viewBox="0 0 24 24" className={`h-[15px] w-[15px] ${active && dir === "desc" ? "fill-[#333]" : "fill-[#888]"}`}><path d="M7 10l5 5 5-5z" /></svg>
-      </button>
-    </span>
+    <button type="button" aria-label={t("Сортировать")} onClick={onClick} className="relative ml-[5px] inline-block h-[20px] w-[15px] align-middle">
+      <svg viewBox="0 0 24 24" className={`absolute left-0 top-0 h-[15px] w-[15px] ${active && dir === "desc" ? "fill-transparent" : "fill-[#888]"}`}><path d="M7 14l5-5 5 5z" /></svg>
+      <svg viewBox="0 0 24 24" className={`absolute left-0 top-[5px] h-[15px] w-[15px] ${active && dir === "asc" ? "fill-transparent" : "fill-[#888]"}`}><path d="M7 10l5 5 5-5z" /></svg>
+    </button>
   )
 }
 
@@ -93,7 +92,7 @@ function CompareTable({ title, lines, sortable = false, total = false, widths, c
   const head = (key: SortKey, label: string) => (
     <th className={HEAD}>
       {t(label)}
-      {sortable && <SortArrows active={sort?.key === key} dir={sort?.dir ?? "asc"} onSort={(dir) => setSort({ key, dir })} />}
+      {sortable && <SortArrows active={sort?.key === key} dir={sort?.dir ?? "asc"} onClick={() => setSort((current) => nextSort(current, key))} />}
     </th>
   )
   return (

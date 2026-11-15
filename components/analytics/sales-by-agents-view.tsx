@@ -1,88 +1,25 @@
 "use client"
 
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportEmpty, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
 import { csvText } from "@/lib/csv"
-import { linesInAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
+import { inAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
-import type { OrderItemWithOrder } from "@/lib/order-items-repo"
+import { addLine, EMPTY_SALES_FILTERS, emptyTotals, profitOf, reportNumber, selectSalesLines, type SalesLineFilters, type SalesLines, type SalesTotals } from "@/lib/sales-lines-types"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 import { ORDER_STATUSES } from "@/components/orders/orders-data"
 
-type AgentSale = {
-  agent: string
-  saleQty: number
-  saleSum: number
-  returnQty: number
-  returnSum: number
-  discountQty: number
-  discountSum: number
-  bonusQty: number
-  bonusSum: number
-}
+// Прибыль от агентов (Linko's #/statistics/agent, stats/user_profits), from GET /api/sales-lines:
+// - «ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ» (the menu's default): the lines transferred from the warehouse
+//   in «Период передачи со склада», with the net cost and the profit;
+// - «ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ»: the lines created in «Период создания» (and transferred in its period).
+// Sales are the lines of the not cancelled orders, «Возврат в этом периоде» the accepted returns of the period;
+// money is in the base currency (or the app currency). Every filter of the panel applies on «Применить».
 
-// Same defensive parser used across the analytics views: orderCreated is either an ISO
-// date ("2026-08-02") or a Russian day+month string with no year ("06 сент. 14:23").
-function parseOrderCreatedDate(value: string): Date | null {
-  if (!value) return null
-  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (iso) {
-    const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
-    return Number.isNaN(date.getTime()) ? null : date
-  }
-  const ru = value.match(/(\d{1,2})\s+([а-яё]+)\.?/i)
-  if (ru) {
-    const monthNames = ["янв", "февр", "мар", "апр", "мая", "июня", "июля", "авг", "сент", "окт", "нояб", "дек"]
-    const monthIndex = monthNames.indexOf(ru[2].toLowerCase())
-    if (monthIndex >= 0) {
-      const yearMatch = value.match(/(\d{4})/)
-      const year = yearMatch ? Number(yearMatch[1]) : new Date().getFullYear()
-      const date = new Date(year, monthIndex, Number(ru[1]))
-      return Number.isNaN(date.getTime()) ? null : date
-    }
-  }
-  return null
-}
-
-function isWithinRange(value: string, fromIso: string, toIso: string): boolean {
-  const date = parseOrderCreatedDate(value)
-  if (!date) return true
-  const from = new Date(`${fromIso}T00:00:00`)
-  const to = new Date(`${toIso}T23:59:59`)
-  return date.getTime() >= from.getTime() && date.getTime() <= to.getTime()
-}
-
-// Grouped by orderAgent. Returns come from items whose parent order type is "Возврат"
-// (the only real signal for a return in this schema). Discount figures are the actual
-// discount amount taken off each line (quantity × unitPrice × discountPercent / 100).
-// There is no bonus concept anywhere in order_items, so bonus columns stay at 0 — no
-// more fabricating a "показать бонусные продукты" number.
-function buildAgentRows(items: OrderItemWithOrder[]): AgentSale[] {
-  const map = new Map<string, AgentSale>()
-  for (const item of items) {
-    const key = item.orderAgent || "Не указано"
-    const row = map.get(key) ?? { agent: key, saleQty: 0, saleSum: 0, returnQty: 0, returnSum: 0, discountQty: 0, discountSum: 0, bonusQty: 0, bonusSum: 0 }
-    const discountAmount = item.quantity * item.unitPrice * (item.discountPercent / 100)
-    if (item.discountPercent > 0) {
-      row.discountQty += item.quantity
-      row.discountSum += discountAmount
-    }
-    if (item.orderType === "Возврат") {
-      row.returnQty += item.quantity
-      row.returnSum += item.lineTotal
-    } else {
-      row.saleQty += item.quantity
-      row.saleSum += item.lineTotal
-    }
-    map.set(key, row)
-  }
-  return Array.from(map.values()).sort((a, b) => b.saleSum - a.saleSum)
-}
-
-// Filter choices come from the factory's own directories (never another tenant's names).
-const statuses: string[] = [...ORDER_STATUSES]
+type Mode = "created" | "realized"
+type AgentRow = SalesTotals & { agent: string }
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -96,99 +33,128 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
+type Draft = SalesLineFilters & { from: string; to: string; transferFrom: string; transferTo: string; showBonus: boolean }
+
+const statuses: string[] = [...ORDER_STATUSES]
+
 export function SalesByAgentsView() {
   const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
+  const initial: Draft = useMemo(() => ({ ...EMPTY_SALES_FILTERS, from: monthStart(), to: today, transferFrom: monthStart(), transferTo: today, showBonus: false }), [today])
   const [filterOpen, setFilterOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
-  const [mode, setMode] = useState<"created" | "realized">("created")
+  const [mode, setMode] = useState<Mode>("realized")
   const [fullscreen, setFullscreen] = useState(false)
-  const [from, setFrom] = useState(monthStart)
-  const [to, setTo] = useState(today)
-  const [warehouseFrom, setWarehouseFrom] = useState(monthStart)
-  const [warehouseTo, setWarehouseTo] = useState(today)
-  const [branch, setBranch] = useState("")
-  const [organization, setOrganization] = useState("")
-  const [productType, setProductType] = useState("")
-  const [status, setStatus] = useState("")
-  const [client, setClient] = useState("")
-  const [agent, setAgent] = useState("")
-  const [clientType, setClientType] = useState("")
-  const [showBonus, setShowBonus] = useState(false)
-  const [, setFilterVersion] = useState(0)
+  const [draft, setDraft] = useState<Draft>(initial)
+  const [applied, setApplied] = useState<Draft>(initial)
 
-  const [items, setItems] = useState<OrderItemWithOrder[]>([])
-  // With an app currency (Настройки → Валюта приложения) every line is converted into it before it is summed.
+  const [data, setData] = useState<SalesLines | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  // With an app currency (Настройки → Валюта приложения) the base amounts are converted into it.
   const app = useAppCurrencyInfo()
-  const shownItems = useMemo(() => linesInAppCurrency(app, items), [app, items])
-  const moneyLabel = currencyLabel(app.code || "SUM")
-  const [itemsLoading, setItemsLoading] = useState(true)
-  const [itemsError, setItemsError] = useState("")
+  const base = data?.base ?? "SUM"
+  const money = useMemo(() => (amount: number) => (app.code ? inAppCurrency(app, amount, base) ?? 0 : amount), [app, base])
+  const moneyLabel = currencyLabel(app.code || base)
+  const withProfit = mode === "realized" && Boolean(data?.canSeeCost)
 
   useEffect(() => {
     let cancelled = false
-    setItemsLoading(true)
-    fetch("/api/order-items")
+    fetch("/api/sales-lines", { cache: "no-store" })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить данные")
-        return (await response.json()) as OrderItemWithOrder[]
+        if (!response.ok) throw new Error()
+        return (await response.json()) as SalesLines
       })
-      .then((data) => {
+      .then((body) => {
         if (cancelled) return
-        setItems(data)
-        setItemsError("")
+        setData(body)
+        setError("")
       })
       .catch(() => {
-        if (!cancelled) setItemsError("Не удалось загрузить данные с сервера")
+        if (!cancelled) setError("Не удалось загрузить данные с сервера")
       })
       .finally(() => {
-        if (!cancelled) setItemsLoading(false)
+        if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
     }
   }, [])
 
-  const rows = useMemo(() => {
-    const dateFiltered = mode === "created" ? shownItems.filter((item) => isWithinRange(item.orderCreated, from, to)) : shownItems
-    // Filters the order lines carry (client, status) apply to the loaded rows.
-    const same = (value: string, wanted: string) => !wanted || value.trim().toLowerCase() === wanted.trim().toLowerCase()
-    return buildAgentRows(dateFiltered.filter((item) => same(item.orderClient, client) && same(item.orderStatus, status)))
-      .filter((row) => agent === "" || row.agent === agent)
-      .filter((row) => row.agent.toLowerCase().includes(query.toLowerCase()))
-  }, [shownItems, agent, client, status, query, mode, from, to])
-
-  const totals = useMemo(
-    () =>
-      rows.reduce(
-        (sum, row) => ({
-          saleQty: sum.saleQty + row.saleQty,
-          saleSum: sum.saleSum + row.saleSum,
-          returnQty: sum.returnQty + row.returnQty,
-          returnSum: sum.returnSum + row.returnSum,
-        }),
-        { saleQty: 0, saleSum: 0, returnQty: 0, returnSum: 0 },
-      ),
-    [rows],
-  )
-  const pages = Math.max(1, Math.ceil(rows.length / pageSize))
-  const shown = rows.slice((page - 1) * pageSize, page * pageSize)
-
-  function applyFilters(event: FormEvent) {
-    event.preventDefault()
-    if (from <= to && warehouseFrom <= warehouseTo) {
-      setFilterVersion((value) => value + 1)
-      setFilterOpen(false)
-      setPage(1)
+  const rows = useMemo<AgentRow[]>(() => {
+    const transfer = { from: applied.transferFrom, to: applied.transferTo }
+    const lines = selectSalesLines(data?.lines ?? [], { ...applied, belowCost: mode === "realized" && applied.belowCost }, mode === "created" ? { created: { from: applied.from, to: applied.to }, transfer } : { transfer })
+    const map = new Map<string, AgentRow>()
+    for (const line of lines) {
+      const agent = line.agent.trim() || "Не указано"
+      const row = map.get(agent) ?? { agent, ...emptyTotals() }
+      addLine(row, line, money)
+      map.set(agent, row)
     }
-  }
+    const term = query.trim().toLowerCase()
+    return [...map.values()].filter((row) => !term || row.agent.toLowerCase().includes(term)).sort((a, b) => b.saleSum - a.saleSum || a.agent.localeCompare(b.agent, "ru"))
+  }, [data, applied, mode, money, query])
+
+  const totals = useMemo(() => {
+    const sum = emptyTotals()
+    for (const row of rows) for (const key of Object.keys(sum) as Array<keyof SalesTotals>) sum[key] += row[key]
+    return sum
+  }, [rows])
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const current = Math.min(page, pages)
+  const shown = rows.slice((current - 1) * pageSize, current * pageSize)
+
+  // "Фильтр / N" as Linko counts it: the periods of the mode plus every chosen field and ticked box.
+  const filterCount =
+    (mode === "created" ? 2 : 1) +
+    [applied.branch, applied.organization, applied.productType, applied.status, applied.client, applied.agent, applied.clientType].filter(Boolean).length +
+    (applied.showBonus ? 1 : 0) +
+    (mode === "realized" && applied.belowCost ? 1 : 0)
+  const scope = [applied.branch, applied.organization].filter(Boolean).join(" ") || "Во всей организации"
+
+  const groups: { title: string; columns: { label: string; value: (row: SalesTotals) => number }[] }[] = [
+    {
+      title: "Продажа",
+      columns: [
+        { label: "Кол-во", value: (row) => row.saleQty },
+        { label: "Сумма", value: (row) => row.saleSum },
+        ...(withProfit ? [{ label: "Себестоимость", value: (row: SalesTotals) => row.saleCost }] : []),
+      ],
+    },
+    {
+      title: "Возврат в этом периоде",
+      columns: [
+        { label: "Кол-во", value: (row) => row.returnQty },
+        { label: "Сумма", value: (row) => row.returnSum },
+        ...(withProfit ? [{ label: "Себестоимость", value: (row: SalesTotals) => row.returnCost }] : []),
+      ],
+    },
+    {
+      title: "Фактическая продажа",
+      columns: [
+        { label: "Кол-во", value: (row) => row.saleQty - row.returnQty },
+        { label: "Сумма", value: (row) => row.saleSum - row.returnSum },
+      ],
+    },
+    ...(withProfit ? [{ title: "Прибыль от продаж", columns: [{ label: "Сумма", value: (row: SalesTotals) => profitOf(row) }] }] : []),
+    {
+      title: "Скидки",
+      columns: [
+        { label: "Кол-во", value: (row) => row.discountQty },
+        { label: "Сумма", value: (row) => row.discountSum },
+      ],
+    },
+    // Bonus products are not kept on the order lines here: 0, never a made-up figure.
+    { title: "Бонус", columns: [{ label: "Кол-во", value: () => 0 }, { label: "Сумма", value: () => 0 }] },
+  ]
+  const flatColumns = groups.flatMap((group) => group.columns)
 
   function downloadCsv() {
-    const header = ["Агент", "Продажа кол-во", "Продажа сумма", "Возврат кол-во", "Возврат сумма", "Фактическая продажа кол-во", "Фактическая продажа сумма", "Скидки", "Бонус"]
-    const body = rows.map((row) => [row.agent, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum, row.discountSum, row.bonusSum])
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header.map((title) => t(title)), ...body])}`], { type: "text/csv;charset=utf-8" }))
+    const header = ["Агент", ...groups.flatMap((group) => group.columns.map((column) => `${t(group.title)} ${t(column.label)}`))]
+    const body = rows.map((row) => [row.agent, ...flatColumns.map((column) => Math.round(column.value(row) * 1000) / 1000)])
+    const url = URL.createObjectURL(new Blob([`﻿${csvText([header.map((title) => t(title)), ...body])}`], { type: "text/csv;charset=utf-8" }))
     const anchor = document.createElement("a")
     anchor.href = url
     anchor.download = "sales-by-agents.csv"
@@ -196,33 +162,38 @@ export function SalesByAgentsView() {
     URL.revokeObjectURL(url)
   }
 
+  const tone = (value: number) => (value > 0 ? "text-green-600" : value < 0 ? "text-red-500" : "")
+
   return (
     <ReportPage>
       <div className="pl-[30px] pr-[38px]"><RefHeader title={t("Прибыль от агентов")} /></div>
       <section className={`${fullscreen ? "fixed inset-0 z-[80] overflow-auto bg-white p-5" : "border-b border-[#d9d9d9] bg-white px-[30px] pb-[1px] pt-[21px]"}`}>
         <ReportTopRow
-          filterLabel="Фильтр / 1"
-          scope={organization || "Во всей организации"}
-          onFilter={() => setFilterOpen(true)}
+          filterLabel={<>{t("Фильтр")} / {filterCount}</>}
+          scope={scope}
+          onFilter={() => {
+            setDraft(applied)
+            setFilterOpen(true)
+          }}
           onDownload={downloadCsv}
         />
         {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">{t("Закрыть")}</button>}
         <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
-          <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.saleQty} {t("шт")})</small></ReportSummaryCard>
-          <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.returnQty} {t("шт")})</small></ReportSummaryCard>
-          <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.saleQty - totals.returnQty} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Сумма от продаж">{reportNumber(totals.saleSum)} {moneyLabel}<small className="ml-px text-[13px] font-medium">({reportNumber(totals.saleQty)} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Сумма возвратов">{reportNumber(totals.returnSum)} {moneyLabel}<small className="ml-px text-[13px] font-medium">({reportNumber(totals.returnQty)} {t("шт")})</small></ReportSummaryCard>
+          <ReportSummaryCard label="Фактические продажи" right>{reportNumber(totals.saleSum - totals.returnSum)} {moneyLabel}<small className="ml-px text-[13px] font-medium">({reportNumber(totals.saleQty - totals.returnQty)} {t("шт")})</small></ReportSummaryCard>
         </div>
         <div className="mt-[5px]">
           <ReportSearchBar
             value={query}
             onChange={(value) => { setQuery(value); setPage(1) }}
             pageSize={pageSize}
-            onPageSize={setPageSize}
-            rangeLabel={rows.length ? `${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, rows.length)} ${t("из")} ${rows.length}` : `1 - 0 ${t("из")} 0`}
-            canPrev={page > 1}
-            canNext={page < pages}
-            onPrev={() => setPage((value) => value - 1)}
-            onNext={() => setPage((value) => value + 1)}
+            onPageSize={(value) => { setPageSize(value); setPage(1) }}
+            rangeLabel={rows.length ? `${(current - 1) * pageSize + 1} - ${Math.min(current * pageSize, rows.length)} ${t("из")} ${rows.length}` : `1 - 0 ${t("из")} 0`}
+            canPrev={current > 1}
+            canNext={current < pages}
+            onPrev={() => setPage(current - 1)}
+            onNext={() => setPage(current + 1)}
             onFullscreen={() => setFullscreen((value) => !value)}
           />
         </div>
@@ -232,27 +203,66 @@ export function SalesByAgentsView() {
             {t("Это оперативний отчеть для просмотра факта перейдите в другой раздел")}
           </p>
           <div className="mt-[2px] flex">
-            <button type="button" onClick={() => setMode("created")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "created" ? "bg-[#1E4A9A] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ")}</button>
-            <button type="button" onClick={() => setMode("realized")} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "realized" ? "bg-[#1E4A9A] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ")}</button>
+            <button type="button" onClick={() => { setMode("created"); setPage(1) }} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "created" ? "bg-[#1E4A9A] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ")}</button>
+            <button type="button" onClick={() => { setMode("realized"); setPage(1) }} className={`h-8 px-4 text-[13px] font-normal uppercase ${mode === "realized" ? "bg-[#1E4A9A] text-white" : "border border-[#e0e0e0] text-black"}`}>{t("ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ")}</button>
           </div>
         </div>
-        {itemsLoading ? (
+        {loading ? (
           <p className="px-3 py-16 text-center text-slate-400">{t("Загрузка...")}</p>
-        ) : itemsError ? (
-          <p className="px-3 py-16 text-center text-red-600">{itemsError}</p>
+        ) : error ? (
+          <p className="px-3 py-16 text-center text-red-600">{t(error)}</p>
         ) : shown.length === 0 ? (
           <ReportEmpty className="pb-[24px] pt-[24px]" text="По вашему запросу ничего не найдено" />
         ) : (
-          <div className="overflow-x-auto"><table className="min-w-[1250px] border-collapse"><thead className="bg-[#5470e8] text-white"><tr><th rowSpan={2} className="min-w-[300px] border-r border-white/30 px-5 py-4 text-left">{t("Агент")}</th>{["Продажа", "Возврат в этом периоде", "Фактическая продажа", "Скидки", "Бонус"].map((item) => <th key={item} colSpan={2} className="border-r border-white/30 px-4 py-3 text-left">{t(item)}</th>)}</tr><tr>{Array.from({ length: 5 }).flatMap((_, index) => [<th key={`${index}-q`} className="border-r border-white/30 px-4 py-3">{t("Кол-во")}</th>, <th key={`${index}-s`} className="border-r border-white/30 px-4 py-3">{t("Сумма")}</th>])}</tr></thead><tbody>{shown.map((row, index) => { const actualQty = row.saleQty - row.returnQty; const actualSum = row.saleSum - row.returnSum; return <tr key={row.agent} className={index % 2 ? "bg-white" : "bg-slate-50"}><td className="border-r px-5 py-3">{row.agent}</td>{[row.saleQty, row.saleSum, row.returnQty, row.returnSum, actualQty, actualSum, row.discountQty, row.discountSum, row.bonusQty, row.bonusSum].map((value, cell) => <td key={cell} className={`border-r px-4 py-3 text-right ${value > 0 ? "text-green-600" : value < 0 ? "text-red-500" : ""}`}>{typeof value === "number" ? value.toLocaleString("ru-RU") : value}</td>)}</tr>})}</tbody></table></div>
+          <div className="overflow-x-auto">
+            <table className="min-w-[1250px] border-collapse">
+              <thead className="bg-[#5470e8] text-white">
+                <tr>
+                  <th rowSpan={2} className="min-w-[300px] border-r border-white/30 px-5 py-4 text-left">{t("Агент")}</th>
+                  {groups.map((group) => <th key={group.title} colSpan={group.columns.length} className="border-r border-white/30 px-4 py-3 text-left">{t(group.title)}</th>)}
+                </tr>
+                <tr>
+                  {groups.map((group) => (
+                    <Fragment key={group.title}>
+                      {group.columns.map((column) => <th key={`${group.title}-${column.label}`} className="border-r border-white/30 px-4 py-3">{t(column.label)}</th>)}
+                    </Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((row, index) => (
+                  <tr key={row.agent} className={index % 2 ? "bg-white" : "bg-slate-50"}>
+                    <td className="border-r px-5 py-3">{row.agent === "Не указано" ? t(row.agent) : row.agent}</td>
+                    {flatColumns.map((column, cell) => {
+                      const value = column.value(row)
+                      return <td key={cell} className={`border-r px-4 py-3 text-right ${tone(value)}`}>{reportNumber(value)}</td>
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
-      {filterOpen && <FilterDialog from={from} setFrom={setFrom} to={to} setTo={setTo} warehouseFrom={warehouseFrom} setWarehouseFrom={setWarehouseFrom} warehouseTo={warehouseTo} setWarehouseTo={setWarehouseTo} branch={branch} setBranch={setBranch} organization={organization} setOrganization={setOrganization} productType={productType} setProductType={setProductType} status={status} setStatus={setStatus} client={client} setClient={setClient} agent={agent} setAgent={setAgent} clientType={clientType} setClientType={setClientType} showBonus={showBonus} setShowBonus={setShowBonus} onClose={() => setFilterOpen(false)} onSubmit={applyFilters} />}
+      {filterOpen && (
+        <FilterDialog
+          mode={mode}
+          draft={draft}
+          onDraft={(patch) => setDraft((value) => ({ ...value, ...patch }))}
+          onClose={() => setFilterOpen(false)}
+          onApply={() => {
+            if (draft.from > draft.to || draft.transferFrom > draft.transferTo) return
+            setApplied(draft)
+            setFilterOpen(false)
+            setPage(1)
+          }}
+        />
+      )}
     </ReportPage>
   )
 }
 
-type Setter = (value: string) => void
-function FilterDialog(props: { from: string; setFrom: Setter; to: string; setTo: Setter; warehouseFrom: string; setWarehouseFrom: Setter; warehouseTo: string; setWarehouseTo: Setter; branch: string; setBranch: Setter; organization: string; setOrganization: Setter; productType: string; setProductType: Setter; status: string; setStatus: Setter; client: string; setClient: Setter; agent: string; setAgent: Setter; clientType: string; setClientType: Setter; showBonus: boolean; setShowBonus: (value: boolean) => void; onClose: () => void; onSubmit: (event: FormEvent) => void }) {
+function FilterDialog({ mode, draft, onDraft, onClose, onApply }: { mode: Mode; draft: Draft; onDraft: (patch: Partial<Draft>) => void; onClose: () => void; onApply: () => void }) {
   const branches = useDirectoryNames("branches")
   const organizations = useDirectoryNames("organizations")
   const productTypes = useDirectoryNames("productTypes")
@@ -260,17 +270,19 @@ function FilterDialog(props: { from: string; setFrom: Setter; to: string; setTo:
   const agents = useDirectoryNames("employees")
   const clientTypes = useDirectoryNames("clientTypes")
   return (
-    <ReportFilterPanel onClose={props.onClose} onApply={() => props.onSubmit({ preventDefault() {} } as FormEvent)}>
-      <ReportRangeField label="Период создания" from={props.from} to={props.to} onFrom={props.setFrom} onTo={props.setTo} />
-      <ReportRangeField label="Период передачи со склада" from={props.warehouseFrom} to={props.warehouseTo} onFrom={props.setWarehouseFrom} onTo={props.setWarehouseTo} />
-      <ReportSelectField label="Филиалы" value={props.branch} onChange={props.setBranch} options={branches} clearable={false} />
-      <ReportSelectField label="Организация" value={props.organization} onChange={props.setOrganization} options={organizations} clearable={false} />
-      <ReportSelectField label="Тип товара" value={props.productType} onChange={props.setProductType} options={productTypes} clearable={false} />
-      <ReportSelectField label="Статус" value={props.status} onChange={props.setStatus} options={statuses} clearable={false} />
-      <ReportSelectField label="Клиент" value={props.client} onChange={props.setClient} options={clients} clearable={false} />
-      <ReportSelectField label="Агент" value={props.agent} onChange={props.setAgent} options={agents} clearable={false} />
-      <ReportSelectField label="Тип клиента" value={props.clientType} onChange={props.setClientType} options={clientTypes} clearable={false} />
-      <ReportCheckboxField label="Показать бонусные продукты" checked={props.showBonus} onChange={props.setShowBonus} />
+    <ReportFilterPanel onClose={onClose} onApply={onApply}>
+      {/* Linko's fields: the creation period only in the creation-date mode, "Продано дешевле себестоимости" only with profit. */}
+      {mode === "created" && <ReportRangeField label="Период создания" from={draft.from} to={draft.to} onFrom={(from) => onDraft({ from })} onTo={(to) => onDraft({ to })} />}
+      <ReportRangeField label="Период передачи со склада" from={draft.transferFrom} to={draft.transferTo} onFrom={(transferFrom) => onDraft({ transferFrom })} onTo={(transferTo) => onDraft({ transferTo })} />
+      <ReportSelectField label="Филиалы" value={draft.branch} onChange={(branch) => onDraft({ branch })} options={branches} />
+      <ReportSelectField label="Организация" value={draft.organization} onChange={(organization) => onDraft({ organization })} options={organizations} />
+      <ReportSelectField label="Тип товара" value={draft.productType} onChange={(productType) => onDraft({ productType })} options={productTypes} />
+      <ReportSelectField label="Статус" value={draft.status} onChange={(status) => onDraft({ status })} options={statuses} />
+      <ReportSelectField label="Клиент" value={draft.client} onChange={(client) => onDraft({ client })} options={clients} />
+      <ReportSelectField label="Агент" value={draft.agent} onChange={(agent) => onDraft({ agent })} options={agents} />
+      <ReportSelectField label="Тип клиента" value={draft.clientType} onChange={(clientType) => onDraft({ clientType })} options={clientTypes} />
+      <ReportCheckboxField label="Показать бонусные продукты" checked={draft.showBonus} onChange={(showBonus) => onDraft({ showBonus })} />
+      {mode === "realized" && <ReportCheckboxField label="Продано дешевле себестоимости" checked={draft.belowCost} onChange={(belowCost) => onDraft({ belowCost })} />}
     </ReportFilterPanel>
   )
 }

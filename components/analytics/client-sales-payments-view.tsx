@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
+import { nextMatrixSort } from "@/components/ref/sort-arrows"
 import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 import type { ClientSalesColumn, ClientSalesResult } from "@/lib/finance/client-sales-payments"
@@ -137,7 +138,7 @@ export function ClientSalesPaymentsView() {
             heads={heads}
             sortKey={sort.key}
             sortDir={sort.dir}
-            onSort={(index) => setSort((current) => ({ key: index, dir: current.key === index && current.dir === "asc" ? "desc" : "asc" }))}
+            onSort={(index) => setSort((current) => nextMatrixSort(current, index))}
             rows={matrixRows}
           />
         )}

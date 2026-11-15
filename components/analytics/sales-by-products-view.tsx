@@ -2,67 +2,31 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { RefHeader } from "@/components/ref/list-kit"
-import { ReportCheckboxField, ReportChipField, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSegmentTabs, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
+import { ReportCheckboxField, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSegmentTabs, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
 import { csvText } from "@/lib/csv"
-import { linesInAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
+import { inAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
-import type { OrderItemWithOrder } from "@/lib/order-items-repo"
+import { addLine, EMPTY_SALES_FILTERS, emptyTotals, profitOf, reportNumber, selectSalesLines, type SalesLine, type SalesLineFilters, type SalesLines, type SalesTotals } from "@/lib/sales-lines-types"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 import { ORDER_STATUSES } from "@/components/orders/orders-data"
 
-type ProductRow = { name: string; unit: string; saleQty: number; saleSum: number; returnQty: number; returnSum: number }
+// Прибыль от товаров (Linko's #/statistics/product, stats/products), from GET /api/sales-lines. The filter's tabs
+// choose the period: «Передачи со склада» (the menu's default, Linko's periodType=secondPeriod: the lines
+// transferred from the warehouse in it) or «Период создания». «ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ» adds the
+// «Прибыль от продаж» card. Rows are grouped by product, brand or product type («Группировка»); every filter of
+// the panel applies on «Применить».
 
-// "orderCreated" comes back as either an ISO date ("2026-08-02") from seeded/legacy orders
-// or a Russian day+month string with no year ("06 сент. 14:23") from orders created via the UI.
-// Parse defensively; unparseable values are treated as "in range" so real rows never get
-// silently dropped because of a date-format surprise.
-function parseOrderCreatedDate(value: string): Date | null {
-  if (!value) return null
-  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (iso) {
-    const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
-    return Number.isNaN(date.getTime()) ? null : date
-  }
-  const ru = value.match(/(\d{1,2})\s+([а-яё]+)\.?/i)
-  if (ru) {
-    const monthNames = ["янв", "февр", "мар", "апр", "мая", "июня", "июля", "авг", "сент", "окт", "нояб", "дек"]
-    const monthIndex = monthNames.indexOf(ru[2].toLowerCase())
-    if (monthIndex >= 0) {
-      const yearMatch = value.match(/(\d{4})/)
-      const year = yearMatch ? Number(yearMatch[1]) : new Date().getFullYear()
-      const date = new Date(year, monthIndex, Number(ru[1]))
-      return Number.isNaN(date.getTime()) ? null : date
-    }
-  }
-  return null
-}
+type ProductRow = SalesTotals & { name: string; unit: string }
+type PeriodMode = "created" | "warehouse"
 
-function isWithinRange(value: string, fromIso: string, toIso: string): boolean {
-  const date = parseOrderCreatedDate(value)
-  if (!date) return true
-  const from = new Date(`${fromIso}T00:00:00`)
-  const to = new Date(`${toIso}T23:59:59`)
-  return date.getTime() >= from.getTime() && date.getTime() <= to.getTime()
-}
+const GROUPS = ["По продукту", "По бренду", "По типу продукта"] as const
 
-const isReturnItem = (item: OrderItemWithOrder) => item.orderType === "Возврат"
-
-function buildProductRows(items: OrderItemWithOrder[]): ProductRow[] {
-  const map = new Map<string, ProductRow>()
-  for (const item of items) {
-    const key = item.productName || "—"
-    const row = map.get(key) ?? { name: key, unit: item.unit || "шт.", saleQty: 0, saleSum: 0, returnQty: 0, returnSum: 0 }
-    if (isReturnItem(item)) {
-      row.returnQty += item.quantity
-      row.returnSum += item.lineTotal
-    } else {
-      row.saleQty += item.quantity
-      row.saleSum += item.lineTotal
-    }
-    map.set(key, row)
-  }
-  return Array.from(map.values()).sort((a, b) => b.saleSum - a.saleSum)
+/** The key and the unit of a line's row in the chosen grouping. */
+function groupOf(line: SalesLine, group: string): { name: string; unit: string } {
+  if (group === "По бренду") return { name: line.brand || "Не указано", unit: "" }
+  if (group === "По типу продукта") return { name: line.productType || "Не указано", unit: "" }
+  return { name: line.productName || "—", unit: line.unit || "шт." }
 }
 
 // Filter choices come from the factory's own directories (never another tenant's names).
@@ -76,19 +40,12 @@ const DIRECTORY_OF = {
   clientType: "clientTypes",
   warehouse: "warehouses",
 } as const
-const options = {
-  branch: [] as string[],
-  brand: [] as string[],
-  organization: [] as string[],
-  productType: [] as string[],
-  status: [...ORDER_STATUSES] as string[],
-  client: [] as string[],
-  agent: [] as string[],
-  clientType: [] as string[],
-  warehouse: [] as string[],
-}
 
-type FilterKey = keyof typeof options
+type FilterKey = Exclude<keyof SalesLineFilters, "belowCost">
+const FILTER_KEYS: FilterKey[] = ["branch", "brand", "organization", "productType", "status", "client", "agent", "clientType", "warehouse"]
+const labels: Record<FilterKey, string> = { branch: "Филиалы", brand: "Бренд", organization: "Организация", productType: "Тип товара", status: "Статус", client: "Клиент", agent: "Агент", clientType: "Тип клиента", warehouse: "Склад" }
+
+type Draft = SalesLineFilters & { mode: PeriodMode; from: string; to: string; bonus: boolean }
 
 function iso(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0")
@@ -107,92 +64,85 @@ export function SalesByProductsView() {
     clientType: useDirectoryNames(DIRECTORY_OF.clientType),
     warehouse: useDirectoryNames(DIRECTORY_OF.warehouse),
   }
-  const today = useMemo(() => iso(new Date()), [])
-  const start = useMemo(() => {
-    const date = new Date()
-    return iso(new Date(date.getFullYear(), date.getMonth(), 1))
+  const initial = useMemo<Draft>(() => {
+    const now = new Date()
+    return { ...EMPTY_SALES_FILTERS, mode: "warehouse", from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(now), bonus: false }
   }, [])
   const [filterOpen, setFilterOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [query, setQuery] = useState("")
-  const [mode, setMode] = useState<"created" | "warehouse">("created")
   const [reportMode, setReportMode] = useState<"created" | "profit">("created")
-  const [group, setGroup] = useState("По продукту")
+  const [group, setGroup] = useState<string>("По продукту")
   const [pageSize, setPageSize] = useState(25)
-  const [from, setFrom] = useState(start)
-  const [to, setTo] = useState(today)
-  const [bonus, setBonus] = useState(false)
-  const [filters, setFilters] = useState<Record<FilterKey, string>>(
-    Object.fromEntries(Object.entries(options).map(([key, values]) => [key, ""])) as Record<FilterKey, string>,
-  )
+  const [page, setPage] = useState(1)
+  const [draft, setDraft] = useState<Draft>(initial)
+  const [applied, setApplied] = useState<Draft>(initial)
 
-  const [items, setItems] = useState<OrderItemWithOrder[]>([])
-  // With an app currency (Настройки → Валюта приложения) every line is converted into it before it is summed.
+  const [data, setData] = useState<SalesLines | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  // With an app currency (Настройки → Валюта приложения) the base amounts are converted into it.
   const app = useAppCurrencyInfo()
-  const shownItems = useMemo(() => linesInAppCurrency(app, items), [app, items])
-  const moneyLabel = currencyLabel(app.code || "SUM")
-  const [itemsLoading, setItemsLoading] = useState(true)
-  const [itemsError, setItemsError] = useState("")
+  const base = data?.base ?? "SUM"
+  const money = useMemo(() => (amount: number) => (app.code ? inAppCurrency(app, amount, base) ?? 0 : amount), [app, base])
+  const moneyLabel = currencyLabel(app.code || base)
 
   useEffect(() => {
     let cancelled = false
-    setItemsLoading(true)
-    fetch("/api/order-items")
+    fetch("/api/sales-lines", { cache: "no-store" })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить данные")
-        return (await response.json()) as OrderItemWithOrder[]
+        if (!response.ok) throw new Error()
+        return (await response.json()) as SalesLines
       })
-      .then((data) => {
+      .then((body) => {
         if (cancelled) return
-        setItems(data)
-        setItemsError("")
+        setData(body)
+        setError("")
       })
       .catch(() => {
-        if (!cancelled) setItemsError("Не удалось загрузить данные с сервера")
+        if (!cancelled) setError("Не удалось загрузить данные с сервера")
       })
       .finally(() => {
-        if (!cancelled) setItemsLoading(false)
+        if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
     }
   }, [])
 
-  // Only the "created date" report mode has a real date dimension to filter on
-  // (orderCreated). "profit" mode toggles a formerly-fake ×0.95 multiplier that has
-  // been removed — this table has no separate profit column, so both modes now show
-  // the same real figures; the button stays in place but is cosmetic.
-  const products = useMemo(() => {
-    const dateFiltered = mode === "created" ? shownItems.filter((item) => isWithinRange(item.orderCreated, from, to)) : shownItems
-    // Filters the order lines carry (client, agent, status) apply to the loaded rows.
-    const same = (value: string, wanted: string) => !wanted || value.trim().toLowerCase() === wanted.trim().toLowerCase()
-    return buildProductRows(
-      dateFiltered.filter((item) => same(item.orderClient, filters.client) && same(item.orderAgent, filters.agent) && same(item.orderStatus, filters.status)),
-    )
-  }, [shownItems, mode, from, to, filters.client, filters.agent, filters.status])
-
-  const rows = useMemo(() => {
+  const rows = useMemo<ProductRow[]>(() => {
+    const period = { from: applied.from, to: applied.to }
+    const lines = selectSalesLines(data?.lines ?? [], applied, applied.mode === "created" ? { created: period } : { transfer: period })
+    const map = new Map<string, ProductRow>()
+    for (const line of lines) {
+      const key = groupOf(line, group)
+      const row = map.get(key.name) ?? { ...key, ...emptyTotals() }
+      addLine(row, line, money)
+      map.set(key.name, row)
+    }
     const term = query.trim().toLowerCase()
-    return products.filter((row) => !term || row.name.toLowerCase().includes(term))
-  }, [query, products])
-  const totals = rows.reduce(
-    (sum, row) => ({
-      saleQty: sum.saleQty + row.saleQty,
-      saleSum: sum.saleSum + row.saleSum,
-      returnQty: sum.returnQty + row.returnQty,
-      returnSum: sum.returnSum + row.returnSum,
-    }),
-    { saleQty: 0, saleSum: 0, returnQty: 0, returnSum: 0 },
-  )
+    return [...map.values()].filter((row) => !term || row.name.toLowerCase().includes(term)).sort((a, b) => b.saleSum - a.saleSum || a.name.localeCompare(b.name, "ru"))
+  }, [data, applied, group, money, query])
 
-  function setFilter(key: FilterKey, value: string) {
-    setFilters((current) => ({ ...current, [key]: value }))
-  }
+  const totals = useMemo(() => {
+    const sum = emptyTotals()
+    for (const row of rows) for (const key of Object.keys(sum) as Array<keyof SalesTotals>) sum[key] += row[key]
+    return sum
+  }, [rows])
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const current = Math.min(page, pages)
+  const shown = rows.slice((current - 1) * pageSize, current * pageSize)
+  const withProfit = reportMode === "profit" && Boolean(data?.canSeeCost)
+
+  // "Фильтр / N": the period plus every chosen field and ticked box (Linko's count).
+  const filterCount = 1 + FILTER_KEYS.filter((key) => applied[key]).length + (applied.bonus ? 1 : 0)
+  const scope = `${formatDate(applied.from)} - ${formatDate(applied.to)} ${[applied.branch, applied.organization].filter(Boolean).join(" ") || t("Во всей организации")}`
 
   function download() {
-    const header = ["Товар", "Ед. измер", "Продажа кол-во", "Продажа сумма", "Возврат кол-во", "Возврат сумма", "Фактическая продажа кол-во", "Фактическая продажа сумма"]
-    const body = rows.map((row) => [row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum])
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header.map((title) => t(title)), ...body])}`], { type: "text/csv;charset=utf-8" }))
+    const header = ["Товар", "Ед. измер", "Продажа кол-во", "Продажа сумма", "Возврат кол-во", "Возврат сумма", "Фактическая продажа кол-во", "Фактическая продажа сумма", "Скидки кол-во", "Скидки сумма"]
+    const round = (value: number) => Math.round(value * 1000) / 1000
+    const body = rows.map((row) => [row.name, row.unit, round(row.saleQty), round(row.saleSum), round(row.returnQty), round(row.returnSum), round(row.saleQty - row.returnQty), round(row.saleSum - row.returnSum), round(row.discountQty), round(row.discountSum)])
+    const url = URL.createObjectURL(new Blob([`﻿${csvText([header.map((title) => t(title)), ...body])}`], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a")
     link.href = url
     link.download = "sales-by-products.csv"
@@ -207,30 +157,34 @@ export function SalesByProductsView() {
       <section className={fullscreen ? "fixed inset-0 z-[80] overflow-auto bg-white p-5" : "border-b border-[#d9d9d9] bg-white pb-[1px] pt-[21px]"}>
         <div className="px-[30px]">
           <ReportTopRow
-            filterLabel="Фильтр / 1"
-            scope={`${formatDate(from)} - ${formatDate(to)} ${filters.organization || t("Во всей организации")}`}
-            onFilter={() => setFilterOpen(true)}
+            filterLabel={<>{t("Фильтр")} / {filterCount}</>}
+            scope={scope}
+            onFilter={() => {
+              setDraft(applied)
+              setFilterOpen(true)
+            }}
             onDownload={download}
           />
           {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">{t("Закрыть")}</button>}
 
-          <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
-            <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.saleQty} {t("шт")})</small></ReportSummaryCard>
-            <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.returnQty} {t("шт")})</small></ReportSummaryCard>
-            <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} {moneyLabel}<small className="ml-px text-[13px] font-medium">({totals.saleQty - totals.returnQty} {t("шт")})</small></ReportSummaryCard>
+          <div className={`mt-[15px] grid gap-[14px] ${withProfit ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+            <ReportSummaryCard label="Сумма от продаж">{reportNumber(totals.saleSum)} {moneyLabel}<small className="ml-px text-[13px] font-medium">({reportNumber(totals.saleQty)} {t("шт")})</small></ReportSummaryCard>
+            <ReportSummaryCard label="Сумма возвратов">{reportNumber(totals.returnSum)} {moneyLabel}<small className="ml-px text-[13px] font-medium">({reportNumber(totals.returnQty)} {t("шт")})</small></ReportSummaryCard>
+            <ReportSummaryCard label="Фактические продажи" right={!withProfit}>{reportNumber(totals.saleSum - totals.returnSum)} {moneyLabel}<small className="ml-px text-[13px] font-medium">({reportNumber(totals.saleQty - totals.returnQty)} {t("шт")})</small></ReportSummaryCard>
+            {withProfit && <ReportSummaryCard label="Прибыль от продаж" right>{reportNumber(profitOf(totals))} {moneyLabel}</ReportSummaryCard>}
           </div>
 
           <div className="mt-[5px]">
             <ReportSearchBar
               value={query}
-              onChange={setQuery}
+              onChange={(value) => { setQuery(value); setPage(1) }}
               pageSize={pageSize}
-              onPageSize={setPageSize}
-              rangeLabel={rows.length ? `1 - ${Math.min(pageSize, rows.length)} ${t("из")} ${rows.length}` : `1 - 0 ${t("из")} 0`}
-              canPrev={false}
-              canNext={false}
-              onPrev={() => undefined}
-              onNext={() => undefined}
+              onPageSize={(value) => { setPageSize(value); setPage(1) }}
+              rangeLabel={rows.length ? `${(current - 1) * pageSize + 1} - ${Math.min(current * pageSize, rows.length)} ${t("из")} ${rows.length}` : `1 - 0 ${t("из")} 0`}
+              canPrev={current > 1}
+              canNext={current < pages}
+              onPrev={() => setPage(current - 1)}
+              onNext={() => setPage(current + 1)}
               onFullscreen={() => setFullscreen(!fullscreen)}
             />
           </div>
@@ -241,7 +195,7 @@ export function SalesByProductsView() {
               {t("Это оперативний отчеть для просмотра факта перейдите в другой раздел")}
             </p>
             <div className="flex items-end gap-[20px]">
-              <div className="w-[200px]"><ReportSelectField label="Группировка" value={group} options={["По продукту", "По бренду", "По типу продукта"]} onChange={(value) => setGroup(value || "По продукту")} /></div>
+              <div className="w-[200px]"><ReportSelectField label="Группировка" value={group} options={[...GROUPS]} onChange={(value) => { setGroup(value || "По продукту"); setPage(1) }} /></div>
               <div className="flex pb-[2px]">
                 <ModeButton active={reportMode === "created"} onClick={() => setReportMode("created")}>{t("ПОКАЗАТЬ ПО ДАТЕ СОЗДАНИЯ")}</ModeButton>
                 <ModeButton active={reportMode === "profit"} onClick={() => setReportMode("profit")}>{t("ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ")}</ModeButton>
@@ -250,12 +204,12 @@ export function SalesByProductsView() {
           </div>
         </div>
 
-        {itemsLoading ? (
+        {loading ? (
           <p className="px-3 py-16 text-center text-slate-400">{t("Загрузка...")}</p>
-        ) : itemsError ? (
-          <p className="px-3 py-16 text-center text-red-600">{itemsError}</p>
+        ) : error ? (
+          <p className="px-3 py-16 text-center text-red-600">{t(error)}</p>
         ) : (
-          <ProductTable rows={rows.slice(0, pageSize)} />
+          <ProductTable rows={shown} />
         )}
       </section>
 
@@ -263,15 +217,18 @@ export function SalesByProductsView() {
         <ReportFilterPanel
           onClose={() => setFilterOpen(false)}
           onApply={() => {
-            if (from <= to) setFilterOpen(false)
+            if (draft.from > draft.to) return
+            setApplied(draft)
+            setFilterOpen(false)
+            setPage(1)
           }}
-          tabs={<ReportSegmentTabs labels={["Период создания", "Передачи со склада"]} value={mode === "created" ? 0 : 1} onChange={(index) => setMode(index === 0 ? "created" : "warehouse")} />}
+          tabs={<ReportSegmentTabs labels={["Период создания", "Передачи со склада"]} value={draft.mode === "created" ? 0 : 1} onChange={(index) => setDraft((value) => ({ ...value, mode: index === 0 ? "created" : "warehouse" }))} />}
         >
-          <ReportRangeField label={mode === "created" ? "Период создания" : "Период передачи со склада"} from={from} to={to} onFrom={setFrom} onTo={setTo} />
-          {(["branch", "brand", "organization", "productType", "status", "client", "agent", "clientType", "warehouse"] as FilterKey[]).map((key) => (
-            <ReportSelectField key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={key === "status" ? options.status : directories[key as keyof typeof DIRECTORY_OF]} clearable={false} />
+          <ReportRangeField label={draft.mode === "created" ? "Период создания" : "Передачи со склада"} from={draft.from} to={draft.to} onFrom={(from) => setDraft((value) => ({ ...value, from }))} onTo={(to) => setDraft((value) => ({ ...value, to }))} />
+          {FILTER_KEYS.map((key) => (
+            <ReportSelectField key={key} label={labels[key]} value={draft[key]} onChange={(value) => setDraft((current) => ({ ...current, [key]: value }))} options={key === "status" ? [...ORDER_STATUSES] : directories[key as keyof typeof DIRECTORY_OF]} />
           ))}
-          <ReportCheckboxField label="Показать бонусные продукты" checked={bonus} onChange={setBonus} />
+          <ReportCheckboxField label="Показать бонусные продукты" checked={draft.bonus} onChange={(bonus) => setDraft((value) => ({ ...value, bonus }))} />
         </ReportFilterPanel>
       )}
     </ReportPage>
@@ -298,11 +255,11 @@ function ProductTable({ rows }: { rows: ProductRow[] }) {
           {rows.length === 0
             ? [0, 1, 2].map((r) => <tr key={r} className={`h-[31px] ${r === 1 ? "bg-[#f2f5f8]" : "bg-white"}`}>{heads.map((_, c) => <td key={c} className="border-l border-[#ececec]" />)}</tr>)
             : rows.map((row, r) => {
-                // Discounts and bonus products are not in these order lines: 0, never a made-up figure.
-                const cells = [row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum, 0, 0, 0, 0]
+                // Bonus products are not kept on the order lines here: 0, never a made-up figure.
+                const cells = [row.name === "Не указано" ? t(row.name) : row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum, row.discountQty, row.discountSum, 0, 0]
                 return (
                   <tr key={row.name} className={`h-[31px] ${r % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
-                    {cells.map((cell, i) => <td key={i} className="truncate border-l border-[#ececec] px-2">{typeof cell === "number" ? cell.toLocaleString("ru-RU") : cell}</td>)}
+                    {cells.map((cell, i) => <td key={i} className="truncate border-l border-[#ececec] px-2">{typeof cell === "number" ? reportNumber(cell) : cell}</td>)}
                   </tr>
                 )
               })}
@@ -318,5 +275,3 @@ function Group({ title }: { title: string }) {
 }
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`h-8 px-4 text-[13px] font-normal uppercase ${active ? "bg-[#1E4A9A] text-white" : "border border-[#e0e0e0] bg-white text-black"}`}>{children}</button> }
 function formatDate(value: string) { const [year, month, day] = value.split("-"); return `${day}.${month}.${year}` }
-
-const labels: Record<FilterKey, string> = { branch: "Филиалы", brand: "Бренд", organization: "Организация", productType: "Тип товара", status: "Статус", client: "Клиент", agent: "Агент", clientType: "Тип клиента", warehouse: "Склад" }

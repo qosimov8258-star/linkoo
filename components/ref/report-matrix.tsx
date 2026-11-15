@@ -3,6 +3,7 @@
 import { Fragment, useRef, type ReactNode } from "react"
 
 import { ScrollButtons } from "./scroll-buttons"
+import { SortArrows } from "./sort-arrows"
 
 /**
  * Grid table of the reference app's "dynamic report" pages (visits by day, agent visits, system distribution …):
@@ -29,22 +30,6 @@ export type MatrixRow = {
   cellClass?: (index: number) => string
   key?: string
   onClick?: () => void
-}
-
-const SORT_UP = "M7 14l5-5 5 5z"
-const SORT_DOWN = "M7 10l5 5 5-5z"
-
-function SortIcons({ dir }: { dir?: "asc" | "desc" }) {
-  return (
-    <span className="ml-[2px] inline-flex h-5 w-5 shrink-0 flex-col items-center justify-center align-middle">
-      <svg viewBox="0 0 24 24" className={`-mb-[5px] h-[15px] w-[15px] ${dir === "asc" ? "fill-[#374557]" : "fill-[#c0c0c0]"}`}>
-        <path d={SORT_UP} />
-      </svg>
-      <svg viewBox="0 0 24 24" className={`h-[15px] w-[15px] ${dir === "desc" ? "fill-[#374557]" : "fill-[#c0c0c0]"}`}>
-        <path d={SORT_DOWN} />
-      </svg>
-    </span>
-  )
 }
 
 const TONE: Record<NonNullable<MatrixRow["tone"]>, string> = {
@@ -77,6 +62,7 @@ export function ReportMatrix({
   /** Line height of the header titles in px (the reference wraps some reports' titles at 20px). */
   headLeading?: number
   stickyFirst?: boolean
+  /** The sorted column (null: none) and its direction; a header click calls onSort (cycle with nextSort). */
   sortKey?: number | null
   sortDir?: "asc" | "desc"
   onSort?: (index: number) => void
@@ -90,7 +76,7 @@ export function ReportMatrix({
   return (
     <div className={`relative ml-px mt-[9px] ${className}`}>
       <div ref={scrollRef} className="overflow-x-auto visits-scrollbar">
-        <table className="border-separate border-spacing-0 text-[13px]" style={{ width, tableLayout: "fixed" }}>
+        <table data-no-sort className="border-separate border-spacing-0 text-[13px]" style={{ width, tableLayout: "fixed" }}>
           <colgroup>
             {heads.map((head, index) => (
               <col key={index} style={{ width: head.width }} />
@@ -120,7 +106,7 @@ export function ReportMatrix({
                 >
                   <span className="inline-flex items-center justify-center">
                     {head.label}
-                    {head.sortable && <SortIcons dir={sortKey === index ? sortDir : undefined} />}
+                    {head.sortable && <SortArrows dir={sortKey === index ? sortDir : undefined} />}
                   </span>
                 </th>
               ))}

@@ -1,18 +1,7 @@
 "use client"
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react"
-import {
-  Bookmark,
-  ChevronDown,
-  Download,
-  FileBox,
-  Info,
-  Pencil,
-  Search,
-  Trash2,
-  Users,
-  X,
-} from "lucide-react"
+import { Bookmark, Download, FileBox, Info, Search } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
 import { appCurrencyColumn, useAppCurrency } from "@/lib/app-currency-context"
@@ -21,7 +10,9 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import { downloadExcelTable } from "@/lib/excel-export"
 import type { BuilderResult } from "@/lib/report-builder-repo"
 import { useDirectoryNames } from "@/components/clients/use-directory"
+import type { NewReportBuilderSave } from "@/lib/new-report-builder-types"
 import { BuilderPeriod } from "./builder-period"
+import { modelName, savedList, savedPeriod, savedRecord, useBuilderSaves } from "./builder-saves"
 import { BuilderNoData, BuilderTable } from "./builder-table"
 
 const columns = [
@@ -114,13 +105,9 @@ function measureOf(header: string): { prefix: string; column: string } {
   return at >= 0 ? { prefix: header.slice(0, at + 3), column: header.slice(at + 3) } : { prefix: "", column: header }
 }
 
-type SavedReport = {
-  id: number
-  name: string
-  model: string
-}
-
-const initialReports: SavedReport[] = []
+/** The models (tabs) of the two constructors of this view. */
+const VISIT_TABS = ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]
+const SALES_TABS = ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"]
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -165,7 +152,8 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const isSales = variant === "sales"
   const availableColumns = isSales ? salesColumns : columns
   const availableGroupings = isSales ? salesGroupings : groupings
-  const [activeTab, setActiveTab] = useState(isSales ? "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ" : "ВИЗИТ")
+  const tabs = isSales ? SALES_TABS : VISIT_TABS
+  const [activeTab, setActiveTab] = useState(tabs[0])
   const [settingsVisible, setSettingsVisible] = useState(true)
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [verticalGroups, setVerticalGroups] = useState<string[]>([])
@@ -185,10 +173,6 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const [running, setRunning] = useState(false)
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
   const [filterValues, setFilterValues] = useState<Record<string, string>>({})
-  const [savedReports, setSavedReports] = useState<SavedReport[]>(initialReports)
-  const [reportsOpen, setReportsOpen] = useState(false)
-  const [reportQuery, setReportQuery] = useState("")
-  const [editingReportId, setEditingReportId] = useState<number | null>(null)
   const [message, setMessage] = useState("")
   const [users, setUsers] = useState<string[]>([])
   // Zones of the factory's own clients (never another tenant's names).
@@ -211,19 +195,6 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
       cancelled = true
     }
   }, [isSales])
-
-  useEffect(() => {
-    window.localStorage.setItem(isSales ? "sales-builder-reports" : "visit-builder-reports", JSON.stringify(savedReports))
-  }, [savedReports, isSales])
-
-  useEffect(() => {
-    if (!reportsOpen) return
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setReportsOpen(false)
-    }
-    document.addEventListener("keydown", closeOnEscape)
-    return () => document.removeEventListener("keydown", closeOnEscape)
-  }, [reportsOpen])
 
   function toggle(value: string, setter: Dispatch<SetStateAction<string[]>>) {
     setter((current) =>
@@ -276,18 +247,48 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     }
   }
 
-  function saveReport() {
-    const nextId = Math.max(...savedReports.map((report) => report.id), 0) + 1
-    const savedReport = {
-      id: nextId,
-      name: `${activeTab.toLowerCase()} · ${new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`,
-      model: activeTab === "ВИЗИТ" ? "Визит" : activeTab === "ЗАДАЧИ" ? "Задачи" : "Отказы",
-    }
-    const next = [...savedReports, savedReport]
-    setSavedReports(next)
-    window.localStorage.setItem(isSales ? "sales-builder-reports" : "visit-builder-reports", JSON.stringify(next))
-    setMessage(t("Настройки отчета сохранены"))
+  /** A saved report of this constructor back on screen: its model and every setting. */
+  function loadSave(save: NewReportBuilderSave) {
+    const config = save.config
+    const savedTab = typeof config.activeTab === "string" ? config.activeTab : save.reportType.toUpperCase()
+    setActiveTab(tabs.includes(savedTab) ? savedTab : tabs[0])
+    setSelectedColumns(savedList(config.selectedColumns))
+    setVerticalGroups(savedList(config.verticalGroups ?? config.vertical))
+    setHorizontalGroups(savedList(config.horizontalGroups ?? config.horizontal))
+    setShowTotals(typeof config.showTotals === "boolean" ? config.showTotals : true)
+    setUser(typeof config.user === "string" ? config.user : "")
+    setStatus(typeof config.status === "string" ? config.status : "")
+    setZone(typeof config.zone === "string" ? config.zone : "")
+    setFilterValues(savedRecord(config.filterValues))
+    setExtraFilters(savedList(config.extraFilters))
+    const period = savedPeriod(config)
+    setFrom(period.from)
+    setTo(period.to)
+    setResult(null)
+    setReportReady(false)
+    setSettingsVisible(true)
   }
+
+  const saves = useBuilderSaves({
+    page: isSales ? "sales" : "visits",
+    // The visit models are saved as "Визит" / "Задачи" / "Отказы", the sales ones by their tab.
+    snapshot: () => ({
+      reportType: isSales ? activeTab : modelName(activeTab),
+      config: {
+        activeTab,
+        selectedColumns,
+        verticalGroups,
+        horizontalGroups,
+        showTotals,
+        ...(isSales ? { filterValues } : { user, status, zone }),
+        extraFilters,
+        from,
+        to,
+      },
+    }),
+    onLoad: loadSave,
+    onMessage: setMessage,
+  })
 
   async function downloadReport() {
     const data = reportReady && result ? result : await generate()
@@ -309,43 +310,13 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const shownVertical = availableGroupings.filter((item) => item.toLowerCase().includes(verticalQuery.toLowerCase()))
   const shownHorizontal = availableGroupings.filter((item) => item.toLowerCase().includes(horizontalQuery.toLowerCase()))
   const invalid = from > to
-  const filteredReports = savedReports.filter((report) =>
-    `${report.name} ${report.model}`.toLocaleLowerCase("ru").includes(reportQuery.toLocaleLowerCase("ru")),
-  )
-
-  function loadSavedReport(report: SavedReport) {
-    setActiveTab(
-      report.model === "Визит" ? "ВИЗИТ" : report.model === "Задачи" ? "ЗАДАЧИ" : "ОТКАЗЫ",
-    )
-    setSelectedColumns(["План визитов", "Посещено", "Результативный визит"])
-    setVerticalGroups(["Пользователь"])
-    setReportReady(false)
-    setReportsOpen(false)
-    setMessage(`${t("Отчет «")}${report.name}${t("» загружен")}`)
-  }
-
-  function renameReport(id: number, name: string) {
-    setSavedReports((current) =>
-      current.map((report) => (report.id === id ? { ...report, name } : report)),
-    )
-  }
-
-  function deleteReport(id: number) {
-    setSavedReports((current) => current.filter((report) => report.id !== id))
-    setMessage(t("Отчет удален"))
-  }
-
-  async function shareReport(report: SavedReport) {
-    await navigator.clipboard?.writeText(`${report.name} — ${report.model}`)
-    setMessage(`${t("Ссылка на «")}${report.name}${t("» скопирована")}`)
-  }
 
   return (
     <ReportPage>
       <div className="pl-[28px] pr-[38px]">
         <RefHeader title={t(isSales ? "Отчет по продажам" : "Конструктор")}>
           <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            {(isSales ? ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"] : ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]).map((tab) => (
+            {tabs.map((tab) => (
               <button key={tab} type="button" onClick={() => { setActiveTab(tab); setReportReady(false) }} className={`h-[30px] px-4 text-[13px] font-medium uppercase transition-colors ${activeTab === tab ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>
                 <span>{t(tab)}</span>
               </button>
@@ -356,10 +327,10 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 
       <section className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
-          <button type="button" onClick={saveReport} className="flex h-[36px] items-center rounded-[5px] bg-[#1E4A9A] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+          <button type="button" onClick={saves.openSave} className="flex h-[36px] items-center rounded-[5px] bg-[#1E4A9A] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
             <Bookmark className="mr-[7px] h-[18px] w-[18px] fill-white" /> {t("Сохранить")}
           </button>
-          <button type="button" onClick={() => setReportsOpen(true)} className="flex h-[36px] items-center rounded-[5px] bg-[#ff8a6f] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+          <button type="button" onClick={saves.openReports} className="flex h-[36px] items-center rounded-[5px] bg-[#ff8a6f] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
             <FileBox className="mr-[7px] h-[18px] w-[18px] fill-white" /> {t("Отчеты")}
           </button>
           <button type="button" onClick={downloadReport} className="flex h-[36px] items-center rounded-[5px] bg-[#4db6ac] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
@@ -425,76 +396,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
         )
       )}
 
-      {reportsOpen && (
-        <aside
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="saved-reports-title"
-          className="fixed bottom-0 right-0 top-0 z-[100] flex w-[min(960px,calc(100vw-24px))] flex-col border-r-[7px] border-sky-500 bg-white shadow-2xl animate-in slide-in-from-right-full duration-200"
-        >
-          <header className="flex items-center justify-between border-b border-slate-200 px-10 py-6">
-            <h2 id="saved-reports-title" className="font-bold uppercase">{t("Отчеты")}</h2>
-            <button type="button" onClick={() => setReportsOpen(false)} aria-label={t("Закрыть отчеты")} className="rounded p-1 text-slate-500 hover:bg-slate-100">
-              <X className="h-7 w-7" />
-            </button>
-          </header>
-
-          <div className="flex flex-wrap items-center gap-5 border-b border-slate-200 px-10 py-6">
-            <label className="relative min-w-[260px] flex-1">
-              <input
-                value={reportQuery}
-                onChange={(event) => setReportQuery(event.target.value)}
-                placeholder={t("Поиск таблицы...")}
-                className="w-full border-0 border-b border-slate-300 px-0 py-3 pr-10 outline-none focus:border-brand-blue"
-              />
-              <Search className="absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-            </label>
-            <span className="ml-auto text-slate-500">
-              {filteredReports.length ? `1 - ${filteredReports.length} ${t("из")} ${filteredReports.length}` : `0 ${t("из")} 0`}
-            </span>
-            <button type="button" disabled className="rounded-full border-2 border-slate-300 p-1 text-slate-300"><ChevronDown className="h-4 w-4 rotate-90" /></button>
-            <button type="button" disabled className="rounded-full border-2 border-slate-300 p-1 text-slate-300"><ChevronDown className="h-4 w-4 -rotate-90" /></button>
-          </div>
-
-          <div className="grid grid-cols-[72px_minmax(180px,1fr)_minmax(230px,1.4fr)_140px] border-b border-dashed border-slate-300 px-10 py-5 font-bold">
-            <span>{t("№")}</span><span>{t("Название")}</span><span>{t("Модель")}</span><span />
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {filteredReports.map((report) => (
-              <div
-                key={report.id}
-                className="group grid min-h-16 grid-cols-[72px_minmax(180px,1fr)_minmax(230px,1.4fr)_140px] items-center border-b border-dashed border-slate-300 px-10 py-3 hover:bg-slate-100"
-              >
-                <button type="button" onClick={() => loadSavedReport(report)} className="text-left">{report.id}</button>
-                {editingReportId === report.id ? (
-                  <input
-                    autoFocus
-                    value={report.name}
-                    onChange={(event) => renameReport(report.id, event.target.value)}
-                    onBlur={() => setEditingReportId(null)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === "Escape") setEditingReportId(null)
-                    }}
-                    className="mr-3 rounded border border-brand-blue px-2 py-1"
-                  />
-                ) : (
-                  <button type="button" onClick={() => loadSavedReport(report)} className="pr-3 text-left">{report.name}</button>
-                )}
-                <button type="button" onClick={() => loadSavedReport(report)} className="pr-3 text-left">{t(report.model)}</button>
-                <div className="flex gap-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                  <button type="button" onClick={() => setEditingReportId(report.id)} aria-label={`${t("Изменить")} ${report.name}`}><Pencil className="h-5 w-5 text-slate-600" /></button>
-                  <button type="button" onClick={() => deleteReport(report.id)} aria-label={`${t("Удалить")} ${report.name}`}><Trash2 className="h-5 w-5 text-slate-600" /></button>
-                  <button type="button" onClick={() => shareReport(report)} aria-label={`${t("Поделиться")} ${report.name}`}><Users className="h-5 w-5 text-slate-600" /></button>
-                </div>
-              </div>
-            ))}
-            {filteredReports.length === 0 && (
-              <p className="px-10 py-12 text-center text-slate-400">{t("Отчеты не найдены")}</p>
-            )}
-          </div>
-        </aside>
-      )}
+      {saves.dialogs}
     </ReportPage>
   )
 }

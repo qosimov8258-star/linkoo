@@ -329,11 +329,11 @@ export function SupplierBalanceView() {
           <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg><span className="pl-2">{t("Фильтр")}{filterCount > 0 ? ` / ${filterCount}` : ""}</span>
         </button>
         {urlFrom && (
-          <span className="text-[13px] font-semibold text-[#1E4A9A]">
+          <button type="button" onClick={openFilter} className="text-left text-[13px] font-semibold text-[#1E4A9A] hover:underline">
             {formatDotDate(from)} - {formatDotDate(to)}
-          </span>
+          </button>
         )}
-        <span className="text-[13px] font-semibold text-[#1E4A9A]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
+        <button type="button" onClick={openFilter} className="text-left text-[13px] font-semibold text-[#1E4A9A] hover:underline">{scope.length ? scope.join(" ") : t("Во всей организации")}</button>
         <div className="ml-auto">
           <BalanceDownloadMenu disabled={downloading} items={[{ label: "Скачать все", onClick: downloadAll }]} />
         </div>

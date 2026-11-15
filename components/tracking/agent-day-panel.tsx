@@ -303,7 +303,11 @@ export function AgentDayPanel({
   onEditRoute,
   onEditLock,
   actions,
+  variant = "tracking",
 }: {
+  /** "drawer": the agent drawer of the visit reports (Linko's drawer_agent_visit) — no agent switcher or
+   * status filter, only the сделки / посещено stats, a plain «Оптимизировать маршрут» button. */
+  variant?: "tracking" | "drawer"
   employeeId: number
   name: string
   day: TrackingDay | null
@@ -335,6 +339,7 @@ export function AgentDayPanel({
   const clients = (current?.clients ?? []).filter((client) => matchesStatus(client, status))
   const base = current?.baseCurrency ?? ""
   const stats = current?.stats
+  const drawer = variant === "drawer"
 
   return (
     <div className="relative flex h-full flex-col text-[13px] text-[#333]">
@@ -342,14 +347,20 @@ export function AgentDayPanel({
         <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-[#d5d9e0] text-white">
           <User className="h-6 w-6" />
         </span>
-        <button type="button" disabled={!onPrev} onClick={() => onPrev?.()} aria-label={t("Предыдущий агент")} className="text-[#555] disabled:opacity-30">
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <b className="min-w-0 flex-1 truncate text-center uppercase">{name}</b>
-        <button type="button" disabled={!onNext} onClick={() => onNext?.()} aria-label={t("Следующий агент")} className="text-[#555] disabled:opacity-30">
-          <ChevronRight className="h-5 w-5" />
-        </button>
-        {status === "all" ? (
+        {drawer ? (
+          <b className="min-w-0 flex-1 truncate text-[13px] font-semibold uppercase">{name}</b>
+        ) : (
+          <>
+            <button type="button" disabled={!onPrev} onClick={() => onPrev?.()} aria-label={t("Предыдущий агент")} className="text-[#555] disabled:opacity-30">
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <b className="min-w-0 flex-1 truncate text-center uppercase">{name}</b>
+            <button type="button" disabled={!onNext} onClick={() => onNext?.()} aria-label={t("Следующий агент")} className="text-[#555] disabled:opacity-30">
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </>
+        )}
+        {drawer ? null : status === "all" ? (
           <button type="button" onClick={() => setFilterOpen((open) => !open)} className="flex shrink-0 items-center gap-[2px] text-[#1E4A9A]">
             {t("Показать фильтр")}
             <ChevronDown className="h-4 w-4" />
@@ -371,6 +382,21 @@ export function AgentDayPanel({
       </header>
       {filterOpen && <StatusFilterPanel value={status} onApply={onStatus} onClose={() => setFilterOpen(false)} />}
 
+      {drawer ? (
+        <div className="flex shrink-0 items-center justify-between border-b border-[#eee] px-[20px] py-[10px]">
+          <Stat icon={<Flame className="h-6 w-6" />} value={moneyLines(stats?.orders, base).join(" · ")} caption="сделки" />
+          <Stat
+            icon={<MapPin className="h-6 w-6" />}
+            value={
+              <>
+                {stats?.done ?? 0} / {stats?.todo ?? 0}
+                {(stats?.unplanned ?? 0) > 0 && <span className="text-[#ee667d]"> + {stats?.unplanned}</span>}
+              </>
+            }
+            caption="посещено"
+          />
+        </div>
+      ) : (
       <div className="flex shrink-0 overflow-x-auto border-b border-[#eee] px-[16px] py-[10px]">
         <Stat icon={<Flame className="h-6 w-6" />} value={moneyLines(stats?.orders, base).join(" · ")} caption="сделки" />
         <Stat icon={<DollarSign className="h-6 w-6" />} value={moneyLines(stats?.payments, base).join(" · ")} caption="оплаты" />
@@ -388,6 +414,7 @@ export function AgentDayPanel({
         <Stat icon={<Truck className="h-6 w-6" />} value={stats?.deliveries ?? 0} caption="доставки" />
         <Stat icon={<Undo2 className="h-6 w-6" />} value={moneyLines(stats?.returns, base).join(" · ")} caption="возвраты" />
       </div>
+      )}
 
       <div className="flex shrink-0 gap-[8px] px-[16px] pt-[12px]">
         <Counter value={current?.counters.ordered ?? 0} label="Заказ оформлен" color="rgb(58,201,119)" />
@@ -405,6 +432,13 @@ export function AgentDayPanel({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
+        {drawer ? (
+          canManage && (
+            <button type="button" onClick={onOptimize} className="ml-auto flex h-[34px] items-center rounded-[4px] bg-[#536fe1] px-[16px] text-[12px] font-bold text-white">
+              {t("Оптимизировать маршрут")}
+            </button>
+          )
+        ) : (
         <div className="relative ml-auto">
           <button type="button" onClick={() => setOptimizeMenu((open) => !open)} className="flex h-[34px] items-center gap-[4px] rounded-[4px] bg-[#536fe1] px-[12px] text-[12px] font-bold text-white">
             {t("Оптимизировать маршрут")}
@@ -429,6 +463,7 @@ export function AgentDayPanel({
             />
           </Menu>
         </div>
+        )}
         {canManage && (
           <>
             <button type="button" onClick={onSelectAll} title={t("Выбрать все")} aria-label={t("Выбрать все")} className="flex h-[34px] w-[34px] items-center justify-center rounded-[4px] text-[#5d6474] hover:bg-[#eef1f5]">

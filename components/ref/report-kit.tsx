@@ -1,8 +1,9 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 
+import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { RefButton, RefHeader, RI } from "./list-kit"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -141,7 +142,17 @@ export function ReportCalendar({
 
   return (
     <>
-      <button type="button" aria-label={t("Закрыть")} className="fixed inset-0 z-40 cursor-default" onClick={onCancel} />
+      {/* The click must not reach the field under it: its own onClick would open the calendar again at once,
+          so a second click (outside or on the field) closes the calendar, as the reference's does. */}
+      <button
+        type="button"
+        aria-label={t("Закрыть")}
+        className="fixed inset-0 z-40 cursor-default"
+        onClick={(event) => {
+          event.stopPropagation()
+          onCancel()
+        }}
+      />
       <div className="absolute left-0 top-[calc(100%+12px)] z-50 w-[310px] overflow-hidden rounded-[2px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.2),0_6px_30px_rgba(0,0,0,0.16)]" onClick={(event) => event.stopPropagation()}>
         <div className="bg-[#5470d6] px-[20px] pb-[18px] pt-[16px] text-white">
           <div className="text-[16px] leading-[22px] opacity-70">{selYear}</div>
@@ -219,7 +230,7 @@ export function ReportDateField({
   const { t, language } = useLanguage()
   const [open, setOpen] = useState(false)
   return (
-    <div className={`${FIELD} cursor-pointer`} onClick={() => setOpen(true)}>
+    <div className={`${FIELD} cursor-pointer`} onClick={() => setOpen((current) => !current)}>
       <span className={FLOAT_LABEL}>{t(label)}</span>
       <span data-no-translate={value || !placeholder ? "" : undefined} className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">{value || !placeholder ? formatReportDate(value, language) : t(placeholder)}</span>
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[8px] right-0 h-5 w-5 fill-[#c4c4c4]" aria-hidden>
@@ -243,9 +254,117 @@ export function ReportDateField({
 
 const CARET = <path d="M7 10l5 5 5-5z" />
 
+/** Index of the highlighted row and the search text of an open choice list (the reference's react-select). */
+function useChoiceSearch(options: string[], label: (option: string) => string) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const [active, setActive] = useState(0)
+  const items = useMemo(() => {
+    const unique = Array.from(new Set(options))
+    const needle = query.trim().toLocaleLowerCase()
+    return needle ? unique.filter((option) => label(option).toLocaleLowerCase().includes(needle)) : unique
+  }, [options, query, label])
+  const close = () => {
+    setOpen(false)
+    setQuery("")
+    setActive(0)
+  }
+  return { open, setOpen, query, setQuery, active, setActive, items, close }
+}
+
+/**
+ * The reference's option panel of a select field: a white list right under the field (36px rows, 13px semibold,
+ * the highlighted row #e6f0ff, at most 200px high and scrollable), "Не найдено" when the typed search matches
+ * nothing. A click outside, Escape or a pick closes it.
+ */
+function ChoiceMenu({
+  items,
+  active,
+  selected,
+  label,
+  onActive,
+  onPick,
+  onClose,
+}: {
+  items: string[]
+  active: number
+  selected?: string
+  label: (option: string) => string
+  onActive: (index: number) => void
+  onPick: (option: string) => void
+  onClose: () => void
+}) {
+  const { t } = useLanguage()
+  return (
+    <>
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={t("Закрыть")}
+        className="fixed inset-0 z-30 cursor-default"
+        onClick={(event) => {
+          event.stopPropagation()
+          onClose()
+        }}
+      />
+      <div role="listbox" className="visits-scrollbar absolute inset-x-0 top-full z-40 max-h-[200px] overflow-y-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+        {items.length === 0 ? (
+          <div className="h-9 px-[10px] text-[13px] leading-9 text-[#999]">{t("Не найдено")}</div>
+        ) : (
+          items.map((option, index) => (
+            <button
+              key={option}
+              type="button"
+              role="option"
+              aria-selected={option === selected}
+              onMouseEnter={() => onActive(index)}
+              onClick={(event) => {
+                event.stopPropagation()
+                onPick(option)
+              }}
+              className={`block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold text-[#333] ${index === active ? "bg-[#e6f0ff]" : "bg-white"}`}
+            >
+              {label(option)}
+            </button>
+          ))
+        )}
+      </div>
+    </>
+  )
+}
+
+/** Arrow keys / Enter / Escape of the search input of an open choice list. */
+function choiceKeys(search: ReturnType<typeof useChoiceSearch>, onPick: (option: string) => void) {
+  return (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault()
+      search.close()
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault()
+      search.setActive(Math.min(search.active + 1, search.items.length - 1))
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault()
+      search.setActive(Math.max(search.active - 1, 0))
+    } else if (event.key === "Enter") {
+      event.preventDefault()
+      const option = search.items[search.active]
+      if (option !== undefined) onPick(option)
+    }
+  }
+}
+
+/** A click on the field while its list is open closes the list (the search input covers the field then). */
+function closeOnClick(search: ReturnType<typeof useChoiceSearch>) {
+  return (event: ReactMouseEvent<HTMLInputElement>) => {
+    event.preventDefault()
+    search.close()
+  }
+}
+
 /**
  * Select in the reference style: the field name acts as the placeholder while
- * nothing is picked, then shrinks to a 10px floating label above the value.
+ * nothing is picked, then shrinks to a 10px floating label above the value. A click opens the reference's
+ * option list under the field (typing filters it); a second click, a click outside or Escape closes it.
  */
 export function ReportSelectField({
   label,
@@ -261,68 +380,144 @@ export function ReportSelectField({
   clearable?: boolean
 }) {
   const { t } = useLanguage()
+  const search = useChoiceSearch(options, t)
   const hasValue = value !== ""
+  const pick = (option: string) => {
+    onChange(option)
+    search.close()
+  }
   return (
-    <label className={FIELD}>
-      {hasValue && <span className={FLOAT_LABEL}>{t(label)}</span>}
-      <span className={`absolute inset-x-0 text-[13px] leading-[18px] text-black ${hasValue ? "top-[26px]" : "top-[28px] font-semibold"}`}>
-        {hasValue ? t(value) : t(label)}
-      </span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0" aria-label={t(label)}>
-        <option value="" />
-        {Array.from(new Set(options)).map((option) => (
-          <option key={option} value={option}>
-            {t(option)}
-          </option>
-        ))}
-      </select>
+    <div className={FIELD}>
+      <button
+        type="button"
+        aria-label={t(label)}
+        aria-haspopup="listbox"
+        aria-expanded={search.open}
+        onClick={() => (search.open ? search.close() : search.setOpen(true))}
+        className="absolute inset-0 h-full w-full cursor-pointer"
+      />
+      {hasValue && <span className={`${FLOAT_LABEL} pointer-events-none`}>{t(label)}</span>}
+      {search.open ? (
+        <input
+          autoFocus
+          value={search.query}
+          onChange={(event) => {
+            search.setQuery(event.target.value)
+            search.setActive(0)
+          }}
+          onKeyDown={choiceKeys(search, pick)}
+          onMouseDown={closeOnClick(search)}
+          placeholder={hasValue ? t(value) : t(label)}
+          aria-label={t(label)}
+          className={`absolute inset-x-0 z-[41] bg-transparent pr-12 text-[13px] leading-[18px] text-black outline-none placeholder:text-black ${hasValue ? "top-[26px]" : "top-[28px] font-semibold"}`}
+        />
+      ) : (
+        <span className={`pointer-events-none absolute inset-x-0 truncate pr-12 text-[13px] leading-[18px] text-black ${hasValue ? "top-[26px]" : "top-[28px] font-semibold"}`}>
+          {hasValue ? t(value) : t(label)}
+        </span>
+      )}
       {hasValue && clearable && (
-        <button type="button" aria-label={t("Очистить")} onClick={() => onChange("")} className="absolute bottom-[8px] right-[22px] z-10 flex h-5 w-5 items-center justify-center text-[18px] leading-none text-[#999]">
+        <button type="button" aria-label={t("Очистить")} onClick={() => onChange("")} className="absolute bottom-[8px] right-[22px] z-[41] flex h-5 w-5 items-center justify-center text-[18px] leading-none text-[#999]">
           ×
         </button>
       )}
-      <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999]" aria-hidden>
+      <svg viewBox="0 0 24 24" className={`pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999] transition-transform ${search.open ? "rotate-180" : ""}`} aria-hidden>
         {CARET}
       </svg>
-    </label>
+      {search.open && <ChoiceMenu items={search.items} active={search.active} selected={value} label={t} onActive={search.setActive} onPick={pick} onClose={search.close} />}
+    </div>
   )
 }
 
-/** Single-choice "chip" field (e.g. «Колонка» -> × Визит); optionally switchable. */
+/**
+ * Single-choice "chip" field (e.g. «Колонка» -> × Визит), the reference's select_api filter. With options and
+ * onChange a click opens its option list (typing after the chip filters it), the chip's × or the field's ×
+ * clears it; without them it only shows the value.
+ */
 export function ReportChipField({
   label,
   value,
   options,
   onChange,
+  optionLabel,
   compact,
+  clearable = true,
 }: {
   label: string
   value: string
   options?: string[]
   onChange?: (value: string) => void
+  /** Whether the × buttons clear the value (a field that always needs one keeps them as decoration). */
+  clearable?: boolean
+  /** Text of an option / of the value (default: its translation). */
+  optionLabel?: (option: string) => string
   compact?: boolean
 }) {
   const { t } = useLanguage()
+  const show = optionLabel ?? t
+  const search = useChoiceSearch(options ?? [], show)
+  const editable = Boolean(options && onChange)
+  const hasValue = value !== ""
+  const pick = (option: string) => {
+    onChange?.(option)
+    search.close()
+  }
   return (
     <div className={`${FIELD} ${compact ? "w-[200px]" : ""}`}>
-      <span className={`${FLOAT_LABEL} !top-[4px] left-px`}>{t(label)}</span>
-      <span className="absolute left-px top-[24px] flex h-5 items-stretch overflow-hidden text-[13px] font-semibold leading-5 text-white">
-        <span className="border-r border-white/30 bg-[#1E4A9A] px-[5px] text-[12px]">×</span>
-        <span data-no-translate className="bg-[#1E4A9A] px-[5px]">{value}</span>
+      {editable && (
+        <button
+          type="button"
+          aria-label={t(label)}
+          aria-haspopup="listbox"
+          aria-expanded={search.open}
+          onClick={() => (search.open ? search.close() : search.setOpen(true))}
+          className="absolute inset-0 h-full w-full cursor-pointer"
+        />
+      )}
+      {hasValue || search.open ? (
+        <span className={`${FLOAT_LABEL} pointer-events-none !top-[4px] left-px`}>{t(label)}</span>
+      ) : (
+        <span className="pointer-events-none absolute inset-x-0 top-[28px] text-[13px] font-semibold leading-[18px] text-black">{t(label)}</span>
+      )}
+      <span className="pointer-events-none absolute left-px right-[48px] top-[24px] z-[41] flex h-5 items-center gap-[4px] text-[13px] font-semibold leading-5">
+        {hasValue && (
+          <span className="flex h-5 shrink-0 items-stretch overflow-hidden text-white">
+            {editable && clearable ? (
+              <button type="button" aria-label={t("Очистить")} onClick={() => onChange?.("")} className="pointer-events-auto border-r border-white/30 bg-[#1E4A9A] px-[5px] text-[12px]">
+                ×
+              </button>
+            ) : (
+              <span className="border-r border-white/30 bg-[#1E4A9A] px-[5px] text-[12px]">×</span>
+            )}
+            <span className="bg-[#1E4A9A] px-[5px]">{show(value)}</span>
+          </span>
+        )}
+        {search.open && (
+          <input
+            autoFocus
+            value={search.query}
+            onChange={(event) => {
+              search.setQuery(event.target.value)
+              search.setActive(0)
+            }}
+            onKeyDown={choiceKeys(search, pick)}
+            onMouseDown={closeOnClick(search)}
+            aria-label={t(label)}
+            className="pointer-events-auto min-w-[20px] flex-1 bg-transparent text-[13px] font-normal text-black outline-none"
+          />
+        )}
       </span>
-      <span className="absolute bottom-[4px] right-[28px] text-[18px] leading-none text-[#999]">×</span>
-      <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999]" aria-hidden>
+      {editable && clearable && hasValue ? (
+        <button type="button" aria-label={t("Очистить")} onClick={() => onChange?.("")} className="absolute bottom-[4px] right-[24px] z-[41] flex h-5 w-5 items-center justify-center text-[18px] leading-none text-[#999]">
+          ×
+        </button>
+      ) : (
+        hasValue && <span className="absolute bottom-[4px] right-[28px] text-[18px] leading-none text-[#999]">×</span>
+      )}
+      <svg viewBox="0 0 24 24" className={`pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999] transition-transform ${search.open ? "rotate-180" : ""}`} aria-hidden>
         {CARET}
       </svg>
-      {options && onChange && (
-        <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0" aria-label={t(label)}>
-          {Array.from(new Set(options)).map((option) => (
-            <option key={option} value={option}>
-              {t(option)}
-            </option>
-          ))}
-        </select>
-      )}
+      {search.open && <ChoiceMenu items={search.items} active={search.active} selected={value} label={show} onActive={search.setActive} onPick={pick} onClose={search.close} />}
     </div>
   )
 }
@@ -492,7 +687,10 @@ export function ReportTopRow({
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.filter} /></svg>
         <span className="pl-[8px] pr-[16px]">{typeof filterLabel === "string" ? t(filterLabel) : filterLabel}</span>
       </button>
-      <span className="ml-[14px] text-[13px] font-semibold text-[#1E4A9A]">{typeof scope === "string" ? t(scope) : scope}</span>
+      {/* Linko's scope text is part of its filter button: a click opens the filter too. */}
+      <button type="button" onClick={onFilter} className="ml-[14px] text-left text-[13px] font-semibold text-[#1E4A9A] hover:underline">
+        {typeof scope === "string" ? t(scope) : scope}
+      </button>
       <button type="button" onClick={onDownload} className="ml-auto flex h-[34px] items-center rounded-[5px] bg-[#71ce87] pl-[12px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.chart} /></svg>
         <span className="pl-[12px] pr-[16px]">{t("Скачать")}</span>
@@ -579,6 +777,12 @@ export function formatShortReportDate(iso: string) {
 }
 
 /** "01 окт. 2026 - 14 окт. 2026" field; each half opens its own date picker. */
+/**
+ * A period field of the reference's filter panels ("Период создания", "Первый период" …): a click opens the
+ * reference's range picker under it — presets (Сегодня, Вчера, Последние 7 дней, Текущий месяц …), two
+ * months to pick the first and the last day, ✕ / ✓ — instead of the browser's own date inputs. A second
+ * click (or a click outside) closes it.
+ */
 export function ReportRangeField({
   label,
   from,
@@ -595,19 +799,40 @@ export function ReportRangeField({
   onTo: (value: string) => void
 }) {
   const { t } = useLanguage()
+  const field = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  // The 750px picker opens to the right of the field, or to its left when it would leave the window.
+  const [alignRight, setAlignRight] = useState(false)
+  function toggle() {
+    if (!open && field.current) setAlignRight(field.current.getBoundingClientRect().left + 760 > window.innerWidth)
+    setOpen((current) => !current)
+  }
   return (
-    <div className={`${FIELD} ${className}`}>
-      <span className={`${FLOAT_LABEL} flex items-center gap-[2px]`}>
-        {t(label)}
-        <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#c4c4c4]" aria-hidden>
-          <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
-        </svg>
-      </span>
-      <span className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">
-        {t(formatShortReportDate(from))} - {t(formatShortReportDate(to))}
-      </span>
-      <input type="date" aria-label={t("Дата от")} value={from} max={to} onChange={(event) => event.target.value && onFrom(event.target.value)} className="absolute left-0 top-0 h-full w-1/2 cursor-pointer opacity-0" />
-      <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && onTo(event.target.value)} className="absolute right-0 top-0 h-full w-1/2 cursor-pointer opacity-0" />
+    <div ref={field} className={`${FIELD} ${className}`}>
+      <button type="button" onClick={toggle} aria-haspopup="dialog" aria-expanded={open} className="absolute inset-0 h-full w-full cursor-pointer text-left">
+        <span className={`${FLOAT_LABEL} flex items-center gap-[2px]`}>
+          {t(label)}
+          <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#c4c4c4]" aria-hidden>
+            <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
+          </svg>
+        </span>
+        <span className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">
+          {t(formatShortReportDate(from))} - {t(formatShortReportDate(to))}
+        </span>
+      </button>
+      {open && (
+        <DateRangePicker
+          begin={from}
+          end={to}
+          positionClassName={alignRight ? "right-0 top-[calc(100%+8px)]" : undefined}
+          onClose={() => setOpen(false)}
+          onApply={(begin, end) => {
+            onFrom(begin)
+            onTo(end)
+            setOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }

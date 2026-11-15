@@ -376,23 +376,68 @@ export type AgentRouteSummaryRow = {
   visitDays: string[]
   /** Visited clients per local day ("YYYY-MM-DD" → count), the cells of Визиты по дням. */
   visitsByDay: Record<string, number>
+  /** The other columns of Визиты по дням («Колонка»), per local day of a visit: visited clients whose visit
+   * ended with an order (Заказ), photo reports taken (Фотоотчёт колв.) and "HH:mm" of the first visit start /
+   * the last visit end (Начало / Конец работы). Strike Rate = Заказ / Визит. */
+  ordersByDay: Record<string, number>
+  reportsByDay: Record<string, number>
+  startByDay: Record<string, string>
+  endByDay: Record<string, string>
 }
 
 export type AgentRouteSummary = { from: string; to: string; baseCurrency: string; agents: AgentRouteSummaryRow[] }
 
 const emptyTotals = (): AgentRouteTotals => ({ visited: 0, effective: 0, refused: 0, sales: 0 })
 
+const byDayRecord = (map: Map<string, number>) => Object.fromEntries([...map.entries()].sort(([a], [b]) => a.localeCompare(b)))
+
 /** Per employee: plan vs. visits on and off the route, refusals and sales of the period. */
 export async function getAgentRouteSummary(from: string, to: string, employeeIds?: number[]): Promise<AgentRouteSummary> {
-  return summarize(from, to, await clientDays(from, to, employeeIds), await orderFacts(from, to, employeeIds))
+  const days = await clientDays(from, to, employeeIds)
+  return summarize(from, to, days, await orderFacts(from, to, employeeIds), await photoReportsByDay(from, to, employeeIds))
 }
 
-async function summarize(from: string, to: string, days: ClientDay[], { baseCurrency, orders }: { baseCurrency: string; orders: OrderFact[] }): Promise<AgentRouteSummary> {
-  type Acc = { plan: number; route: AgentRouteTotals; outside: AgentRouteTotals; visitDays: Set<string>; byDay: Map<string, number>; clients: Set<string> }
+/** Photo reports (field_photo_reports) per employee and local day of the period: "id|YYYY-MM-DD" → count. */
+async function photoReportsByDay(from: string, to: string, employeeIds?: number[]): Promise<Map<string, number>> {
+  checkPeriod(from, to)
+  if (employeeIds && !employeeIds.length) return new Map()
+  await ensureFieldSchema()
+  const rows = (await getDb()
+    .prepare(
+      `SELECT r.employee_id, to_char((${local("r.happened_at")})::date, 'YYYY-MM-DD') AS day, COUNT(*)::int AS n
+         FROM field_photo_reports r
+        WHERE r.happened_at >= @fromUtc::timestamptz AND r.happened_at < @toUtc::timestamptz
+          ${employeeIds ? "AND r.employee_id = ANY(@employeeIds::int[])" : ""}
+        GROUP BY 1, 2`,
+    )
+    .all({ ...utcBounds(from, to), employeeIds: employeeIds ?? [] })) as Array<{ employee_id: number; day: string; n: number }>
+  return new Map(rows.map((row) => [`${Number(row.employee_id)}|${row.day}`, Number(row.n) || 0]))
+}
+
+async function summarize(
+  from: string,
+  to: string,
+  days: ClientDay[],
+  { baseCurrency, orders }: { baseCurrency: string; orders: OrderFact[] },
+  reports: Map<string, number> = new Map(),
+): Promise<AgentRouteSummary> {
+  type Acc = {
+    plan: number
+    route: AgentRouteTotals
+    outside: AgentRouteTotals
+    visitDays: Set<string>
+    byDay: Map<string, number>
+    ordersByDay: Map<string, number>
+    startByDay: Map<string, string>
+    endByDay: Map<string, string>
+    clients: Set<string>
+  }
   const acc = new Map<number, Acc>()
   const entry = (id: number) => {
     let value = acc.get(id)
-    if (!value) acc.set(id, (value = { plan: 0, route: emptyTotals(), outside: emptyTotals(), visitDays: new Set(), byDay: new Map(), clients: new Set() }))
+    if (!value) {
+      acc.set(id, (value = { plan: 0, route: emptyTotals(), outside: emptyTotals(), visitDays: new Set(), byDay: new Map(), ordersByDay: new Map(), startByDay: new Map(), endByDay: new Map(), clients: new Set() }))
+    }
     return value
   }
   const planned = new Set<string>()
@@ -409,6 +454,11 @@ async function summarize(from: string, to: string, days: ClientDay[], { baseCurr
     if (day.refused) side.refused += 1
     target.visitDays.add(day.day)
     target.byDay.set(day.day, (target.byDay.get(day.day) ?? 0) + 1)
+    if (day.effective) target.ordersByDay.set(day.day, (target.ordersByDay.get(day.day) ?? 0) + 1)
+    const start = target.startByDay.get(day.day)
+    if (day.firstStart && (!start || day.firstStart < start)) target.startByDay.set(day.day, day.firstStart)
+    const end = target.endByDay.get(day.day)
+    if (day.lastEnd && (!end || day.lastEnd > end)) target.endByDay.set(day.day, day.lastEnd)
   }
   for (const order of orders) {
     const target = entry(order.employeeId)
@@ -437,7 +487,13 @@ async function summarize(from: string, to: string, days: ClientDay[], { baseCurr
         route: value.route,
         outside: value.outside,
         visitDays: [...value.visitDays].sort(),
-        visitsByDay: Object.fromEntries([...value.byDay.entries()].sort(([a], [b]) => a.localeCompare(b))),
+        visitsByDay: byDayRecord(value.byDay),
+        ordersByDay: byDayRecord(value.ordersByDay),
+        reportsByDay: Object.fromEntries(
+          [...reports.entries()].filter(([key]) => key.startsWith(`${employeeId}|`)).map(([key, n]) => [key.slice(key.indexOf("|") + 1), n] as const).sort(([a], [b]) => a.localeCompare(b)),
+        ),
+        startByDay: Object.fromEntries([...value.startByDay.entries()].map(([day, stamp]) => [day, clock(stamp)] as const).sort(([a], [b]) => a.localeCompare(b))),
+        endByDay: Object.fromEntries([...value.endByDay.entries()].map(([day, stamp]) => [day, clock(stamp)] as const).sort(([a], [b]) => a.localeCompare(b))),
       }
     })
     // By employee id, as Linko's agent_visit / system_distribution reports list them.

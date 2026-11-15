@@ -271,8 +271,9 @@ export function TransferDetailPanel({
                     <button type="button" onClick={() => toggleSort(key)} className="flex items-center gap-[4.9px] text-left">
                       {label}
                       <span className="relative block h-[20px] w-[15px]" aria-hidden>
-                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-0 h-[15px] w-[15px] ${sort?.key === key && !sort.desc ? "fill-[#1E4A9A]" : "fill-[#9aa3b6]"}`}><path d="M7 14l5-5 5 5z" /></svg>
-                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-[5px] h-[15px] w-[15px] ${sort?.key === key && sort.desc ? "fill-[#1E4A9A]" : "fill-[#9aa3b6]"}`}><path d="M7 10l5 5 5-5z" /></svg>
+                        {/* Linko's mark: a sorted column keeps only the triangle of its direction. */}
+                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-0 h-[15px] w-[15px] ${sort?.key === key && sort.desc ? "fill-transparent" : "fill-[#9aa3b6]"}`}><path d="M7 14l5-5 5 5z" /></svg>
+                        <svg viewBox="0 0 24 24" className={`absolute left-0 top-[5px] h-[15px] w-[15px] ${sort?.key === key && !sort.desc ? "fill-transparent" : "fill-[#9aa3b6]"}`}><path d="M7 10l5 5 5-5z" /></svg>
                       </span>
                     </button>
                   </th>

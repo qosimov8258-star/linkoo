@@ -204,7 +204,7 @@ function StockMoveContent() {
                 {filterCount > 0 ? ` / ${filterCount}` : ""}
               </span>
             </button>
-            <span className="ml-[14px] whitespace-nowrap text-[13px] font-semibold text-[#1E4A9A]">{scope.length ? scope.join(", ") : t("Во всей организации")}</span>
+            <button type="button" onClick={openFilter} className="ml-[14px] whitespace-nowrap text-left text-[13px] font-semibold text-[#1E4A9A] hover:underline">{scope.length ? scope.join(", ") : t("Во всей организации")}</button>
           </div>
           <BalanceDownloadMenu
             disabled={downloading}

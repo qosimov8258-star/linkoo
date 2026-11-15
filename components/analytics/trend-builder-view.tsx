@@ -227,7 +227,7 @@ export function TrendBuilderView() {
               </div>
             )}
           </div>
-          <div className="absolute left-[518px] top-[8px] w-[270px]"><ReportChipField label={t("Модель")} value={model} options={["Продукты заказов по дате создания"]} onChange={setModel} /></div>
+          <div className="absolute left-[518px] top-[8px] w-[270px]"><ReportChipField label={t("Модель")} value={model} options={["Продукты заказов по дате создания"]} onChange={setModel} clearable={false} /></div>
         </div>
 
         <div ref={toolbarRef} className="relative flex flex-wrap items-center gap-[14px] px-[30px] py-[8px]">

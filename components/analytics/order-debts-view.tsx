@@ -602,7 +602,7 @@ export function OrderDebtsView() {
               {filterCount > 0 && ` / ${filterCount}`}
             </span>
           </button>
-          <span className="ml-[14px] text-[13px] font-semibold text-[#1E4A9A]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
+          <button type="button" onClick={() => setFilterOpen(true)} className="ml-[14px] text-left text-[13px] font-semibold text-[#1E4A9A] hover:underline">{scope.length ? scope.join(" ") : t("Во всей организации")}</button>
         </div>
         <div className="flex items-center gap-[8px]">
           {isOrders && (

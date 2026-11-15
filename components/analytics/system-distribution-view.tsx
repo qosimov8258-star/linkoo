@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { AgentRouteSummary } from "@/lib/agent-visits-repo"
+import { nextMatrixSort } from "@/components/ref/sort-arrows"
 import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
+import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-drawer"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportListSelectField, ReportPage } from "@/components/ref/report-kit"
 
-type Row = (string | number)[]
+/** [agent name, supervisor, numbers …]; the agent's employee id rides along for the drawer. */
+type Row = (string | number)[] & { employeeId?: number }
 
 type PositionRef = { name: string }
 
@@ -107,10 +110,12 @@ export function SystemDistributionView() {
         .map((agent) => {
           const fact = agent.route.visited + agent.outside.visited
           const effective = agent.route.effective + agent.outside.effective
-          return [
+          const row: Row = [
             agent.name, agent.supervisor, agent.okb, agent.akb, percent(agent.akb, agent.okb), agent.plan, fact, agent.route.visited, agent.outside.visited,
             percent(agent.route.visited, agent.plan), effective, agent.route.effective, agent.outside.effective, percent(effective, fact), percent(agent.route.effective, agent.plan),
           ]
+          row.employeeId = agent.employeeId
+          return row
         }),
     [summary, applied.position],
   )
@@ -157,7 +162,9 @@ export function SystemDistributionView() {
           <ReportListSelectField label="Должность" value={position} onChange={setPosition} options={positions} />
         </ReportFilters>
 
-        {loading ? null : rows.length === 0 ? <ReportEmpty /> : <SystemDistributionTable rows={rows} totals={totalsRow} />}
+        <AgentDrawerScope date={applied.to}>
+          {loading ? null : rows.length === 0 ? <ReportEmpty /> : <SystemDistributionTable rows={rows} totals={totalsRow} />}
+        </AgentDrawerScope>
       </ReportBand>
 
       {overlayOpen && (
@@ -209,12 +216,12 @@ function SystemDistributionTable({ rows, totals }: { rows: Row[]; totals: Row })
       return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "ru")) * dir
     })
   }, [rows, sort])
-  const toCell = (value: string | number, index: number) =>
-    index === 0 ? <span className="text-[#1E4A9A]">{value}</span> : typeof value === "number" ? matrixNumber(value) : value
+  const toCell = (row: Row, value: string | number, index: number) =>
+    index === 0 ? <AgentLink key="name" employeeId={row.employeeId} name={String(value)} /> : typeof value === "number" ? matrixNumber(value) : value
   const matrixRows: MatrixRow[] = [
     ...ordered.map((row, rowIndex) => ({
       key: `${row[0]}-${rowIndex}`,
-      cells: row.map(toCell),
+      cells: row.map((value, index) => toCell(row, value, index)),
       cellClass: (index: number) => (PERCENT_COLUMNS.includes(index) ? percentTone(Number(row[index])) : ""),
     })),
     { key: "total", tone: "total" as const, cells: totals.map((value, index) => (index === 0 ? t(String(value)) : typeof value === "number" ? matrixNumber(value) : value)) },
@@ -232,7 +239,7 @@ function SystemDistributionTable({ rows, totals }: { rows: Row[]; totals: Row })
       ]}
       sortKey={sort.key}
       sortDir={sort.dir}
-      onSort={(index) => setSort((current) => ({ key: index, dir: current.key === index && current.dir === "asc" ? "desc" : "asc" }))}
+      onSort={(index) => setSort((current) => nextMatrixSort(current, index))}
       rows={matrixRows}
     />
   )

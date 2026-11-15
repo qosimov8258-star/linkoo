@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { AgentRouteSummary } from "@/lib/agent-visits-repo"
+import { nextMatrixSort } from "@/components/ref/sort-arrows"
 import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
+import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-drawer"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
 
@@ -143,21 +145,21 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
     if (!supervisorMode) {
       const ordered = rows.map((row) => ({ key: row.employeeId, name: row.name, values: flat(row) })).sort(compare)
       return [
-        ...ordered.map((row) => ({ key: String(row.key), cells: [row.name, ...fmt(row.values)] })),
+        ...ordered.map((row) => ({ key: String(row.key), cells: [<AgentLink key="name" employeeId={row.key} name={row.name} />, ...fmt(row.values)] })),
         { key: "total", tone: "total" as const, cells: [t("Итого"), ...fmt(sum(ordered.map((row) => row.values)))] },
       ]
     }
 
     // Grouped by the supervisor set on the employee card (by id); agents without one under "Не указано".
-    const groups = new Map<string, { name: string; agents: { key: number; name: string; values: number[] }[] }>()
+    const groups = new Map<string, { id: number | null; name: string; agents: { key: number; name: string; values: number[] }[] }>()
     for (const row of rows) {
       const groupKey = row.supervisorId === null ? "none" : String(row.supervisorId)
-      const group = groups.get(groupKey) ?? { name: row.supervisorId === null ? t(NO_SUPERVISOR) : row.supervisor, agents: [] }
+      const group = groups.get(groupKey) ?? { id: row.supervisorId, name: row.supervisorId === null ? t(NO_SUPERVISOR) : row.supervisor, agents: [] }
       group.agents.push({ key: row.employeeId, name: row.name, values: flat(row) })
       groups.set(groupKey, group)
     }
     const orderedGroups = [...groups.entries()]
-      .map(([key, group]) => ({ key, name: group.name, agents: group.agents, values: sum(group.agents.map((agent) => agent.values)) }))
+      .map(([key, group]) => ({ key, id: group.id, name: group.name, agents: group.agents, values: sum(group.agents.map((agent) => agent.values)) }))
       .sort(compare)
     const out: MatrixRow[] = []
     for (const group of orderedGroups) {
@@ -171,13 +173,13 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
             <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white">
               <path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} />
             </svg>
-            {group.name}
+            <AgentLink employeeId={group.id} name={group.name} className="!text-white" />
           </span>,
           ...fmt(group.values),
         ],
       })
       if (open) {
-        for (const agent of [...group.agents].sort(compare)) out.push({ key: `a-${agent.key}`, tone: "sub", cells: [agent.name, ...fmt(agent.values)] })
+        for (const agent of [...group.agents].sort(compare)) out.push({ key: `a-${agent.key}`, tone: "sub", cells: [<AgentLink key="name" employeeId={agent.key} name={agent.name} />, ...fmt(agent.values)] })
       }
     }
     out.push({ key: "total", tone: "dark", cells: [t("Итого"), ...fmt(sum(orderedGroups.map((group) => group.values)))] })
@@ -193,6 +195,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
         inDashboard={inDashboard}
       />
 
+      <AgentDrawerScope date={range.to}>
       <ReportBand>
         <ReportFilters
           onApply={() => {
@@ -212,11 +215,12 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
             groups={[{ title: "", span: 1 }, { title: t("По маршруту"), span: 5 }, { title: t("Вне маршрута"), span: 4 }]}
             sortKey={sort.key}
             sortDir={sort.dir}
-            onSort={(index) => setSort((current) => ({ key: index, dir: current.key === index && current.dir === "asc" ? "desc" : "asc" }))}
+            onSort={(index) => setSort((current) => nextMatrixSort(current, index))}
             rows={matrixRows}
           />
         )}
       </ReportBand>
+      </AgentDrawerScope>
 
       {overlayOpen && (
         <button

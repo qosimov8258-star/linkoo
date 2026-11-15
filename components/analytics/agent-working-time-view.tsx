@@ -4,10 +4,13 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
+import { nextMatrixSort } from "@/components/ref/sort-arrows"
+import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-drawer"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 
 type WorkTimeRow = {
+  employeeId: number
   agent: string
   date: string
   first: string
@@ -57,7 +60,8 @@ export function AgentWorkingTimeView() {
   const [data, setData] = useState<WorkTimeRow[]>([])
   const [supervisorOf, setSupervisorOf] = useState<Record<string, string>>({})
   const [collapsed, setCollapsed] = useState<string[]>([])
-  const [sort, setSort] = useState<{ key: number; dir: "asc" | "desc" }>({ key: 0, dir: "asc" })
+  // Agents by name at first; a click on «Агент»: ascending, descending, none (as the reference).
+  const [sort, setSort] = useState<{ key: number | null; dir: "asc" | "desc" }>({ key: null, dir: "asc" })
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
@@ -121,7 +125,7 @@ export function AgentWorkingTimeView() {
       if (applied.supervisor && supervisorOf[row.agent] !== applied.supervisor) continue
       byAgent.set(row.agent, [...(byAgent.get(row.agent) ?? []), row])
     }
-    const dir = sort.dir === "asc" ? 1 : -1
+    const dir = sort.key === 0 && sort.dir === "desc" ? -1 : 1
     const out: MatrixRow[] = []
     for (const [agent, list] of [...byAgent.entries()].sort(([a], [b]) => a.localeCompare(b, "ru") * dir)) {
       const sum = (pick: (row: WorkTimeRow) => number) => list.reduce((acc, row) => acc + pick(row), 0)
@@ -135,7 +139,7 @@ export function AgentWorkingTimeView() {
         cells: [
           <span key="n" className="inline-flex items-center gap-[6px]">
             <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} /></svg>
-            {agent}
+            <AgentLink employeeId={list[0]?.employeeId} name={agent} className="!text-white" />
           </span>,
           list.map((row) => row.first).sort()[0],
           list.map((row) => row.last).sort().slice(-1)[0],
@@ -161,7 +165,7 @@ export function AgentWorkingTimeView() {
               row.last,
               duration(row.totalSec, t),
               duration(row.storeSec, t),
-              matrixNumber(Math.max(row.totalSec - row.storeSec, 0)),
+              duration(Math.max(row.totalSec - row.storeSec, 0), t),
               matrixNumber(row.plan),
               matrixNumber(row.visitedPlan),
               matrixNumber(row.visitedOutside),
@@ -219,11 +223,12 @@ export function AgentWorkingTimeView() {
         >
           <ReportDateField label="Дата создания от" value={from} max={to} onChange={setFrom} />
           <ReportDateField label="Дата создания до" value={to} min={from} onChange={setTo} />
-          <ReportChipField label="Показать по" value={metric} options={["Время нахождения", "Время визита", "Время в пути", "Рабочее время"]} onChange={setMetric} />
+          <ReportChipField label="Показать по" value={metric} options={["Задачи", "Время нахождения"]} onChange={setMetric} />
           <ReportSelectField label="Супервайзер" value={supervisor} onChange={setSupervisor} options={supervisors} />
           <ReportSelectField label="Агент" value={agent} onChange={setAgent} options={agents} />
         </ReportFilters>
 
+        <AgentDrawerScope date={applied.to}>
         {matrixRows.length === 0 ? (
           <ReportEmpty />
         ) : (
@@ -233,10 +238,11 @@ export function AgentWorkingTimeView() {
             headLeading={20}
             sortKey={sort.key}
             sortDir={sort.dir}
-            onSort={() => setSort((current) => ({ key: 0, dir: current.dir === "asc" ? "desc" : "asc" }))}
+            onSort={(index) => setSort((current) => nextMatrixSort(current, index))}
             rows={matrixRows}
           />
         )}
+        </AgentDrawerScope>
       </ReportBand>
 
       {overlayOpen && (

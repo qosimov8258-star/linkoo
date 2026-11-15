@@ -115,6 +115,7 @@ export function AbcAnalysisView() {
           <ReportChipField
             label="Группировать по"
             value={groupBy}
+            clearable={false}
             options={["Продукт", "Бренд", "Филиал"]}
             onChange={(value) => {
               // Group by follows the chip at once; the other filters apply with "Применить".
