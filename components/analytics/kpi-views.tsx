@@ -2,14 +2,11 @@
 
 import Image from "next/image"
 import { useEffect, useMemo, useState } from "react"
-import { ListFilter } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { KpiFormDialog, type KpiFormValue } from "@/components/analytics/kpi-form"
 import { KpiActiveConfirm, KpiLockDialog } from "@/components/analytics/kpi-lock-dialog"
 import { RefTip } from "@/components/ref/ref-tip"
 import { FilterSelect, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
-import { ReportEmpty, ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
-import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
 import { KPI_ORDER_STATUSES, KPI_RETURN_STATUSES } from "@/lib/kpi-form-rules"
@@ -94,114 +91,8 @@ const isCurrentlyActive = (task: KpiTask) => task.active && !(task.tillDate && t
 
 const initialTasks: KpiTask[] = []
 
-/** variant "page" is the standalone report of the analytics menu (#/widget-kpi); "tab" is the dashboard KPI tab. */
-export function KpiPerformanceView({ variant = "page" }: { variant?: "page" | "tab" }) {
-  const { t } = useLanguage()
-  const router = useRouter()
-  const today = new Date()
-  const [month, setMonth] = useState(today.getMonth())
-  const [year, setYear] = useState(today.getFullYear())
-  const [recalculating, setRecalculating] = useState(false)
-  const [showFilter, setShowFilter] = useState(false)
-  // The reference keeps the filter dialog in the address: ?openKpiTabFilterDialog=true
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("openKpiTabFilterDialog") === "true") setShowFilter(true)
-  }, [])
-  const toggleFilter = (open: boolean) => {
-    setShowFilter(open)
-    const url = new URL(window.location.href)
-    if (open) url.searchParams.set("openKpiTabFilterDialog", "true")
-    else url.searchParams.delete("openKpiTabFilterDialog")
-    window.history.replaceState(window.history.state, "", url.pathname + url.search)
-  }
-
-  function downloadCsv() {
-    const csv = csvText([[t("Месяц"), t("Год"), "KPI", t("Значение")], [month + 1, year, t("Общий объем во всех KPI"), 0]])
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }))
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = "kpi-performance.csv"
-    anchor.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
-  const recalc = () => {
-    setRecalculating(true)
-    window.setTimeout(() => setRecalculating(false), 600)
-  }
-
-  const actionButtons = (
-    <>
-      <button type="button" onClick={() => router.push("/analytics/kpi-tasks")} className="h-[30px] rounded-[3px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("KPI задачи")}</button>
-      <button type="button" onClick={() => router.push("/analytics/salary-planning")} className="h-[30px] rounded-[3px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Зарплата и установка планов")}</button>
-      <button type="button" onClick={() => router.push("/analytics/visits-by-day")} className="h-[30px] rounded-[3px] bg-[#fa8072] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Посещения")}</button>
-    </>
-  )
-  const standalone = variant === "page"
-
-  return (
-    <ReportPage>
-      {standalone ? (
-        <>
-          <div className="pl-[30px] pr-[36px]">
-            <RefHeader title="">
-              <div className="flex gap-[22px]">{actionButtons}</div>
-            </RefHeader>
-          </div>
-          <section className="mx-[28px] flex h-[77px] gap-[15px] bg-white px-[30px] pt-[12px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            <div className="w-[269px] [&>label>span:first-child]:!top-px"><ReportSelectField label="Месяц" value={MONTHS[month]} onChange={(value) => value && setMonth(MONTHS.indexOf(value))} options={MONTHS} /></div>
-            <div className="w-[269px] [&>label>span:first-child]:!top-px"><ReportSelectField label="Год" value={String(year)} onChange={(value) => value && setYear(Number(value))} options={["2024", "2025", "2026", "2027"]} /></div>
-          </section>
-        </>
-      ) : (
-        <>
-          <WidgetHeader active="KPI" />
-          <WidgetUserCard showPeriods={false}>
-            <div className="ml-auto mr-[23px] flex gap-[18px]">
-              {actionButtons}
-              <button type="button" onClick={() => toggleFilter(true)} className="flex h-[30px] items-center gap-[6px] rounded-[3px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"><ListFilter className="h-4 w-4" />{t("Показать фильтр")}</button>
-            </div>
-          </WidgetUserCard>
-        </>
-      )}
-      {showFilter && !standalone && (
-        <KpiFilterDialog
-          months={MONTHS}
-          onClose={() => toggleFilter(false)}
-          onApply={(nextMonth, nextYear) => {
-            if (nextMonth) setMonth(MONTHS.indexOf(nextMonth))
-            if (nextYear) setYear(Number(nextYear))
-            toggleFilter(false)
-          }}
-        />
-      )}
-      <section className={`${standalone ? "mx-[28px] mt-[27px]" : "mx-[30px] mt-[10px]"} grid gap-x-[28px] md:grid-cols-[250px_1fr]`}>
-        <div>
-          <div className={`${standalone ? "mb-[3px]" : "mb-[10px]"} flex h-[30px] items-center px-[5px]`}><h2 className="text-[13px] font-semibold leading-4">KPI</h2></div>
-          <div className="min-h-[720px] bg-white p-px shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            <button type="button" aria-current="true" onClick={recalc} className="h-[44.3px] w-full bg-[#f2f5f8] px-[17px] pt-[8px] text-left text-[13px] text-[#2c2c2c]">{t("Общий объем")} <span data-no-translate>{"\u0432\u043e \u0432\u0441\u0435\u0445 \u043a\u043f\u044d"}</span></button>
-          </div>
-        </div>
-        <div>
-          <div className={`${standalone ? "mb-[3px]" : "mb-[10px]"} flex h-[30px] items-center justify-between px-[5px]`}>
-            <h2 className="text-[13px] font-semibold leading-4">{t("Общий объем")}</h2>
-            <div className="-mr-[5px] flex items-center gap-[10px] text-[13px] font-semibold">
-              {standalone ? (
-                <button type="button" onClick={downloadCsv} aria-label={t("Скачать")} className="mr-[20px] flex h-6 w-6 items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" /></svg></button>
-              ) : (
-                <button type="button" onClick={downloadCsv} className="flex h-[30px] items-center gap-[6px] rounded-[3px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95"><svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d={RI.chart ?? RI.download} /></svg>{t("Скачать")}</button>
-              )}
-              <span>{t("данные за")}</span>
-              <button type="button" onClick={recalc} className={`ml-[5px] text-[#71ce87] ${recalculating ? "opacity-60" : ""}`}>{t("Перерасчет")}</button>
-            </div>
-          </div>
-          <div className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"><ReportEmpty className="pb-[46px] pt-[54px]" text={t("По вашему запросу ничего не найдено...")} /></div>
-        </div>
-      </section>
-    </ReportPage>
-  )
-}
+// «Выполнения KPI» lives in its own file; re-exported here for the pages that import it from this module.
+export { KpiPerformanceView } from "@/components/analytics/kpi-performance-view"
 
 // The reference keeps the list state in the URL (#/kpi/<id>?page&pageSize&status&search&ordering).
 const STATUS_BY_TAB: Record<string, string> = { "Активные": "active", "Не активный": "inactive", "Системные": "only_for_system", "Все": "all" }
@@ -638,48 +529,6 @@ function KpiTaskDetail({
         </div>
       </div>
     </div>
-    </div>
-  )
-}
-
-// "Фильтр" of the KPI tab: the reference lays it over the user card with four underlined selects and "ПРИМЕНИТЬ".
-function KpiFilterDialog({ months, onClose, onApply }: { months: string[]; onClose: () => void; onApply: (month: string, year: string) => void }) {
-  const { t } = useLanguage()
-  const [month, setMonth] = useState("")
-  const [year, setYear] = useState("")
-  const [organization, setOrganization] = useState("")
-  const [branch, setBranch] = useState("")
-  const [organizations, setOrganizations] = useState<string[]>([])
-  const [branches, setBranches] = useState<string[]>([])
-
-  useEffect(() => {
-    const names = (url: string, set: (list: string[]) => void) =>
-      fetch(url)
-        .then((response) => (response.ok ? response.json() : []))
-        .then((rows: Array<{ name?: string }>) => set([...new Set(rows.map((row) => row.name ?? "").filter(Boolean))]))
-        .catch(() => {})
-    void names("/api/organizations", setOrganizations)
-    void names("/api/branches", setBranches)
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
-  return (
-    <div className="absolute left-[30px] top-[110px] z-[60] h-[186px] w-[1440px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-      <div className="absolute left-[20px] top-[25px] text-[15px] leading-[18px] text-[#666]">{t("Фильтр")}</div>
-      <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="absolute right-[20px] top-[22px] h-6 w-6">
-        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13L12 10.59 8.41 7 7 8.41 10.59 12 7 15.59 8.41 17 12 13.41 15.59 17 17 15.59 13.41 12 17 8.41z" /></svg>
-      </button>
-      <div className="absolute left-[20px] right-[20px] top-[65px] grid grid-cols-4 gap-x-[13px]">
-        <ReportSelectField label="Месяц" value={month} onChange={setMonth} options={months} />
-        <ReportSelectField label="Год" value={year} onChange={setYear} options={["2024", "2025", "2026", "2027"]} />
-        <ReportSelectField label="Организации" value={organization} onChange={setOrganization} options={organizations} />
-        <ReportSelectField label="Филиал" value={branch} onChange={setBranch} options={branches} />
-      </div>
-      <button type="button" onClick={() => onApply(month, year)} className="absolute left-[20px] top-[140px] h-[36px] rounded-[4px] bg-[#5d6474] px-4 text-[13px] font-semibold uppercase text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] hover:brightness-110">
-        {t("Применить")}
-      </button>
     </div>
   )
 }

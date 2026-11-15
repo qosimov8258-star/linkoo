@@ -6785,4 +6785,6 @@ export const uz: Record<string, string> = {
   "Продано дешевле себестоимости": "Tannarxidan arzon sotilgan",
   "Скидки кол-во": "Chegirmalar soni",
   "Скидки сумма": "Chegirmalar summasi",
+  "Факт этого типа KPI не рассчитывается": "Bu turdagi KPI fakti hisoblanmaydi",
+  "Факт.": "Fakt.",
 }

@@ -6803,4 +6803,6 @@ export const en: Record<string, string> = {
   "Продано дешевле себестоимости": "Sold below cost",
   "Скидки кол-во": "Discounts qty",
   "Скидки сумма": "Discounts amount",
+  "Факт этого типа KPI не рассчитывается": "The fact of this KPI type is not calculated",
+  "Факт.": "Fact.",
 }

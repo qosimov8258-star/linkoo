@@ -5,6 +5,7 @@ import { getEmployee } from "@/lib/employees-repo"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
+import { kpiBonusesOf, kpiSheetRows, recalculateKpiBalances } from "@/lib/kpi-performance-repo"
 
 /**
  * "Зарплата и установка планов" (the reference's staff/salary): one record per employee and month with the fixed salary,
@@ -390,13 +391,21 @@ export async function copyMonth(
   return done
 }
 
-/** "Перерасчет KPI": re-derives the totals of the month and stamps the "ДАННЫЕ ЗА" date. */
+/** "Перерасчет KPI" (also «Перерасчет» of «Выполнения KPI»): recomputes the month's KPI facts, levels and bonuses
+ * (lib/kpi-performance-repo.ts) and writes each record's bonuses per currency (a KPI without a currency pays in the base
+ * currency) and totals, like Linko's salary calculation. A credited («Зачислить») record keeps the bonuses it was
+ * credited with. Stamps the "ДАННЫЕ ЗА" date. */
 export async function recalculate(month: number, year: number): Promise<number> {
   await ensureSchema()
+  await recalculateKpiBalances(month, year)
+  const bonuses = await kpiBonusesOf(month, year)
   const db = getDb()
   const records = await allSalaryRecords(month, year)
   for (const record of records) {
-    const t = totals(record.salary, record.currency, record.currencies)
+    const currencies = record.isApproved
+      ? record.currencies
+      : [...(bonuses.get(record.userId) ?? new Map<string, number>()).entries()].map(([name, totalBonus]) => ({ name, totalBonus, totalSalary: totalBonus }))
+    const t = totals(record.salary, record.currency, currencies)
     await db
       .prepare("UPDATE salary_records SET currencies = ?, total_bonus = ?, total_salary = ?, updated_at = datetime('now') WHERE id = ?")
       .run(JSON.stringify(t.currencies), t.totalBonus, t.totalSalary, record.id)
@@ -411,10 +420,12 @@ export type SalaryKpiStats = {
   rows: Record<number, { workDays: number | null; workedDays: number | null; facts: Record<string, Array<number | null>> }>
 }
 
-/** No KPI statistics are stored for this company yet, so the sheet carries the salary columns only. (The reference
- * account's monthly statistics that the removed demo scripts wrote into salary_kpi_columns / _rows / _facts are not read.) */
+/** The month's stored «Выполнения KPI» rows (the last «Перерасчет»): per employee and KPI [plan, sales, returns, fact,
+ * % (one decimal), level, bonus]. A KPI whose fact this app does not compute leaves those cells empty. The work days
+ * are not filled. (The demo tables salary_kpi_columns / _rows / _facts are not read.) */
 export async function salaryKpiStats(month: number, year: number): Promise<SalaryKpiStats> {
-  void month
-  void year
-  return { columns: [], rows: {} }
+  const sheet = await kpiSheetRows(month, year)
+  const rows: SalaryKpiStats["rows"] = {}
+  for (const [userId, facts] of sheet.facts) rows[userId] = { workDays: null, workedDays: null, facts }
+  return { columns: sheet.columns, rows }
 }

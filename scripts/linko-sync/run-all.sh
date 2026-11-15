@@ -8,6 +8,8 @@
 set -e
 cd "$(dirname "$0")"
 run() { echo "== $1"; node "$1"; }
+# TypeScript steps that use the app's own engine (lib/…): run with tsx, server-only modules allowed.
+run_ts() { echo "== $1"; node ../../node_modules/tsx/dist/cli.mjs --conditions=react-server --tsconfig ../../tsconfig.json "$1"; }
 
 # Catalog and sales documents
 run import-deleted-products.mjs
@@ -49,6 +51,9 @@ run import-tasks.mjs
 run import-notifications.mjs
 run import-auth-logs.mjs
 run fix-auth-log-collisions.mjs
+# «Выполнения KPI»: Linko's monthly snapshots recomputed here as of Linko's recalculation moments (needs the documents,
+# visits, payments and holidays above)
+run_ts import-kpi-balances.ts
 # Stock movements Linko keeps without a document (needs the app running on this database)
 if [ -n "${LOCAL_COOKIE:-}" ]; then
   run import-stock-residuals.mjs

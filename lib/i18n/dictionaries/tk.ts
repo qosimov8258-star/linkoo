@@ -6802,4 +6802,6 @@ export const tk: Record<string, string> = {
   "Продано дешевле себестоимости": "Öz bahasyndan arzan satylan",
   "Скидки кол-во": "Arzanladyşlaryň sany",
   "Скидки сумма": "Arzanladyşlaryň jemi",
+  "Факт этого типа KPI не рассчитывается": "Bu görnüşdäki KPI-niň hakyky görkezijisi hasaplanmaýar",
+  "Факт.": "Hakyky.",
 }

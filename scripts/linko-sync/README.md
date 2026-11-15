@@ -74,6 +74,10 @@ the importers at another database of the same server; a remote host is refused u
 - **Tracking, catalog, branches**: «Показывать в отслеживании» and the live locations (`import-employee-tracking.mjs`,
   needs `fetch.mjs` step `employee-details`), Linko's raw materials and product boxes (`import-product-boxes.mjs`),
   every «Основной филиал» flag (`import-branch-flags.mjs`).
+- **Выполнения KPI**: Linko stores a snapshot per month (`staff/staff_balance`) when someone presses «Перерасчет» and
+  never updates it. `import-kpi-balances.ts` (tsx; `fetch.mjs` step `months` gives `kpi_last_date_months`) recomputes
+  each stored month with the app's engine (`lib/kpi-performance-repo.ts`) as of Linko's recalculation moment, for the
+  employees / KPIs / plans of Linko's snapshot — only those inputs are copied, never a fact or a bonus.
 - **Reservations** follow Linko: unconfirmed orders ("Не подтвержден") and confirmed transfers reserve stock.
 - **Same names**: document lines carry the catalog key (`"key": "product:<id>"`), supplies and supplier returns the
   supplier id, shops their financial account — so Linko products, suppliers and accounts that share a name stay apart.

@@ -196,6 +196,9 @@ async function monthLists() {
     quiz_plan: ["main/quiz_plan/", (y, m) => ({ year: y, month: m, is_approved: "all" })],
     staff_balance: ["staff/staff_balance/", (y, m) => ({ year: y, month: m })],
     kpi_balance: ["staff/performance_indicator/balance/", (y, m) => ({ year: y, month: m })],
+    // When Linko last recalculated the month's staff_balance («данные за»): import-kpi-balances.ts recomputes the
+    // snapshot as of that moment.
+    kpi_last_date: ["staff/staff_balance/last_date/", (y, m) => ({ year: y, month: m })],
   }
   for (const [name, [p, params]] of Object.entries(defs)) {
     const out = {}
