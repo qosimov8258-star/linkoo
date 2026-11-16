@@ -257,13 +257,52 @@ export async function withLedgerCosts(db: PgDb, rows: ProductionMovement[]): Pro
   })
 }
 
+type LinkoMadeLine = [productId: number | null, amount: number | null, cost: number | null]
+
+/** Linko's own figures of a batch copied from it (scripts/linko-sync/import-party-costs.mjs): its good made lines'
+ * costs and its total raw cost, as Linko shows them inside the batch; null for the app's own batches. */
+async function linkoPartyCosts(db: PgDb, id: number): Promise<{ totalRawCost: number | null; made: LinkoMadeLine[] } | null> {
+  const table = (await db.prepare("SELECT to_regclass('public.linko_party_costs') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!table?.ok) return null
+  const row = (await db.prepare("SELECT total_raw_cost, made_costs FROM linko_party_costs WHERE party_id = ?").get(id)) as
+    | { total_raw_cost: number | string | null; made_costs: string | null }
+    | undefined
+  if (!row) return null
+  let made: LinkoMadeLine[] = []
+  try {
+    const parsed = JSON.parse(row.made_costs || "[]") as unknown
+    if (Array.isArray(parsed)) made = parsed as LinkoMadeLine[]
+  } catch {
+    made = []
+  }
+  return { totalRawCost: row.total_raw_cost === null ? null : Number(row.total_raw_cost), made }
+}
+
+/** The good made lines of a Linko batch at Linko's cost (matched in order by product and amount; a pending batch's
+ * cost is null there, shown as 0); every other line keeps the cost it was booked with (Linko's, for a copied batch). */
+function withLinkoMadeCosts(rows: ProductionMovement[], made: LinkoMadeLine[]): ProductionMovement[] {
+  const left = [...made]
+  return rows.map((row) => {
+    if (row.direction !== "made" || row.isDefect) return row
+    const productId = Number(row.key.split(":")[1])
+    const index = left.findIndex(([id, amount]) => id === productId && amount !== null && Math.abs(amount - row.amount) < 1e-9)
+    if (index < 0) return row
+    const cost = left[index][2] ?? 0
+    left.splice(index, 1)
+    return { ...row, cost, total: round(row.amount * cost, 6) }
+  })
+}
+
 export async function getPartyDetail(id: number): Promise<PartyDetail | null> {
   const party = await getParty(id)
   if (!party) return null
   const db = await getProductionDb()
   // Oldest line first, as the reference lists a batch's lines.
   const booked = ((await db.prepare(`${MOVEMENT_SELECT} WHERE m.party_id = ? ORDER BY m.id`).all(id)) as MovementRow[]).map(toMovement)
-  const movements = await withLedgerCosts(db, booked)
+  // A batch copied from Linko shows Linko's figures (its own lines as booked — the raw costs are Linko's — its made
+  // lines' costs and its total raw cost); the app's own batches follow the cost ledger.
+  const linko = await linkoPartyCosts(db, id)
+  const movements = linko ? withLinkoMadeCosts(booked, linko.made) : await withLedgerCosts(db, booked)
   const made = movements.filter((row) => row.direction === "made" && !row.isDefect)
   const raw = movements.filter((row) => row.direction === "raw" && !row.isDefect)
   const rawDefects = movements.filter((row) => row.direction === "raw" && row.isDefect)
@@ -276,7 +315,7 @@ export async function getPartyDetail(id: number): Promise<PartyDetail | null> {
     rawDefects,
     totalMade: summarize(made),
     totalRaw: summarize(consumed),
-    totalRawCost: round(consumed.reduce((sum, row) => sum + row.total, 0), 6),
+    totalRawCost: linko?.totalRawCost ?? round(consumed.reduce((sum, row) => sum + row.total, 0), 6),
   }
 }
 

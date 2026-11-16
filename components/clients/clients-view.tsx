@@ -33,6 +33,7 @@ import { clientTabs, type Client } from "./clients-data"
 import { ClientDebtLimits } from "./client-debt-limits"
 import { invalidateDirectory, useDirectoryNames } from "./use-directory"
 import { MultiEditDialog, type MultiEditExtras, type MultiEditPatch } from "./multi-edit-dialog"
+import { TableColumnsDrawer } from "@/components/ref/table-columns-drawer"
 import { applyClientFilters, ClientsFilterPanel, DEBT_LIMIT_TYPES, emptyClientFilters, type ClientFilters, type DebtLimitFilterContext } from "./clients-filter-panel"
 
 const LocationPicker = dynamic(() => import("./location-picker").then((m) => m.LocationPicker), {
@@ -1241,8 +1242,9 @@ export function ClientsView() {
       </div>
 
       {columnsOpen && (
-        <ColumnsDrawer
-          columns={columns}
+        <TableColumnsDrawer
+          columns={COLUMN_DEFS}
+          visible={columns}
           onSave={(next) => {
             setColumns(next)
             try {
@@ -3091,30 +3093,3 @@ function ClientRow({
   )
 }
 
-
-function ColumnsDrawer({ columns, onSave, onClose }: { columns: Record<ColumnKey, boolean>; onSave: (columns: Record<ColumnKey, boolean>) => void; onClose: () => void }) {
-  const { t } = useLanguage()
-  const [draft, setDraft] = useState(columns)
-  return (
-    <div className="fixed inset-0 z-[1200] bg-black/[0.54]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <aside className="fixed right-0 top-0 flex h-full w-[340px] max-w-full flex-col bg-white text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-        <header className="flex h-[58px] shrink-0 items-center border-b border-[#efefef] pl-[30px]">
-          <h2 className="text-[15px] font-medium">{t("Настройка таблицы")}</h2>
-        </header>
-        <ul className="min-h-0 flex-1 overflow-y-auto pt-[14px]">
-          {COLUMN_DEFS.map((column) => (
-            <li key={column.key} className="h-[35px]">
-              <button type="button" onClick={() => setDraft((current) => ({ ...current, [column.key]: !current[column.key] }))} className="flex h-[35px] w-full items-center gap-[10px] pl-[30px] text-left font-semibold">
-                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d={draft[column.key] ? CI.checkOn : CI.checkEmpty} /></svg>
-                {t(column.title)}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#efefef] pr-[26px]">
-          <button type="button" onClick={() => onSave(draft)} className="font-semibold uppercase text-[#0a9ddb]">{t("Сохранить")}</button>
-        </footer>
-      </aside>
-    </div>
-  )
-}

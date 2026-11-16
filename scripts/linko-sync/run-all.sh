@@ -23,6 +23,7 @@ run import-stock-docs.mjs
 run import-transfer-logs.mjs
 run import-reprice-items.mjs
 run import-production.mjs
+run import-party-costs.mjs
 run import-net-cost-history.mjs
 # Finance
 run import-account-links.mjs

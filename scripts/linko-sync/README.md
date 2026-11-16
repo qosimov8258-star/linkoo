@@ -40,6 +40,10 @@ the importers at another database of the same server; a remote host is refused u
   are only there); `import-zone-agents.mjs` writes them to `client_zone_agents` («Привязать / Отвязать агента»).
 - **Production**: what reached the stock follows Linko's stock history (`stock/barcode_history`): a batch line Linko never
   booked keeps `in_stock = 0`; booked movements a batch no longer lists become batch-less movements of its stage.
+- **Партии, the figures inside a batch**: Linko shows each made line at the cost it stored (a finished batch's raw cost
+  over its good units, null while pending) and its own `total_raw_cost` (which also counts raw material it no longer
+  lists). `import-party-costs.mjs` keeps them in `linko_party_costs`; the batch detail of a copied batch shows them and
+  its lines as booked, while the app's own batches follow the cost ledger. The ledgers are not touched.
 - **Stock without a document** (balances loaded by Linko's 1C integration into the "Ожидается синхронизация: …"
   warehouses, equipment issued from a warehouse, a few corrections): production movements of direction `adjust`
   marked "Linko: …" (the ledger's "Прочие" column), so every product's balance in every warehouse equals Linko's.

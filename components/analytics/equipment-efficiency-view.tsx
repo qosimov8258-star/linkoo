@@ -1,9 +1,10 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronLeft, ChevronRight, Expand, List, Pencil, Search } from "lucide-react"
-import { RefHeader } from "@/components/ref/list-kit"
-import { ReportDateField, ReportFilterPanel, ReportInputField, ReportPage, ReportRangeField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
+import { Pencil, Search } from "lucide-react"
+import { RefHeader, RefNothingFound } from "@/components/ref/list-kit"
+import { ReportDateField, ReportFilterPanel, ReportInputField, ReportPage, ReportPager, ReportRangeField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
+import { TABLE_SETTINGS_ICON, TableColumnsDrawer } from "@/components/ref/table-columns-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -49,6 +50,20 @@ const fmt = (value: number) => {
   return fraction ? `${grouped},${fraction}` : grouped
 }
 const percent = (part: number, whole: number) => (whole ? fmt((part / whole) * 100) : "0")
+
+// The list's columns (Linko's «Настройка таблицы» hides or shows each) and their widths.
+type ColumnKey = "client" | "sales" | "gearSales" | "variety" | "products" | "equipment"
+const COLUMNS: { key: ColumnKey; title: string; width?: number }[] = [
+  { key: "client", title: "Клиент", width: 220 },
+  { key: "sales", title: "Факт. продажи", width: 237 },
+  { key: "gearSales", title: "Факт. продажи оборудования", width: 237 },
+  { key: "variety", title: "Разновидности", width: 237 },
+  { key: "products", title: "Кол-во продуктов", width: 237 },
+  { key: "equipment", title: "Оборудование" },
+]
+const ALL_COLUMNS = Object.fromEntries(COLUMNS.map((column) => [column.key, true])) as Record<ColumnKey, boolean>
+const FULLSCREEN = "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"
+const FULLSCREEN_EXIT = "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"
 
 // Generic equipment kinds; every other list comes from the factory's own directories.
 const INVENTORY_TYPES = ["Холодильник", "Морозильник", "Техническое оборудование", "Другое"]
@@ -125,6 +140,10 @@ export function EquipmentEfficiencyView() {
   const [draft, setDraft] = useState<Filters>(emptyFilters)
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [fullscreen, setFullscreen] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [visible, setVisible] = useState(ALL_COLUMNS)
+  const [columnsOpen, setColumnsOpen] = useState(false)
   const [rangeFrom, setRangeFrom] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01` })
   const [rangeTo, setRangeTo] = useState(() => { const d = new Date(); const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}` })
 
@@ -143,6 +162,15 @@ export function EquipmentEfficiencyView() {
       return true
     })
   }, [query, filters, equipmentRows])
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const shownColumns = COLUMNS.filter((column) => visible[column.key])
+  const cell = (row: EquipmentRow, key: ColumnKey) => {
+    if (key === "client") return <td key={key} className="truncate px-[6px]">{row.client}</td>
+    if (key === "equipment") return <td key={key} className="border-l border-[#ececec] px-[6px] py-[5px] leading-[18px]"><span className="line-clamp-2">{row.equipment}</span></td>
+    return <td key={key} className="border-l border-[#ececec] px-[6px] text-right">{fmt(row[key])}</td>
+  }
 
   function updateFilter<Key extends keyof Filters>(key: Key, value: Filters[Key]) {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -188,42 +216,59 @@ export function EquipmentEfficiencyView() {
             <h2 className="text-[13px] font-semibold">{t("Продажи")}</h2>
             <label className="relative ml-[110px] block h-[28px] w-[182px] border-b border-[#e0e0e0]">
               {!query && <span className="pointer-events-none absolute left-0 top-[5px] text-[13px] text-[#999]">{t("Поиск")}</span>}
-              <input value={query} onChange={(event) => setQuery(event.target.value)} className="h-full w-full bg-transparent pr-8 text-[13px] outline-none" aria-label={t("Поиск")} />
+              <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} className="h-full w-full bg-transparent pr-8 text-[13px] outline-none" aria-label={t("Поиск")} />
               <Search className="pointer-events-none absolute right-[2px] top-[2px] h-6 w-6 text-[#999]" />
             </label>
-            <div className="flex items-center gap-[20px] text-[13px] text-black">
-              <span className="flex items-center">25<svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#999]"><path d="M7 10l5 5 5-5z" /></svg></span>
-              <span>1 - {rows.length} {t("из")} {rows.length}</span>
-              <ChevronLeft className="h-6 w-6 text-[#999]" /><ChevronRight className="h-6 w-6 text-[#999]" />
-              <List className="h-6 w-6 text-[#444]" />
-              <button onClick={() => setFullscreen((value) => !value)} aria-label={t("Полноэкранный режим")}><Expand className="h-5 w-5 text-[#444]" /></button>
+            <div className="flex items-center">
+              {/* Linko: page size, «1 - 18 из 18», the round arrows, «Настройка таблицы» and full screen. */}
+              <ReportPager
+                pageSize={pageSize}
+                onPageSize={(size) => { setPageSize(size); setPage(1) }}
+                rangeLabel={`${(currentPage - 1) * pageSize + 1} - ${(currentPage - 1) * pageSize + pageRows.length} ${t("из")} ${rows.length}`}
+                canPrev={currentPage > 1}
+                canNext={currentPage < pageCount}
+                onPrev={() => setPage(currentPage - 1)}
+                onNext={() => setPage(currentPage + 1)}
+              />
+              <button type="button" onClick={() => setColumnsOpen(true)} aria-label={t("Настройка таблицы")} className="ml-[10px] flex h-10 w-10 items-center justify-center">
+                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]"><path d={TABLE_SETTINGS_ICON} /></svg>
+              </button>
+              <button type="button" onClick={() => setFullscreen((value) => !value)} aria-label={t("Полноэкранный режим")} className="ml-[10px] flex h-10 w-10 items-center justify-center">
+                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]"><path d={fullscreen ? FULLSCREEN_EXIT : FULLSCREEN} /></svg>
+              </button>
             </div>
           </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] table-fixed border-collapse text-[13px]">
-            <colgroup><col className="w-[220px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col /></colgroup>
+            <colgroup>{shownColumns.map((column) => <col key={column.key} style={column.width ? { width: column.width } : undefined} />)}</colgroup>
             <thead className="shadow-[0_3px_6px_rgba(0,0,0,0.12)]">
-              <tr className="h-[33px] bg-white">{["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"].map((title) => <th key={title} className="border-r border-[#e1e5eb] px-2 text-center font-semibold leading-4 last:border-r-0">{title}</th>)}</tr>
+              <tr className="h-[33px] bg-white">{shownColumns.map((column) => <th key={column.key} className="border-r border-[#e1e5eb] px-2 text-center font-semibold leading-4 last:border-r-0">{t(column.title)}</th>)}</tr>
             </thead>
             <tbody>
-              {rows.map((row, index) => (
+              {pageRows.map((row, index) => (
                 <tr key={row.id} className={`min-h-[31px] h-[31px] ${index % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
-                  <td className="truncate px-[6px]">{row.client}</td>
-                  {[row.sales, row.gearSales, row.variety, row.products].map((value, cell) => <td key={cell} className="border-l border-[#ececec] px-[6px] text-right">{fmt(value)}</td>)}
-                  <td className="border-l border-[#ececec] px-[6px] py-[5px] leading-[18px]"><span className="line-clamp-2">{row.equipment}</span></td>
+                  {shownColumns.map((column) => cell(row, column.key))}
                 </tr>
               ))}
             </tbody>
           </table>
-          {!rows.length && <p className="py-12 text-center text-[13px] text-[#8c8c8c]">{t("По вашему запросу ничего не найдено")}</p>}
+          {!rows.length && <RefNothingFound />}
         </div>
       </section>
       </div>
 
+      {columnsOpen && (
+        <TableColumnsDrawer
+          columns={COLUMNS}
+          visible={visible}
+          onSave={(next) => { setVisible(next); setColumnsOpen(false) }}
+          onClose={() => setColumnsOpen(false)}
+        />
+      )}
       {filterOpen && (
-        <ReportFilterPanel normalCase onClose={() => setFilterOpen(false)} onApply={() => { setFilters(draft); setFilterOpen(false) }} onReset={() => { setDraft(emptyFilters); setFilters(emptyFilters); setRealizedDate(""); setFilterOpen(false) }}>
+        <ReportFilterPanel normalCase onClose={() => setFilterOpen(false)} onApply={() => { setFilters(draft); setPage(1); setFilterOpen(false) }} onReset={() => { setDraft(emptyFilters); setFilters(emptyFilters); setRealizedDate(""); setFilterOpen(false) }}>
           <FilterSection title="Клиенты и инвентарь" />
           <ReportSelectField label="Ответственный агент клиента" value={draft.agent} options={selectOptions.agent} onChange={(value) => updateFilter("agent", value)} clearable={false} />
           <ReportSelectField label="Организация инвентаря" value={draft.organization} options={selectOptions.organization} onChange={(value) => updateFilter("organization", value)} clearable={false} />

@@ -2,13 +2,13 @@
 
 import { askDelete } from "@/lib/ask-confirm"
 import { Fragment, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
-import { ImagePlus, ListPlus, PackagePlus, Pencil, Trash2 } from "lucide-react"
+import { ImagePlus, ListPlus, PackagePlus, Trash2 } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CatalogFilterBar } from "@/components/products/catalog-filter"
 import { filterCount, listUrl } from "@/components/products/catalog-state"
 import { EMPTY_CATALOG_FILTERS, type CatalogFilters, type CatalogOptions } from "@/lib/products-types"
-import { RI, RefButton, RefEmpty, RefFilterPanel, RefIconButton, RefToolbar, usePaging } from "@/components/ref/list-kit"
+import { FilterSelect, RI, RefButton, RefEmpty, RefFilterPanel, RefIconButton, RefToolbar, usePaging } from "@/components/ref/list-kit"
 import type { Recipe } from "./batch-detail"
 import {
   api,
@@ -45,7 +45,7 @@ async function run(action: () => Promise<unknown>, after: () => void) {
 type Paging = ReturnType<typeof usePaging>
 
 /** The reference's tab card: "+ add" link above, then one white card with the toolbar and the table. */
-function TabCard({ addLabel, onAdd, query, onQuery, count, filter, paging, addAsButton, customFilter, selectMode, onToggleSelect, selectedActions, children }: { customFilter?: ReactNode; selectMode?: boolean; onToggleSelect?: () => void; selectedActions?: ReactNode; addAsButton?: boolean; addLabel: string; onAdd: () => void; query: string; onQuery: (value: string) => void; count: number; filter?: ReactNode; paging: Paging; children: ReactNode }) {
+function TabCard({ addLabel, onAdd, query, onQuery, count, filter, onApplyFilter, paging, addAsButton, customFilter, selectMode, onToggleSelect, selectedActions, children }: { customFilter?: ReactNode; selectMode?: boolean; onToggleSelect?: () => void; selectedActions?: ReactNode; addAsButton?: boolean; addLabel: string; onAdd: () => void; query: string; onQuery: (value: string) => void; count: number; filter?: ReactNode; /** «Применить» of the filter panel (a filter without it applies as it changes). */ onApplyFilter?: () => void; paging: Paging; children: ReactNode }) {
   const { t } = useLanguage()
   const [filterOpen, setFilterOpen] = useState(false)
   return (
@@ -77,7 +77,15 @@ function TabCard({ addLabel, onAdd, query, onQuery, count, filter, paging, addAs
           filterOpen={filterOpen}
           onToggleFilter={() => setFilterOpen((value) => !value)}
           filterPanel={
-            <RefFilterPanel narrow onClose={() => setFilterOpen(false)} onApply={() => setFilterOpen(false)}>
+            <RefFilterPanel
+              narrow
+              onClose={() => setFilterOpen(false)}
+              onApply={() => {
+                onApplyFilter?.()
+                paging.setPage(1)
+                setFilterOpen(false)
+              }}
+            >
               {filter}
             </RefFilterPanel>
           }
@@ -139,12 +147,22 @@ function DataTable({ headers, children, empty, widths, hideHead, hideBody, selec
   )
 }
 
+const EDIT_ICON = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+const DELETE_ICON = "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+
+/** Linko's row buttons: its filled pencil and bin, shown on the row under the pointer (or with keyboard focus). */
 function RowActions({ onEdit, onDelete }: { onEdit?: () => void; onDelete: () => void }) {
   const { t } = useLanguage()
   return (
-    <span className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
-      {onEdit && <button onClick={onEdit} aria-label={t("Изменить")} className="p-1 text-slate-500 hover:text-blue-600"><Pencil className="h-4 w-4" /></button>}
-      <button onClick={onDelete} aria-label={t("Удалить")} className="p-1 text-slate-500 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+    <span className="flex justify-end opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" onClick={(event) => event.stopPropagation()}>
+      {onEdit && (
+        <button type="button" onClick={onEdit} aria-label={t("Изменить")} title={t("Изменить")} className="flex h-[30px] w-[30px] items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#555] hover:fill-[#1E4A9A]"><path d={EDIT_ICON} /></svg>
+        </button>
+      )}
+      <button type="button" onClick={onDelete} aria-label={t("Удалить")} title={t("Удалить")} className="flex h-[30px] w-[30px] items-center justify-center">
+        <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#555] hover:fill-[#e53935]"><path d={DELETE_ICON} /></svg>
+      </button>
     </span>
   )
 }
@@ -590,7 +608,7 @@ export function OperationsTab({ stage, equipment }: { stage: Stage; equipment: E
        paging={paging}>
       <DataTable headers={["Наименование", "Тип товара", "Оборудование", ""]} widths={[367, 367, 275]} empty={!rows.length}>
         {rows.slice(paging.start, paging.end).map((row) => (
-          <tr key={row.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
+          <tr key={row.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
             <td className="px-6 py-4">{row.title}</td>
             <td className="px-6 py-4">{typeLabel(row.type)}</td>
             <td className="px-6 py-4">{row.type === "equipment" ? row.equipmentName || "N/A" : "N/A"}</td>
@@ -658,16 +676,29 @@ function OperationDialog({ stage, equipment, operation, onClose, onSaved }: { st
 export function StaffTab({ stage, staff, reload }: { stage: Stage; staff: StaffMember[]; reload: () => void }) {
   const { t } = useLanguage()
   const [query, setQuery] = useState("")
+  // Linko's «Показать фильтр» of this tab: one field, «Смена», applied with «Применить».
+  const [shiftDraft, setShiftDraft] = useState("")
+  const [shift, setShift] = useState("")
   const [editing, setEditing] = useState<StaffMember | "new" | null>(null)
-  const rows = staff.filter((row) => matches(query, row.employeeName, row.position, row.shift))
+  const shifts = [...new Set(staff.map((row) => row.shift.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"))
+  const rows = staff.filter((row) => (!shift || row.shift.trim() === shift) && matches(query, row.employeeName, row.position, row.shift))
   const paging = usePaging(rows.length)
 
   return (
     <>
-      <TabCard addLabel="добавить сотрудников" onAdd={() => setEditing("new")} query={query} onQuery={setQuery} count={rows.length}  paging={paging}>
+      <TabCard
+        addLabel="добавить сотрудников"
+        onAdd={() => setEditing("new")}
+        query={query}
+        onQuery={setQuery}
+        count={rows.length}
+        filter={<FilterSelect label="Смена" value={shiftDraft} onChange={setShiftDraft} options={shifts} />}
+        onApplyFilter={() => setShift(shiftDraft)}
+        paging={paging}
+      >
       <DataTable headers={["Сотрудник", "Должность", "Смена", "Время", ""]} widths={[367, 275, 183, 183]} empty={!rows.length}>
         {rows.slice(paging.start, paging.end).map((row) => (
-          <tr key={row.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
+          <tr key={row.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
             <td className="px-6 py-4">{row.employeeName}</td>
             <td className="px-6 py-4">{row.position}</td>
             <td className="px-6 py-4">{row.shift}</td>
@@ -742,7 +773,7 @@ export function EquipmentTab({ stage, equipment, reload }: { stage: Stage; equip
       <TabCard addAsButton addLabel="Добавить оборудование" onAdd={() => setEditing("new")} query={query} onQuery={setQuery} count={rows.length}  paging={paging}>
       <DataTable headers={["Наименование", "Последняя отгрузка №", "Состояние", ""]} widths={[367, 367, 367]} empty={!rows.length}>
         {rows.slice(paging.start, paging.end).map((row) => (
-          <tr key={row.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
+          <tr key={row.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
             <td className="px-6 py-4">
               <span className="flex items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
