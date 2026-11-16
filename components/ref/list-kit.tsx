@@ -381,7 +381,11 @@ export function RefTable<T>({
         </div>
         )}
         {hideBody ? null : sortedRows.length === 0 ? (
-          <div className="px-4 py-16 text-center text-[#666]">{empty}</div>
+          typeof empty === "string" && NOTHING_FOUND.some((text) => t(text) === empty) ? (
+            <RefNothingFound />
+          ) : (
+            <div className="px-4 py-16 text-center text-[#666]">{empty}</div>
+          )
         ) : (
           sortedRows.map((row) => (
             <Fragment key={rowKey(row)}>
@@ -554,15 +558,24 @@ export function RefFilterDate({ label, value, onChange, min, max }: { label: str
   )
 }
 
-export function RefEmpty({ text }: { text: ReactNode }) {
+const NOTHING_FOUND = ["Ничего не найдено", "По вашему запросу ничего не найдено", "По вашему запросу ничего не найдено..."]
+
+/** Linko's empty list (Отказы, Смена, План опроса …): a 276 px white box, the robot and «По вашему запросу ничего не
+ * найдено» under it. */
+export function RefNothingFound({ text }: { text?: ReactNode } = {}) {
   const { t } = useLanguage()
   return (
-    <div className="flex flex-col items-center bg-white pb-10 pt-8 text-[#888]">
+    <div className="flex h-[276px] flex-col items-center bg-white pt-[58px] text-[13px] text-[#666]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/robot-empty.png" alt="" className="w-[120px]" />
-      <span className="-mt-[22px] text-[13px]">{typeof text === "string" ? t(text) : text}</span>
+      <img src="/robot-empty.png" alt="" className="w-[164px]" />
+      <span className="mt-[2px]">{text === undefined ? t("По вашему запросу ничего не найдено") : typeof text === "string" ? t(text) : text}</span>
     </div>
   )
+}
+
+/** An empty list with its own text, in Linko's box (Задачи, Списание, Переоценка, Передачи …). */
+export function RefEmpty({ text }: { text: ReactNode }) {
+  return <RefNothingFound text={text} />
 }
 
 

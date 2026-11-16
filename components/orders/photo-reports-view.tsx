@@ -361,7 +361,7 @@ export function PhotoReportsView() {
           </div>
         ))}
       </div>
-      {!loading && rows.length === 0 && <div className="py-16 text-center text-[13px] text-[#666]">{t("Ничего не найдено")}</div>}
+      {/* No photo report: Linko shows nothing under the card («Фотоотчеты: 0 шт» says it). */}
       {loading && <div className="py-6 text-center text-[13px] text-[#666]">{t("Загрузка...")}</div>}
       {!loading && nextCursor && (
         <button type="button" onClick={() => setMore({ query: current, cursor: nextCursor })} className="mx-auto mb-6 block h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">

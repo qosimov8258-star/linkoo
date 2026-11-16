@@ -673,11 +673,12 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                 </Tip>
               ))}
               {bulkAction && (
-                // Above the sticky table header (z-20): Linko's caption («Передать» / «Доставлен») sits over the header row.
+                // Above the sticky table header (z-20). Linko's button keeps its caption («Передать» / «Доставлен») inside from
+                // a 1530 px wide window; narrower, the button shrinks and the caption drops onto the header row.
                 <span className="relative z-30 flex">
-                  <button type="button" onClick={() => requireSelection("bulk", bulkAction.onClick)} className="relative flex h-[30px] w-[105.5px] items-center justify-center rounded-[5px] bg-[#71ce87] pl-[12px] hover:brightness-95">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={bulkAction.path} /></svg>
-                    <span className="pointer-events-none absolute left-[17px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white">{bulkAction.label}</span>
+                  <button type="button" onClick={() => requireSelection("bulk", bulkAction.onClick)} className="relative flex h-[30px] w-[105.5px] items-center justify-center rounded-[5px] bg-[#71ce87] pl-[12px] hover:brightness-95 min-[1530px]:w-auto min-[1530px]:pl-[12px]">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white min-[1530px]:h-[18px] min-[1530px]:w-[18px]"><path d={bulkAction.path} /></svg>
+                    <span className="pointer-events-none absolute left-[17px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white min-[1530px]:static min-[1530px]:pl-[8px] min-[1530px]:pr-[16px]">{bulkAction.label}</span>
                   </button>
                   {noSelection === "bulk" && <NoSelectionPopover onClose={() => setNoSelection(null)} />}
                 </span>

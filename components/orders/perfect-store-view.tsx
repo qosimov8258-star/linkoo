@@ -1,7 +1,8 @@
 "use client";
 
 import { Download } from "lucide-react";
-import { RefHeader, RefPage } from "@/components/ref/list-kit";
+import { FilterSelect, RefHeader, RefPage } from "@/components/ref/list-kit";
+import { useDirectoryNames } from "@/components/clients/use-directory";
 import Link from "next/link";
 import { useState } from "react";
 import { csvText } from "@/lib/csv";
@@ -14,7 +15,12 @@ export function PerfectStoreView() {
   const { t } = useLanguage();
   const [tab, setTab] = useState("Все");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [notice, setNotice] = useState("");
+  const [creator, setCreator] = useState("");
+  const [clientType, setClientType] = useState("");
+  const [branch, setBranch] = useState("");
+  const employees = useDirectoryNames("employees");
+  const clientTypes = useDirectoryNames("clientTypes");
+  const branches = useDirectoryNames("branches");
   const displayDate = formatStatementDate(date, "ru", false);
 
   const download = () => {
@@ -44,26 +50,22 @@ export function PerfectStoreView() {
           ))}
         </div>
         <div className="px-[10px] pb-[11px] pt-[16px]">
-          <div className="grid grid-cols-[344px_343px_343px_343px] gap-x-[10px] pl-[10px]">
-            <label className="relative mt-[2px] block h-[40px] w-[256px] border-b border-[#d5dae1]">
-              <span className="absolute left-0 top-[2px] flex items-center gap-[4px] text-[9px] font-semibold leading-[11px]">
-                {t("Дата создания")}
-                <svg viewBox="0 0 24 24" className="h-[12px] w-[12px] fill-[#c4c8d0]" aria-hidden><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z" /></svg>
-              </span>
-              <span className="absolute bottom-[3px] left-0 text-[13px]">{displayDate}</span>
+          {/* Linko's row: «Дата создания» and three selects, four equal columns 10 px apart. */}
+          <div className="grid grid-cols-4 gap-x-[10px] px-[10px]">
+            <label className="relative mt-[9px] block h-[45px] border-b border-[#e0e0e0]">
+              <span className="absolute left-0 top-0 text-[10px] font-bold leading-[15px]">{t("Дата создания")}</span>
+              <svg viewBox="0 0 24 24" className="absolute right-[93px] top-0 h-[15px] w-[15px] fill-[#ccc]" aria-hidden><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z" /></svg>
+              <span className="absolute bottom-[6px] left-0 text-[13px]">{displayDate}</span>
               <input aria-label={t("Дата создания")} type="date" value={date} onChange={(e) => setDate(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
             </label>
-            {["Создал", "Тип клиента", "Филиалы"].map((label) => (
-              <div key={label} className="mt-[11px] flex h-[31px] items-end justify-between border-b border-[#d5dae1] pb-[5px] text-[13px] font-semibold">
-                {t(label)}
-                <span className="mb-[3px] border-x-[5px] border-t-[5px] border-x-transparent border-t-[#888]" aria-hidden />
-              </div>
-            ))}
+            <FilterSelect label="Создал" value={creator} onChange={setCreator} options={employees} />
+            <FilterSelect label="Тип клиента" value={clientType} onChange={setClientType} options={clientTypes} />
+            <FilterSelect label="Филиалы" value={branch} onChange={setBranch} options={branches} />
           </div>
-          <button onClick={() => { setNotice(`${t("Фильтр применён")}: ${tab}`); window.setTimeout(() => setNotice(""), 2200); }} className="mt-[27px] h-[36px] w-full rounded-[3px] bg-[#71ce87] text-[13px] font-bold text-white hover:brightness-95">{t("Применить")}</button>
+          {/* Mezon keeps no perfect store visits yet: the list stays empty whatever the filter, as Linko's does here. */}
+          <button type="button" className="mt-[10px] h-[36px] w-full rounded-[3px] bg-[#71ce87] text-[13px] font-bold text-white hover:brightness-95">{t("Применить")}</button>
         </div>
       </section>
-      {notice && <p className="mt-2 text-center font-medium text-[#5171df]">{notice}</p>}
 
       <section className="mt-[34px] grid grid-cols-3 gap-[16px] text-[13px]">
         <div className="h-[114px] bg-white px-[16px] pt-[10px] shadow-[0_1px_4px_rgba(0,0,0,0.1)]"><p className="leading-[18px] text-[#5d6474]">{t("Кол-во магазинов")}</p><b className="mt-[4px] block leading-[18px]">0</b><p className="mt-[10px] leading-[18px] text-[#5d6474]">{t("Кол-во perfect store")}</p><b className="mt-[4px] block leading-[18px]">0</b></div>
