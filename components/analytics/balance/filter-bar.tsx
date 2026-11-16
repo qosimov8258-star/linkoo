@@ -53,9 +53,10 @@ export function BalanceFilterButton({
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.filter} /></svg>
         <span className="pl-2">{t("Фильтр")}{count ? ` / ${count}` : ""}</span>
       </button>
-      <span className="ml-[14px] text-[13px] font-semibold text-[#1E4A9A]">
+      {/* Linko: the period and «Во всей организации» open the filter too. */}
+      <button type="button" onClick={onOpen} className="ml-[14px] text-left text-[13px] font-semibold text-[#1E4A9A] hover:underline">
         {hidePeriod ? "" : `${formatDotDate(from)} - ${formatDotDate(to)} `}{scope.length ? scope.join(", ") : t("Во всей организации")}
-      </span>
+      </button>
       {extra}
     </div>
   )
