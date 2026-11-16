@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
 import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
 import { ReportMultiChipField, ReportPage, ReportRangeField, ReportSelectField, formatShortReportDate } from "@/components/ref/report-kit"
-import { useDirectoryNames } from "@/components/clients/use-directory"
-import { ORDER_STATUSES } from "@/components/orders/orders-data"
 import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { classificationDynamic, pyRound } from "@/lib/classification-math"
+import { ClassificationMarkets, DynamicBadge } from "@/components/analytics/client-dynamics-markets"
 
 type PeriodData = { stores: number; storePercent: number; sum: number; sumPercent: number; dynamic?: number }
 type ClassificationRow = { name: string; periods: [PeriodData, PeriodData, PeriodData] }
@@ -68,6 +68,8 @@ export function ClientDynamicsView() {
   const [statuses, setStatuses] = useState<string[]>(["Передан доставщику", "Доставлен"])
   const [selects, setSelects] = useState(emptySelects)
   const [rows, setRows2] = useState<ClassificationRow[]>([])
+  // The store count clicked (class row index, 0 = «Нет заказа»; period 0..2): its stores are listed under the table.
+  const [drill, setDrill] = useState<{ bucket: number; period: 0 | 1 | 2 } | null>(null)
   const [applied, setApplied] = useState({ periods, filters, statuses, classes })
   const periodLabels = useMemo(() => applied.periods.map(periodLabel), [applied])
 
@@ -105,8 +107,8 @@ export function ClientDynamicsView() {
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
+  // The applied filter as the API's query (the table, and the store list under it).
+  const appliedQuery = useMemo(() => {
     const { periods: range, filters: choice, statuses: picked, classes: limits } = applied
     const query = new URLSearchParams({
       closed_status: CLOSED_TYPES[choice.closing] ?? "not_closed",
@@ -124,7 +126,13 @@ export function ClientDynamicsView() {
     if (statusIds.length) query.set("order_status", statusIds.join("-"))
     const pairs: [string, string][] = [["zones", choice.zone], ["brands", choice.brand], ["productTypes", choice.productType], ["agents", choice.agent], ["branches", choice.branch], ["marketTypes", choice.clientType]]
     for (const [key, value] of pairs) if (value) query.set(key, value)
-    fetch(`/api/client-classification?${query}`)
+    return query.toString()
+  }, [applied])
+
+  useEffect(() => {
+    let cancelled = false
+    setDrill(null)
+    fetch(`/api/client-classification?${appliedQuery}`)
       .then((response) => (response.ok ? (response.json() as Promise<ClassificationRow[]>) : []))
       .then((data) => {
         if (!cancelled) setRows2(data)
@@ -133,7 +141,20 @@ export function ClientDynamicsView() {
     return () => {
       cancelled = true
     }
-  }, [applied])
+  }, [appliedQuery])
+
+  // Linko's two total rows under the classes: «Итого активные клиенты» (stores with orders) and «Нет заказа» with the
+  // average check of an active store; their dynamics follow the same rule as the class rows.
+  const totals = useMemo(() => {
+    if (!rows.length) return null
+    return ([0, 1, 2] as const).map((period) => {
+      const all = rows.reduce((sum, row) => sum + row.periods[period].stores, 0)
+      const inactive = rows[0].periods[period].stores
+      const active = all - inactive
+      const sale = rows.reduce((sum, row) => sum + row.periods[period].sum, 0)
+      return { all, active, inactive, sale, avg: active > 0 ? sale / active : 0 }
+    })
+  }, [rows])
 
   function download() {
     const header = [t("Классификация"), ...periodLabels.flatMap((label) => [`${t(label)} · ${t("Колв. магазинов")}`, "%", t("Сумма заказа"), "%", t("Динамика")])]
@@ -192,11 +213,13 @@ export function ClientDynamicsView() {
             <tr>{periodLabels.flatMap((_, period) => ["Колв. магазинов", "%", "Сумма заказа", "%", ...(period ? ["Динамика"] : [])].map((title, index) => <th key={`${period}-${index}`} className={`${th} ${period && index === 0 ? "border-l-2 border-l-black" : ""}`}>{t(title)}</th>))}</tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row, rowIndex) => (
               <tr key={row.name} className="h-[57px]">
                 <td className="border border-[#ddd] px-[6px]">{t(row.name)}</td>
                 {row.periods.flatMap((data, period) => [
-                  <td key={`${period}-stores`} className={`border border-[#ddd] px-[6px] text-right font-semibold text-[#1E4A9A] ${period ? "border-l-2 border-l-black" : ""}`}>{format(data.stores)}</td>,
+                  <td key={`${period}-stores`} className={`border border-[#ddd] px-[6px] text-right font-semibold text-[#1E4A9A] ${period ? "border-l-2 border-l-black" : ""}`}>
+                    <button type="button" onClick={() => setDrill({ bucket: rowIndex, period: period as 0 | 1 | 2 })} className="hover:underline">{format(data.stores)}</button>
+                  </td>,
                   <td key={`${period}-sp`} className="border border-[#ddd] px-[6px] text-right">{data.storePercent} %</td>,
                   <td key={`${period}-sum`} className="border border-[#ddd] px-[6px] text-right">{format(Math.round(data.sum))}</td>,
                   <td key={`${period}-sump`} className="border border-[#ddd] px-[6px] text-right">{data.sumPercent} %</td>,
@@ -205,8 +228,40 @@ export function ClientDynamicsView() {
               </tr>
             ))}
           </tbody>
+          {totals && (
+            <tfoot className="bg-[#555] font-semibold text-white">
+              <tr className="h-[57px]">
+                <td className="border border-[#777] px-[6px]">{t("Итого активные клиенты")}</td>
+                {totals.flatMap((data, period) => [
+                  <td key={`${period}-a`} className={`border border-[#777] px-[6px] text-right ${period ? "border-l-2 border-l-black" : ""}`}>{format(data.active)}</td>,
+                  <td key={`${period}-ap`} className="border border-[#777] px-[6px] text-right">{pyRound(data.all ? (data.active / data.all) * 100 : 0)} %</td>,
+                  <td key={`${period}-as`} className="border border-[#777] px-[6px] text-right">{format(Math.round(data.sale))}</td>,
+                  <td key={`${period}-asp`} className="border border-[#777] px-[6px] text-right">100 %</td>,
+                  ...(period ? [<td key={`${period}-ad`} className="border border-[#777] p-[6px] text-center"><Dynamic value={classificationDynamic(data.active, totals[period - 1].active)} spaced={period === 1} /></td>] : []),
+                ])}
+              </tr>
+              <tr className="h-[57px]">
+                <td className="border border-[#777] px-[6px]">{t("Нет заказа")}</td>
+                {totals.flatMap((data, period) => [
+                  <td key={`${period}-i`} className={`border border-[#777] px-[6px] text-right ${period ? "border-l-2 border-l-black" : ""}`}>
+                    <button type="button" onClick={() => setDrill({ bucket: 0, period: period as 0 | 1 | 2 })} className="hover:underline">{format(data.inactive)}</button>
+                  </td>,
+                  <td key={`${period}-ip`} className="border border-[#777] px-[6px] text-right">{pyRound(data.all ? (data.inactive / data.all) * 100 : 0)} %</td>,
+                  <td key={`${period}-avg`} className="border border-[#777] px-[6px] text-center leading-4">{t("Средний чек:")}<br />{format(Math.round(data.avg))}</td>,
+                  period ? (
+                    <td key={`${period}-avgd`} className="border border-[#777] p-[6px] text-center"><Dynamic value={classificationDynamic(data.avg, totals[period - 1].avg)} spaced /></td>
+                  ) : (
+                    <td key={`${period}-isp`} className="border border-[#777] px-[6px] text-right">0 %</td>
+                  ),
+                  ...(period ? [<td key={`${period}-id`} className="border border-[#777] p-[6px] text-center"><Dynamic value={classificationDynamic(data.inactive, totals[period - 1].inactive)} spaced={period === 1} /></td>] : []),
+                ])}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </section>
+
+      {drill && <ClassificationMarkets query={appliedQuery} period={drill.period} bucket={drill.bucket} />}
 
       {settingsOpen && <ClassificationSettings classes={classes} onSave={async (next) => {
         const response = await fetch("/api/client-classification/classes", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ classes: next }) }).catch(() => null)
@@ -219,10 +274,7 @@ export function ClientDynamicsView() {
   )
 }
 
-function Dynamic({ value, spaced }: { value: number; spaced?: boolean }) {
-  const positive = value > 0
-  return <span className={`inline-block w-full rounded-[3px] py-[8px] text-[13px] font-semibold ${positive ? "bg-[#dff5e3] text-[#35b653]" : "bg-[#fde2e2] text-[#f25555]"}`}>{positive ? "▲" : "▼"} {format(value)}{spaced ? " %" : "%"}</span>
-}
+const Dynamic = DynamicBadge
 function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRow[]; onSave: (rows: ClassRow[]) => void | Promise<void>; onClose: () => void }) {
   const { t } = useLanguage()
   const [rows, setRows] = useState(classes)

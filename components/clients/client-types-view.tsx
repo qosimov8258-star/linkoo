@@ -10,10 +10,13 @@ import { importKey, postJson, repeatedInFile, type ImportRowError, type Prepared
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { refDate } from "@/lib/ref-date"
+import { SortArrows, nextSort, sortBy, type SortState } from "@/components/ref/sort-arrows"
 
 type ClientType = { id: number; name: string; supplier: string; date: string; parentId: number | null; innRequired: boolean }
 
 const emptyDraft = { name: "", supplier: "", parent: "", hasParent: false, innRequired: false }
+
+type TypeSortKey = "name" | "supplier" | "date"
 
 /** One row of "Импорт с Excel" (ours, not in the demo): Наименование + Доставщик (an employee, or empty). */
 type ClientTypeImport = { name: string; supplier?: string }
@@ -41,6 +44,7 @@ async function errorOf(response: Response, t: (key: string) => string): Promise<
 export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   const { t, language } = useLanguage()
   const [items, setItems] = useState<ClientType[]>([])
+  const [sort, setSort] = useState<SortState<TypeSortKey>>(null)
   const [editing, setEditing] = useState<ClientType | null>(null)
   const [deleting, setDeleting] = useState<ClientType | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
@@ -164,9 +168,15 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
         extra={canImport ? <ExcelImportLink className="pt-[4px]" onClick={() => setImportOpen(true)} /> : undefined}
       />
       <div className={`${grayHead} ${gridCols} pt-[2px]`}>
-        <span>{t("Наименование")}</span><span>{t("Доставщик")}</span><span>{t("Дата создания")}</span>
+        {/* Linko: each header sorts the list (none → ascending → descending → none). */}
+        {(([["name", "Наименование"], ["supplier", "Доставщик"], ["date", "Дата создания"]]) as [TypeSortKey, string][]).map(([key, title]) => (
+          <button key={key} type="button" onClick={() => setSort((current) => nextSort(current, key))} className="flex items-center text-left font-semibold hover:opacity-80">
+            {t(title)}
+            {sort?.key === key && <SortArrows dir={sort.dir} color="#fff" />}
+          </button>
+        ))}
       </div>
-      {items.map((item) => (
+      {sortBy(items, sort, (row, key) => (key === "date" ? row.date : key === "supplier" ? row.supplier : row.name)).map((item) => (
         <div key={item.id} className={`${listRow} ${gridCols}`}>
           <span className="pr-4 font-semibold">{item.name}</span>
           <span>{item.supplier}</span>

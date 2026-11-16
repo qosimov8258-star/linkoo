@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 
 import { FilterDate, FilterSelect, RI, RefFilterPanel, RefIconButton, SimpleListPage } from "@/components/ref/list-kit"
@@ -8,7 +9,7 @@ import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { refDateTime } from "@/lib/ref-date"
 
-type TgUser = { id: string; name: string; handle: string; client: string; phone: string; lang: string; first: string; last: string }
+type TgUser = { id: string; name: string; handle: string; client: string; clientId: number | null; phone: string; lang: string; first: string; last: string }
 type Filters = { client: string; agentClients: string; createdBegin: string; createdEnd: string; activeBegin: string; activeEnd: string }
 
 const emptyFilters: Filters = { client: "", agentClients: "", createdBegin: "", createdEnd: "", activeBegin: "", activeEnd: "" }
@@ -16,7 +17,7 @@ const WAITING = "В ожидании"
 
 const LANGUAGES: Record<string, string> = { uz: "Узбекча", ru: "Русский", en: "English" }
 
-type ApiUser = { id: string; name: string; handle: string; client: string; phone: string; language: string; first: string; last: string }
+type ApiUser = { id: string; name: string; handle: string; client: string; clientId?: number | null; phone: string; language: string; first: string; last: string }
 
 export function TelegramUsersView() {
   const { t, language } = useLanguage()
@@ -27,7 +28,7 @@ export function TelegramUsersView() {
     fetch("/api/telegram-users")
       .then((response) => (response.ok ? (response.json() as Promise<ApiUser[]>) : []))
       .then((users) => {
-        if (!cancelled) setList(users.map((u) => ({ id: u.id, name: u.name, handle: u.handle, client: u.client || WAITING, phone: u.phone, lang: LANGUAGES[u.language] ?? LANGUAGES.uz, first: u.first, last: u.last })))
+        if (!cancelled) setList(users.map((u) => ({ id: u.id, name: u.name, handle: u.handle, client: u.client || WAITING, clientId: u.clientId ?? null, phone: u.phone, lang: LANGUAGES[u.language] ?? LANGUAGES.uz, first: u.first, last: u.last })))
       })
       .catch(() => {})
     return () => {
@@ -93,9 +94,14 @@ export function TelegramUsersView() {
         <>
           <b className="font-semibold">{u.name}</b>
           <br />
-          <span className="font-semibold text-[#1E4A9A]">{u.handle}</span>
+          {/* Linko: the @username opens the Telegram chat, the client opens the client list searched by its id. */}
+          {u.handle ? (
+            <a href={`http://t.me/${u.handle.replace(/^@/, "")}`} target="_blank" rel="noreferrer" className="font-semibold text-[#1E4A9A] hover:underline">{u.handle}</a>
+          ) : null}
         </>,
-        u.client === WAITING ? t(WAITING) : <span key="c" className="font-semibold text-[#1E4A9A]">{u.client}</span>,
+        u.client === WAITING ? t(WAITING) : u.clientId ? (
+          <Link key="c" href={`/clients?search=${u.clientId}`} className="font-semibold text-[#1E4A9A] hover:underline">{u.client}</Link>
+        ) : <span key="c" className="font-semibold text-[#1E4A9A]">{u.client}</span>,
         u.phone,
         t(u.lang),
         formatDateText(refDateTime(u.first), language),

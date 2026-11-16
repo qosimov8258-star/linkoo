@@ -607,7 +607,7 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
               zones={territory.zones}
               loading={territory.loading}
               unassigned={unassigned}
-              unlocated={unlocated}
+              onChanged={territory.reload}
               onClose={() => setManagePanel(false)}
               onShow={showZone}
               onEdit={(zone) => openEditor(zone)}

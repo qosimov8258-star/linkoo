@@ -1,6 +1,7 @@
 "use client"
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { X } from "lucide-react"
 import * as echarts from "echarts"
@@ -301,8 +302,9 @@ export function CoverageAnalysisView() {
       <section className={`${card} mt-[10px] grid items-center rounded-t-[10px] lg:h-[178.7px] lg:grid-cols-[289px_1fr_227px]`}>
         <Ring value={akbPercent} label="АКБ %" />
         <div className="grid grid-cols-2 md:grid-cols-5">
-          <Metric value={totalOkb} label="ОКБ" /><Metric value={planOkb} label="План ОКБ" /><Metric value={totalVisits} label="В маршруте" /><Metric value={totalAkb} label="АКБ" green /><Metric value={totalNew} label="Новый" />
-          <Metric value={unconfirmedCount} label="Не подтвержденные" red /><Metric value={noRouteCount} label="Нет маршрута" red /><Metric value={invalidInnCount} label="Неправильный ИНН" red /><Metric value={noTerritoryCount} label="Нет территории" red /><Metric value={closedCount} label="Закрыто" red />
+          {/* Linko: the tiles open the client list on the matching tab / filter (В маршруте and АКБ open nothing). */}
+          <Metric value={totalOkb} label="ОКБ" href="/clients?showTab=all" /><Metric value={planOkb} label="План ОКБ" href="/clients?showTab=plan" /><Metric value={totalVisits} label="В маршруте" /><Metric value={totalAkb} label="АКБ" green /><Metric value={totalNew} label="Новый" href={`/clients?marketFromDate=${from}&marketToDate=${to}`} />
+          <Metric value={unconfirmedCount} label="Не подтвержденные" red href="/clients?showTab=unconfirmed" /><Metric value={noRouteCount} label="Нет маршрута" red href="/clients?showChildTab=problem_plan&showTab=problem_all" /><Metric value={invalidInnCount} label="Неправильный ИНН" red href="/clients?showChildTab=problem_inn&showTab=problem_all" /><Metric value={noTerritoryCount} label="Нет территории" red href="/clients?showChildTab=problem_border&showTab=problem_all" /><Metric value={closedCount} label="Закрыто" red href="/clients?showTab=closed" />
         </div>
         <Ring value={routePercent} label="В МАРШРУТЕ" />
       </section>
@@ -440,14 +442,16 @@ function Ring({ value, label }: { value: number; label: string }) {
     </div>
   )
 }
-function Metric({ value, label, red, green }: { value: number; label: string; red?: boolean; green?: boolean }) {
+function Metric({ value, label, red, green, href }: { value: number; label: string; red?: boolean; green?: boolean; href?: string }) {
   const { t } = useLanguage()
-  return (
-    <div className="flex min-h-[77.3px] flex-col items-center justify-start border-b border-r border-[#efefef] px-[26px] py-[15px] text-center [&:nth-child(5n)]:border-r-0 [&:nth-child(n+6)]:min-h-[95px] [&:nth-last-child(-n+5)]:border-b-0">
+  const className = "flex min-h-[77.3px] flex-col items-center justify-start border-b border-r border-[#efefef] px-[26px] py-[15px] text-center [&:nth-child(5n)]:border-r-0 [&:nth-child(n+6)]:min-h-[95px] [&:nth-last-child(-n+5)]:border-b-0"
+  const body = (
+    <>
       <strong className={`text-[22px] font-semibold leading-[27.5px] ${red ? "text-[#e57373]" : green ? "text-[#71ce87]" : "text-[#129fdd]"}`}>{format(value)}</strong>
       <p className="m-0 text-[15px] font-semibold leading-5 text-[#666]">{t(label)}</p>
-    </div>
+    </>
   )
+  return href ? <Link href={href} className={`${className} hover:bg-[#f7f9fb]`}>{body}</Link> : <div className={className}>{body}</div>
 }
 const CHART_COLORS = {
   akb: "#00e096",

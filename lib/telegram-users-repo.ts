@@ -14,6 +14,8 @@ export type TelegramUser = {
   handle: string
   /** Linked client (market) name, "" while waiting. */
   client: string
+  /** Linked client (market) id, null while waiting. Linko links the name to its client list searched by this id. */
+  clientId: number | null
   phone: string
   /** "uz" | "ru" | "en" | "" — empty is shown as Узбекча (bot default). */
   language: string
@@ -112,6 +114,7 @@ export async function listTelegramUsers(): Promise<TelegramUser[]> {
     name: [row.first_name, row.last_name].map((part) => String(part ?? "").trim()).filter(Boolean).join(" "),
     handle: row.username ? `@${row.username}` : "",
     client: (row.market_name || row.client_name || "").trim(),
+    clientId: row.market_id ?? null,
     phone: row.phone,
     language: row.language,
     first: row.created_date,

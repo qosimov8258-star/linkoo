@@ -41,6 +41,7 @@ run import-branch-flags.mjs
 run import-surveys.mjs
 # Field work and staff
 run import-zones.mjs
+run import-zone-agents.mjs
 run import-field-records.mjs
 run import-route-plans.mjs
 run import-visits.mjs

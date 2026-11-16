@@ -36,6 +36,8 @@ the importers at another database of the same server; a remote host is refused u
   Linko's. Linko answers 500 for a few documents: they stay without lines.
 - **Передачи между складами → Логи**: fetch step `transfer-logs` reads `stock/stock_transfer/{id}/logs/`;
   `import-transfer-logs.mjs` writes them to `internal_transfer_logs` (a transfer with the app's own log is left alone).
+- **Территория → агенты зон**: fetch step `border-agents` reads each territory's `market/border/{id}/` (its agents
+  are only there); `import-zone-agents.mjs` writes them to `client_zone_agents` («Привязать / Отвязать агента»).
 - **Production**: what reached the stock follows Linko's stock history (`stock/barcode_history`): a batch line Linko never
   booked keeps `in_stock = 0`; booked movements a batch no longer lists become batch-less movements of its stage.
 - **Stock without a document** (balances loaded by Linko's 1C integration into the "Ожидается синхронизация: …"

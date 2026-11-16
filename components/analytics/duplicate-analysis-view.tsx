@@ -66,7 +66,9 @@ export function DuplicateAnalysisView() {
     <CatalogPageLayout>
       <section className="min-w-0 flex-1">
         <div className="bg-white">
-          <div className="flex h-[60px] items-end justify-end pb-[10px] pr-[26px]">
+          <div className="flex h-[60px] items-end justify-between pb-[10px] pr-[26px]">
+            {/* Linko: the one entity tab «Клиенты» above the ИНН / phone tabs. */}
+            <span className="mb-[3px] w-[345px] text-center text-[13px] text-[#333]">{t("Клиенты")}</span>
             <RefButton icon={LINK_ICON} label={t("Объединить")} onClick={() => setDialog({ removed: [], survivor: null })} />
           </div>
           <RefTabs

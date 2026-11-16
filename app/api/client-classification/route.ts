@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getClassification, getClassificationOptions, type ClassificationParams } from "@/lib/client-classification-repo"
+import { getClassification, getClassificationMarkets, getClassificationOptions, getClassificationProducts, type ClassificationParams } from "@/lib/client-classification-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { strictNumber } from "@/lib/strict-number"
 
@@ -40,6 +40,28 @@ export async function GET(request: NextRequest) {
     agents: list(params, "agents"),
     branches: list(params, "branches"),
     marketTypes: list(params, "marketTypes"),
+  }
+  // The list under the table: ?markets=1&period=first|second|third&bucket=<row index, 0 = «Нет заказа»>.
+  if (params.get("markets")) {
+    const period = ["first", "second", "third"].indexOf(params.get("period") ?? "")
+    const bucket = Number(params.get("bucket"))
+    if (period < 0 || !Number.isInteger(bucket) || bucket < 0 || bucket > 1000) return NextResponse.json({ error: "Неверный период или класс" }, { status: 400 })
+    return NextResponse.json(await getClassificationMarkets(query, period as 0 | 1 | 2, bucket))
+  }
+  // «Ассортимент» of one store: ?products=1&market=<id>&group_by=product|product_type|brand&count_type=amount|sum.
+  if (params.get("products")) {
+    const market = Number(params.get("market"))
+    const groupBy = params.get("group_by")
+    const countType = params.get("count_type")
+    if (!Number.isInteger(market) || market <= 0) return NextResponse.json({ error: "Неверный клиент" }, { status: 400 })
+    return NextResponse.json(
+      await getClassificationProducts(
+        query,
+        market,
+        groupBy === "product_type" || groupBy === "brand" ? groupBy : "product",
+        countType === "sum" ? "sum" : "amount",
+      ),
+    )
   }
   return NextResponse.json(await getClassification(query))
 }

@@ -9,7 +9,8 @@
 // months (per-month salary / KPI / plan lists), employee-details (each employee's card: «Показывать в отслеживании»),
 // gps (every employee's GPS points), visit-sessions (timed visits),
 // finance-entities (van-sell / branch / employee / supplier acts), cashback-details, price-list-items (every product's
-// prices per price list, read product by product), transfer-logs («Логи» of the transfers between warehouses).
+// prices per price list, read product by product), transfer-logs («Логи» of the transfers between warehouses),
+// border-agents (the employees bound to each territory).
 // LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
 // The raw files hold business data: backups/ is git-ignored, never commit them.
 import fs from "node:fs"
@@ -336,6 +337,25 @@ async function transferLogs() {
   console.log("stock_transfers_logs".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
 }
 
+// Территория: the employees bound to each territory («Привязать агента»), only on the border's detail.
+async function borderAgents() {
+  const out = {}
+  let failed = 0
+  await Promise.all(
+    load("borders").map(async (row) => {
+      const r = await get(`market/border/${row.id}/`)
+      if (r.status === 200) {
+        out[row.id] = (r.json?.properties?.agents ?? []).map((agent) => ({ id: agent.id, first_name: agent.first_name, second_name: agent.second_name, position: agent.position }))
+      } else {
+        failed++
+        out[row.id] = { __status: r.status }
+      }
+    }),
+  )
+  save("border_agents", { tpl: "market/border/{id}/", data: out })
+  console.log("border_agents".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
+}
+
 const STEPS = {
   lists,
   "price-list-items": priceListItems,
@@ -350,6 +370,7 @@ const STEPS = {
   "finance-entities": financeEntities,
   "cashback-details": cashbackDetails,
   "transfer-logs": transferLogs,
+  "border-agents": borderAgents,
 }
 
 await login()

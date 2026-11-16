@@ -335,6 +335,9 @@ export function ClientsView() {
       const q = query.trim().toLowerCase()
       const matchesQuery =
         q === "" ||
+        // Linko's search also finds the client by its id (links like «Пользователи Телеграм бота» → ?search=<id>) and INN.
+        String(c.id) === q ||
+        (c.inn ?? "").toLowerCase().includes(q) ||
         c.name.toLowerCase().includes(q) ||
         c.phone.toLowerCase().includes(q) ||
         c.type.toLowerCase().includes(q) ||
@@ -409,6 +412,18 @@ export function ClientsView() {
         .filter((item) => keys.includes(item.key)),
     )
     if (params.get("showCheckboxes") === "true") setSelectMode(true)
+    // Links from «Охват территорий» (Linko #/shop?border=<zone> / ?marketFromDate=&marketToDate=): a zone's clients,
+    // the clients added in a period. "Не указано" is the clients without a zone.
+    const zoneParam = (params.get("zone") ?? "").trim()
+    const createdFrom = params.get("marketFromDate") ?? ""
+    const createdTo = params.get("marketToDate") ?? ""
+    if (zoneParam || /^\d{4}-\d{2}-\d{2}$/.test(createdFrom)) {
+      setFilters((current) => ({
+        ...current,
+        ...(zoneParam === "Не указано" ? { zoneUndefined: true } : zoneParam ? { zone: zoneParam } : {}),
+        ...(/^\d{4}-\d{2}-\d{2}$/.test(createdFrom) ? { createdBegin: createdFrom, createdEnd: /^\d{4}-\d{2}-\d{2}$/.test(createdTo) ? createdTo : createdFrom } : {}),
+      }))
+    }
     // `select`: applied once the list has loaded, to the clients that exist (see the deep-link effect below).
     const ids = urlIdList(params.get("select"))
     if (ids.length) deepSelect.current = ids
@@ -3058,7 +3073,8 @@ function ClientRow({
       {columns.zone && <div className="px-2 leading-[16.25px]">
         {client.zone || t("Не указано")}
         <br />
-        <span className="text-[#1E4A9A]">{client.zoneAgent}</span>
+        {/* Linko: the client's branch (market branch.name) under the zone. */}
+        <span className="text-[#1E4A9A]">{client.branch}</span>
         {routed && <div className="text-[11px] font-semibold text-[#48a34b]">{t("Маршрут установлен")}</div>}
       </div>}
       {columns.agent && <div className="px-2 leading-[16.25px]">{client.agent}</div>}
