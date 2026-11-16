@@ -68,9 +68,12 @@ function SortArrows() {
   )
 }
 
-function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+/** Anchor of «Реализация по категориям» (the БАЛАНС tab scrolls to it when opened with ?container=balance). */
+export const BALANCE_CATEGORIES_ID = "balance-categories"
+
+function SectionTitle({ children, right, id }: { children: React.ReactNode; right?: React.ReactNode; id?: string }) {
   return (
-    <div className="mx-[30px] mt-[44px] mb-[10px] flex items-center justify-between">
+    <div id={id} className="mx-[30px] mt-[44px] mb-[10px] flex scroll-mt-[60px] items-center justify-between">
       <h2 className="text-[20px] font-semibold text-[#333]">{children}</h2>
       {right}
     </div>
@@ -481,7 +484,8 @@ export function BalanceSections({ data: given, from, to }: { data?: BalanceOverv
         <ExpenseCard title={t("Косвенные расходы")} rows={data?.expenses.indirect ?? []} currency={base} />
       </div>
 
-      <SectionTitle right={<ChipGroup options={[t("ТИП ПРОДУКТА"), t("БРЕНД")] as const} value={categoryMode === "type" ? t("ТИП ПРОДУКТА") : t("БРЕНД")} onChange={(value) => setCategoryMode(value === t("ТИП ПРОДУКТА") ? "type" : "brand")} />}>
+      {/* Аналитика → Общее → «Прибыль по типам продуктов» opens this tab at this section (Linko's ?container=balance). */}
+      <SectionTitle id={BALANCE_CATEGORIES_ID} right={<ChipGroup options={[t("ТИП ПРОДУКТА"), t("БРЕНД")] as const} value={categoryMode === "type" ? t("ТИП ПРОДУКТА") : t("БРЕНД")} onChange={(value) => setCategoryMode(value === t("ТИП ПРОДУКТА") ? "type" : "brand")} />}>
         {t("Реализация по категориям")}
       </SectionTitle>
       <section className={`mx-[30px] ${CARD}`}>

@@ -12,7 +12,9 @@ import { ensureFinanceSchema } from "@/lib/finance/schema"
 //     deliverer on them — the exact sum of their lines (as Linko, every currency added as one number), the markets
 //     planned / delivered (Не посещено = the rest);
 //   Возвраты с отг. заказов: what was returned of those orders (Linko's total_return_price);
-//   Возвраты за период: the returns made in the period with the deliverer on them;
+//   Возвраты за период: the returns made in the period with the deliverer on them — a deliverer's row counts the
+//     cancelled ones too and the card's total does not, as Linko does (checked against its widget on days with a
+//     cancelled return);
 //   Оплаты / Кассир принял: the client payments the deliverer made in the period (the user who made them — a payment made
 //     by the admin for another delivery man is the admin's, as in Linko), and the part a cashbox accepted (green: all of
 //     it, blue: some, red: none);

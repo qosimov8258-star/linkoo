@@ -335,6 +335,7 @@ export const tk: Record<string, string> = {
   "Контроль финансов": "Maliýä gözegçilik",
   "Контроль": "Gözegçilik",
   "Материальный отчёт": "Maddy hasabat",
+  "Материальный отчет": "Maddy hasabat",
   "Накопительная карта": "Ýygym kartasy",
   "Настройка дашбордов": "Dashboardlaryň sazlamasy",
   "Новый конструктор отчетов": "Täze hasabat konstruktory",

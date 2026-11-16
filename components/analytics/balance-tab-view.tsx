@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { downloadExcelTable } from "@/lib/excel-export"
-import { BalanceSections, useBalanceOverview } from "@/components/analytics/balance-sections"
+import { BALANCE_CATEGORIES_ID, BalanceSections, useBalanceOverview } from "@/components/analytics/balance-sections"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { formatDayMonth, formatStatementDate, isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
 import type { BalanceOverview } from "@/lib/finance/overview-types"
@@ -133,6 +133,15 @@ export function BalanceTabView() {
   const [custom, setCustom] = useState(() => urlRange ?? { from: monthStartIso(), to: todayIso() })
   const [applied, setApplied] = useState(() => ({ ...periodRange(urlRange ? "СВОЯ" : "МЕСЯЦ", urlRange ?? custom), organization: "" }))
   const { data, loading, error } = useBalanceOverview(applied)
+  // Linko's «Прибыль по типам продуктов» opens this tab scrolled to its categories section (?container=balance): once,
+  // when the figures have arrived.
+  const scrollTo = searchParams.get("container") === "balance"
+  const scrolled = useRef(false)
+  useEffect(() => {
+    if (!scrollTo || scrolled.current || loading || !data) return
+    scrolled.current = true
+    document.getElementById(BALANCE_CATEGORIES_ID)?.scrollIntoView({ block: "start" })
+  }, [scrollTo, loading, data])
 
   useEffect(() => {
     let cancelled = false

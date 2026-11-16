@@ -39,8 +39,8 @@ export function ClientSalesPaymentsView() {
   const { t } = useLanguage()
   const now = useMemo(() => new Date(), [])
   const [from, setFrom] = useState(() => iso(new Date(now.getFullYear(), now.getMonth(), 1)))
-  // Linko's defaults: the month, from its first to its last day.
-  const [to, setTo] = useState(() => iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)))
+  // Linko's menu opens it from the month's first day to today (market_order_and_payment/?beginDate=<1st>&endDate=<today>).
+  const [to, setTo] = useState(() => iso(now))
   const [filters, setFilters] = useState<Record<FilterKey, string>>(EMPTY_FILTERS)
   const [columns, setColumns] = useState<string[]>([])
   const [applied, setApplied] = useState(() => ({ from, to, ...EMPTY_FILTERS, columns: [] as string[] }))

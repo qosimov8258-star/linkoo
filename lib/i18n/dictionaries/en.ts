@@ -335,6 +335,7 @@ export const en: Record<string, string> = {
   "Контроль финансов": "Financial control",
   "Контроль": "Control",
   "Материальный отчёт": "Material report",
+  "Материальный отчет": "Material report",
   "Накопительная карта": "Cumulative card",
   "Настройка дашбордов": "Dashboard settings",
   "Новый конструктор отчетов": "New report constructor",

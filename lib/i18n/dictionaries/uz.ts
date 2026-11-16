@@ -334,6 +334,7 @@ export const uz: Record<string, string> = {
   "Контроль финансов": "Moliya nazorati",
   "Контроль": "Boshqaruv",
   "Материальный отчёт": "Moddiy hisobot",
+  "Материальный отчет": "Moddiy hisobot",
   "Накопительная карта": "Jamg'arma karta",
   "Настройка дашбордов": "Dashbordlar sozlamasi",
   "Новый конструктор отчетов": "Yangi hisobot konstruktori",

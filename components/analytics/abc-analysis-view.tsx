@@ -27,15 +27,15 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
-/** The last day of this month: Linko's default «Дата создания до» of its dynamic reports. */
-function monthEnd() {
-  const today = new Date()
-  return inputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+/** Today: Linko's menu opens ABC анализ with «Дата создания до» = today (abc_analysis/?beginDate=<1st>&endDate=<today>;
+ * the store check reports run to the month's end, this one does not). */
+function today() {
+  return inputDate(new Date())
 }
 
 export function AbcAnalysisView() {
   const [from, setFrom] = useState(monthStart)
-  const [to, setTo] = useState(monthEnd)
+  const [to, setTo] = useState(today)
   const [productType, setProductType] = useState("")
   const [brand, setBrand] = useState("")
   const [branch, setBranch] = useState("")
@@ -63,7 +63,7 @@ export function AbcAnalysisView() {
   }, [overlayOpen])
 
   const { t } = useLanguage()
-  const [query, setQuery] = useState(() => ({ from: monthStart(), to: monthEnd(), productType: "", brand: "", branch: "", orderUser: "", groupBy: "Продукт" }))
+  const [query, setQuery] = useState(() => ({ from: monthStart(), to: today(), productType: "", brand: "", branch: "", orderUser: "", groupBy: "Продукт" }))
   const [data, setData] = useState<AbcResult | null>(null)
   const [itemsLoading, setItemsLoading] = useState(true)
   const [itemsError, setItemsError] = useState("")
@@ -129,10 +129,10 @@ export function AbcAnalysisView() {
             }}
           />
         </ReportFilters>
-        <p className="mt-2 text-[12px] text-[#666]">
-          {t("Суммы в основной валюте")}: {currencyLabel(data?.baseCurrency ?? "SUM")}
-          {data?.missingRates.length ? <span className="ml-2 text-[#e57373]">{t("Нет курса валюты, суммы не учтены")}: {data.missingRates.map(currencyLabel).join(", ")}</span> : null}
-        </p>
+        {/* Linko prints no currency note; only a currency without a rate (its amounts left out) is told. */}
+        {data?.missingRates.length ? (
+          <p className="mt-2 text-[12px] text-[#e57373]">{t("Нет курса валюты, суммы не учтены")}: {data.missingRates.map(currencyLabel).join(", ")}</p>
+        ) : null}
         {!itemsLoading && !itemsError && rows.length === 0 ? (
           <ReportEmpty />
         ) : (
