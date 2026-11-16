@@ -9,13 +9,20 @@ import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-d
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 
+/** One employee-day of GET /api/agent-visits?view=work-time (lib/agent-visits-repo.ts getWorkTime). */
 type WorkTimeRow = {
   employeeId: number
   agent: string
   date: string
+  /** Local "YYYY-MM-DDTHH:mm:ss.ffffff" of the first / last activity (no last: a service never ended); first / last =
+   * their "HH:mm" (""). */
+  firstAt: string
+  lastAt: string | null
   first: string
   last: string
+  /** Seconds with their fraction (Linko's moments are kept to the microsecond). */
   totalSec: number
+  moments: number
   storeSec: number
   plan: number
   visitedPlan: number
@@ -25,13 +32,85 @@ type WorkTimeRow = {
   sales: number
 }
 
-/** 11 -> "11 сек.", 193 -> "3 мин. 13 сек.", 3725 -> "1 ч. 2 мин. 5 сек." */
+/** «Показать по» → Linko's data_type: «Задачи» = today_plan (the tasks done), «Время нахождения» = service_time
+ * (the stays at the clients, the default; also when the chip is cleared). */
+const METRIC_TASKS = "Задачи"
+const METRIC_STAYS = "Время нахождения"
+const basisOf = (metric: string) => (metric === METRIC_TASKS ? "today_plan" : "service_time")
+
+const DAY_SEC = 24 * 3600
+
+/** Linko's duration text (a Python timedelta): 3725 → "1 ч. 2 мин.", 193 → "3 мин.", 21600 → "6 ч.", 46 → "46 сек.";
+ * seconds show only under a minute. */
 function duration(seconds: number, tr: (text: string) => string) {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const rest = seconds % 60
-  return [hours ? `${hours} ${tr("ч.")}` : "", minutes ? `${minutes} ${tr("мин.")}` : "", rest || !seconds ? `${rest} ${tr("сек.")}` : ""].filter(Boolean).join(" ")
+  const whole = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(whole / 3600)
+  const minutes = Math.floor((whole % 3600) / 60)
+  if (!hours && !minutes) return `${whole % 60} ${tr("сек.")}`
+  return [hours ? `${hours} ${tr("ч.")}` : "", minutes ? `${minutes} ${tr("мин.")}` : ""].filter(Boolean).join(" ")
 }
+
+/** A day's durations as Linko keeps them (a timedelta, to the microsecond), within one day — a span over several days
+ * loses its whole days, a negative rest wraps to 23 ч. 59 мин. —; the time outside the clients = total − time at the
+ * clients when there is any, else 0. */
+function dayFigures(row: WorkTimeRow) {
+  // To the microsecond first (Linko's resolution), so a difference of equal spans is 0, not a float's -0.000001.
+  const wrap = (seconds: number) => (((Math.round(seconds * 1e6) / 1e6) % DAY_SEC) + DAY_SEC) % DAY_SEC
+  return { total: wrap(row.totalSec), store: wrap(row.storeSec), outside: row.storeSec ? wrap(row.totalSec - row.storeSec) : 0 }
+}
+
+/** A day's duration cell: a zero is "0", a part of a second "0 сек." (also a zero span between several moments of one
+ * second: Linko keeps them a fraction of a second apart). */
+const dayDuration = (seconds: number, tr: (text: string) => string, several = false) => (seconds > 0 ? duration(seconds, tr) : several ? `0 ${tr("сек.")}` : "0")
+
+/** The agent row's first / last activity: the mean clock time of its days in whole seconds, cut to the minute (Linko);
+ * "" when no day has one. */
+function meanClock(values: Array<string | null>) {
+  const stamps = values.filter((stamp): stamp is string => Boolean(stamp))
+  if (!stamps.length) return ""
+  const seconds = stamps.map((stamp) => Number(stamp.slice(11, 13)) * 3600 + Number(stamp.slice(14, 16)) * 60 + (Math.floor(Number(stamp.slice(17))) || 0))
+  const mean = Math.floor(seconds.reduce((sum, value) => sum + value, 0) / seconds.length)
+  return `${String(Math.floor(mean / 3600)).padStart(2, "0")}:${String(Math.floor((mean % 3600) / 60)).padStart(2, "0")}`
+}
+
+/** The 11 value columns of a day row (texts and numbers). */
+function dayValues(row: WorkTimeRow, tr: (text: string) => string): Array<string | number> {
+  const figures = dayFigures(row)
+  return [
+    row.first,
+    row.last,
+    dayDuration(figures.total, tr, row.moments > 1),
+    dayDuration(figures.store, tr),
+    dayDuration(figures.outside, tr),
+    row.plan,
+    row.visitedPlan,
+    row.visitedOutside,
+    row.notVisited,
+    row.akb,
+    row.sales,
+  ]
+}
+
+/** The 11 value columns of an agent row: mean clock times, the days' whole seconds and figures added up. */
+function agentValues(days: WorkTimeRow[], tr: (text: string) => string): Array<string | number> {
+  const figures = days.map(dayFigures)
+  const sum = (values: number[]) => values.reduce((total, value) => total + value, 0)
+  return [
+    meanClock(days.map((row) => row.firstAt)),
+    meanClock(days.map((row) => row.lastAt)),
+    duration(sum(figures.map((day) => Math.floor(day.total))), tr),
+    duration(sum(figures.map((day) => Math.floor(day.store))), tr),
+    duration(sum(figures.map((day) => Math.floor(day.outside))), tr),
+    sum(days.map((row) => row.plan)),
+    sum(days.map((row) => row.visitedPlan)),
+    sum(days.map((row) => row.visitedOutside)),
+    sum(days.map((row) => row.notVisited)),
+    sum(days.map((row) => row.akb)),
+    sum(days.map((row) => row.sales)),
+  ]
+}
+
+const dayLabel = (date: string) => `${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)}`
 
 const ALL_AGENTS = ""
 const ALL_SUPERVISORS = ""
@@ -53,14 +132,14 @@ export function AgentWorkingTimeView() {
   const today = useMemo(() => inputDate(new Date()), [])
   const [from, setFrom] = useState(monthStart)
   const [to, setTo] = useState(today)
-  const [metric, setMetric] = useState("Время нахождения")
+  const [metric, setMetric] = useState(METRIC_STAYS)
   const [supervisor, setSupervisor] = useState(ALL_SUPERVISORS)
   const [agent, setAgent] = useState(ALL_AGENTS)
-  const [applied, setApplied] = useState({ from: monthStart(), to: today, agent: ALL_AGENTS, supervisor: ALL_SUPERVISORS })
+  const [applied, setApplied] = useState({ from: monthStart(), to: today, basis: basisOf(METRIC_STAYS), agent: ALL_AGENTS, supervisor: ALL_SUPERVISORS })
   const [data, setData] = useState<WorkTimeRow[]>([])
   const [supervisorOf, setSupervisorOf] = useState<Record<string, string>>({})
-  const [collapsed, setCollapsed] = useState<string[]>([])
-  // Agents by name at first; a click on «Агент»: ascending, descending, none (as the reference).
+  const [collapsed, setCollapsed] = useState<number[]>([])
+  // Agents in Linko's order (by employee id) at first; a click on «Агент»: by name ascending, descending, none.
   const [sort, setSort] = useState<{ key: number | null; dir: "asc" | "desc" }>({ key: null, dir: "asc" })
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
@@ -68,10 +147,7 @@ export function AgentWorkingTimeView() {
   const [employees, setEmployees] = useState<{ name: string; position: string }[]>([])
   const overlayOpen = dashboardOpen
 
-  // Real employees stand in for "agents"/"supervisors" (this app has no
-  // separate field-force-automation domain); no table anywhere records
-  // actual clock-in/out or time-in-store, so the result panel below keeps
-  // showing "not found" rather than fabricated hours — see report notes.
+  // Real employees stand in for "agents"/"supervisors" (this app has no separate field-force-automation domain).
   // The agent / supervisor filters list only the employees of the reader's field scope (an agent
   // sees their own name, never the other agents'): GET /api/field-activity/people.
   useEffect(() => {
@@ -91,7 +167,7 @@ export function AgentWorkingTimeView() {
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/agent-visits?view=work-time&begin=${applied.from}&end=${applied.to}`)
+    fetch(`/api/agent-visits?view=work-time&begin=${applied.from}&end=${applied.to}&dataType=${applied.basis}`)
       .then((response) => (response.ok ? (response.json() as Promise<WorkTimeRow[]>) : Promise.reject()))
       .then((rows) => {
         if (!cancelled) setData(rows)
@@ -102,7 +178,7 @@ export function AgentWorkingTimeView() {
     return () => {
       cancelled = true
     }
-  }, [applied.from, applied.to])
+  }, [applied.from, applied.to, applied.basis])
 
   useEffect(() => {
     fetch("/api/agent-supervisors")
@@ -118,67 +194,46 @@ export function AgentWorkingTimeView() {
     [t],
   )
 
-  const matrixRows = useMemo<MatrixRow[]>(() => {
-    const byAgent = new Map<string, WorkTimeRow[]>()
+  /** The agents of the applied filters (by employee id, or by name once «Агент» sorts them), each with its days in date order. */
+  const groups = useMemo(() => {
+    const byAgent = new Map<number, WorkTimeRow[]>()
     for (const row of data) {
       if (applied.agent && row.agent !== applied.agent) continue
       if (applied.supervisor && supervisorOf[row.agent] !== applied.supervisor) continue
-      byAgent.set(row.agent, [...(byAgent.get(row.agent) ?? []), row])
+      byAgent.set(row.employeeId, [...(byAgent.get(row.employeeId) ?? []), row])
     }
-    const dir = sort.key === 0 && sort.dir === "desc" ? -1 : 1
+    const byName = sort.key === 0
+    const dir = byName && sort.dir === "desc" ? -1 : 1
+    return [...byAgent.entries()]
+      .map(([employeeId, days]) => ({ employeeId, agent: days[0].agent, days: [...days].sort((a, b) => a.date.localeCompare(b.date)) }))
+      .sort((a, b) => (byName ? (a.agent.localeCompare(b.agent, "ru") || a.employeeId - b.employeeId) * dir : a.employeeId - b.employeeId))
+  }, [data, applied.agent, applied.supervisor, supervisorOf, sort])
+
+  const matrixRows = useMemo<MatrixRow[]>(() => {
+    const cell = (value: string | number) => (typeof value === "number" ? matrixNumber(value) : value)
     const out: MatrixRow[] = []
-    for (const [agent, list] of [...byAgent.entries()].sort(([a], [b]) => a.localeCompare(b, "ru") * dir)) {
-      const sum = (pick: (row: WorkTimeRow) => number) => list.reduce((acc, row) => acc + pick(row), 0)
-      const total = sum((row) => row.totalSec)
-      const store = sum((row) => row.storeSec)
-      const open = !collapsed.includes(agent)
+    for (const group of groups) {
+      const open = !collapsed.includes(group.employeeId)
       out.push({
-        key: `g-${agent}`,
+        key: `g-${group.employeeId}`,
         tone: "dark",
-        onClick: () => setCollapsed((current) => (open ? [...current, agent] : current.filter((name) => name !== agent))),
+        onClick: () => setCollapsed((current) => (open ? [...current, group.employeeId] : current.filter((id) => id !== group.employeeId))),
         cells: [
           <span key="n" className="inline-flex items-center gap-[6px]">
             <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} /></svg>
-            <AgentLink employeeId={list[0]?.employeeId} name={agent} className="!text-white" />
+            <AgentLink employeeId={group.employeeId} name={group.agent} className="!text-white" />
           </span>,
-          list.map((row) => row.first).sort()[0],
-          list.map((row) => row.last).sort().slice(-1)[0],
-          duration(total, t),
-          duration(store, t),
-          duration(Math.max(total - store, 0), t),
-          matrixNumber(sum((row) => row.plan)),
-          matrixNumber(sum((row) => row.visitedPlan)),
-          matrixNumber(sum((row) => row.visitedOutside)),
-          matrixNumber(sum((row) => row.notVisited)),
-          matrixNumber(sum((row) => row.akb)),
-          matrixNumber(sum((row) => row.sales)),
+          ...agentValues(group.days, t).map(cell),
         ],
       })
       if (open) {
-        for (const row of [...list].sort((a, b) => a.date.localeCompare(b.date))) {
-          out.push({
-            key: `d-${agent}-${row.date}`,
-            tone: "sub",
-            cells: [
-              `${row.date.slice(8, 10)}.${row.date.slice(5, 7)}.${row.date.slice(0, 4)}`,
-              row.first,
-              row.last,
-              duration(row.totalSec, t),
-              duration(row.storeSec, t),
-              duration(Math.max(row.totalSec - row.storeSec, 0), t),
-              matrixNumber(row.plan),
-              matrixNumber(row.visitedPlan),
-              matrixNumber(row.visitedOutside),
-              matrixNumber(row.notVisited),
-              matrixNumber(row.akb),
-              matrixNumber(row.sales),
-            ],
-          })
+        for (const row of group.days) {
+          out.push({ key: `d-${group.employeeId}-${row.date}`, tone: "sub", cells: [dayLabel(row.date), ...dayValues(row, t).map(cell)] })
         }
       }
     }
     return out
-  }, [data, applied.agent, applied.supervisor, supervisorOf, sort, collapsed, t])
+  }, [groups, collapsed, t])
 
   const agents = useMemo(() => [...employees.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru"))], [employees])
   const supervisors = useMemo(() => {
@@ -203,10 +258,11 @@ export function AgentWorkingTimeView() {
     }
   }, [overlayOpen])
 
+  /** The table as it is shown: each agent's row, then its days. */
   function downloadCsv() {
     downloadExcelTable("agent-working-time.xls", [
       HEADS,
-      ...data.filter((row) => (!applied.agent || row.agent === applied.agent) && (!applied.supervisor || supervisorOf[row.agent] === applied.supervisor)).map((row) => [row.agent, row.first, row.last, row.totalSec, row.storeSec, Math.max(row.totalSec - row.storeSec, 0), row.plan, row.visitedPlan, row.visitedOutside, row.notVisited, row.akb, row.sales]),
+      ...groups.flatMap((group) => [[group.agent, ...agentValues(group.days, t)], ...group.days.map((row) => [dayLabel(row.date), ...dayValues(row, t)])]),
     ])
   }
 
@@ -217,13 +273,13 @@ export function AgentWorkingTimeView() {
       <ReportBand>
         <ReportFilters
           onApply={() => {
-            if (from <= to) setApplied({ from, to, agent, supervisor })
+            if (from <= to) setApplied({ from, to, basis: basisOf(metric), agent, supervisor })
           }}
           applyDisabled={from > to}
         >
           <ReportDateField label="Дата создания от" value={from} max={to} onChange={setFrom} />
           <ReportDateField label="Дата создания до" value={to} min={from} onChange={setTo} />
-          <ReportChipField label="Показать по" value={metric} options={["Задачи", "Время нахождения"]} onChange={setMetric} />
+          <ReportChipField label="Показать по" value={metric} options={[METRIC_TASKS, METRIC_STAYS]} onChange={setMetric} />
           <ReportSelectField label="Супервайзер" value={supervisor} onChange={setSupervisor} options={supervisors} />
           <ReportSelectField label="Агент" value={agent} onChange={setAgent} options={agents} />
         </ReportFilters>

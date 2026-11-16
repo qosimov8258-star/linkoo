@@ -10,11 +10,12 @@
 // gps (every employee's GPS points), visit-sessions (timed visits),
 // finance-entities (van-sell / branch / employee / supplier acts), cashback-details, price-list-items (every product's
 // prices per price list, read product by product), transfer-logs («Логи» of the transfers between warehouses),
-// border-agents (the employees bound to each territory).
+// border-agents (the employees bound to each territory), day-plans (the tasks of each agent-day of «Время работы агента»).
 // LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
 // The raw files hold business data: backups/ is git-ignored, never commit them.
 import fs from "node:fs"
 import path from "node:path"
+import { fetchDayPlans } from "./fetch-day-plans.mjs"
 import { ROOT } from "./lib.mjs"
 
 const SERVER = process.env.LINKO_SERVER || "time3"
@@ -356,6 +357,11 @@ async function borderAgents() {
   console.log("border_agents".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
 }
 
+// Время работы агента «Задачи»: the tasks of every agent-day of Linko's report (fetch-day-plans.mjs).
+async function dayPlans() {
+  save("day_plans", { tpl: "market/agent_plans/{agent}/?date={day}", data: await fetchDayPlans(get, months()) })
+}
+
 const STEPS = {
   lists,
   "price-list-items": priceListItems,
@@ -371,6 +377,7 @@ const STEPS = {
   "cashback-details": cashbackDetails,
   "transfer-logs": transferLogs,
   "border-agents": borderAgents,
+  "day-plans": dayPlans,
 }
 
 await login()

@@ -38,6 +38,16 @@ the importers at another database of the same server; a remote host is refused u
   `import-transfer-logs.mjs` writes them to `internal_transfer_logs` (a transfer with the app's own log is left alone).
 - **Территория → агенты зон**: fetch step `border-agents` reads each territory's `market/border/{id}/` (its agents
   are only there); `import-zone-agents.mjs` writes them to `client_zone_agents` («Привязать / Отвязать агента»).
+- **Время работы агента** (Аналитика): Linko counts the tasks of its day plans (planned visits from the routes of that
+  time; every visit, order, delivery, payment taken in the field, return, refusal, photo report and service time, each
+  at its own moment, to the microsecond). Fetch step `day-plans` (`fetch-day-plans.mjs`) reads the report
+  `agent_work_hour` month by month (both «Показать по») and `market/agent_plans/{agent}/?date={day}` for every
+  agent-day in it; `import-day-tasks.mjs` writes the tasks to `linko_day_tasks`, the services Linko's report shows
+  started but never ended to `linko_open_services`, and `linko_history` 'day_tasks' = where the copied history ends
+  (`UNTIL`, else the database's latest `linko_history` moment = when it was copied, else the download moment).
+  Up to that day the report reads Linko's tasks; later days are computed from the app's own documents. On a database
+  used since its copy (a production server) keep the default or pass the copy moment as `UNTIL`, so the app's own
+  days stay computed.
 - **Production**: what reached the stock follows Linko's stock history (`stock/barcode_history`): a batch line Linko never
   booked keeps `in_stock = 0`; booked movements a batch no longer lists become batch-less movements of its stage.
 - **Stock without a document** (balances loaded by Linko's 1C integration into the "Ожидается синхронизация: …"
