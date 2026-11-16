@@ -2,6 +2,7 @@
 
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { formatUnitTotals } from "@/components/analytics/internal-transfers-shared"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { MoveField, MoveNumbers } from "@/lib/stock-movement-columns"
 import type { MoveSumResult } from "@/lib/stock-movement-report"
@@ -64,13 +65,16 @@ export function StockMoveCards({ sum, loading, showOthers }: { sum: MoveSumResul
   const { t } = useLanguage()
   const money = Boolean(sum?.value)
   const unit = t("шт")
-  const currency = sum ? currencyLabel(sum.currency) : ""
+  // Linko's cards print the value bare (the number and the quantity, no currency); with an app currency the values are
+  // converted, so they name it.
+  const appCurrency = useAppCurrency()
+  const currency = sum && appCurrency ? currencyLabel(sum.currency) : ""
   const quantity = (card: Card) => {
     const byUnit = sum?.qtyByUnit ?? []
     if (!byUnit.length) return `${formatMoney(shown(sum?.qty, card), 3)} ${unit}`
     return formatUnitTotals(byUnit.map((total) => ({ qty: shown(total.qty, card), unit: total.unit })), t)
   }
-  const amount = (card: Card) => `${formatMoney(shown(sum?.value, card), 2)} ${currency}`
+  const amount = (card: Card) => `${formatMoney(shown(sum?.value, card), 2)}${currency ? ` ${currency}` : ""}`
   return (
     <section className={`pb-[34.5px] pt-[25px] ${loading ? "opacity-60" : ""}`}>
       <div className="grid grid-cols-1 gap-y-4 sm:grid-cols-2 lg:grid-cols-5">

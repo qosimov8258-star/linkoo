@@ -1,7 +1,8 @@
 // Передачи между складами → «Логи»: Linko's history of every transfer (stock_transfers_logs, fetch step
 // transfer-logs: created / given / accepted / cancelled, who and when) as rows of internal_transfer_logs, the table
-// the app writes its own log to. A transfer that already has log rows here (the app's own) is left alone. Linko's
-// log has no lines: each row keeps the transfer's lines, as the app's log rows do.
+// the app writes its own log to. A transfer with log rows the app wrote itself is left alone; one whose rows all came
+// from an earlier run gets Linko's entries it does not have yet (same action and moment), so a new download adds the
+// transfer's later steps. Linko's log has no lines: each row keeps the transfer's lines, as the app's log rows do.
 //
 //   node scripts/linko-sync/import-transfer-logs.mjs
 import { connect, ensureRegistry, fullName, hasRaw, raw, register, runId } from "./lib.mjs"
@@ -28,11 +29,19 @@ try {
       stats.missing.push(id)
       continue
     }
-    const existing = Number((await client.query("SELECT count(*)::int AS n FROM internal_transfer_logs WHERE transfer_id = $1", [Number(id)])).rows[0].n)
-    if (existing) {
+    const existing = (
+      await client.query(
+        `SELECT l.action, left(l.created_at::text, 19) AS at,
+                EXISTS (SELECT 1 FROM linko_sync_rows s WHERE s.table_name = 'internal_transfer_logs' AND s.row_id = l.id::text) AS imported
+           FROM internal_transfer_logs l WHERE l.transfer_id = $1`,
+        [Number(id)],
+      )
+    ).rows
+    if (existing.some((row) => !row.imported)) {
       stats.kept++
       continue
     }
+    const have = new Set(existing.map((row) => `${row.action}|${String(row.at).replace("T", " ")}`))
     // Oldest first, as the app appends them.
     for (const entry of [...entries].sort((a, b) => String(a.created_date).localeCompare(String(b.created_date)))) {
       const action = ACTIONS.has(entry.action) ? entry.action : entry.action === "cancelled" ? "canceled" : null
@@ -40,6 +49,7 @@ try {
         stats.unknown.add(String(entry.action))
         continue
       }
+      if (have.has(`${action}|${String(entry.created_date ?? "").slice(0, 19).replace("T", " ")}`)) continue
       const inserted = await client.query(
         `INSERT INTO internal_transfer_logs (transfer_id, action, status, from_warehouse, to_warehouse, comment, currency, items, user_name, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,

@@ -15,6 +15,7 @@ import { formatCategoryDate } from "@/components/analytics/categories-grid"
 import { ListBTable } from "@/components/analytics/list-b-table"
 import { FilterDate, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefIconButton, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
   NET_COST_API,
@@ -120,7 +121,9 @@ function TotalsTable({ totals, loading }: { totals: NetCostTotals | null; loadin
   const [expanded, setExpanded] = useState(false)
   const rows = totals?.rows ?? []
   const visible = expanded ? rows : rows.slice(0, 3)
-  const currency = totals?.currency ?? ""
+  // Linko's headers name no currency; with an app currency (Настройки → Валюта приложения) the amounts are converted,
+  // so the headers say which one.
+  const currency = useAppCurrency() ? (totals?.currency ?? "") : ""
   const th = "whitespace-nowrap bg-[#fafafa] px-[10px] py-[7px] text-[14px] font-semibold leading-[16px] text-[#333]"
   const td = "border-b border-[#f0f0f0] px-[10px] py-[7px] text-[14px] leading-[16px] text-[#333]"
   return (

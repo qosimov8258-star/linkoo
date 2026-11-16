@@ -47,7 +47,8 @@ export function RepricingFormDialog({
   const [lines, setLines] = useState<Line[]>([])
   const [addKey, setAddKey] = useState("")
   const [addPrice, setAddPrice] = useState("")
-  const [pending, setPending] = useState<string | null>(null)
+  // A price list or currency change asked about while the form has lines.
+  const [pending, setPending] = useState<{ kind: "list" | "currency"; value: string } | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [showErrors, setShowErrors] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -67,7 +68,7 @@ export function RepricingFormDialog({
   const listOptions = (options?.priceLists ?? []).filter((item) => item.isActive || String(item.id) === priceListId).map((item) => ({ value: String(item.id), label: item.name }))
 
   const change = (value: string) => {
-    if (lines.length && value !== priceListId) return setPending(value)
+    if (lines.length && value !== priceListId) return setPending({ kind: "list", value })
     apply(value)
   }
   function apply(value: string) {
@@ -75,6 +76,19 @@ export function RepricingFormDialog({
     setCurrencyChoice("")
     setLines([])
     setAddKey("")
+    setAddPrice("")
+  }
+  // Linko's warning covers the currency too: the typed prices were in the old one.
+  const changeCurrency = (value: string) => {
+    if (value === effectiveCurrency) return
+    if (lines.length) return setPending({ kind: "currency", value })
+    applyCurrency(value)
+  }
+  function applyCurrency(value: string) {
+    setCurrencyChoice(value)
+    setLines([])
+    setAddKey("")
+    setAddPrice("")
   }
 
   const addRow = rowMap.get(addKey)
@@ -146,7 +160,7 @@ export function RepricingFormDialog({
             <SearchSelect value={priceListId} options={listOptions} invalid={showErrors && !priceListId} onChange={change} />
           </FormField>
           <FormField label={t("Валюта")} required showRequired semibold>
-            <SearchSelect value={effectiveCurrency} options={currencyOptions} disabled={!list} allowClear={false} onChange={(value) => setCurrencyChoice(value)} />
+            <SearchSelect value={effectiveCurrency} options={currencyOptions} disabled={!list} allowClear={false} onChange={changeCurrency} />
           </FormField>
           <FormField label={`${t("Оставить комментарий")}...`} semibold>
             <input value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} className={inputClass} />
@@ -250,7 +264,8 @@ export function RepricingFormDialog({
           confirmLabel="Подтвердить"
           tone="blue"
           onConfirm={() => {
-            apply(pending)
+            if (pending.kind === "list") apply(pending.value)
+            else applyCurrency(pending.value)
             setPending(null)
           }}
           onClose={() => setPending(null)}

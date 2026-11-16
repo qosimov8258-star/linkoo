@@ -257,6 +257,50 @@ function itemMatches(key: string, filters: MoveFilters, context: Context): boole
 
 type Cell = { itemKey: string; warehouseKey: string; warehouse: string; qty: MoveNumbers; value: MoveNumbers | null }
 
+/**
+ * Linko books an inventory's differences as documents of their own — a supply from «Инвенторизация»
+ * (supplier_incomings.is_inventory) for a surplus, a write-off made at the inventory's moment on its warehouse for a
+ * shortage (the imported inventory has booked_by_documents) — and this report of Linko's counts them as the
+ * inventory's («Прочие приходы / расходы»), not as supplies or write-offs (checked against its report month
+ * by month). Only the report's kinds change: the stock ledger and the cost ledger keep theirs.
+ */
+type InventoryDocs = { supplies: Set<number>; writeOffs: Set<number> }
+
+async function inventoryDocs(db: PgDb): Promise<InventoryDocs> {
+  const ids = (rows: unknown[]) => new Set((rows as Array<{ id: number }>).map((row) => Number(row.id)))
+  const [supplies, writeOffs] = await Promise.all([
+    db
+      .prepare("SELECT id FROM supplier_incomings WHERE COALESCE(is_inventory, 0) = 1")
+      .all()
+      .catch(() => []),
+    db
+      .prepare(
+        `SELECT DISTINCT w.id FROM write_offs w
+           JOIN stock_inventories si ON si.warehouse = w.warehouse AND si.status = 'confirmed' AND COALESCE(si.booked_by_documents, 0) = 1
+            AND left(si.created_at::text, 19) = left(replace(w.date::text, 'T', ' '), 19)`,
+      )
+      .all()
+      .catch(() => []),
+  ])
+  return { supplies: ids(supplies), writeOffs: ids(writeOffs) }
+}
+
+/** The ledger row's kind in this report (m = a stockMovementsSql row; params get the two id lists). */
+function reportKindSql(docs: InventoryDocs, params: Record<string, unknown>): string {
+  params.rep_inv_sup = [...docs.supplies]
+  params.rep_inv_wo = [...docs.writeOffs]
+  return `(CASE WHEN m.kind = 'supply' AND m.doc_type = 'supplier_incomings' AND m.doc_id = ANY(@rep_inv_sup::int[]) THEN 'inventory_in'
+    WHEN m.kind = 'writeoff' AND m.doc_type = 'write_offs' AND m.doc_id = ANY(@rep_inv_wo::int[]) THEN 'inventory_out'
+    ELSE m.kind END)`
+}
+
+/** reportKindSql for a cost-ledger posting. */
+function reportKind(kind: string, docType: string, docId: number, docs: InventoryDocs): string {
+  if (kind === "supply" && docType === "supplier_incomings" && docs.supplies.has(docId)) return "inventory_in"
+  if (kind === "writeoff" && docType === "write_offs" && docs.writeOffs.has(docId)) return "inventory_out"
+  return kind
+}
+
 /** WHERE parts shared by the ledger queries: warehouses grouped by fin_key, rows without a warehouse skipped (as in getStockBalances). */
 function ledgerWhere(context: Context, params: Record<string, unknown>): string[] {
   const where = ["fin_key(m.warehouse) <> ''"]
@@ -278,8 +322,9 @@ async function loadCells(
   const needPriceList = filters.mode === "price" && !filters.priceList
   let postings = new Map<string, LedgerPosting[]>()
   if (context.allowedWarehouses && !context.allowedWarehouses.length) return { cells: [], needPriceList, postings }
-  const ledger = await stockMovementsSql({}, db)
+  const [ledger, invDocs] = await Promise.all([stockMovementsSql({}, db), inventoryDocs(db)])
   const params: Record<string, unknown> = { ...ledger.params, rep_from: filters.from, rep_to: filters.to }
+  const kindSql = reportKindSql(invDocs, params)
   const where = [...ledgerWhere(context, params), "m.day <= @rep_to"]
   if (itemKey) {
     where.push("m.item_key = @rep_key")
@@ -287,7 +332,7 @@ async function loadCells(
   }
   const rows = await db
     .prepare(
-      `SELECT m.item_key, fin_key(m.warehouse) AS wk, MIN(m.warehouse) AS wh, m.kind, (m.day < @rep_from) AS is_before, SUM(m.qty) AS qty
+      `SELECT m.item_key, fin_key(m.warehouse) AS wk, MIN(m.warehouse) AS wh, ${kindSql} AS kind, (m.day < @rep_from) AS is_before, SUM(m.qty) AS qty
          FROM (${ledger.sql}) m
         WHERE ${where.join(" AND ")}
         GROUP BY 1, 2, 4, 5`,
@@ -326,9 +371,10 @@ async function loadCells(
         if (posting.day > filters.to) continue
         const value = cells.get(cellKey(item, posting.wk))?.value
         if (!value) continue
+        const kind = reportKind(posting.kind, posting.docType, posting.docId, invDocs)
         if (posting.day < filters.from) value.begin += posting.value
-        else if (posting.kind === REVALUATION_KIND) value.revaluation += posting.value
-        else if (STOCK_MOVE_KINDS.includes(posting.kind as StockMoveKind)) value[posting.kind as StockMoveKind] += posting.value
+        else if (kind === REVALUATION_KIND) value.revaluation += posting.value
+        else if (STOCK_MOVE_KINDS.includes(kind as StockMoveKind)) value[kind as StockMoveKind] += posting.value
       }
     }
   }
@@ -406,6 +452,9 @@ type MoveRowsResult = {
   needPriceList: boolean
   /** Per row key: the row's quantities split by the unit of its items (the cards' per-unit totals). */
   units: Map<string, Map<string, MoveNumbers>>
+  /** Deleted catalog items that still hold or moved stock: not listed, but Linko's cards count them (its opening balance is
+   * the warehouses' whole stock, more than the listed products hold). */
+  hidden: MoveRow[]
 }
 
 declare global {
@@ -430,8 +479,8 @@ export async function stockMovementRows(filters: MoveFilters, ordering = "", db:
     entry = { at: now, value }
     cache.set(cacheKey, entry)
   }
-  const { rows, needPriceList, units } = await entry.value
-  if (ordering || filters.groupBy !== "product") return { rows: [...rows].sort(compareRows(ordering || "name")), needPriceList, units }
+  const { rows, needPriceList, units, hidden } = await entry.value
+  if (ordering || filters.groupBy !== "product") return { rows: [...rows].sort(compareRows(ordering || "name")), needPriceList, units, hidden }
   // Linko's own order of its product lists: «Порядковый номер» first (products.order_number, none last), then the name
   // in its database collation (case and punctuation ignored).
   const ordinals = await productOrdinals(db)
@@ -440,7 +489,7 @@ export async function stockMovementRows(filters: MoveFilters, ordering = "", db:
   const sorted = [...rows].sort(
     (a, b) => ordinal(a) - ordinal(b) || LINKO_NAME_ORDER.compare(a.name, b.name) || LINKO_NAME_TIE.compare(a.name, b.name) || idOf(b) - idOf(a),
   )
-  return { rows: sorted, needPriceList, units }
+  return { rows: sorted, needPriceList, units, hidden }
 }
 
 const LINKO_NAME_ORDER = new Intl.Collator("en", { sensitivity: "base", ignorePunctuation: true })
@@ -501,13 +550,15 @@ async function stockMovementRowsFresh(filters: MoveFilters, db: PgDb): Promise<M
   }
 
   const needle = filters.search.toLowerCase()
-  const rows = [...groups.values()]
+  const finished = [...groups.values()]
     .map((row) => ({ ...row, qty: finish(row.qty), value: row.value ? finish(row.value) : null }))
     .filter((row) => presenceMatches(row, filters))
+  const hidden = needle ? [] : finished.filter((row) => deletedKeys.has(row.key))
+  const rows = finished
     .filter((row) => !deletedKeys.has(row.key))
     .filter((row) => filters.groupBy !== "product" || !(context.inventoryKeys.has(row.key) || !context.catalog.has(row.key)) || Object.values(row.qty).some((value) => value !== 0))
     .filter((row) => filters.groupBy === "product" || !needle || row.name.toLowerCase().includes(needle))
-  return { rows, needPriceList, units }
+  return { rows, needPriceList, units, hidden }
 }
 
 async function echo(filters: MoveFilters, needPriceList: boolean, db: PgDb): Promise<ModeEcho> {
@@ -533,12 +584,12 @@ export async function stockMovementList(filters: MoveFilters, paging: { page: nu
 }
 
 export async function stockMovementSum(filters: MoveFilters, db: PgDb = getDb()): Promise<MoveSumResult> {
-  const { rows, needPriceList, units } = await stockMovementRows(filters, "", db)
+  const { rows, needPriceList, units, hidden } = await stockMovementRows(filters, "", db)
   const qty = emptyMoveNumbers()
   const withValue = filters.mode === "cost" || (filters.mode === "price" && !needPriceList)
   const value = withValue ? emptyMoveNumbers() : null
   const byUnit = new Map<string, MoveNumbers>()
-  for (const row of rows) {
+  for (const row of [...rows, ...hidden]) {
     addInto(qty, row.qty)
     if (value && row.value) addInto(value, row.value)
     for (const [unit, numbers] of units.get(row.key) ?? []) {
@@ -574,23 +625,25 @@ export async function stockMovementItem(key: string, filters: MoveFilters, db: P
   if (total.value) finish(total.value)
 
   // Documents of the period; in cost mode valued from the cost ledger (the movement's own posting).
+  const invDocs = await inventoryDocs(db)
   const docValues = new Map<string, number>()
   if (filters.mode === "cost") {
     for (const posting of postings.get(key) ?? []) {
       if (posting.kind === REVALUATION_KIND || posting.day < filters.from || posting.day > filters.to) continue
-      const id = [posting.day, posting.wk, posting.kind, posting.docType, posting.docId].join("\u0000")
+      const id = [posting.day, posting.wk, reportKind(posting.kind, posting.docType, posting.docId, invDocs), posting.docType, posting.docId].join("\u0000")
       docValues.set(id, (docValues.get(id) ?? 0) + posting.value)
     }
   }
   const ledger = await stockMovementsSql({}, db)
   const params: Record<string, unknown> = { ...ledger.params, rep_key: key, rep_from: filters.from, rep_to: filters.to }
+  const kindSql = reportKindSql(invDocs, params)
   const where = [...ledgerWhere(context, params), "m.item_key = @rep_key", "m.day >= @rep_from", "m.day <= @rep_to"]
   const docRows =
     context.allowedWarehouses && !context.allowedWarehouses.length
       ? []
       : await db
           .prepare(
-            `SELECT m.day, fin_key(m.warehouse) AS wk, MIN(m.warehouse) AS wh, m.kind, m.doc_type, m.doc_id, SUM(m.qty) AS qty
+            `SELECT m.day, fin_key(m.warehouse) AS wk, MIN(m.warehouse) AS wh, ${kindSql} AS kind, m.doc_type, m.doc_id, SUM(m.qty) AS qty
                FROM (${ledger.sql}) m
               WHERE ${where.join(" AND ")}
               GROUP BY 1, 2, 4, 5, 6

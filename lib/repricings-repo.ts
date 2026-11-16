@@ -279,8 +279,14 @@ export async function createRepricingTx(
   if (missing.length) throw new RepricingError("Товар не найден", 400, { missing })
   const id = await insertDoc(tx, { priceListId: list.id, currency: docCurrency, comment: input.comment, lines, user, source, parentId: null })
   const run: LinkedRun = { available, user, comment: input.comment, rates: context.rates, outcome: { ids: [], skipped: [] } }
-  // The linked lists follow the new prices in the document's currency.
-  if (input.connected) await repriceDependents(tx, { ...list, currency: docCurrency }, targets, id, new Set(), run)
+  // The linked lists follow the new prices, taken in the source list's own currency: "Умножить на курс" is the user's
+  // rate from that currency (a document in another one would be multiplied by it as if it were). Without a rate
+  // between the two currencies the prices go in the document's currency (the other methods convert them themselves).
+  if (input.connected) {
+    const toList = docCurrency === listCurrency ? 1 : rateBetween(docCurrency, listCurrency, context.rates)
+    if (toList === null) await repriceDependents(tx, { ...list, currency: docCurrency }, targets, id, new Set(), run)
+    else await repriceDependents(tx, list, toList === 1 ? targets : targets.map((target) => ({ ...target, price: target.price * toList })), id, new Set(), run)
+  }
   return { id, linkedIds: run.outcome.ids, skipped: run.outcome.skipped }
 }
 
