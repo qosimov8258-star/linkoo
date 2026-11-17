@@ -79,6 +79,8 @@ export function RightPanel({ begin, end }: { begin: string; end: string }) {
       series: [
         {
           type: "pie",
+          // Linko draws no grey ring when the period has nothing: only «0 итого» in the middle.
+          showEmptyCircle: false,
           radius: ["55%", "85%"],
           center: ["50%", "50%"],
           label: { show: false },
@@ -114,7 +116,7 @@ export function RightPanel({ begin, end }: { begin: string; end: string }) {
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
             <span className="text-[13px] font-semibold leading-[18px]">
               {fmt(total, unit === "kg" ? 3 : 2)}
-              {suffix}
+              {total === 0 ? "" : suffix}
             </span>
             <span className="text-[10px] font-semibold leading-[14px] text-[#675c5c]">{t("итого")}</span>
           </div>

@@ -127,6 +127,8 @@ type ClientRow = {
   in_route?: number | null
   is_problem?: number | null
   object_active?: number | null
+  last_order_date?: string | null
+  last_visit_date?: string | null
 }
 
 function rowToClient(row: ClientRow): Client {
@@ -163,6 +165,8 @@ function rowToClient(row: ClientRow): Client {
     balanceLines: parseBalanceLines(row.attributes),
     createdAt: row.created_at ?? undefined,
     createdBy: row.created_by || undefined,
+    lastOrderDay: row.last_order_date || undefined,
+    lastVisitDay: row.last_visit_date || undefined,
   }
 }
 
@@ -192,7 +196,7 @@ function parseAttributes(raw: string | null | undefined): Record<string, string>
 }
 
 /** Fields written by create / update. `balance`: undefined = keep (update), null = none. */
-export type ClientInput = Omit<Client, "id" | "balance" | "balanceLines" | "currentBalances" | "lastOrder" | "lastPayment" | "createdAt" | "createdBy"> & {
+export type ClientInput = Omit<Client, "id" | "balance" | "balanceLines" | "currentBalances" | "lastOrder" | "lastPayment" | "createdAt" | "createdBy" | "lastOrderDay" | "lastVisitDay"> & {
   balance?: number | null
   /** Create / rename even when a client with the same name and phone / INN exists. */
   allowDuplicate?: boolean
@@ -574,6 +578,192 @@ export async function clientUsage(db: PgDb, client: { id: number; name: string; 
     usage.set("Первоначальный баланс", { table: "clients", label: "Первоначальный баланс", count: 1 })
   }
   return [...usage.values()]
+}
+
+// ---------------------------------------------------------------------------
+// Merge (Анализ дублей → «Объединение клиентов», Linko's join_markets)
+// ---------------------------------------------------------------------------
+
+/** Columns that hold a client's id (Linko calls a shop a market). */
+const CLIENT_ID_COLUMNS = ["client_id", "market_id", "debt_client_id", "debt_market_id"]
+
+/** Name snapshots beside a client id that NAME_REFERENCES (renames) leaves alone. */
+const MERGE_NAME_REFERENCES: Array<{ table: string; name: string; id: string }> = [
+  { table: "agent_visits", name: "client", id: "client_id" },
+  { table: "inventory_item_logs", name: "client", id: "client_id" },
+  { table: "orders", name: "market_name", id: "client_id" },
+  { table: "cash_reference_rows", name: "client_name", id: "client_id" },
+  { table: "activity_feed", name: "market_name", id: "market_id" },
+  { table: "telegram_users", name: "market_name", id: "market_id" },
+]
+
+/** Documents that name a client without its id (renamed only while the name is that client's alone). */
+const NAME_ONLY_REFERENCES: Array<{ table: string; name: string }> = [
+  { table: "contracts", name: "client" },
+  { table: "order_payment_rows", name: "client" },
+  { table: "store_reconciliation_rows", name: "client" },
+  { table: "order_logs", name: "market_name" },
+]
+
+/** Columns listing client ids as JSON ([1, 2]) or objects ([{id, name, …}]). */
+const ID_LIST_REFERENCES: Array<{ table: string; column: string }> = [
+  { table: "client_bulk_payments", column: "client_ids" },
+  { table: "account_bulk_payments", column: "client_ids" },
+  { table: "account_reconciliation_messages", column: "client_ids" },
+  { table: "contract_reference_rows", column: "markets" },
+]
+
+type IdReference = { table: string; column: string; /** The other columns of each unique key with the column. */ uniques: string[][] }
+
+/** Every table column that holds a client id, with its unique keys (the demo seed backups aside). */
+async function clientIdReferences(db: PgDb): Promise<IdReference[]> {
+  const columns = (await db
+    .prepare(
+      `SELECT c.table_name, c.column_name FROM information_schema.columns c
+         JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = current_schema() AND t.table_type = 'BASE TABLE' AND c.column_name = ANY(@columns::text[])
+          AND c.table_name <> 'clients' AND c.table_name NOT LIKE 'demo\\_seed\\_backup\\_%'
+        ORDER BY c.table_name, c.column_name`,
+    )
+    .all({ columns: CLIENT_ID_COLUMNS })) as Array<{ table_name: string; column_name: string }>
+  const keys = (await db
+    .prepare(
+      `SELECT t.relname AS table_name, ix.indexrelid::text AS index_id, array_agg(a.attname::text ORDER BY k.ord) AS columns, bool_or(k.attnum = 0) AS expression
+         FROM pg_index ix
+         JOIN pg_class t ON t.oid = ix.indrelid
+         JOIN pg_namespace n ON n.oid = t.relnamespace AND n.nspname = current_schema()
+         CROSS JOIN LATERAL unnest((ix.indkey::int2[])[0:ix.indnkeyatts - 1]) WITH ORDINALITY AS k(attnum, ord)
+         LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+        WHERE ix.indisunique AND t.relname = ANY(@tables::text[])
+        GROUP BY t.relname, ix.indexrelid`,
+    )
+    .all({ tables: [...new Set(columns.map((row) => row.table_name))] })) as Array<{ table_name: string; index_id: string; columns: string[]; expression: boolean }>
+  return columns.map((row) => ({
+    table: row.table_name,
+    column: row.column_name,
+    uniques: keys
+      .filter((key) => key.table_name === row.table_name && !key.expression && key.columns.includes(row.column_name))
+      .map((key) => key.columns.filter((column) => column !== row.column_name)),
+  }))
+}
+
+/** A JSON id list with `from` replaced by `to` (an object entry also takes `toName` as its name), each id once; null
+ * when the list does not hold `from`. */
+function replaceListedId(raw: unknown, from: number, to: number, toName: string): unknown[] | null {
+  let list: unknown
+  try {
+    list = typeof raw === "string" ? JSON.parse(raw) : raw
+  } catch {
+    return null
+  }
+  if (!Array.isArray(list)) return null
+  const idOf = (item: unknown) => Number(item && typeof item === "object" ? (item as { id?: unknown }).id : item)
+  if (!list.some((item) => idOf(item) === from)) return null
+  const seen = new Set<number>()
+  return list
+    .map((item) => {
+      if (idOf(item) !== from) return item
+      if (!item || typeof item !== "object") return to
+      return "name" in item ? { ...(item as object), id: to, name: toName } : { ...(item as object), id: to }
+    })
+    .filter((item) => {
+      const id = idOf(item)
+      if (seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+}
+
+/**
+ * «Объединить»: every document and setting of the merged clients passes to the one that stays (their ids, the names
+ * the documents keep, the id lists), Linko's opening balances add up per currency, the clients' own opening balances
+ * add up, and the merged clients are deleted. Where the one that stays already has the setting that may exist once
+ * (a route plan with the same agent, an agent of the shop, a location lock …) its own is kept. All or nothing.
+ */
+export async function mergeClients(survivorId: number, mergeIds: number[]): Promise<{ merged: number; survivor: { id: number; name: string } }> {
+  await ensureClientsSchema()
+  return withTransaction(async (tx) => {
+    await lockClients(tx)
+    type Row = { id: number; name: string; balance: number | null; last_order_date: string | null; last_visit_date: string | null }
+    const survivor = (await tx.prepare("SELECT id, name, balance, last_order_date, last_visit_date FROM clients WHERE id = ? FOR UPDATE").get(survivorId)) as Row | undefined
+    if (!survivor) throw new ClientError("Клиент не найден", 404)
+    const ids = [...new Set(mergeIds)].filter((id) => id !== survivorId)
+    const rows = (ids.length ? await tx.prepare("SELECT id, name, balance, last_order_date, last_visit_date FROM clients WHERE id = ANY(?::int[]) ORDER BY id FOR UPDATE").all(ids) : []) as Row[]
+    if (!rows.length) throw new ClientError("Выберите клиентов для объединения")
+
+    const references = await clientIdReferences(tx)
+    const tables = await columnsOf(tx, [
+      "client_balance_baseline",
+      ...MERGE_NAME_REFERENCES.map((ref) => ref.table),
+      ...NAME_ONLY_REFERENCES.map((ref) => ref.table),
+      ...ID_LIST_REFERENCES.map((ref) => ref.table),
+    ])
+    for (const row of rows) {
+      // Linko's opening balances (per currency) add up.
+      if (tables.get("client_balance_baseline")?.has("amount")) {
+        await tx
+          .prepare(
+            `INSERT INTO client_balance_baseline (client_id, currency, amount)
+             SELECT @survivor, currency, amount FROM client_balance_baseline WHERE client_id = @merged
+             ON CONFLICT (client_id, currency) DO UPDATE SET amount = client_balance_baseline.amount + EXCLUDED.amount
+             RETURNING client_id`,
+          )
+          .run({ survivor: survivorId, merged: row.id })
+        await tx.prepare("DELETE FROM client_balance_baseline WHERE client_id = ?").run(row.id)
+      }
+      // The documents keep the name of the client that stays («переписаны на имя клиента»).
+      const twins = (await tx.prepare(`SELECT COUNT(*)::int AS n FROM clients WHERE ${keySql("name")} = ${keySql("@name::text")} AND id <> @id`).get({ name: row.name, id: row.id })) as { n: number }
+      const byName = twins.n === 0
+      await cascadeRename(tx, row.id, row.name, survivor.name)
+      if (row.name !== survivor.name) {
+        for (const ref of MERGE_NAME_REFERENCES) {
+          const cols = tables.get(ref.table)
+          if (!cols?.has(ref.name) || !cols.has(ref.id)) continue
+          await tx.prepare(`UPDATE ${quoteIdent(ref.table)} SET ${quoteIdent(ref.name)} = @name WHERE ${quoteIdent(ref.id)} = @id`).run({ name: survivor.name, id: row.id })
+        }
+        if (byName) {
+          for (const ref of NAME_ONLY_REFERENCES) {
+            if (!tables.get(ref.table)?.has(ref.name)) continue
+            await tx
+              .prepare(`UPDATE ${quoteIdent(ref.table)} SET ${quoteIdent(ref.name)} = @name WHERE ${keySql(quoteIdent(ref.name))} = ${keySql("@old::text")}`)
+              .run({ name: survivor.name, old: row.name })
+          }
+        }
+      }
+      // Every id reference passes to the client that stays; a setting it already has once wins over the merged one's.
+      for (const ref of references) {
+        const table = quoteIdent(ref.table)
+        const column = quoteIdent(ref.column)
+        for (const others of ref.uniques) {
+          const same = others.map((other) => ` AND s.${quoteIdent(other)} = m.${quoteIdent(other)}`).join("")
+          await tx
+            .prepare(`DELETE FROM ${table} AS m WHERE m.${column} = @merged AND EXISTS (SELECT 1 FROM ${table} AS s WHERE s.${column} = @survivor${same})`)
+            .run({ merged: row.id, survivor: survivorId })
+        }
+        await tx.prepare(`UPDATE ${table} SET ${column} = @survivor WHERE ${column} = @merged`).run({ merged: row.id, survivor: survivorId })
+      }
+      for (const ref of ID_LIST_REFERENCES) {
+        if (!tables.get(ref.table)?.has(ref.column) || !tables.get(ref.table)?.has("id")) continue
+        const table = quoteIdent(ref.table)
+        const column = quoteIdent(ref.column)
+        const listed = (await tx
+          .prepare(`SELECT id, ${column} AS list FROM ${table} WHERE ${column}::text ~ ('(^|[^0-9])' || @id::text || '([^0-9]|$)')`)
+          .all({ id: row.id })) as Array<{ id: number; list: unknown }>
+        for (const item of listed) {
+          const next = replaceListedId(item.list, row.id, survivorId, survivor.name)
+          if (next) await tx.prepare(`UPDATE ${table} SET ${column} = @list WHERE id = @id`).run({ list: JSON.stringify(next), id: item.id })
+        }
+      }
+    }
+
+    const balance = [survivor, ...rows].reduce((sum, row) => sum + (Number(row.balance) || 0), 0)
+    const latest = (key: "last_order_date" | "last_visit_date") => [survivor, ...rows].map((row) => row[key] ?? "").reduce((max, day) => (day > max ? day : max), "")
+    await tx
+      .prepare("UPDATE clients SET balance = @balance, last_order_date = @order, last_visit_date = @visit, updated_at = datetime('now') WHERE id = @id")
+      .run({ balance: survivor.balance === null && rows.every((row) => row.balance === null) ? null : balance, order: latest("last_order_date"), visit: latest("last_visit_date"), id: survivorId })
+    await tx.prepare("DELETE FROM clients WHERE id = ANY(?::int[])").run(rows.map((row) => row.id))
+    return { merged: rows.length, survivor: { id: survivor.id, name: survivor.name } }
+  })
 }
 
 /** Refused (409 + usage) while documents reference the client or it has an opening balance. */

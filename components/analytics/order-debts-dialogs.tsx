@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, type ReactNode } from "react"
-import { Banknote, CreditCard, Pencil, X } from "lucide-react"
+import { Pencil } from "lucide-react"
 
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { Modal as CatalogModal, SaveButton as CatalogSaveButton } from "@/components/analytics/catalog-ui"
@@ -9,6 +9,7 @@ import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { PaymentModal } from "@/components/analytics/customer-payments-dialogs"
 import { formatRuDate } from "@/components/analytics/customer-payments-filters"
 import { ExpectedPaymentPayDialog } from "@/components/analytics/expected-payments-pay-dialog"
+import { ORDER_ICON, OrderIcon, OrderStatusIcon } from "@/components/orders/order-status-icons"
 import { convertMoney, type RateMap } from "@/lib/cash/rates"
 import type { CustomerPaymentOptions } from "@/lib/cash/customer-payments-types"
 import type { CategoryOptionKey } from "@/lib/cash/types"
@@ -205,40 +206,76 @@ export function PaymentDateDialog({ orderIds, single, initial = "", onClose, onD
   )
 }
 
-// --- status cell (demo a(651)) ----------------------------------------------------------------
+// --- status cell (Linko's OrderStatus) -------------------------------------------------------------
 
-/** Payment icon (cash / bank) coloured by the promised payment date + the order status. */
+/** Linko's remainders: up to three decimals («1,235 USD»); an order total keeps two (its total_price). */
+const money3 = (value: number, currency: string) => `${formatMoney(value, 3)} ${currencyLabel(currency)}`
+
+/** Whole days from `today` to `day` (moment's diff: > 0 ahead, 0 today, < 0 passed; NaN without a day). */
+function daysUntil(day: string, today: string): number {
+  if (!day) return Number.NaN
+  return Math.trunc((Date.parse(`${day.slice(0, 10)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000)
+}
+
+/** Linko's status cell: the status icon (its hint), the payment icon (cash / bank) coloured by the promised payment
+ * date — grey while it is ahead, orange on the day, red once it has passed or when none was promised, green when
+ * paid — and the invoice icon's place. */
 export function OrderPaymentStatus({ row, today }: { row: Pick<OrderDebtOrderRow, "paymentType" | "paymentDate" | "remaining" | "currency" | "status">; today: string }) {
   const { t, language } = useLanguage()
-  const due = row.paymentDate
-  const owes = row.remaining > 0.005
-  const amount = money(row.remaining, row.currency)
+  const owes = row.remaining > 0
+  const days = daysUntil(row.paymentDate, today)
+  const amount = money3(row.remaining, row.currency)
+  const date = row.paymentDate ? formatRuDate(row.paymentDate, false, language) : ""
   let color = "#b7bbb7"
-  let tip = ""
-  if (!owes) {
+  let tip: string[] = []
+  if (owes) {
+    color = days > 0 ? "#b7bbb7" : days === 0 ? "#f0ad4e" : "#e57373"
+    if (days > 0) tip = [`${t("Оплата ожидается")}: ${date}`, `${t("Ожидаемый платеж")}: ${amount}`]
+    else if (days === 0) tip = [t("Оплата ожидается сегодня"), `${t("Сумма")}: ${amount}`]
+    else if (days < 0) tip = [`${t("Оплата ожидалась")}: ${date}`, `${t("Долг")}: ${amount}`]
+  } else if (row.remaining === 0) {
     color = "#81c784"
-    tip = t("Оплачено")
-  } else if (due && due > today) {
-    tip = `${t("Оплата ожидается")}: ${formatRuDate(due, false, language)}\n${t("Ожидаемый платеж")}: ${amount}`
-  } else if (due === today) {
-    color = "#f0ad4e"
-    tip = `${t("Оплата ожидается сегодня")}\n${t("Сумма")}: ${amount}`
-  } else if (due) {
-    color = "#e57373"
-    tip = `${t("Оплата ожидалась")}: ${formatRuDate(due, false, language)}\n${t("Долг")}: ${amount}`
-  } else tip = `${t("Долг")}: ${amount}`
-  const Icon = row.paymentType === "bank" ? CreditCard : Banknote
+    tip = [t("Оплачено")]
+  }
   return (
-    <span className="inline-flex items-center justify-end gap-2">
-      <span title={tip} className="inline-flex">
-        <Icon className="h-5 w-5" style={{ color }} />
-      </span>
-      <span className="whitespace-nowrap text-[13px] text-[#586174]">{t(row.status)}</span>
+    <span className="inline-flex items-center justify-end">
+      <OrderStatusIcon status={row.status} />
+      {row.status !== "Отменен" && (
+        <OrderIcon
+          path={row.paymentType === "bank" ? ORDER_ICON.bank : ORDER_ICON.cash}
+          color={color}
+          tip={tip.length ? tip.map((line) => <span key={line} className="block">{line}</span>) : undefined}
+        />
+      )}
+      <OrderIcon path={ORDER_ICON.receipt} color="transparent" />
     </span>
   )
 }
 
 // --- client drill-down ------------------------------------------------------------------------
+
+/** Widths of Linko's debtor dialog columns. */
+const DETAIL_WIDTHS = ["9%", "21%", "14%", "19%", "15%", "15%", "7%"]
+
+/** Linko's dottedList row: 50px, 30px sides, a dotted line under every row but the last. */
+const DOTTED_ROW =
+  "relative flex h-[50px] items-center px-[30px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[linear-gradient(to_right,#d5d5d5_2px,transparent_2px)] after:bg-[length:6px_1px] last:after:hidden"
+
+const CLOSE_PATH = "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+
+/** Linko's pencil (MUI Edit, #666) with its hint on the left; 22px in the header. */
+function EditDateButton({ tip, big = false, onClick }: { tip: string; big?: boolean; onClick: () => void }) {
+  return (
+    <button type="button" aria-label={tip} onClick={onClick} className="group/edit relative flex h-12 w-12 items-center justify-center">
+      <svg viewBox="0 0 24 24" aria-hidden className={big ? "h-[22px] w-[22px] fill-[#666]" : "h-6 w-6 fill-[#666]"}>
+        <path d={ORDER_ICON.edit} />
+      </svg>
+      <span role="tooltip" className="pointer-events-none absolute right-full top-1/2 z-50 mr-[6px] hidden -translate-y-1/2 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-normal leading-[17px] text-white opacity-90 group-hover/edit:block">
+        {tip}
+      </span>
+    </button>
+  )
+}
 
 export function ClientDebtDetail({
   clientKey,
@@ -270,18 +307,23 @@ export function ClientDebtDetail({
   const today = data?.today ?? todayIso()
   const clientId = data?.client.id ?? null
 
+  /** Linko's columns (flex-basis of the row): № | date | type | total | rest | status | edit. */
+  const cell = (index: number) => ({ flexBasis: DETAIL_WIDTHS[index], maxWidth: DETAIL_WIDTHS[index] })
+
   return (
-    <div className="fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-10" onClick={onClose}>
-      <div className="w-full max-w-[1000px] rounded-md bg-white shadow-2xl" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
-        <div className="flex h-[60px] items-center justify-between pl-[30px] pr-3">
-          <span className="font-bold uppercase text-[#17233b]">{data?.client.name || name}</span>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="p-2 text-[#666]">
-            <X className="h-5 w-5" />
+    <div className="fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto bg-black/50 px-4 pb-10" onClick={onClose}>
+      <div className="w-full max-w-[1000px] bg-[#fcfcfc] text-[13px] text-[#333] shadow-[0_19px_60px_rgba(0,0,0,0.3),0_15px_20px_rgba(0,0,0,0.22)]" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+        <div className="flex h-[60px] items-center justify-between pl-[30px] pr-[10px]">
+          <span className="font-bold uppercase">{data?.client.name || name}</span>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center">
+            <svg viewBox="0 0 24 24" aria-hidden className="h-6 w-6 fill-[#666]">
+              <path d={CLOSE_PATH} />
+            </svg>
           </button>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-6 border-t border-[#efefef] px-[30px] py-2">
+        <div className="flex h-[50px] items-center justify-end gap-[25px] border-t border-[#efefef] px-[30px]">
           {canEdit && clientId !== null && (
-            <button type="button" onClick={() => setRecalcOpen(true)} className="h-[30px] rounded-md bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white">
+            <button type="button" onClick={() => setRecalcOpen(true)} className="h-[30px] rounded-[2px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white">
               {t("Пересчитать")}
             </button>
           )}
@@ -294,78 +336,50 @@ export function ClientDebtDetail({
         )}
         {detail.error && <p className="px-[30px] py-3 text-[#e57373]">{t(detail.error)}</p>}
         <div className="overflow-x-auto border-t border-[#efefef]">
-          <table className="w-full min-w-[760px] border-collapse text-[14px]">
-            <thead>
-              <tr className="h-[50px] text-left font-semibold text-[#666]">
-                <th className="pl-[30px] pr-2">№ {t("заказа")}</th>
-                <th className="px-2">{t("Ожидаемая дата оплаты")}</th>
-                <th className="px-2">{t("Тип оплаты")}</th>
-                <th className="px-2 text-right">{t("Сумма заказа")}</th>
-                <th className="px-2 text-right">{t("Осталось")}</th>
-                <th className="px-2 text-right">{t("Статус")}</th>
-                <th className="pl-2 pr-[30px] text-right">
-                  {canEdit && orderIds.length > 0 && (
-                    <button
-                      type="button"
-                      title={t("Изменить дату оплаты всех заказов")}
-                      aria-label={t("Изменить дату оплаты всех заказов")}
-                      onClick={() => setEditDates({ ids: orderIds, single: false, initial: "" })}
-                      className="p-1 text-[#666] hover:text-[#1E4A9A]"
-                    >
-                      <Pencil className="h-5 w-5" />
-                    </button>
-                  )}
-                </th>
-              </tr>
-            </thead>
-            <tbody className={detail.loading ? "opacity-60" : ""}>
+          <div className="min-w-[760px]">
+            <div className={`${DOTTED_ROW} font-semibold text-[#666]`}>
+              <div style={cell(0)} className="pr-[5px]">№ {t("заказа")}</div>
+              <div style={cell(1)} className="px-[5px]">{t("Ожидаемая дата оплаты")}</div>
+              <div style={cell(2)} className="px-[5px]">{t("Тип оплаты")}</div>
+              <div style={cell(3)} className="px-[5px] text-right">{t("Сумма заказа")}</div>
+              <div style={cell(4)} className="px-[5px] text-right">{t("Осталось")}</div>
+              <div style={cell(5)} className="px-[5px] text-right">{t("Статус")}</div>
+              <div style={cell(6)} className="flex h-[55px] items-center justify-end pl-[5px]">
+                {canEdit && orderIds.length > 0 && (
+                  <EditDateButton tip={t("Изменить дату оплаты всех заказов")} big onClick={() => setEditDates({ ids: orderIds, single: false, initial: "" })} />
+                )}
+              </div>
+            </div>
+            <div className={detail.loading ? "opacity-60" : ""}>
               {lines.map((line) =>
                 line.kind === "order" ? (
-                  <tr key={line.key} className="group h-[50px] cursor-pointer border-t border-dashed border-[#efefef] hover:bg-[#f2f5f8]" onClick={() => onOpenOrder(line.orderId)}>
-                    <td className="pl-[30px] pr-2">{line.orderId}</td>
-                    <td className="px-2">{line.paymentDate ? formatRuDate(line.paymentDate, false, language) : t("Не указано")}</td>
-                    <td className="px-2">{line.paymentType === "bank" ? `${t("Переч")}.` : `${t("Нал")}.`}</td>
-                    <td className="whitespace-nowrap px-2 text-right">{money(line.total, line.currency)}</td>
-                    <td className="whitespace-nowrap px-2 text-right font-semibold text-[#E27676]">{money(line.remaining, line.currency)}</td>
-                    <td className="px-2 text-right">
+                  <div key={line.key} className={`${DOTTED_ROW} group cursor-pointer hover:bg-[#f2f5f8]`} onClick={() => onOpenOrder(line.orderId)}>
+                    <div style={cell(0)} className="pr-[5px]">{line.orderId}</div>
+                    <div style={cell(1)} className="px-[5px]">{line.paymentDate ? formatRuDate(line.paymentDate, false, language) : ""}</div>
+                    <div style={cell(2)} className="px-[5px]">{line.paymentType === "bank" ? `${t("Переч")}.` : `${t("Нал")}.`}</div>
+                    <div style={cell(3)} className="whitespace-nowrap px-[5px] text-right">{money(line.total, line.currency)}</div>
+                    <div style={cell(4)} className="whitespace-nowrap px-[5px] text-right">{money3(line.remaining, line.currency)}</div>
+                    <div style={cell(5)} className="flex items-center justify-end px-[5px]">
                       <OrderPaymentStatus row={line} today={today} />
-                    </td>
-                    <td className="pl-2 pr-[30px] text-right" onClick={(event) => event.stopPropagation()}>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          title={t("Изменить дату оплаты")}
-                          aria-label={t("Изменить дату оплаты")}
-                          onClick={() => setEditDates({ ids: [line.orderId], single: true, initial: line.paymentDate })}
-                          className="p-1 text-[#666] opacity-0 transition-opacity hover:text-[#1E4A9A] group-hover:opacity-100 focus:opacity-100"
-                        >
-                          <Pencil className="h-5 w-5" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                    </div>
+                    <div style={cell(6)} className="flex justify-end pl-[5px] opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100" onClick={(event) => event.stopPropagation()}>
+                      {canEdit && <EditDateButton tip={t("Изменить дату оплаты")} onClick={() => setEditDates({ ids: [line.orderId], single: true, initial: line.paymentDate })} />}
+                    </div>
+                  </div>
                 ) : (
-                  <tr key={line.key} className="h-[50px] border-t border-dashed border-[#efefef]">
-                    <td className="pl-[30px] pr-2 text-[#586174]">—</td>
-                    <td className="px-2" colSpan={2}>
+                  <div key={line.key} className={DOTTED_ROW}>
+                    <div style={cell(0)} className="pr-[5px] text-[#586174]">—</div>
+                    <div style={{ flexBasis: "35%", maxWidth: "35%" }} className="px-[5px]">
                       {fillTemplate(t("Долг без заказа с {date}"), { date: formatRuDate(line.date, false, language) })}
-                    </td>
-                    <td className="px-2 text-right">—</td>
-                    <td className="whitespace-nowrap px-2 text-right font-semibold text-[#E27676]">{money(line.remaining, line.currency)}</td>
-                    <td className="px-2" />
-                    <td className="pl-2 pr-[30px]" />
-                  </tr>
+                    </div>
+                    <div style={cell(3)} className="px-[5px] text-right">—</div>
+                    <div style={cell(4)} className="whitespace-nowrap px-[5px] text-right">{money3(line.remaining, line.currency)}</div>
+                  </div>
                 ),
               )}
-              {!lines.length && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-[#9aa3b6]">
-                    {detail.loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              {!lines.length && <p className="px-4 py-12 text-center text-[#9aa3b6]">{detail.loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}</p>}
+            </div>
+          </div>
         </div>
       </div>
 

@@ -534,6 +534,11 @@ export const CLIENT_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ["in_route", "INTEGER NOT NULL DEFAULT 0"],
   ["is_problem", "INTEGER NOT NULL DEFAULT 0"],
   ["created_by", "TEXT NOT NULL DEFAULT ''"],
+  // Linko's market last_order_date / last_visit_date: the day of the latest order / visit made in the field (the
+  // mobile app's visits; an order typed in the office does not move them). «Охват территорий» and the card count
+  // from them; import-market-activity.mjs copies Linko's, lib/field-activity/visits-repo.ts keeps them going.
+  ["last_order_date", "TEXT NOT NULL DEFAULT ''"],
+  ["last_visit_date", "TEXT NOT NULL DEFAULT ''"],
 ]
 
 /** Shared "№" of cash documents (lib/finance/schema.ts CASH_DOC_SEQUENCE). */

@@ -68,6 +68,14 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
 
   const params: Record<string, unknown> = { ...ledger.params }
   const where = ["fin_key(m.warehouse) <> ''"]
+  // The balances a Linko copy holds without any document (scripts/linko-sync/import-stock-residuals.mjs: stock its 1C
+  // integration loaded, «Linko: остаток без документа») keep the stock right but are no movement: Linko's own list
+  // (stock/barcode_history) has none of them.
+  if (t.has("production_movements")) {
+    where.push(
+      "NOT (m.doc_type = 'production_movements' AND m.doc_id IN (SELECT id FROM production_movements WHERE direction = 'adjust' AND comment = 'Linko: остаток без документа'))",
+    )
+  }
   if (filters.warehouses.length) {
     where.push("fin_key(m.warehouse) IN (SELECT fin_key(w) FROM unnest(@pl_wh::text[]) AS w)")
     params.pl_wh = filters.warehouses

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSegmentTabs, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
 import { csvText } from "@/lib/csv"
@@ -71,7 +72,10 @@ export function SalesByProductsView() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [query, setQuery] = useState("")
-  const [reportMode, setReportMode] = useState<"created" | "profit">("created")
+  // Linko's «Продажа по товарам» opens by creation date (withProfit=False), «Прибыль от товаров» the same page with
+  // profit (?withProfit=True).
+  const searchParams = useSearchParams()
+  const [reportMode, setReportMode] = useState<"created" | "profit">(() => (searchParams.get("withProfit")?.toLowerCase() === "true" ? "profit" : "created"))
   const [group, setGroup] = useState<string>("По продукту")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
@@ -87,9 +91,16 @@ export function SalesByProductsView() {
   const money = useMemo(() => (amount: number) => (app.code ? inAppCurrency(app, amount, base) ?? 0 : amount), [app, base])
   const moneyLabel = currencyLabel(app.code || base)
 
+  // The server sends only the lines of the span the periods cover (created or transferred in it); the exact periods
+  // are applied below.
+  const windowQuery = useMemo(() => {
+    const window = { from: applied.from, to: applied.to }
+    return window.from && window.to && window.from <= window.to ? `?${new URLSearchParams(window)}` : ""
+  }, [applied.from, applied.to])
   useEffect(() => {
     let cancelled = false
-    fetch("/api/sales-lines", { cache: "no-store" })
+    setLoading(true)
+    fetch(`/api/sales-lines${windowQuery}`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error()
         return (await response.json()) as SalesLines
@@ -108,7 +119,7 @@ export function SalesByProductsView() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [windowQuery])
 
   const rows = useMemo<ProductRow[]>(() => {
     const period = { from: applied.from, to: applied.to }

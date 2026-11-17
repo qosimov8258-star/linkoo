@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { getDb } from "@/lib/db"
 
 import { parseId } from "@/lib/auth-request"
 import { getClient } from "@/lib/clients-repo"
@@ -69,8 +70,25 @@ export async function GET(request: Request, { params }: RouteParams) {
     .filter((entry, index) => index === 0 || Object.entries(entry).some(([key, value]) => key !== "currency" && value !== 0))
   const lastOrder = typeof row?.info.last_order === "string" ? row.info.last_order : null
   const lastPayment = typeof row?.info.last_payment === "string" ? row.info.last_payment : null
+  // Linko's last_visit_date: the day of the client's latest visit (an order, a refusal and a photo report are each made
+  // during one); an order made here without a visit counts as one too. Its last_reject_comment: the text of the latest
+  // refusal.
+  const db = getDb()
+  const visit = (await db
+    .prepare("SELECT to_char(max(started_at) AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') AS day FROM field_visits WHERE client_id = ?")
+    .get(id)
+    .catch(() => null)) as { day: string | null } | null
+  const lastVisit = [visit?.day ?? null, lastOrder].filter((day): day is string => !!day).sort().pop() ?? null
+  const refusal = (await db
+    .prepare("SELECT comment, reason FROM field_refusals WHERE client_id = ? ORDER BY happened_at DESC, id DESC LIMIT 1")
+    .get(id)
+    .catch(() => null)) as { comment: string | null; reason: string | null } | null
   const today = todayIso()
   const daysSince = (day: string | null) => (day ? Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000)) : null)
+  // The card counts like Linko from the shop's own last order / visit days (its field activity; an office order does
+  // not move them); a shop without them (made here, never visited) falls back to its documents.
+  const fieldOrder = client.lastOrderDay || null
+  const fieldVisit = client.lastVisitDay || null
   return NextResponse.json({
     from,
     to,
@@ -78,7 +96,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     currencies,
     lastOrder,
     lastPayment,
-    daysSinceLastOrder: daysSince(lastOrder),
+    daysSinceLastOrder: daysSince(fieldOrder ?? lastOrder),
     daysSinceLastPayment: daysSince(lastPayment),
+    lastVisit,
+    daysSinceLastVisit: daysSince(fieldVisit ?? fieldOrder ?? lastVisit),
+    lastRefusalComment: refusal?.comment?.trim() || null,
   })
 }

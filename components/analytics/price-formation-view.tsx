@@ -26,8 +26,12 @@ function formatDay(value: string, language: string) {
   return day ? formatStatementDate(day, language, false).replace(/\s*г\.$/, "") : value
 }
 
+function formatNumber(value: number) {
+  return (Math.round(value * 1000) / 1000).toLocaleString("ru-RU")
+}
+
 function formatMoney(value: number, currency = "SUM") {
-  return `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
+  return `${formatNumber(value)} ${currency}`
 }
 
 /** Accepted supplies of the product in the base currency (GET /api/products/[id]/cost). */
@@ -474,9 +478,10 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
           render={(row) => [
             row.name,
             t(notSet(row.barcode)),
-            unsetCosts.has(row.id) ? t("Не установлена") : formatMoney(costOf(row), baseCurrency),
-            <div key="min" className="text-right">{formatMoney(row.priceMin || priceBounds(row.priceLists).priceMin)}</div>,
-            <div key="max" className="text-center">{formatMoney(row.priceMax || priceBounds(row.priceLists).priceMax)}</div>,
+            // Linko's list prints the cost and the min / max price as bare numbers, no currency.
+            unsetCosts.has(row.id) ? t("Не установлена") : formatNumber(costOf(row)),
+            <div key="min" className="text-right">{formatNumber(row.priceMin || priceBounds(row.priceLists).priceMin)}</div>,
+            <div key="max" className="text-center">{formatNumber(row.priceMax || priceBounds(row.priceLists).priceMax)}</div>,
             t(row.priceUpdatedDate),
           ]}
         />

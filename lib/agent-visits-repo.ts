@@ -8,8 +8,9 @@ import { getDb } from "@/lib/db"
 import { DOC_MAX_YEAR, DOC_MIN_YEAR } from "@/lib/document-dates"
 import { FieldError, FIELD_MESSAGES } from "@/lib/field-activity/errors"
 import { fieldEventTotals, listFieldEvents } from "@/lib/field-activity/events"
-import { addDays, dayStartMs } from "@/lib/field-activity/input"
-import { dayStatus, PLANNED_ON_DAY_SQL } from "@/lib/field-activity/routes-repo"
+import { lastLocations } from "@/lib/field-activity/gps-repo"
+import { addDays, dayStartMs, haversineMeters } from "@/lib/field-activity/input"
+import { dayStatus, plannedClients, PLANNED_ON_DAY_SQL } from "@/lib/field-activity/routes-repo"
 import { columnsOf, ensureFieldSchema } from "@/lib/field-activity/schema"
 import { MAX_PAGE_SIZE, MAX_VISIT_MS } from "@/lib/field-activity/types"
 import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
@@ -287,12 +288,50 @@ export type RouteBoardAgent = {
   lastDurationSec: number
 }
 
-export type RoutesBoard = { date: string; currency: string; problems: RouteBoardAgent[]; active: RouteBoardAgent[] }
+/** The day's plan of an agent (every agent with one, out or not): Linko's «0/5» and its next client — the nearest
+ * planned client not visited yet from the agent's last location (km), else the first of the route. */
+export type RouteBoardPlan = { employeeId: number; plan: number; next: { clientId: number; name: string; distanceKm: number | null } | null }
+
+export type RoutesBoard = { date: string; currency: string; problems: RouteBoardAgent[]; active: RouteBoardAgent[]; plans: RouteBoardPlan[] }
+
+/** The day's plan and next client of each agent (see RouteBoardPlan). */
+async function boardPlans(date: string, employeeIds: number[] | undefined): Promise<RouteBoardPlan[]> {
+  const planned = await plannedClients(employeeIds, date)
+  const ids = [...planned.keys()]
+  if (!ids.length) return []
+  const visited = (await getDb()
+    .prepare(
+      `SELECT DISTINCT v.employee_id, v.client_id FROM field_visits v
+        WHERE v.started_at >= @fromUtc::timestamptz AND v.started_at < @toUtc::timestamptz AND v.employee_id = ANY(@ids::int[])`,
+    )
+    .all({ ...utcBounds(date, date), ids })) as Array<{ employee_id: number; client_id: number }>
+  const done = new Set(visited.map((row) => `${row.employee_id}|${row.client_id}`))
+  const until = date < todayIso() ? dayStartMs(date) + DAY_MS : Date.now()
+  const where = new Map((await lastLocations(ids, until)).flatMap((entry) => (entry.point ? [[entry.employeeId, entry.point] as const] : [])))
+  return ids.map((employeeId) => {
+    const list = planned.get(employeeId) ?? []
+    const open = list.filter((client) => !done.has(`${employeeId}|${client.clientId}`))
+    const point = where.get(employeeId)
+    let next: RouteBoardPlan["next"] = null
+    let best = Infinity
+    for (const client of open) {
+      if (!point || client.lat === null || client.lng === null) continue
+      const meters = haversineMeters(point.lat, point.lng, client.lat, client.lng)
+      if (meters < best) {
+        best = meters
+        next = { clientId: client.clientId, name: client.clientName, distanceKm: Math.round(meters) / 1000 }
+      }
+    }
+    if (!next && open.length) next = { clientId: open[0].clientId, name: open[0].clientName, distanceKm: null }
+    return { employeeId, plan: list.length, next }
+  })
+}
 
 /** The agents who visited clients on `date`: problem ones (idle > 30 min today) and the others. */
 export async function getRoutesBoard(date: string, employeeIds?: number[]): Promise<RoutesBoard> {
   await ensureFieldSchema()
-  if (employeeIds && !employeeIds.length) return { date, currency: "", problems: [], active: [] }
+  if (employeeIds && !employeeIds.length) return { date, currency: "", problems: [], active: [], plans: [] }
+  const plans = await boardPlans(date, employeeIds)
   const rows = (await getDb()
     .prepare(
       `SELECT v.employee_id, COALESCE(c.name, '') AS client_name,
@@ -315,7 +354,7 @@ export async function getRoutesBoard(date: string, employeeIds?: number[]): Prom
   const byEmployee = new Map<number, typeof rows>()
   for (const row of rows) byEmployee.set(Number(row.employee_id), [...(byEmployee.get(Number(row.employee_id)) ?? []), row])
   const ids = [...byEmployee.keys()]
-  if (!ids.length) return { date, currency: "", problems: [], active: [] }
+  if (!ids.length) return { date, currency: "", problems: [], active: [], plans }
 
   const [status, totals, people] = [
     await dayStatus(ids, date),
@@ -350,7 +389,7 @@ export async function getRoutesBoard(date: string, employeeIds?: number[]): Prom
   }
   problems.sort((a, b) => b.idleMinutes - a.idleMinutes)
   active.sort((a, b) => a.name.localeCompare(b.name, "ru"))
-  return { date, currency: totals.baseCurrency, problems, active }
+  return { date, currency: totals.baseCurrency, problems, active, plans }
 }
 
 // ---------------------------------------------------------------------------

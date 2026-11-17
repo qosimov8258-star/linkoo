@@ -24,7 +24,7 @@ type ZoneRow = {
   noOrder: number
 }
 
-type ClientRecord = { id: number; name: string; zone: string; type: string; inn?: string; zoneAgent: string; tab: string; balance?: number; inRoute?: boolean }
+type ClientRecord = { id: number; name: string; zone: string; type: string; inn?: string; zoneAgent: string; tab: string; balance?: number; inRoute?: boolean; lastOrderDay?: string }
 type OrderRecord = { client: string; clientId?: number | null; created: string; createdAt?: string; status: string }
 
 const ALL_CLIENT_TYPES = ""
@@ -156,8 +156,10 @@ export function CoverageAnalysisView() {
   // В маршруте/Нет маршрута come from whether an agent route (zoneAgent) is
   // assigned; АКБ/Новые точки come from that client's orders inside the
   // selected period; Визит/Отказ are the agents' visits and visit refusals of the
-  // period (field records); Перестали покупать/Нет заказа come from how long ago
-  // (relative to today) their last known order was.
+  // period (field records); Перестали покупать/Нет заказа come from the client's
+  // last order day as Linko keeps it (clients.last_order_date: the latest order
+  // made in the field, "2020-01-01" = never): none → Нет заказа, older than the
+  // set days → Перестали покупать.
   const zones = useMemo<ZoneRow[]>(() => {
     const byZone = new Map<string, ZoneRow>()
     for (const client of clients) {
@@ -170,17 +172,14 @@ export function CoverageAnalysisView() {
       row.refusal += field?.refusals ?? 0
 
       const stats = clientOrderStats.get(client.id)
-      if (!stats) {
-        row.noOrder += 1
-      } else {
+      if (stats) {
         const inPeriod = stats.orders.filter((order) => order.date && order.date >= from && order.date <= to)
         if (inPeriod.length > 0) row.akb += 1
         if (stats.firstDate && stats.firstDate >= from && stats.firstDate <= to) row.newPoints += 1
-        if (stats.lastDate) {
-          const daysSince = (now.getTime() - new Date(stats.lastDate).getTime()) / 86400000
-          if (daysSince >= (Number(inactiveDays) || 30)) row.stopped += 1
-        }
       }
+      const lastOrderDay = client.lastOrderDay && client.lastOrderDay > "2020-01-01" ? client.lastOrderDay : null
+      if (!lastOrderDay) row.noOrder += 1
+      else if ((now.getTime() - new Date(`${lastOrderDay}T00:00:00`).getTime()) / 86400000 >= (Number(inactiveDays) || 30)) row.stopped += 1
       byZone.set(zoneName, row)
     }
     return Array.from(byZone.values()).sort((a, b) => a.zone.localeCompare(b.zone, "ru"))

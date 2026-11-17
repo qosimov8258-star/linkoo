@@ -127,6 +127,19 @@ async function lockEmployee(tx: PgDb, employeeId: number) {
 }
 
 /** Starts a visit (201) or returns the one already started with this key (created: false). */
+/** Linko's market last_visit_date / last_order_date (clients.last_visit_date / last_order_date, «Охват территорий» and
+ * the card count from them): a visit moves the visit day, an order made during it the order day too; never backwards. */
+async function markClientActivity(tx: PgDb, clientId: number, atMs: number, withOrder: boolean): Promise<void> {
+  const day = localDay(atMs)
+  await tx
+    .prepare(
+      `UPDATE clients SET last_visit_date = CASE WHEN COALESCE(last_visit_date, '') < @day THEN @day ELSE last_visit_date END${
+        withOrder ? ", last_order_date = CASE WHEN COALESCE(last_order_date, '') < @day THEN @day ELSE last_order_date END" : ""
+      } WHERE id = @clientId`,
+    )
+    .run({ day, clientId })
+}
+
 export async function startVisit(actor: FieldActor, input: VisitStartInput): Promise<{ visit: FieldVisit; created: boolean }> {
   await ensureFieldSchema()
   const employeeId = actor.employee.id
@@ -174,6 +187,7 @@ export async function startVisit(actor: FieldActor, input: VisitStartInput): Pro
         clientLng,
         distance,
       })) as { id: number }
+    await markClientActivity(tx, input.clientId, input.startedAt, false)
     return { id: Number(row.id), created: true }
   })
   return { visit: (await getVisit(outcome.id))!, created: outcome.created }
@@ -230,6 +244,7 @@ export async function finishVisit(actor: FieldActor, input: VisitFinishInput): P
         orderId: input.orderId ?? null,
         comment: input.comment ?? "",
       })
+    await markClientActivity(tx, clientId, input.finishedAt, input.result === "order")
     // The event's position: where the visit was closed, else where it started.
     const lat = hasPosition(input) ? input.lat : num(visit.start_lat)
     const lng = hasPosition(input) ? input.lng : num(visit.start_lng)
@@ -263,4 +278,57 @@ export async function finishVisit(actor: FieldActor, input: VisitFinishInput): P
     return { id: Number(visit.id), finished: true }
   })
   return { visit: (await getVisit(outcome.id))!, finished: outcome.finished }
+}
+
+/**
+ * Linko's «Отказ» of a client card («Создание отказа»), made from the office: a visit of the user who makes it, started
+ * and finished now with result refusal, and its refusal (a «Тип отказа», or «Своя причина» as the comment). It has no
+ * position — the office is not at the client — so the mobile app's coordinate rule does not apply.
+ */
+export async function createOfficeRefusal(
+  actor: FieldActor,
+  input: { clientId: number; refusalTypeId: number | null; comment: string },
+): Promise<{ visitId: number; refusalId: number }> {
+  await ensureFieldSchema()
+  const employeeId = actor.employee.id
+  const at = Date.now()
+  return withTransaction(async (tx) => {
+    await lockEmployee(tx, employeeId)
+    const client = (await tx.prepare("SELECT id, location_lat, location_lng FROM clients WHERE id = ? FOR SHARE").get(input.clientId)) as
+      | { id: number; location_lat: number | null; location_lng: number | null }
+      | undefined
+    if (!client) throw new FieldError(FIELD_MESSAGES.clientNotFound, 400, { field: "clientId" })
+    let reason = ""
+    if (input.refusalTypeId) {
+      const type = (await tx.prepare("SELECT name FROM refusal_types WHERE id = ? FOR SHARE").get(input.refusalTypeId)) as { name: string } | undefined
+      if (!type) throw new FieldError(FIELD_MESSAGES.refusalTypeNotFound, 400, { field: "refusalTypeId" })
+      reason = type.name
+    }
+    const moment = new Date(at).toISOString()
+    const planned = await isPlanned(tx, employeeId, input.clientId, localDay(at))
+    const visit = (await tx
+      .prepare(
+        `INSERT INTO field_visits (client_key, user_id, employee_id, client_id, started_at, finished_at, result, comment, planned, client_lat, client_lng)
+         VALUES (@key, @userId, @employeeId, @clientId, @at::timestamptz, @at::timestamptz, 'refusal', '', @planned, @clientLat, @clientLng)
+         RETURNING id`,
+      )
+      .get({
+        key: `office-${employeeId}-${at}`,
+        userId: actor.user.id,
+        employeeId,
+        clientId: input.clientId,
+        at: moment,
+        planned,
+        clientLat: num(client.location_lat),
+        clientLng: num(client.location_lng),
+      })) as { id: number }
+    const refusal = (await tx
+      .prepare(
+        `INSERT INTO field_refusals (visit_id, user_id, employee_id, client_id, refusal_type_id, reason, comment, happened_at)
+         VALUES (@visitId, @userId, @employeeId, @clientId, @typeId, @reason, @comment, @at::timestamptz) RETURNING id`,
+      )
+      .get({ visitId: visit.id, userId: actor.user.id, employeeId, clientId: input.clientId, typeId: input.refusalTypeId, reason, comment: input.comment, at: moment })) as { id: number }
+    await markClientActivity(tx, input.clientId, at, false)
+    return { visitId: Number(visit.id), refusalId: Number(refusal.id) }
+  })
 }

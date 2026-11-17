@@ -180,7 +180,8 @@ export function DictionaryToolbar({
     update({ search: draft.trim(), page: 1 })
   }
   const pageCount = Math.max(1, Math.ceil(count / state.pageSize))
-  const from = count === 0 ? 0 : (state.page - 1) * state.pageSize + 1
+  // Linko's pagers print «1 - 0 из 0» on an empty list (RefToolbar does the same).
+  const from = (state.page - 1) * state.pageSize + 1
   const to = Math.min(count, state.page * state.pageSize)
   const go = (page: number) => update({ page })
   return (

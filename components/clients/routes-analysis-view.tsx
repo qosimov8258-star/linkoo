@@ -1,8 +1,10 @@
 "use client"
 
-import { Search } from "lucide-react"
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { RouteAgentsPanel, boardCounts, useRouteAgents } from "@/components/clients/route-agents"
+import { planVisitText } from "@/components/tracking/agents-tracking-data"
 import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
 import type { FieldTotals } from "@/lib/field-activity/types"
 import { formatMoney } from "@/lib/finance/currency"
@@ -17,17 +19,6 @@ const PIN_PATHS = [
 const CART_PATH = "M11 9h2V6h3V4h-3V1h-2v3H8v2h3v3zm-4 9c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2zm-9.83-3.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.86-7.01L19.42 4h-.01l-1.1 2-2.76 5H8.53l-.13-.27L6.16 6l-.95-2-.94-2H1v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.13 0-.25-.11-.25-.25z"
 const DOLLAR_PATH = "M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"
 
-/** Agent categories behind the five tabs of the right-hand drawer, in the reference's order. */
-const AGENT_TABS = [
-  { id: "all", group: "", label: "Все", icon: "M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" },
-  { id: "agents", group: "agent", label: "Агенты", icon: "M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z" },
-  { id: "merch", group: "merch", label: "Мерчендайзеры", icon: "M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7zm11.77 8.27L13 19.54l-4.27-4.27C8.28 14.81 8 14.19 8 13.5c0-1.38 1.12-2.5 2.5-2.5.69 0 1.32.28 1.77.74l.73.72.73-.73c.45-.45 1.08-.73 1.77-.73 1.38 0 2.5 1.12 2.5 2.5 0 .69-.28 1.32-.73 1.77z" },
-  { id: "delivery", group: "delivery", label: "Доставщики", icon: "M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" },
-  { id: "collectors", group: "collector", label: "Инкассаторы", icon: "M11 17h2v-1h1c.55 0 1-.45 1-1v-3c0-.55-.45-1-1-1h-3v-1h4V8h-2V7h-2v1h-1c-.55 0-1 .45-1 1v3c0 .55.45 1 1 1h3v1H9v2h2v1zm9-13H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4V6h16v12z" },
-] as const
-
-/** `groups` = the reference group tabs the employee is in (null while the agent plan is not loaded). */
-type AgentRow = { employeeId: number; name: string; position: string; groups: string[] | null }
 /** One agent of the day's board (/api/agent-visits, lib/agent-visits-repo.ts getRoutesBoard). */
 type BoardAgent = {
   employeeId: number
@@ -44,60 +35,26 @@ type BoardAgent = {
   lastClient: string
   lastDurationSec: number
 }
-type Board = { currency: string; problems: BoardAgent[]; active: BoardAgent[] }
+/** The day's plan of an agent (every agent with one): planned clients and the next one (km from its last location). */
+type BoardPlan = { employeeId: number; plan: number; next: { clientId: number; name: string; distanceKm: number | null } | null }
+type Board = { currency: string; problems: BoardAgent[]; active: BoardAgent[]; plans: BoardPlan[] }
 /** The day's money of an agent in the base currency: counted orders (board) and collected payments (field events). */
 type Money = { currency: string; sales: number; payments: number }
+
 
 /** An amount in the company's base currency (Валюты), two decimals. */
 const formatSum = (value: number, currency: string) => `${formatMoney(value)}${currency ? ` ${currency}` : ""}`
 
 export function RoutesAnalysisView() {
   const { t } = useLanguage()
-  const [agents, setAgents] = useState<AgentRow[]>([])
-  const [agentTab, setAgentTab] = useState<(typeof AGENT_TABS)[number]["id"]>("all")
-  const [tabTip, setTabTip] = useState<string | null>(null)
+  const agents = useRouteAgents()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [routeMenu, setRouteMenu] = useState(false)
   const router = useRouter()
-  const [agentQuery, setAgentQuery] = useState("")
-  const [board, setBoard] = useState<Board>({ currency: "", problems: [], active: [] })
+  const [board, setBoard] = useState<Board>({ currency: "", problems: [], active: [], plans: [] })
   // Payments collected today per employee (base currency) and the base currency itself, from the field events.
   const [payments, setPayments] = useState<{ baseCurrency: string; byEmployee: Map<number, number> }>({ baseCurrency: "", byEmployee: new Map() })
-  // The tabs are the reference's server groups (agents_plans?group=agent|merch|delivery|collector; "Агенты" is empty
-  // for this account). Until the agent plan is seeded a tab keeps the employees whose job names the singular of its label.
-  const tab = AGENT_TABS.find((entry) => entry.id === agentTab)
-  const tabMatch = agentTab === "all" ? "" : (tab?.label ?? "").slice(0, -1).toLowerCase()
-  const inTab = (agent: AgentRow) => (!tab?.group ? true : agent.groups ? agent.groups.includes(tab.group) : agent.position.includes(tabMatch))
-  const drawerAgents = agents.filter((agent) => agent.name.toLowerCase().includes(agentQuery.toLowerCase()) && inTab(agent))
-
-  useEffect(() => {
-    let cancelled = false
-    type EmployeeRow = { id?: number; name?: string; firstName?: string; lastName?: string; first_name?: string; last_name?: string; position?: string; active?: boolean }
-    const json = async <T,>(url: string): Promise<T[]> => {
-      const response = await fetch(url)
-      return response.ok ? ((await response.json()) as T[]) : []
-    }
-    // The list is the reference's agent plan (agents_plans): its active members. Until that table is seeded
-    // every active employee is listed. Only the employees of the reader's field scope (an agent sees only
-    // their own name): GET /api/field-activity/people.
-    Promise.all([json<EmployeeRow>("/api/field-activity/people"), json<{ employeeId: number; active: boolean; groups: string[]; position?: number }>("/api/agent-plan-members").catch(() => [])])
-      .then(([data, members]) => {
-        if (cancelled || !Array.isArray(data)) return
-        const plan = Array.isArray(members) && members.length ? new Map(members.filter((member) => member.active).map((member) => [member.employeeId, { groups: member.groups, position: member.position ?? -1 }])) : null
-        setAgents(
-          data
-            .filter((row) => (plan ? plan.has(Number(row.id)) : row.active !== false))
-            // the reference lists the plan in its own order (unknown positions keep the employee order, after the known ones)
-            .map((row, index) => ({ employeeId: Number(row.id), name: [row.firstName ?? row.first_name, row.lastName ?? row.last_name].filter(Boolean).join(" ") || row.name || "", position: (row.position ?? "").toLowerCase(), groups: plan ? (plan.get(Number(row.id))?.groups ?? []) : null, order: plan && (plan.get(Number(row.id))?.position ?? -1) >= 0 ? (plan.get(Number(row.id))?.position as number) : 1000 + index }))
-            .filter((row) => row.name)
-            .sort((a, b) => a.order - b.order),
-        )
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const today = todayIso()
 
   useEffect(() => {
     let cancelled = false
@@ -106,7 +63,7 @@ export function RoutesAnalysisView() {
     fetch(`/api/agent-visits?date=${date}`)
       .then(async (response) => (response.ok ? ((await response.json()) as Board) : null))
       .then((data) => {
-        if (!cancelled && data) setBoard({ currency: data.currency ?? "", problems: data.problems ?? [], active: data.active ?? [] })
+        if (!cancelled && data) setBoard({ currency: data.currency ?? "", problems: data.problems ?? [], active: data.active ?? [], plans: data.plans ?? [] })
       })
       .catch(() => {})
     fetch(`/api/field-activity/summary?from=${date}&to=${date}&kind=payment`, { cache: "no-store" })
@@ -125,8 +82,10 @@ export function RoutesAnalysisView() {
 
   const onBoard = [...board.problems, ...board.active]
   const working = new Set(onBoard.map((agent) => agent.employeeId))
-  const notOut = agents.filter((agent) => !working.has(agent.employeeId))
-  const progress = new Map(onBoard.map((agent) => [agent.employeeId, agent]))
+  // Linko's cards: the active agents (login order) that are not out today.
+  const notOut = agents.filter((agent) => agent.active && !working.has(agent.employeeId))
+  const planOf = new Map(board.plans.map((entry) => [entry.employeeId, entry]))
+  const counts = boardCounts(agents, board)
   const baseCurrency = board.currency || payments.baseCurrency
   const moneyOf = (employeeId: number, agent?: BoardAgent): Money => ({
     currency: agent?.currency || baseCurrency,
@@ -167,54 +126,22 @@ export function RoutesAnalysisView() {
       <div className="-mt-px min-h-[calc(100vh-110px)] border-t border-[#e0e0e0] bg-[#f4f4f4] pt-[30px]">
         {board.problems.length > 0 && (
           <BoardSection title={t("Проблемные")} count={board.problems.length} tone="problem" drawerOpen={drawerOpen}>
-            {board.problems.map((agent) => <RouteCard key={agent.employeeId} name={agent.name} data={agent} money={moneyOf(agent.employeeId, agent)} problem />)}
+            {board.problems.map((agent) => <RouteCard key={agent.employeeId} employeeId={agent.employeeId} name={agent.name} data={agent} plan={planOf.get(agent.employeeId)} day={today} money={moneyOf(agent.employeeId, agent)} problem />)}
           </BoardSection>
         )}
         {board.active.length > 0 && (
           <BoardSection title={t("Вышли")} count={board.active.length} tone="active" drawerOpen={drawerOpen}>
-            {board.active.map((agent) => <RouteCard key={agent.employeeId} name={agent.name} data={agent} money={moneyOf(agent.employeeId, agent)} />)}
+            {board.active.map((agent) => <RouteCard key={agent.employeeId} employeeId={agent.employeeId} name={agent.name} data={agent} plan={planOf.get(agent.employeeId)} day={today} money={moneyOf(agent.employeeId, agent)} />)}
           </BoardSection>
         )}
         <BoardSection title={t("Не Вышли")} count={notOut.length} tone="notOut" drawerOpen={drawerOpen}>
-          {notOut.map((agent) => <RouteCard key={agent.employeeId} name={agent.name} money={moneyOf(agent.employeeId)} />)}
+          {notOut.map((agent) => <RouteCard key={agent.employeeId} employeeId={agent.employeeId} name={agent.name} plan={planOf.get(agent.employeeId)} day={today} money={moneyOf(agent.employeeId)} />)}
         </BoardSection>
       </div>
 
       {drawerOpen && (
         <aside className="fixed right-0 top-0 z-[60] h-screen w-[330px] overflow-y-auto bg-white shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-          <div className="relative mt-5 flex h-10 items-center bg-[#c8c8c8] px-[15px]">
-            {AGENT_TABS.map((tab) => (
-              <div key={tab.id} className="relative" onMouseEnter={() => setTabTip(tab.id)} onMouseLeave={() => setTabTip((current) => (current === tab.id ? null : current))}>
-                <button type="button" onClick={() => setAgentTab(tab.id)} aria-label={t(tab.label)} aria-pressed={agentTab === tab.id} className="relative flex h-10 w-[60px] items-center justify-center">
-                  <svg viewBox="0 0 24 24" className={`h-[22px] w-[22px] ${agentTab === tab.id ? "fill-[#666]" : "fill-white"}`}><path d={tab.icon} /></svg>
-                  {agentTab === tab.id && <span className="absolute bottom-0 left-1/2 h-0 w-0 -translate-x-1/2 border-x-[5px] border-b-[5px] border-x-transparent border-b-white" />}
-                </button>
-                {tabTip === tab.id && (
-                  <span className="pointer-events-none absolute left-1/2 top-[2px] z-10 -translate-x-1/2 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[4px] text-[13px] font-bold leading-[17px] text-white opacity-90">{t(tab.label)}</span>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="relative mx-[30px] mt-[10px] flex h-11 items-center border border-dashed border-[#ddd] px-3">
-            <input value={agentQuery} onChange={(event) => setAgentQuery(event.target.value)} placeholder={`${t("Поиск агентов")}...`} className="h-full flex-1 bg-transparent text-[13px] outline-none placeholder:text-black/30" />
-            <Search className="h-5 w-5 text-[#555]" />
-          </div>
-          {drawerAgents.length === 0 ? (
-            <div className="mt-[40px] flex flex-col items-center text-center text-[13px] text-[#555]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/robot-empty.png" alt="" className="w-[92px]" />
-              <p className="mt-[10px] max-w-[190px]">{t("По вашему запросу ничего не найдено")}</p>
-            </div>
-          ) : (
-            <ul className="mt-[10px] border-t border-[#efefef]">
-              {drawerAgents.map((agent) => (
-                <li key={agent.employeeId} className="flex h-[45px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[30px] text-[13px]">
-                  <span className="relative pl-[15px] before:absolute before:left-0 before:top-1/2 before:h-[30px] before:w-[3px] before:-translate-y-1/2 before:bg-[#999]">{agent.name}</span>
-                  <span>{progress.get(agent.employeeId)?.visited ?? 0} / {progress.get(agent.employeeId)?.plan ?? 0}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <RouteAgentsPanel agents={agents} counts={counts} onPick={(employeeId) => router.push(`/clients/routes/${employeeId}`)} />
         </aside>
       )}
 
@@ -241,14 +168,33 @@ function BoardSection({ title, count, tone, drawerOpen, children }: { title: str
   )
 }
 
-function RouteCard({ name, data, money, problem = false }: { name: string; data?: BoardAgent; money: Money; problem?: boolean }) {
+/** An agent's card. Like Linko's, the whole card opens the agent's route (#/plan/:agentId → /clients/routes/:id). */
+function RouteCard({
+  employeeId,
+  name,
+  data,
+  plan: dayPlan,
+  day,
+  money,
+  problem = false,
+}: {
+  employeeId: number
+  name: string
+  data?: BoardAgent
+  plan?: BoardPlan
+  day: string
+  money: Money
+  problem?: boolean
+}) {
   const { t, language } = useLanguage()
   const visited = data?.visited ?? 0
-  const plan = data?.plan ?? 0
+  const plan = dayPlan?.plan ?? data?.plan ?? 0
+  const next = dayPlan?.next ?? null
   const seconds = data?.lastDurationSec ?? 0
   const duration = seconds < 60 ? `${seconds} ${t("сек.")}` : `${Math.floor(seconds / 60)} ${t("мин")} ${seconds % 60} ${t("сек.")}`
   return (
-    <article className="overflow-hidden bg-white shadow-[0_1px_4px_rgba(0,0,0,0.15)]">
+    <article className="relative overflow-hidden bg-white shadow-[0_1px_4px_rgba(0,0,0,0.15)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.22)]">
+      <Link href={`/clients/routes/${employeeId}`} aria-label={name} className="absolute inset-0 z-20" />
       <div className="relative bg-[#f2f5f8] px-[20px] pb-[20px] pt-[18px]">
         <div className="pr-[60px] text-[15px] font-bold leading-[20px]">{name}</div>
         <p className="mt-[3px] text-[13px] text-[#777]">{t("Первый визит")}: {data ? formatDateText(data.firstVisit, language, { withTime: true }) : t("Не активный")}</p>
@@ -279,7 +225,25 @@ function RouteCard({ name, data, money, problem = false }: { name: string; data?
             <span className="text-[14px] font-semibold">{t("Не посещал клиента")}</span>
           )}
         </div>
-        <div className={`relative flex items-center gap-[20px] ${data ? "mt-[27px]" : "mt-[47px]"}`}><span className="relative z-10 h-[20px] w-[20px] shrink-0 rounded-full border-[3px] border-[#1E4A9A] bg-white" /><span className="text-[14px] font-semibold">{t("Нет следующего клиента")}</span></div>
+        <div className={`relative flex items-center gap-[20px] ${data ? "mt-[27px]" : "mt-[47px]"}`}>
+          <span className="relative z-10 h-[20px] w-[20px] shrink-0 rounded-full border-[3px] border-[#1E4A9A] bg-white" />
+          {next ? (
+            // Linko's next client: the nearest planned one not visited yet, with its distance and the day to visit it.
+            <span className="flex min-w-0 flex-1 items-start justify-between gap-[10px]">
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-[14px] font-semibold uppercase">{next.name}</span>
+                <span className="mt-[3px] text-[13px] text-[#777]">{planVisitText(day, t)}</span>
+              </span>
+              {next.distanceKm !== null && (
+                <span className="shrink-0 rounded-[10px] bg-[#536fe1] px-[10px] py-[2px] text-[13px] text-white">
+                  {next.distanceKm.toFixed(3)} {t("км")}.
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="text-[14px] font-semibold">{t("Нет следующего клиента")}</span>
+          )}
+        </div>
       </div>
     </article>
   )

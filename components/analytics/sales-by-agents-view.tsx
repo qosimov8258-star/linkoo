@@ -1,6 +1,7 @@
 "use client"
 
 import { Fragment, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportEmpty, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
 import { csvText } from "@/lib/csv"
@@ -12,9 +13,10 @@ import { useDirectoryNames } from "@/components/clients/use-directory"
 import { ORDER_STATUSES } from "@/components/orders/orders-data"
 
 // Прибыль от агентов (Linko's #/statistics/agent, stats/user_profits), from GET /api/sales-lines:
-// - «ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ» (the menu's default): the lines transferred from the warehouse
-//   in «Период передачи со склада», with the net cost and the profit;
-// - «ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ»: the lines created in «Период создания» (and transferred in its period).
+// - «ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ» (Linko's menu item «Продажа по агентам» opens it: withProfit=False): the lines
+//   created in «Период создания» (and transferred in its period);
+// - «ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ» (?withProfit=True, as «Прибыль от агентов»): the lines transferred
+//   from the warehouse in «Период передачи со склада», with the net cost and the profit.
 // Sales are the lines of the not cancelled orders, «Возврат в этом периоде» the accepted returns of the period;
 // money is in the base currency (or the app currency). Every filter of the panel applies on «Применить».
 
@@ -45,7 +47,8 @@ export function SalesByAgentsView() {
   const [query, setQuery] = useState("")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
-  const [mode, setMode] = useState<Mode>("realized")
+  const searchParams = useSearchParams()
+  const [mode, setMode] = useState<Mode>(() => (searchParams.get("withProfit")?.toLowerCase() === "true" ? "realized" : "created"))
   const [fullscreen, setFullscreen] = useState(false)
   const [draft, setDraft] = useState<Draft>(initial)
   const [applied, setApplied] = useState<Draft>(initial)
@@ -60,9 +63,16 @@ export function SalesByAgentsView() {
   const moneyLabel = currencyLabel(app.code || base)
   const withProfit = mode === "realized" && Boolean(data?.canSeeCost)
 
+  // The server sends only the lines of the span the periods cover (created or transferred in it); the exact periods
+  // are applied below.
+  const windowQuery = useMemo(() => {
+    const window = { from: [applied.from, applied.transferFrom].filter(Boolean).sort()[0] ?? "", to: [applied.to, applied.transferTo].filter(Boolean).sort().reverse()[0] ?? "" }
+    return window.from && window.to && window.from <= window.to ? `?${new URLSearchParams(window)}` : ""
+  }, [applied.from, applied.to, applied.transferFrom, applied.transferTo])
   useEffect(() => {
     let cancelled = false
-    fetch("/api/sales-lines", { cache: "no-store" })
+    setLoading(true)
+    fetch(`/api/sales-lines${windowQuery}`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error()
         return (await response.json()) as SalesLines
@@ -81,7 +91,7 @@ export function SalesByAgentsView() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [windowQuery])
 
   const rows = useMemo<AgentRow[]>(() => {
     const transfer = { from: applied.transferFrom, to: applied.transferTo }

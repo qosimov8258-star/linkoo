@@ -503,6 +503,13 @@
    "path": "main/report_config/"
   },
   {
+   "name": "report_patterns",
+   "path": "main/billing/report_config/",
+   "params": {
+    "show": "pattern"
+   }
+  },
+  {
    "name": "static_widgets",
    "path": "main/static_widget/"
   },
@@ -978,6 +985,14 @@
   {
    "list": "tasks",
    "path": "main/task/{id}/"
+  },
+  {
+   "list": "report_configs",
+   "path": "main/report_config/{id}/"
+  },
+  {
+   "list": "static_widgets",
+   "path": "main/static_widget/{id}/"
   }
  ]
 }

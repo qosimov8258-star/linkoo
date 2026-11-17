@@ -40,7 +40,7 @@ export function RefTip({ text, side = "top", gap, bold = false, raw = false, cla
           ref={tipRef}
           role="tooltip"
           {...(raw ? { "data-no-translate": "" } : {})}
-          className={`pointer-events-none absolute z-[1000] w-max max-w-[1008px] rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-left font-sans text-[13px] ${bold ? "font-semibold" : "font-normal"} normal-case leading-[17px] text-white opacity-90 ${PLACE[placed]}`}
+          className={`pointer-events-none absolute z-[1000] w-max max-w-[1008px] rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-left font-sans text-[13px] whitespace-pre-line ${bold ? "font-semibold" : "font-normal"} normal-case leading-[17px] text-white opacity-90 ${PLACE[placed]}`}
           style={gap === undefined ? undefined : placed === "left" ? { right: `calc(100% + ${gap}px)` } : placed === "right" ? { left: `calc(100% + ${gap}px)` } : placed === "top" ? { bottom: `calc(100% + ${gap}px)` } : { top: `calc(100% + ${gap}px)` }}
         >
           {text}

@@ -164,7 +164,10 @@ export async function plannedClients(employeeIds: number[] | undefined, day: str
          JOIN clients c ON c.id = rp.client_id
          JOIN employees e ON e.id = rp.employee_id
         WHERE ${employeeIds ? "rp.employee_id = ANY(@employeeIds::int[]) AND " : ""}${PLANNED_ON_DAY_SQL}
-        ORDER BY rp.employee_id, rp.route_position NULLS LAST, c.name, rp.client_id`,
+          -- Linko plans no visit of an unconfirmed shop (Клиенты → Не подтвержденные; agents_plans / agent_plans).
+          AND COALESCE(c.tab, '') <> 'unconfirmed'
+        -- Linko's order: the route position, else the shop's id.
+        ORDER BY rp.employee_id, rp.route_position NULLS LAST, rp.client_id`,
     )
     .all({ employeeIds: employeeIds ?? [], day })) as Array<{
     employee_id: number

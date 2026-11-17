@@ -283,7 +283,7 @@ export function OrderDebtsView() {
           row.remaining,
           row.paymentDate,
           row.agent,
-          ...allCodes.map((code) => row.clientDebt[code] ?? 0),
+          ...allCodes.map((code) => row.clientBalance[code] ?? 0),
           row.deliveryMan,
           row.realizationDate,
           row.deliveryDate,
@@ -480,12 +480,14 @@ export function OrderDebtsView() {
     </table>
   )
 
-  const ORDER_WIDTHS = [70, ...(canEdit ? [30] : []), 100, 100, 100, 100, 100, 200, ...codes.map(() => 100), 100, 100, 100, 102]
+  // Linko's list fills the page: № (70), the checkbox (30) and Агент (200) keep their width, the other columns share the
+  // rest (108px each at 1600px) and never go below 100px (then the table scrolls).
+  const ORDER_WIDTHS: Array<number | null> = [70, ...(canEdit ? [30] : []), null, null, null, null, null, 200, ...codes.map(() => null), null, null, null, null]
   const orderTable = (
-    <table className="table-fixed border-collapse" style={{ width: ORDER_WIDTHS.reduce((sum, width) => sum + width, 0) }}>
+    <table className="w-full table-fixed border-collapse" style={{ minWidth: ORDER_WIDTHS.reduce<number>((sum, width) => sum + (width ?? 100), 0) }}>
       <colgroup>
         {ORDER_WIDTHS.map((width, index) => (
-          <col key={index} style={{ width }} />
+          <col key={index} style={width === null ? undefined : { width }} />
         ))}
       </colgroup>
       <thead className="shadow-[0_2px_4px_rgba(0,0,0,0.12)]">
@@ -550,7 +552,8 @@ export function OrderDebtsView() {
               </td>
               <td className={cell}>{row.agent}</td>
               {codes.map((code) => {
-                const debt = formatMoney(row.clientDebt[code] ?? 0, 2)
+                // The client's balance (Linko's «Общий долг»: below zero while the client owes).
+                const debt = formatMoney(row.clientBalance[code] ?? 0, 2)
                 // Like the reference: long totals are cut to 12 characters and the full number shows in a tooltip.
                 return (
                   <td key={code} className={`${cell} font-semibold text-[#e27676]`}>

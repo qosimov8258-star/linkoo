@@ -427,7 +427,7 @@ const toolReports: AnalyticsReport[] = [
   },
   {
     slug: "material-report",
-    label: "Материальный отчёт",
+    label: "Материальный отчет",
     href: "/analytics/stock-by-date",
     description: "Материальный отчёт по остаткам, поступлениям и расходу товаров за период.",
     group: "tools",

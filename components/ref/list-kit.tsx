@@ -381,7 +381,11 @@ export function RefTable<T>({
         </div>
         )}
         {hideBody ? null : sortedRows.length === 0 ? (
-          <div className="px-4 py-16 text-center text-[#666]">{empty}</div>
+          typeof empty === "string" && NOTHING_FOUND.some((text) => t(text) === empty) ? (
+            <RefNothingFound />
+          ) : (
+            <div className="px-4 py-16 text-center text-[#666]">{empty}</div>
+          )
         ) : (
           sortedRows.map((row) => (
             <Fragment key={rowKey(row)}>
@@ -554,15 +558,42 @@ export function RefFilterDate({ label, value, onChange, min, max }: { label: str
   )
 }
 
-export function RefEmpty({ text }: { text: ReactNode }) {
+const NOTHING_FOUND = ["Ничего не найдено", "По вашему запросу ничего не найдено", "По вашему запросу ничего не найдено..."]
+
+/** Linko's applied filter (its afterFilter bar, Заказы and Клиенты): «Фильтр: N элемента» in place of «Показать
+ * фильтр», ✎ opens the filter again, ⊗ clears it. N = the filter fields in use. */
+export function RefAppliedFilter({ count, onEdit, onClear }: { count: number; onEdit: () => void; onClear: () => void }) {
   const { t } = useLanguage()
   return (
-    <div className="flex flex-col items-center bg-white pb-10 pt-8 text-[#888]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/robot-empty.png" alt="" className="w-[120px]" />
-      <span className="-mt-[22px] text-[13px]">{typeof text === "string" ? t(text) : text}</span>
+    <div className="relative mt-px flex h-[48.25px] w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
+      <span>{t("Фильтр:")} {count} {t("элемента")}</span>
+      <button type="button" onClick={onEdit} aria-label={t("Изменить фильтр")} className="relative ml-auto flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]">
+        <svg viewBox="0 0 24 24" aria-hidden className="h-6 w-6 fill-[#8f8f8f]"><path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" /></svg>
+        <span className="absolute bottom-[10px] h-[4px] w-[24px] bg-[#c8c8c8]" />
+      </button>
+      <button type="button" onClick={onClear} aria-label={t("Очистить фильтр")} className="flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]">
+        <svg viewBox="0 0 24 24" aria-hidden className="h-6 w-6 fill-[#8f8f8f]"><path d="M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
+      </button>
     </div>
   )
+}
+
+/** Linko's empty list (Отказы, Смена, План опроса …): a 276 px white box, the robot and «По вашему запросу ничего не
+ * найдено» under it. */
+export function RefNothingFound({ text }: { text?: ReactNode } = {}) {
+  const { t } = useLanguage()
+  return (
+    <div className="flex h-[276px] flex-col items-center bg-white pt-[58px] text-[13px] text-[#666]">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/robot-empty.png" alt="" className="w-[164px]" />
+      <span className="mt-[2px]">{text === undefined ? t("По вашему запросу ничего не найдено") : typeof text === "string" ? t(text) : text}</span>
+    </div>
+  )
+}
+
+/** An empty list with its own text, in Linko's box (Задачи, Списание, Переоценка, Передачи …). */
+export function RefEmpty({ text }: { text: ReactNode }) {
+  return <RefNothingFound text={text} />
 }
 
 

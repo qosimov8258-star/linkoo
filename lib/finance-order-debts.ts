@@ -15,8 +15,9 @@ import { MAX_MONEY } from "@/lib/finance/api"
 import type { CurrencyContext } from "@/lib/finance/context"
 import { currencyLabel, normCurrency, roundMoney as roundMoneyTo } from "@/lib/finance/currency"
 
-// The reference keeps three decimals in debt amounts (USD 14,886); SUM/Euro totals are unaffected.
-const roundMoney = (value: number) => roundMoneyTo(value, 3)
+// Linko keeps its amounts to nine decimals and rounds only what it prints: rounding every order to three decimals
+// first moved a currency total by one cent.
+const roundMoney = (value: number) => roundMoneyTo(value, 9)
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { innKey, nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
@@ -67,10 +68,11 @@ import { invalidFieldResponse } from "@/lib/validation"
 // Orders: every order the client ledger counts (not Отменен / Не подтвержден),
 // matched to the client exactly like the ledger (orders.client_id, by name for
 // legacy rows); orders of a client that does not exist are not listed.
-// Age of an order = days since its realization date (В пути / Доставлено:
-// shipped_at, else the planned delivery day capped by updated_at, else
-// created_at — the ledger's realization rule, orderRealizationTs) or since
-// creation for orders not released yet. Buckets: ≤ p1, ≤ p2, ≤ p3, > p3
+// Age of an order = days since its realization date (В пути / Доставлено: the
+// day it was accepted — orders.accepted_date, Linko's accepted_time, its «Дата
+// реализации» and passed_days — else shipped_at, else the planned delivery day
+// capped by updated_at, else created_at: the ledger's orderRealizationTs) or
+// since creation for orders not released yet. Buckets: ≤ p1, ≤ p2, ≤ p3, > p3
 // with the periods of order_debt_settings (default 7 / 30 / 120).
 
 const SCHEMA_VERSION = 5
@@ -179,9 +181,14 @@ type OrderMeta = {
   paymentDay: string
   passedDays: number
   bucket: DebtBucket
+  /** Balance per currency of the financial account the order is booked on (below zero = owes). */
+  accountBalance: Record<string, number>
 }
 
-type Part = { currency: string; total: number; paid: number; allocated: number; remaining: number }
+/** `pending`: Linko's own remainder of an imported order not handed over yet (В процессе, Есть на складе, Не
+ * подтвержден) — no debt counts it, but Linko's client dialog (sales/order/?market&debt=true: every status but
+ * Отменен) lists the order with it. */
+type Part = { currency: string; total: number; paid: number; allocated: number; remaining: number; pending?: number }
 
 type UnexplainedLine = { currency: string; date: string; passedDays: number; bucket: DebtBucket; remaining: number }
 
@@ -224,6 +231,8 @@ type OrderSqlRow = {
   linko_remaining: number | string | null
   order_currency: string
   wrong_debt: number | null
+  /** The financial account Linko booked the order on, where it is not the shop's current account. */
+  financial_account_id: number | null
 }
 
 type ClientSqlRow = {
@@ -258,7 +267,7 @@ async function buildModel(db: PgDb): Promise<Model> {
   // (lib/finance/sources.ts): counted statuses only, the client by
   // orders.client_id (by name for legacy rows), orders of a client that does
   // not exist are left out — so Σ order debts = Σ client debts.
-  const [orderRows, clientRows, recalcRows, ledger] = await Promise.all([
+  const [orderRows, clientRows, recalcRows, ledger, accounts] = await Promise.all([
     db
       .prepare(
         `WITH ck AS (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1)
@@ -268,11 +277,12 @@ async function buildModel(db: PgDb): Promise<Model> {
                 COALESCE(o.delivery, '') AS delivery,
                 to_char(fin_ts(o.created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS') AS created,
                 to_char(fin_ts(o.delivery), 'YYYY-MM-DD') AS delivery_day,
-                to_char(${orderRealizationTs(s, "o")}, 'YYYY-MM-DD') AS realization_day,
+                to_char(${s.col("orders", "accepted_date") ? `COALESCE(fin_ts(NULLIF(o.accepted_date, '')), ${orderRealizationTs(s, "o")})` : orderRealizationTs(s, "o")}, 'YYYY-MM-DD') AS realization_day,
                 to_char(fin_ts(NULLIF(o.payment_date, '')), 'YYYY-MM-DD') AS payment_day,
                 ${s.col("orders", "linko_remaining") ? "o.linko_remaining" : "NULL::double precision AS linko_remaining"},
                 ${s.col("orders", "currency") ? "COALESCE(o.currency, '')" : "''"} AS order_currency,
-                ${s.col("orders", "wrong_debt") ? "o.wrong_debt" : "0 AS wrong_debt"}
+                ${s.col("orders", "wrong_debt") ? "o.wrong_debt" : "0 AS wrong_debt"},
+                ${s.col("orders", "financial_account_id") ? "o.financial_account_id" : "NULL::int AS financial_account_id"}
          FROM orders o ${orderClientJoin(s, "o", "oc", "ck")}
          WHERE ${s.col("orders", "linko_remaining") ? `(o.linko_remaining IS NOT NULL OR (${orderCountedSql("o")}${orderDebtSql("o")}))` : `${orderCountedSql("o")}${orderDebtSql("o")}`}`,
       )
@@ -288,6 +298,9 @@ async function buildModel(db: PgDb): Promise<Model> {
       Array<{ client_id: number; from_date: string; recalculated_by: string; recalculated_at: string }>
     >,
     getBalanceList("client", { from: today, to: LEDGER_TO, pageSize: 0 }, db),
+    // «Общий долг» of an order row (Linko's order `currencies`): the balance of the financial account the order is
+    // booked on — its shops and the money booked on the account itself (the grouping of Долги по счетам).
+    getBalanceList("account", { from: today, to: today, pageSize: 0, withDeletedAccounts: true }, db),
   ])
 
   const recalcs = new Map(recalcRows.map((row) => [Number(row.client_id), row]))
@@ -338,6 +351,14 @@ async function buildModel(db: PgDb): Promise<Model> {
     )
   }
 
+  // Account key → balance per currency, and each shop's account (the account rows list the shops summed into them).
+  const accountBalance = new Map<string, Record<string, number>>()
+  const accountOfShop = new Map<number, string>()
+  for (const row of accounts.rows) {
+    accountBalance.set(row.key, Object.fromEntries(Object.entries(row.currencies).map(([code, value]) => [code, roundMoney(value.end_balance)])))
+    for (const id of row.members ?? (row.id !== null ? [row.id] : [])) accountOfShop.set(id, row.key)
+  }
+
   const orders = new Map<number, OrderMeta>()
   for (const row of orderRows) {
     const clientId = Number(row.client_id)
@@ -369,6 +390,7 @@ async function buildModel(db: PgDb): Promise<Model> {
       paymentDay: row.payment_day ?? "",
       passedDays,
       bucket: bucketOf(passedDays, config),
+      accountBalance: accountBalance.get(row.financial_account_id ? `acc:${Number(row.financial_account_id)}` : (accountOfShop.get(clientId) ?? clientKey)) ?? {},
     }
     orders.set(meta.id, meta)
     client.orders.push(meta)
@@ -376,11 +398,12 @@ async function buildModel(db: PgDb): Promise<Model> {
 
   // Orders imported from Linko keep Linko's own remainder (its allocation of the payments, counted for handed-over
   // orders only), less what was paid on the order here since the import; the app's orders follow the FIFO rule below.
-  const linko = new Map<number, { remaining: number; currency: string; wrong: boolean }>()
+  const linko = new Map<number, { remaining: number; own: number; released: boolean; listed: boolean; currency: string; wrong: boolean }>()
   for (const row of orderRows) {
     if (row.linko_remaining === null || row.linko_remaining === undefined || !orders.has(Number(row.id))) continue
     const released = RELEASED.has(nameKey(row.status))
-    linko.set(Number(row.id), { remaining: released ? Math.max(0, num(row.linko_remaining)) : 0, currency: row.order_currency ? normCurrency(row.order_currency, cc.base) : "", wrong: Number(row.wrong_debt) === 1 })
+    const own = Math.max(0, num(row.linko_remaining))
+    linko.set(Number(row.id), { remaining: released ? own : 0, own, released, listed: nameKey(row.status) !== "отменен", currency: row.order_currency ? normCurrency(row.order_currency, cc.base) : "", wrong: Number(row.wrong_debt) === 1 })
   }
   // Clients Linko flags for a recalculation (an imported order with a wrong debt, whatever its status), and the moment
   // the history was copied: a client that existed then and has no order of the app keeps Linko's picture (no
@@ -404,7 +427,9 @@ async function buildModel(db: PgDb): Promise<Model> {
         .all({ ids: [...linko.keys()] })) as Array<{ order_id: number; paid: number }>
       for (const row of paidAfter) {
         const entry = linko.get(Number(row.order_id))
-        if (entry) entry.remaining = Math.max(0, roundMoney(entry.remaining - num(row.paid)))
+        if (!entry) continue
+        entry.remaining = Math.max(0, roundMoney(entry.remaining - num(row.paid)))
+        entry.own = Math.max(0, roundMoney(entry.own - num(row.paid)))
       }
     }
   }
@@ -437,8 +462,10 @@ async function buildModel(db: PgDb): Promise<Model> {
         const entry = linko.get(order.id)
         if (!entry) continue
         // Linko's remainder is in the order's currency; another currency part of it is settled.
-        part.remaining = !entry.currency || entry.currency === code ? roundMoney(entry.remaining) : 0
-        part.allocated = roundMoney(Math.max(0, part.total - part.paid - part.remaining))
+        const own = !entry.currency || entry.currency === code
+        part.remaining = own ? roundMoney(entry.remaining) : 0
+        if (own && !entry.released && entry.listed) part.pending = roundMoney(entry.own)
+        part.allocated = roundMoney(Math.max(0, part.total - part.paid - (entry.released ? part.remaining : (part.pending ?? 0))))
         fixed += part.remaining
       }
       const parts = all.filter(({ order }) => !linko.has(order.id)).map(({ part }) => part)
@@ -595,7 +622,7 @@ function orderRow(order: OrderMeta, part: Part, client: ClientState): OrderDebtO
     allocated: part.allocated,
     remaining: part.remaining,
     wrongDebt: client.wrong,
-    clientDebt: client.debt,
+    clientBalance: order.accountBalance,
   }
 }
 
@@ -757,7 +784,7 @@ function orderValue(row: OrderDebtOrderRow, field: string): Comparable {
     case "agent":
       return nameKey(row.agent)
     case "client_debt":
-      return row.clientDebt[code] ?? 0
+      return row.clientBalance[code] ?? 0
     case "delivery_man":
       return nameKey(row.deliveryMan)
     case "realization":
@@ -800,7 +827,11 @@ export async function listOrderDebts(query: OrderDebtQuery): Promise<OrderDebtLi
   return { ...base, count: rows.length, page: paged.page, pageSize: paged.pageSize, clients: paged.rows, orders: [] }
 }
 
-/** GET /api/order-debts/clients/[key] — the client drill-down (all its debt orders). */
+/** The part as the client and order dialogs show it: an order not handed over yet with Linko's own remainder. */
+const shownPart = (part: Part): Part => (part.remaining <= MIN_DEBT && (part.pending ?? 0) > MIN_DEBT ? { ...part, remaining: part.pending! } : part)
+
+/** GET /api/order-debts/clients/[key] — the client drill-down (all its debt orders, those not handed over yet too:
+ * Linko's sales/order/?market&debt=true). */
 export async function getClientDebtDetail(key: string, params: { debtType?: DebtBucket | ""; page?: number; pageSize?: number }): Promise<OrderDebtClientDetail | null> {
   const model = await buildModel(getDb())
   const client = model.clients.get(key)
@@ -809,7 +840,10 @@ export async function getClientDebtDetail(key: string, params: { debtType?: Debt
   const orders = [...client.orders].sort((a, b) => b.id - a.id)
   for (const order of orders) {
     if (params.debtType && order.bucket !== params.debtType) continue
-    for (const part of client.parts.get(order.id) ?? []) if (part.remaining > MIN_DEBT) lines.push({ kind: "order", ...orderRow(order, part, client) })
+    for (const part of client.parts.get(order.id) ?? []) {
+      const listed = shownPart(part)
+      if (listed.remaining > MIN_DEBT) lines.push({ kind: "order", ...orderRow(order, listed, client) })
+    }
   }
   for (const line of client.lines) {
     if (params.debtType && line.bucket !== params.debtType) continue
@@ -837,7 +871,7 @@ export async function getOrderDebtDetail(orderId: number): Promise<OrderDebtOrde
   const order = model.orders.get(orderId)
   if (!order) return null
   const client = model.clients.get(order.clientKey)!
-  const parts = client.parts.get(orderId) ?? []
+  const parts = (client.parts.get(orderId) ?? []).map(shownPart)
   const first = parts[0] ?? { currency: model.cc.base, total: 0, paid: 0, allocated: 0, remaining: 0 }
   const hasItems = ((await db.prepare("SELECT to_regclass('order_items') IS NOT NULL AS ok").get()) as { ok: boolean }).ok
   const items = hasItems
@@ -851,7 +885,7 @@ export async function getOrderDebtDetail(orderId: number): Promise<OrderDebtOrde
     : []
   return {
     order: { ...orderRow(order, first, client), zone: order.zone || client.info.zone, delivery: order.delivery, product: order.product },
-    parts: parts.map((part) => ({ ...part })),
+    parts: parts.map((part) => ({ currency: part.currency, total: part.total, paid: part.paid, allocated: part.allocated, remaining: part.remaining })),
     items: items.map((item) => {
       const quantity = num(item.quantity)
       const price = num(item.price)

@@ -94,6 +94,9 @@ export function eventQueryOf(params: URLSearchParams, scope: FieldScope): QueryR
   if (!attributed.ok) return attributed
   const excludeCancelled = boolParam(params.get("excludeCancelled"), "excludeCancelled")
   if (!excludeCancelled.ok) return excludeCancelled
+  // Orders kept, over excludeCancelled: "all" or "not_cancelled" (unconfirmed too — Linko's month sales of an agent).
+  const orders = params.get("orders") || undefined
+  if (orders !== undefined && orders !== "all" && orders !== "not_cancelled") return { ok: false, field: "orders", error: "Неверное значение" }
   return {
     ok: true,
     value: {
@@ -107,6 +110,7 @@ export function eventQueryOf(params: URLSearchParams, scope: FieldScope): QueryR
       withEquipment: equipment.value,
       onlyAttributed: attributed.value,
       excludeCancelled: excludeCancelled.value,
+      orders,
     },
   }
 }

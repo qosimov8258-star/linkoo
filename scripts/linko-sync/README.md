@@ -38,6 +38,14 @@ the importers at another database of the same server; a remote host is refused u
   `import-transfer-logs.mjs` writes them to `internal_transfer_logs` (a transfer with the app's own log is left alone).
 - **Территория → агенты зон**: fetch step `border-agents` reads each territory's `market/border/{id}/` (its agents
   are only there); `import-zone-agents.mjs` writes them to `client_zone_agents` («Привязать / Отвязать агента»).
+- **Карточка клиента → «Агенты магазина»**: fetch step `market-users` reads each shop's `market/market/{id}/?with_extra_message=1`
+  (its market users are only there: agent, comment, price lists; ~1 request per shop); `import-market-users.mjs` writes
+  them to `client_market_users` («Изменение агентов»). Rows set in the app (no Linko id) are kept on a re-run.
+  The same step also saves every shop's `last_order_date` / `last_visit_date` (`market_activity`); `import-market-activity.mjs`
+  writes them to `clients` («Охват территорий» «Перестали покупать» / «Нет заказа», the card's «Прошло дней …»).
+- **Анализ маршрутов → агент → «план продаж»**: Linko's `sales/monthly_plan/` (list `monthly_plans`) goes to
+  `monthly_sales_plans` via `import-monthly-plans.mjs` (a sales sum and АКБ per organization, a quantity per product;
+  rows of zeros and product-type rows are skipped). Plans set in the app (no Linko id) are kept on a re-run.
 - **Время работы агента** (Аналитика): Linko counts the tasks of its day plans (planned visits from the routes of that
   time; every visit, order, delivery, payment taken in the field, return, refusal, photo report and service time, each
   at its own moment, to the microsecond). Fetch step `day-plans` (`fetch-day-plans.mjs`) reads the report
@@ -50,6 +58,14 @@ the importers at another database of the same server; a remote host is refused u
   days stay computed.
 - **Production**: what reached the stock follows Linko's stock history (`stock/barcode_history`): a batch line Linko never
   booked keeps `in_stock = 0`; booked movements a batch no longer lists become batch-less movements of its stage.
+- **Партии, the figures inside a batch**: Linko shows each made line at the cost it stored (a finished batch's raw cost
+  over its good units, null while pending) and its own `total_raw_cost` (which also counts raw material it no longer
+  lists). `import-party-costs.mjs` keeps them in `linko_party_costs`; the batch detail of a copied batch shows them and
+  its lines as booked, while the app's own batches follow the cost ledger. The ledgers are not touched.
+- **Конструктор отчетов → Отчеты / Виджеты**: the saved reports (`report_configs` + its detail list: who sees each one),
+  Linko's templates (`report_patterns`) and static widgets (`static_widgets` + detail); `import-report-details.mjs`
+  writes them to `old_saved_reports` (with `users` / `positions` / `view_type`), `old_report_patterns` and
+  `old_static_widgets`. Linko's position ids are the access rights' ids.
 - **Stock without a document** (balances loaded by Linko's 1C integration into the "Ожидается синхронизация: …"
   warehouses, equipment issued from a warehouse, a few corrections): production movements of direction `adjust`
   marked "Linko: …" (the ledger's "Прочие" column), so every product's balance in every warehouse equals Linko's.

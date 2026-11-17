@@ -23,6 +23,7 @@ run import-stock-docs.mjs
 run import-transfer-logs.mjs
 run import-reprice-items.mjs
 run import-production.mjs
+run import-party-costs.mjs
 run import-net-cost-history.mjs
 # Finance
 run import-account-links.mjs
@@ -36,14 +37,17 @@ run import-document-rates.mjs
 run remove-demo-salary-plans.mjs
 # Clients and settings lists
 run import-client-options.mjs
+run import-market-activity.mjs
 run import-settings-lists.mjs
 run import-branch-flags.mjs
 run import-surveys.mjs
 # Field work and staff
 run import-zones.mjs
 run import-zone-agents.mjs
+run import-market-users.mjs
 run import-field-records.mjs
 run import-route-plans.mjs
+run import-monthly-plans.mjs
 run import-visits.mjs
 run import-day-tasks.mjs
 run import-gps.mjs

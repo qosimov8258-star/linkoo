@@ -4,7 +4,7 @@ import { X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { compareText } from "@/components/ref/list-kit"
+import { RefAppliedFilter, compareText } from "@/components/ref/list-kit"
 
 import { csvCell } from "@/lib/csv"
 import { readExcelRows } from "@/lib/excel-import"
@@ -18,6 +18,7 @@ import { parseAnyDate, parseAnyDay } from "@/lib/finance/dates"
 import { AddOrderDialog } from "./add-order-dialog"
 import { OrderDetailCard } from "./order-detail"
 import { OrderGroupPayment } from "./order-group-payment"
+import { ORDER_ICON, ORDER_STATUS_ICON } from "./order-status-icons"
 import { EdoMenu, InvoiceNumberDialog, SERIES_STORAGE_KEY, SeriesDialog, useUrlParams } from "./orders-extra-dialogs"
 import { BulkEditDialog, NoSelectionPopover, PAY_PERMISSIONS, RowCheckbox, SelectedTotalsDialog, type BulkEditValues } from "./orders-selection"
 import { EMPTY_ORDER_FILTERS, OrderFilterPanel, countOrderFilters, matchesOrderFilters, type OrderFilters } from "./order-filter-panel"
@@ -594,14 +595,15 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
             ) : (
               <div className="shrink-0" style={{ width: "calc(326.5px + max(0px, 100vw - 1296px) * 0.25)" }}>
                 {activeFilterCount > 0 ? (
-                  <div className="relative mt-px flex h-[48.25px] w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
-                    <span>{t("Фильтр:")} {activeFilterCount} {t("элемента")}</span>
-                    <button type="button" onClick={() => setFilterOpen(true)} aria-label={t("Изменить фильтр")} className="relative ml-auto flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]">
-                      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]"><path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" /></svg>
-                      <span className="absolute bottom-[10px] h-[4px] w-[24px] bg-[#c8c8c8]" />
-                    </button>
-                    <button type="button" onClick={() => { setFilters(EMPTY_ORDER_FILTERS); setOnlyIds(null); setPage(1) }} aria-label={t("Очистить фильтр")} className="flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]"><path d={ICON.clear} /></svg></button>
-                  </div>
+                  <RefAppliedFilter
+                    count={activeFilterCount}
+                    onEdit={() => setFilterOpen(true)}
+                    onClear={() => {
+                      setFilters(EMPTY_ORDER_FILTERS)
+                      setOnlyIds(null)
+                      setPage(1)
+                    }}
+                  />
                 ) : (
                   <button
                     type="button"
@@ -673,11 +675,12 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                 </Tip>
               ))}
               {bulkAction && (
-                // Above the sticky table header (z-20): Linko's caption («Передать» / «Доставлен») sits over the header row.
+                // Above the sticky table header (z-20). Linko's button keeps its caption («Передать» / «Доставлен») inside from
+                // a 1530 px wide window; narrower, the button shrinks and the caption drops onto the header row.
                 <span className="relative z-30 flex">
-                  <button type="button" onClick={() => requireSelection("bulk", bulkAction.onClick)} className="relative flex h-[30px] w-[105.5px] items-center justify-center rounded-[5px] bg-[#71ce87] pl-[12px] hover:brightness-95">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={bulkAction.path} /></svg>
-                    <span className="pointer-events-none absolute left-[17px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white">{bulkAction.label}</span>
+                  <button type="button" onClick={() => requireSelection("bulk", bulkAction.onClick)} className="relative flex h-[30px] w-[105.5px] items-center justify-center rounded-[5px] bg-[#71ce87] pl-[12px] hover:brightness-95 min-[1530px]:w-auto min-[1530px]:pl-[12px]">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white min-[1530px]:h-[18px] min-[1530px]:w-[18px]"><path d={bulkAction.path} /></svg>
+                    <span className="pointer-events-none absolute left-[17px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white min-[1530px]:static min-[1530px]:pl-[8px] min-[1530px]:pr-[16px]">{bulkAction.label}</span>
                   </button>
                   {noSelection === "bulk" && <NoSelectionPopover onClose={() => setNoSelection(null)} />}
                 </span>
@@ -887,9 +890,7 @@ function sameSet(a: string[], b: string[]) {
 }
 
 const ICON = {
-  warning: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
-  clock: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z",
-  store: "M20 4H4v2h16V4zm1 10v-2l-1-5H4l-1 5v2h1v6h10v-6h4v6h2v-6h1zm-9 4H6v-4h6v4z",
+  ...ORDER_ICON,
   map: "M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z",
   card: "M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z",
   chart: "M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z",
@@ -899,22 +900,15 @@ const ICON = {
   sync: "M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z",
   print: "M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z",
   download: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
-  edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
   history: "M11 17c0 .55.45 1 1 1s1-.45 1-1-.45-1-1-1-1 .45-1 1zm0-14v4h2V5.08c3.39.49 6 3.39 6 6.92 0 3.87-3.13 7-7 7s-7-3.13-7-7c0-1.68.59-3.22 1.58-4.42L12 13l1.41-1.41-6.8-6.8v.02C4.42 6.45 3 9.05 3 12c0 4.97 4.02 9 9 9 4.97 0 9-4.03 9-9s-4.03-9-9-9h-1zm7 9c0-.55-.45-1-1-1s-1 .45-1 1 .45 1 1 1 1-.45 1-1zM6 12c0 .55.45 1 1 1s1-.45 1-1-.45-1-1-1-1 .45-1 1z",
   textA: "M5 17v2h14v-2H5zm4.5-4.2h5l.9 2.2h2.1L12.75 4h-1.5L6.5 15h2.1l.9-2.2zM12 5.98L13.87 11h-3.74L12 5.98z",
   send: "M2.01 21L23 12 2.01 3 2 10l15 2-15 2z",
-  clipboard: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z",
-  truck: "M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z",
   visibilityOff: "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z",
   selectAll: "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z",
   more: "M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z",
   minusBox: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z",
   clear: "M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z",
-  cash: "M11 17h2v-1h1c.55 0 1-.45 1-1v-3c0-.55-.45-1-1-1h-3v-1h4V8h-2V7h-2v1h-1c-.55 0-1 .45-1 1v3c0 .55.45 1 1 1h3v1H9v2h2v1zm9-13H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4V6h16v12z",
-  bank: "M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z",
   checkCircle: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z",
-  receipt: "M18 17H6v-2h12v2zm0-4H6v-2h12v2zm0-4H6V7h12v2zM3 22l1.5-1.5L6 22l1.5-1.5L9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22l1.5-1.5L21 22V2l-1.5 1.5L18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2 4.5 3.5 3 2v20z",
-  ban: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z",
 }
 
 function TopButton({ icon, text, onClick, green }: { icon: string; text: string; onClick: () => void; green?: boolean }) {
@@ -926,14 +920,7 @@ function TopButton({ icon, text, onClick, green }: { icon: string; text: string;
   )
 }
 
-const STATUS_ICON: Record<string, { path: string; color: string }> = {
-  "Доставлено": { path: ICON.clipboard, color: "#81c784" },
-  "Есть на складе": { path: ICON.store, color: "#f0ad4e" },
-  "В пути": { path: ICON.truck, color: "#f0ad4e" },
-  "В процессе": { path: ICON.clock, color: "#f0ad4e" },
-  "Отменен": { path: ICON.ban, color: "#e57373" },
-  "Не подтвержден": { path: ICON.warning, color: "#999999" },
-}
+const STATUS_ICON = ORDER_STATUS_ICON
 
 /** Re-dates "07 сент. 20:03" / "09 янв. 2025 15:25" keeping the time of day. */
 function formatCreated(iso: string, previous: string) {

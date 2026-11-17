@@ -1,7 +1,8 @@
 "use client"
 
 import { askDelete } from "@/lib/ask-confirm"
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Pencil } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -25,15 +26,39 @@ const TABS: Array<[Tab, string]> = [
 
 export function ProductionStagesView() {
   const { t } = useLanguage()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { data: stages, reload: reloadStages, loading } = useApiData<Stage[]>("/api/production/stages", [])
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [tab, setTab] = useState<Tab>("products")
+  // Linko keeps the stage and the tab in the address (#/manufacture/person/{id}): ?stage={id}&tab=staff, so a reload or a
+  // shared link opens the same list.
+  const [selectedId, setSelectedId] = useState<number | null>(() => {
+    const id = Number(searchParams.get("stage"))
+    return Number.isSafeInteger(id) && id > 0 ? id : null
+  })
+  const [tab, setTab] = useState<Tab>(() => {
+    const value = searchParams.get("tab")
+    return TABS.find(([key]) => key === value)?.[0] ?? "products"
+  })
   const [stageDialog, setStageDialog] = useState<Stage | "new" | null>(null)
   const stage = stages.find((entry) => entry.id === selectedId) ?? null
 
+  // A stage from the address that is not in the list (deleted) is dropped once the list has arrived.
+  const listFetched = useRef(false)
   useEffect(() => {
-    if (selectedId !== null && !stages.some((entry) => entry.id === selectedId)) setSelectedId(null)
-  }, [selectedId, stages])
+    if (loading) listFetched.current = true
+    else if (listFetched.current && selectedId !== null && !stages.some((entry) => entry.id === selectedId)) setSelectedId(null)
+  }, [loading, selectedId, stages])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (selectedId !== null) params.set("stage", String(selectedId))
+    else params.delete("stage")
+    if (tab !== "products") params.set("tab", tab)
+    else params.delete("tab")
+    const query = params.toString()
+    if (query !== window.location.search.replace(/^\?/, "")) router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false })
+  }, [selectedId, tab, pathname, router])
 
   const { data: allEquipment, reload: reloadEquipment } = useApiData<Equipment[]>(stage ? `/api/production/equipment?stageId=${stage.id}` : null, [])
   const { data: allStaff, reload: reloadStaff } = useApiData<StaffMember[]>(stage ? `/api/production/staff?stageId=${stage.id}` : null, [])

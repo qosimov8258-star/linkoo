@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { Download, FolderOpen, Plus, Trash2 } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
-import { ReportChipField, ReportEmpty, ReportPage } from "@/components/ref/report-kit"
+import { ReportEmpty, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CheckRow, DEFAULT_OPTIONS, OptionsPanelBody, Panel, toggleIn, usePanelDismiss, type TableOptions } from "./builder-panels"
@@ -227,7 +227,7 @@ export function TrendBuilderView() {
               </div>
             )}
           </div>
-          <div className="absolute left-[518px] top-[8px] w-[270px]"><ReportChipField label={t("Модель")} value={model} options={["Продукты заказов по дате создания"]} onChange={setModel} clearable={false} /></div>
+          <div className="absolute left-[518px] top-[8px] w-[300px]">{/* Linko's «Модель» is a plain select (value, ×, caret), not a chip. */}<ReportSelectField label="Модель" value={model} options={["Продукты заказов по дате создания"]} onChange={setModel} /></div>
         </div>
 
         <div ref={toolbarRef} className="relative flex flex-wrap items-center gap-[14px] px-[30px] py-[8px]">

@@ -36,12 +36,16 @@ function menuEntry(slug: string, label: string, fallbackHref: string): MenuEntry
   if (slug === "new-report-builder") return { label, href: "/analytics/general" }
   if (slug === "old-report-builder") return { label, href: "/analytics/old-report-builder" }
   if (slug === "trend-builder") return { label, href: "/analytics/trend-builder" }
-  if (slug === "product-profit") return { label, href: "/analytics/product-profit" }
+  // Linko's «Прибыль от товаров / агентов» are its sales pages with profit (#/statistics/product|agent?withProfit=True).
+  if (slug === "product-profit") return { label, href: "/analytics/sales-by-products?withProfit=True" }
   if (slug === "coverage-analysis") return { label, href: `/analytics/coverage-analysis?beginDate=${todayIso()}&endDate=${todayIso()}&fetchFirstTime=true` }
   if (slug === "material-report") return { label, href: "/analytics/stock-by-date?toggle=price&pageSize=25" }
   if (slug === "goods-movement") return { label, href: "/analytics/receipt-transfer-plan?tab=movement" }
-  if (slug === "agent-profit") return { label, href: "/analytics/agent-profit" }
-  if (slug === "product-type-profit") return { label, href: "/analytics/product-type-profit" }
+  if (slug === "agent-profit") return { label, href: "/analytics/sales-by-agents?withProfit=True" }
+  // As Linko's menu: «Прибыль по типам продуктов» is the БАЛАНС tab at its «Реализация по категориям» section and
+  // «Проверка фотоотчетов» is the Активность page (#/activity).
+  if (slug === "product-type-profit") return { label, href: "/analytics/balance-tab?container=balance" }
+  if (slug === "photo-report-review") return { label, href: "/analytics/activity" }
   if (slug === "report-list") return { label, href: "/analytics/report-list" }
   if (slug === "dashboard-settings") return { label, href: "/analytics/dashboard-settings" }
   const report = reportBySlug.get(slug)
@@ -107,7 +111,7 @@ const resourceMenuGroups: Record<string, ResourceMenuGroup[]> = {
       title: "Контроль склада",
       items: [
         menuEntry("stock-level", "Остаток", warehouseHref),
-        menuEntry("material-report", "Материальный отчёт", warehouseHref),
+        menuEntry("material-report", "Материальный отчет", warehouseHref),
         menuEntry("goods-movement", "Движение товаров", warehouseHref),
         menuEntry("inventory", "Инвентаризация", warehouseHref),
         menuEntry(

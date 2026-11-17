@@ -18,7 +18,7 @@
 //   node scripts/linko-sync/import-finance-cash.mjs
 //   raw: client_transactions, cash_transactions, provider_transactions, cashboxes, fin_staff_expense_items,
 //        fin_cashback_details, fin_cashback_requests, fin_contracts_all
-import { connect, currencyCode, ensureRegistry, raw, register, runId } from "./lib.mjs"
+import { connect, currencyCode, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
 import {
   bumpCashDocSequence,
   bumpIdSequence,
@@ -62,6 +62,14 @@ const payments = clientTx.filter((x) => x.type === 1)
 const paymentsByCash = new Map()
 for (const p of payments) if (p.transaction) paymentsByCash.set(p.transaction, [...(paymentsByCash.get(p.transaction) ?? []), p])
 const withdrawalByCash = new Map(clientTx.filter((x) => x.type === 5 && x.transaction).map((x) => [x.transaction, x]))
+// The supply a supplier payment paid is on Linko's act row (finance/provider_transactions/act, «Оплата № <supply>»),
+// not always on its cash transaction.
+const actSupply = new Map(
+  Object.values(hasRaw("fin_provider_acts") ? raw("fin_provider_acts") : {})
+    .flatMap((act) => act?.transactions ?? [])
+    .filter((row) => row.supply_id)
+    .map((row) => [row.id, row.supply_id]),
+)
 const supplierByCash = new Map(providerTx.filter((x) => (x.type === 1 || x.type === 8) && x.transaction_id).map((x) => [x.transaction_id, x]))
 
 const round9 = (value) => Math.round(value * 1e9) / 1e9
@@ -225,7 +233,7 @@ try {
         // Linko's supplier income (cash type 11, provider type 8) is the local "Приход от поставщика" (op 4), which
         // "Оплаты поставщикам" leaves out like Linko's ?type=1 list; payments keep 10 (for a supply) or 5.
         op_type: c.type === 11 ? 4 : c.type,
-        supply_id: c.supply?.id ?? null,
+        supply_id: c.supply?.id ?? actSupply.get(s.id) ?? null,
         money_request_id: c.money_request?.id ?? (typeof c.money_request === "number" ? c.money_request : null),
         expense_category_id: c.expense_category?.id ?? null,
         income_category_id: c.income_category?.id ?? null,

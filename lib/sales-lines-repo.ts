@@ -50,7 +50,11 @@ type Row = {
 
 const day = (expr: string) => `to_char((${expr})::date, 'YYYY-MM-DD')`
 
-export async function listSalesLines(options: { withCost: boolean }): Promise<SalesLines> {
+/**
+ * `window` (ISO days, both or neither): only the lines created or transferred from the warehouse in it — the pages ask
+ * for the span of the periods they show and filter those lines exactly themselves, so a long history is never sent.
+ */
+export async function listSalesLines(options: { withCost: boolean; window?: { from: string; to: string } }): Promise<SalesLines> {
   const db = getDb()
   await ensureOrdersSchema()
   await ensureFinanceSchema(db)
@@ -104,7 +108,15 @@ export async function listSalesLines(options: { withCost: boolean }): Promise<Sa
       LEFT JOIN products p ON p.id = ri.product_id
       LEFT JOIN clients c ON c.id = r.client_id
      WHERE r.status = 'accepted'`
-  const rows = (await db.prepare(exists.returns ? `${sales} UNION ALL ${returns}` : sales).all({ base })) as Row[]
+  const union = exists.returns ? `${sales} UNION ALL ${returns}` : sales
+  const window = options.window
+  const rows = (await db
+    .prepare(
+      window
+        ? `SELECT * FROM (${union}) x WHERE x.created_day BETWEEN @from AND @to OR x.transfer_day BETWEEN @from AND @to`
+        : union,
+    )
+    .all(window ? { base, from: window.from, to: window.to } : { base })) as Row[]
 
   const history = await loadRateHistory(db)
   const missingRates = new Set<string>()

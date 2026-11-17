@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { ArrowDown, ArrowUp, ArrowUpDown, CalendarClock, FileSpreadsheet, MinusCircle, PlusCircle, Search, Send } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, Search } from "lucide-react"
 
 import { ClientActDialog } from "@/components/analytics/balance/client-act-dialog"
 import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
@@ -50,6 +50,20 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // (the demo "Сверка счетов" has no such button).
 
 const LIST_URL = "/api/store-reconciliation"
+
+// Linko's row icons (Material edit, send, remove-circle, add-circle).
+const EDIT_ICON = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+const SEND_ICON = "M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"
+const REMOVE_ICON = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"
+const ADD_ICON = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"
+
+function RowIcon({ path, color }: { path: string; color: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="h-[20px] w-[20px]" style={{ fill: color }}>
+      <path d={path} />
+    </svg>
+  )
+}
 
 const SUMMARY: SummaryBox[] = [
   { metrics: [{ label: "Наличными", field: "cash" }] },
@@ -400,10 +414,10 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
                         {user.canEdit && (
                           <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 bg-gradient-to-r from-transparent to-[#F4F8FB] pl-6 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
 
-                            {actionButton("Изменить срок долга", <CalendarClock className="h-5 w-5 text-[rgb(93,100,116)]" />, () => setDialog({ kind: "deadline", row }), true)}
-                            {actionButton("Телеграм", <Send className="h-5 w-5 text-[rgb(93,100,116)]" />, () => setDialog({ kind: "telegram", row }))}
-                            {actionButton("Списать", <MinusCircle className="h-5 w-5 text-[#ff584b]" />, () => setDialog({ kind: "expense", row }))}
-                            {actionButton("Добавить", <PlusCircle className="h-5 w-5 text-[#8dc572]" />, () => setDialog({ kind: "income", row }))}
+                            {actionButton("Изменить срок долга", <RowIcon path={EDIT_ICON} color="#5d6474" />, () => setDialog({ kind: "deadline", row }), true)}
+                            {actionButton("Телеграм", <RowIcon path={SEND_ICON} color="#5d6474" />, () => setDialog({ kind: "telegram", row }))}
+                            {actionButton("Списать", <RowIcon path={REMOVE_ICON} color="#f44336" />, () => setDialog({ kind: "expense", row }))}
+                            {actionButton("Добавить", <RowIcon path={ADD_ICON} color="#4caf50" />, () => setDialog({ kind: "income", row }))}
                           </div>
                         )}
                       </div>
@@ -503,7 +517,6 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
           row={dialog.row}
           kind={dialog.kind}
           options={options}
-          userName={user.name}
           currencies={data?.visibleCurrencies ?? columnCurrencies}
           onClose={() => setDialog(null)}
           onSaved={() => {

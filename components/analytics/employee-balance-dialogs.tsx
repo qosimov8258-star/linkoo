@@ -4,29 +4,26 @@ import { FilterCardSelect, useFilterCard } from "@/components/analytics/balance/
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Check, ChevronDown, Search, X } from "lucide-react"
 
+import { LINE_INPUT, LineDate, LineField } from "@/components/ref/line-fields"
 import { nowLocalIso, todayIso } from "@/lib/finance/dates"
 import type { FinanceCurrency } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-// Dialogs of the "Баланс сотрудников" page (fork of the van-sell modules
-// 3904 / 3906): "Зачислить" / "Списать", the "Скачать акт сверки" period
-// picker, the "Пользователи" multi-select of the filter popup and a small
-// snackbar.
+// Dialogs of the "Баланс сотрудников" page: Linko's «Штраф» / «Корректировка» of the row menu (⋮), the
+// "Пользователи" multi-select of the filter popup and a small snackbar.
 
 export type EmployeeOption = { id: number; name: string }
 
-/** Row menu actions of the demo (⋮): both write a 'none_type' movement
- * (column "Коректировки"); add = +amount, expense = −amount. */
-export type EmployeeMovementAction = "add" | "expense"
+/** Linko's ⋮ items that write a movement (?employeeBalanceDialogOpen=<id>&optionType=…): a fine (always written off,
+ * column «Штрафы») and a correction (± as typed, column «Коректировки»). */
+export type EmployeeOptionType = "penalty" | "none_type"
 
-export const MOVEMENT_ACTION_LABELS: Record<EmployeeMovementAction, string> = {
-  add: "Зачислить",
-  expense: "Списать",
+export const EMPLOYEE_OPTION_LABELS: Record<EmployeeOptionType, string> = {
+  penalty: "Штраф",
+  none_type: "Корректировка",
 }
 
 type FieldErrors = Partial<Record<"user" | "currency" | "amount" | "date" | "form", string>>
-
-const fieldClass = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] font-semibold text-[#17233b] outline-none focus:border-[#1E4A9A]"
 
 /** Demo normalizeNumber: thousands separated by spaces, comma → dot, up to 3 decimals. */
 export function formatAmountInput(raw: string): string {
@@ -115,44 +112,42 @@ function FieldError({ text }: { text?: string }) {
   return text ? <p className="mt-1 text-[12px] font-medium text-[#e57373]">{t(text)}</p> : null
 }
 
-/** "Зачислить" / "Списать" — POST /api/employee-balance-transactions (type 'none_type'). */
-export function EmployeeMovementDialog({
-  action,
+/**
+ * «ШТРАФ» / «КОРРЕКТИРОВКА» (Linko's EmployeeBalanceForm, 550 px): Сумма | Валюта, Комментарий..., Дата создания
+ * (today) and СОХРАНИТЬ — POST /api/employee-balance-transactions for the clicked employee. A correction typed with
+ * a minus is written off; a fine always is.
+ */
+export function EmployeeOptionDialog({
+  type,
   employeeId,
-  employees,
   currencies,
   onClose,
   onSaved,
 }: {
-  action: EmployeeMovementAction
+  type: EmployeeOptionType
   employeeId: number
-  employees: EmployeeOption[]
   currencies: FinanceCurrency[]
   onClose: () => void
   onSaved: () => void
 }) {
   const { t } = useLanguage()
-  const [user, setUser] = useState(String(employeeId))
   const [currency, setCurrency] = useState("")
   const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(() => nowLocalIso().slice(0, 16))
+  const [date, setDate] = useState(() => todayIso())
   const [comment, setComment] = useState("")
   const [errors, setErrors] = useState<FieldErrors>({})
   const [saving, setSaving] = useState(false)
-  const options = useMemo(() => {
-    const list = [...employees].sort((a, b) => a.name.localeCompare(b.name, "ru"))
-    return list.some((item) => item.id === employeeId) ? list : [{ id: employeeId, name: `#${employeeId}` }, ...list]
-  }, [employees, employeeId])
+  const signed = type === "none_type"
   /** Editing a field hides its (and the form-level) error until the next save. */
   const edited = (field: keyof FieldErrors) => setErrors((current) => (current[field] || current.form ? { ...current, [field]: undefined, form: undefined } : current))
 
   const save = async () => {
-    const value = parseAmountInput(amount)
+    const negative = signed && amount.trim().startsWith("-")
+    const value = parseAmountInput(amount.replace(/^\s*-/, ""))
     const next: FieldErrors = {}
-    if (!user) next.user = "Обязательное поле"
-    if (!currency) next.currency = "Обязательное поле"
-    if (!amount.trim()) next.amount = "Обязательное поле"
+    if (!amount.replace(/^\s*-/, "").trim()) next.amount = "Обязательное поле"
     else if (!(value > 0)) next.amount = "Введите сумму больше нуля"
+    if (!currency) next.currency = "Обязательное поле"
     if (!date) next.date = "Обязательное поле"
     setErrors(next)
     if (Object.keys(next).length) return
@@ -162,12 +157,13 @@ export function EmployeeMovementDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          employeeId: Number(user),
-          kind: action,
-          type: "none_type",
+          employeeId,
+          kind: type === "penalty" || negative ? "expense" : "add",
+          type,
           currency,
           amount: value,
-          date,
+          // Linko sends the chosen day at the current time.
+          date: `${date}T${nowLocalIso().slice(11, 16)}`,
           comment: comment.trim(),
         }),
       })
@@ -185,144 +181,76 @@ export function EmployeeMovementDialog({
 
   return (
     <EmployeeModal
-      title={t(MOVEMENT_ACTION_LABELS[action])}
+      title={t(EMPLOYEE_OPTION_LABELS[type])}
+      width={550}
       onClose={onClose}
       footer={
-        <button type="button" onClick={save} disabled={saving} className="font-bold uppercase tracking-wide text-[#1E4A9A] disabled:opacity-50">
+        <button type="button" onClick={save} disabled={saving} className="text-[13px] font-semibold uppercase text-[#1E4A9A] disabled:opacity-50">
           {saving ? t("Сохранение...") : t("Сохранить")}
         </button>
       }
     >
-      <div className="flex flex-col gap-6 px-7 py-6">
-        <label className="relative block text-[13px] font-medium text-[#586174]">
-          {t("Пользователь")}
-          <select
-            value={user}
-            onChange={(event) => {
-              setUser(event.target.value)
-              edited("user")
-            }}
-            className={`${fieldClass} appearance-none pr-6`}
-          >
-            {options.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          <FieldError text={errors.user} />
-        </label>
-        <label className="relative block text-[13px] font-medium text-[#586174]">
-          {t("Валюта")}
-          <select
-            value={currency}
-            onChange={(event) => {
-              setCurrency(event.target.value)
-              edited("currency")
-            }}
-            className={`${fieldClass} appearance-none pr-6`}
-          >
-            <option value="">—</option>
-            {currencies.map((item) => (
-              <option key={item.code} value={item.code}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          <FieldError text={errors.currency} />
-        </label>
-        <label className="block text-[13px] font-medium text-[#586174]">
-          {t("Сумма")}
-          <input
-            inputMode="decimal"
-            value={amount}
-            onChange={(event) => {
-              setAmount(formatAmountInput(event.target.value))
-              edited("amount")
-            }}
-            className={fieldClass}
-          />
-          <FieldError text={errors.amount} />
-        </label>
-        <label className="block text-[13px] font-medium text-[#586174]">
-          {t("Дата создания")}
-          <input
-            type="datetime-local"
-            value={date}
-            onChange={(event) => {
-              setDate(event.target.value)
-              edited("date")
-            }}
-            className={fieldClass}
-          />
-          <FieldError text={errors.date} />
-        </label>
-        <textarea
+      <div className="flex min-h-[290px] flex-col gap-[14px] px-[30px] pb-[30px] pt-[26px]">
+        <div className="grid grid-cols-2 gap-[10px]">
+          <div>
+            <LineField label={t("Сумма")} filled={!!amount}>
+              <input
+                inputMode="decimal"
+                value={amount}
+                onChange={(event) => {
+                  const raw = event.target.value
+                  const minus = signed && raw.trim().startsWith("-")
+                  const formatted = formatAmountInput(raw)
+                  setAmount(minus ? `-${formatted}` : formatted)
+                  edited("amount")
+                }}
+                className={LINE_INPUT}
+              />
+            </LineField>
+            <FieldError text={errors.amount} />
+          </div>
+          <div>
+            <LineField label={t("Валюта")} filled={!!currency}>
+              <select
+                value={currency}
+                onChange={(event) => {
+                  setCurrency(event.target.value)
+                  edited("currency")
+                }}
+                className={`${LINE_INPUT} appearance-none pr-[22px]`}
+              >
+                <option value="" />
+                {currencies.map((item) => (
+                  <option key={item.code} value={item.code}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <svg viewBox="0 0 10 5" aria-hidden className="pointer-events-none absolute bottom-[12px] right-[8px] h-[5px] w-[10px] fill-[#757575]"><path d="M0 0h10L5 5z" /></svg>
+            </LineField>
+            <FieldError text={errors.currency} />
+          </div>
+        </div>
+        <input
           value={comment}
           onChange={(event) => setComment(event.target.value)}
           maxLength={2000}
-          placeholder={t("Оставить комментарий...")}
-          rows={Math.min(6, Math.max(1, comment.split("\n").length))}
-          className="block w-full resize-none border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] text-[#17233b] outline-none placeholder:text-[#586174] focus:border-[#1E4A9A]"
+          placeholder={`${t("Комментарий")}...`}
+          className="mt-[6px] h-[34px] w-full border-b border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#1E4A9A]"
         />
-        <FieldError text={errors.form} />
-      </div>
-    </EmployeeModal>
-  )
-}
-
-/** "Скачать акт сверки" period picker ("Выберите период" + "Скачать"); defaults to the act's period. */
-export function EmployeeActPeriodDialog({
-  from: initialFrom,
-  to: initialTo,
-  onClose,
-  onDownload,
-}: {
-  from: string
-  to: string
-  onClose: () => void
-  onDownload: (period: { from: string; to: string }) => Promise<void>
-}) {
-  const { t } = useLanguage()
-  const [from, setFrom] = useState(initialFrom)
-  const [to, setTo] = useState(initialTo)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
-  const download = async () => {
-    // Without an end date the act is built for today only (demo VanSellImportForm).
-    const period = !to ? { from: from || todayIso(), to: from || todayIso() } : !from ? { from: to, to } : from <= to ? { from, to } : { from: to, to: from }
-    setBusy(true)
-    setError("")
-    try {
-      await onDownload(period)
-      onClose()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <EmployeeModal
-      title={t("Скачать акт сверки")}
-      width={400}
-      onClose={onClose}
-      footer={
-        <button type="button" onClick={download} disabled={busy} className="font-bold uppercase tracking-wide text-[#1E4A9A] disabled:opacity-50">
-          {busy ? t("Загрузка...") : t("Скачать")}
-        </button>
-      }
-    >
-      <div className="flex flex-col gap-3 px-7 py-6">
-        <span className="text-[13px] font-medium text-[#586174]">{t("Выберите период")}</span>
-        <div className="flex items-center gap-2">
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="h-10 min-w-0 flex-1 rounded-md border border-[#dbe0e8] px-2" aria-label={t("С")} />
-          <span className="text-[#586174]">—</span>
-          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="h-10 min-w-0 flex-1 rounded-md border border-[#dbe0e8] px-2" aria-label={t("По")} />
+        <div className="mt-[14px]">
+          <LineDate
+            small
+            label={t("Дата создания")}
+            value={date}
+            onChange={(value) => {
+              setDate(value)
+              edited("date")
+            }}
+          />
+          <FieldError text={errors.date} />
         </div>
-        {error && <p className="text-[13px] font-medium text-[#e57373]">{t(error)}</p>}
+        <FieldError text={errors.form} />
       </div>
     </EmployeeModal>
   )

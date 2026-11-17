@@ -1,13 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
 import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
+import { RefTip } from "@/components/ref/ref-tip"
 import { ReportMultiChipField, ReportPage, ReportRangeField, ReportSelectField, formatShortReportDate } from "@/components/ref/report-kit"
-import { csvText } from "@/lib/csv"
+import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { classificationDynamic, pyRound } from "@/lib/classification-math"
-import { ClassificationMarkets, DynamicBadge } from "@/components/analytics/client-dynamics-markets"
+import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { ClassificationMarkets, DynamicBadge, type PeriodIndex, type ProductsTarget } from "@/components/analytics/client-dynamics-markets"
+import { ClientDrawer } from "@/components/clients/clients-view"
 
 type PeriodData = { stores: number; storePercent: number; sum: number; sumPercent: number; dynamic?: number }
 type ClassificationRow = { name: string; periods: [PeriodData, PeriodData, PeriodData] }
@@ -29,6 +32,32 @@ const DEFAULT_CLASSES: ClassRow[] = [
 function isoDate(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0")
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/** Linko's period keys of the URL (classificationPeriod, listPeriod). */
+const PERIOD_KEYS = ["first", "second", "third"] as const
+
+/** What Linko keeps in the query string: the store list under the table (classificationId = the class row, 0 =
+ * «Нет заказа», and classificationPeriod), the store card (openShop) and the «Ассортимент» window (openGetProducts,
+ * marketId, marketName, listPeriod). */
+type UrlState = { list: { bucket: number; period: PeriodIndex } | null; shopId: number | null; products: ProductsTarget | null }
+
+function readUrlState(): UrlState {
+  const params = new URLSearchParams(window.location.search)
+  const periodOf = (key: string) => PERIOD_KEYS.indexOf((params.get(key) ?? "") as (typeof PERIOD_KEYS)[number])
+  const bucket = params.get("classificationId") ?? ""
+  const listPeriod = periodOf("classificationPeriod")
+  const shopId = Number(params.get("openShop"))
+  const marketId = Number(params.get("marketId"))
+  const productsPeriod = periodOf("listPeriod")
+  return {
+    list: /^\d{1,4}$/.test(bucket) && listPeriod >= 0 ? { bucket: Number(bucket), period: listPeriod as PeriodIndex } : null,
+    shopId: Number.isSafeInteger(shopId) && shopId > 0 ? shopId : null,
+    products:
+      params.get("openGetProducts") === "true" && Number.isSafeInteger(marketId) && marketId > 0 && productsPeriod >= 0
+        ? { id: marketId, name: params.get("marketName") ?? "", period: productsPeriod as PeriodIndex }
+        : null,
+  }
 }
 
 function defaultPeriods(): [Period, Period, Period] {
@@ -64,14 +93,41 @@ export function ClientDynamicsView() {
   const [classes, setClasses] = useState<ClassRow[]>(DEFAULT_CLASSES)
   const [periods, setPeriods] = useState<[Period, Period, Period]>(defaultPeriods)
   const [filters, setFilters] = useState<Record<SelectKey, string>>({ zone: "", status: "", brand: "", productType: "", agent: "", branch: "", clientType: "", dateBy: "Доставки", closing: "Незакрыто" })
-  // Like the reference, the status field opens with its default chosen: handed to the courier and delivered.
-  const [statuses, setStatuses] = useState<string[]>(["Передан доставщику", "Доставлен"])
+  // Like the reference, the status field opens empty: every order status counts but a cancelled one.
+  const [statuses, setStatuses] = useState<string[]>([])
   const [selects, setSelects] = useState(emptySelects)
   const [rows, setRows2] = useState<ClassificationRow[]>([])
-  // The store count clicked (class row index, 0 = «Нет заказа»; period 0..2): its stores are listed under the table.
-  const [drill, setDrill] = useState<{ bucket: number; period: 0 | 1 | 2 } | null>(null)
   const [applied, setApplied] = useState({ periods, filters, statuses, classes })
   const periodLabels = useMemo(() => applied.periods.map(periodLabel), [applied])
+  // The card's pencil opens the Клиенты edit form in a new tab (managers, who may change a client).
+  const canEditClients = useCanManage([])
+
+  // The store list, the store card and the «Ассортимент» window live in the URL like Linko's (Back closes them).
+  const [url, setUrl] = useState<UrlState>({ list: null, shopId: null, products: null })
+  useEffect(() => {
+    const sync = () => setUrl(readUrlState())
+    sync()
+    window.addEventListener("popstate", sync)
+    return () => window.removeEventListener("popstate", sync)
+  }, [])
+  const navigate = useCallback((patch: Record<string, string | null>) => {
+    const params = new URLSearchParams(window.location.search)
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) params.delete(key)
+      else params.set(key, value)
+    }
+    const query = params.toString()
+    window.history.pushState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`)
+    setUrl(readUrlState())
+  }, [])
+  const closedProducts = { openGetProducts: null, marketId: null, marketName: null, listPeriod: null }
+  // A store count: Linko first scrolls an open list into view, then lists the stores of that class and period (the
+  // search and the page start over). The two total rows carry no class, so their counts close the list.
+  const openList = (bucket: number, period: PeriodIndex) => {
+    document.getElementById("mainTableWrapper")?.scrollIntoView()
+    navigate({ classificationId: String(bucket), classificationPeriod: PERIOD_KEYS[period], ...closedProducts })
+  }
+  const closeList = () => navigate({ classificationId: null, classificationPeriod: null, ...closedProducts })
 
   useEffect(() => {
     fetch("/api/client-classification/classes")
@@ -121,7 +177,7 @@ export function ClientDynamicsView() {
       third_end_date: range[2].to,
       classes: limits.map((row) => `${row.name}:${row.amount}`).join("|"),
     })
-    // Like the reference, an empty status field leaves the server default (delivered / handed to the courier).
+    // Like the reference, an empty status field sends none (the server counts every status but a cancelled one).
     const statusIds = picked.map((name) => STATUS_IDS[name]).filter((id) => id !== undefined)
     if (statusIds.length) query.set("order_status", statusIds.join("-"))
     const pairs: [string, string][] = [["zones", choice.zone], ["brands", choice.brand], ["productTypes", choice.productType], ["agents", choice.agent], ["branches", choice.branch], ["marketTypes", choice.clientType]]
@@ -131,7 +187,6 @@ export function ClientDynamicsView() {
 
   useEffect(() => {
     let cancelled = false
-    setDrill(null)
     fetch(`/api/client-classification?${appliedQuery}`)
       .then((response) => (response.ok ? (response.json() as Promise<ClassificationRow[]>) : []))
       .then((data) => {
@@ -156,15 +211,32 @@ export function ClientDynamicsView() {
     })
   }, [rows])
 
+  // Linko's «Скачать»: the table as it is shown («Классификация и динамика клиентов.xlsx»), its totals included.
   function download() {
-    const header = [t("Классификация"), ...periodLabels.flatMap((label) => [`${t(label)} · ${t("Колв. магазинов")}`, "%", t("Сумма заказа"), "%", t("Динамика")])]
-    const body = rows.map((row) => [row.name, ...row.periods.flatMap((item) => [item.stores, item.storePercent, item.sum, item.sumPercent, item.dynamic ?? ""])])
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header, ...body])}`], { type: "text/csv;charset=utf-8" }))
-    const link = document.createElement("a")
-    link.href = url
-    link.download = "client-dynamics.csv"
-    link.click()
-    URL.revokeObjectURL(url)
+    const percent = (value: number, spaced: boolean) => `${value}${spaced ? " %" : "%"}`
+    const groups = [t("Классификация"), ...periodLabels.flatMap((label, period) => [t(label), "", "", "", ...(period ? [""] : [])])]
+    const heads = ["", ...periodLabels.flatMap((_, period) => [t("Колв. магазинов"), "%", t("Сумма заказа"), "%", ...(period ? [t("Динамика")] : [])])]
+    const body: (string | number)[][] = rows.map((row) => [
+      t(row.name),
+      ...row.periods.flatMap((item, period) => [item.stores, `${item.storePercent} %`, Math.round(item.sum), `${item.sumPercent} %`, ...(period ? [percent(item.dynamic ?? 0, period === 1)] : [])]),
+    ])
+    if (totals) {
+      body.push([
+        t("Итого активные клиенты"),
+        ...totals.flatMap((data, period) => [data.active, `${pyRound(data.all ? (data.active / data.all) * 100 : 0)} %`, Math.round(data.sale), "100 %", ...(period ? [percent(classificationDynamic(data.active, totals[period - 1].active), period === 1)] : [])]),
+      ])
+      body.push([
+        t("Нет заказа"),
+        ...totals.flatMap((data, period) => [
+          data.inactive,
+          `${pyRound(data.all ? (data.inactive / data.all) * 100 : 0)} %`,
+          `${t("Средний чек:")} ${format(Math.round(data.avg))}`,
+          period ? percent(classificationDynamic(data.avg, totals[period - 1].avg), true) : "0 %",
+          ...(period ? [percent(classificationDynamic(data.inactive, totals[period - 1].inactive), period === 1)] : []),
+        ]),
+      ])
+    }
+    downloadExcelTable(t("Классификация и динамика клиентов"), [groups, heads, ...body], { merges: ["A1:A2", "B1:E1", "F1:J1", "K1:O1"] })
   }
 
   const setPeriod = (index: number, patch: Partial<Period>) => setPeriods((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)) as [Period, Period, Period])
@@ -218,7 +290,7 @@ export function ClientDynamicsView() {
                 <td className="border border-[#ddd] px-[6px]">{t(row.name)}</td>
                 {row.periods.flatMap((data, period) => [
                   <td key={`${period}-stores`} className={`border border-[#ddd] px-[6px] text-right font-semibold text-[#1E4A9A] ${period ? "border-l-2 border-l-black" : ""}`}>
-                    <button type="button" onClick={() => setDrill({ bucket: rowIndex, period: period as 0 | 1 | 2 })} className="hover:underline">{format(data.stores)}</button>
+                    <button type="button" onClick={() => openList(rowIndex, period as PeriodIndex)} className="hover:underline">{format(data.stores)}</button>
                   </td>,
                   <td key={`${period}-sp`} className="border border-[#ddd] px-[6px] text-right">{data.storePercent} %</td>,
                   <td key={`${period}-sum`} className="border border-[#ddd] px-[6px] text-right">{format(Math.round(data.sum))}</td>,
@@ -233,7 +305,12 @@ export function ClientDynamicsView() {
               <tr className="h-[57px]">
                 <td className="border border-[#777] px-[6px]">{t("Итого активные клиенты")}</td>
                 {totals.flatMap((data, period) => [
-                  <td key={`${period}-a`} className={`border border-[#777] px-[6px] text-right ${period ? "border-l-2 border-l-black" : ""}`}>{format(data.active)}</td>,
+                  <td key={`${period}-a`} className={`border border-[#777] px-[6px] text-right ${period ? "border-l-2 border-l-black" : ""}`}>
+                    {/* Linko's hint: active + without an order = all stores. */}
+                    <RefTip text={`${data.active} + ${data.inactive} = ${data.all}`} side="bottom" raw>
+                      <button type="button" onClick={closeList} className="cursor-pointer">{format(data.active)}</button>
+                    </RefTip>
+                  </td>,
                   <td key={`${period}-ap`} className="border border-[#777] px-[6px] text-right">{pyRound(data.all ? (data.active / data.all) * 100 : 0)} %</td>,
                   <td key={`${period}-as`} className="border border-[#777] px-[6px] text-right">{format(Math.round(data.sale))}</td>,
                   <td key={`${period}-asp`} className="border border-[#777] px-[6px] text-right">100 %</td>,
@@ -244,7 +321,7 @@ export function ClientDynamicsView() {
                 <td className="border border-[#777] px-[6px]">{t("Нет заказа")}</td>
                 {totals.flatMap((data, period) => [
                   <td key={`${period}-i`} className={`border border-[#777] px-[6px] text-right ${period ? "border-l-2 border-l-black" : ""}`}>
-                    <button type="button" onClick={() => setDrill({ bucket: 0, period: period as 0 | 1 | 2 })} className="hover:underline">{format(data.inactive)}</button>
+                    <button type="button" onClick={closeList} className="cursor-pointer">{format(data.inactive)}</button>
                   </td>,
                   <td key={`${period}-ip`} className="border border-[#777] px-[6px] text-right">{pyRound(data.all ? (data.inactive / data.all) * 100 : 0)} %</td>,
                   <td key={`${period}-avg`} className="border border-[#777] px-[6px] text-center leading-4">{t("Средний чек:")}<br />{format(Math.round(data.avg))}</td>,
@@ -261,7 +338,29 @@ export function ClientDynamicsView() {
         </table>
       </section>
 
-      {drill && <ClassificationMarkets query={appliedQuery} period={drill.period} bucket={drill.bucket} />}
+      {url.list && (
+        <ClassificationMarkets
+          key={`${url.list.bucket}:${url.list.period}`}
+          query={appliedQuery}
+          period={url.list.period}
+          bucket={url.list.bucket}
+          title={`${t(rows[url.list.bucket]?.name ?? "")} (${t(periodLabels[url.list.period])})`}
+          onOpenShop={(id) => navigate({ openShop: String(id) })}
+          products={url.products}
+          onOpenProducts={(target) => navigate({ openGetProducts: "true", marketId: String(target.id), marketName: target.name, listPeriod: PERIOD_KEYS[target.period] })}
+          onCloseProducts={() => navigate(closedProducts)}
+        />
+      )}
+
+      {url.shopId !== null && (
+        <ClientDrawer
+          key={url.shopId}
+          clientId={url.shopId}
+          onClose={() => navigate({ openShop: null })}
+          withCall
+          editHref={canEditClients ? `/clients?openShop=${url.shopId}&openUpdateDialog=true` : undefined}
+        />
+      )}
 
       {settingsOpen && <ClassificationSettings classes={classes} onSave={async (next) => {
         const response = await fetch("/api/client-classification/classes", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ classes: next }) }).catch(() => null)

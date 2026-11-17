@@ -1,7 +1,10 @@
 // Конструктор отчетов: what its reports read and the earlier importers left out, so the same report gives the
 // same numbers as in Linko —
 //   - the saved reports of the old builder (main/report_config) into old_saved_reports, by Linko id, as the settings
-//     the page opens (a model key, field ids, filters, the period, the view);
+//     the page opens (a model key, field ids, filters, the period and its kind, the view), with Linko's report type
+//     and who sees each one (main/report_config/{id}/: «Пользователи» — the employees or the access rights);
+//   - its templates («Шаблоны отчетов», main/billing/report_config/?show=pattern) into old_report_patterns and its
+//     static widgets («Статические виджеты», main/static_widget + their details) into old_static_widgets;
 //   - the products' weight of a unit, units in a block, sequence number and code;
 //   - the price-list price each order line was sold against (order_items.list_price = Linko's price − its
 //     difference from the price list), the source of «Разница.Пр-лист» and «Цена по прайс листу»;
@@ -10,15 +13,29 @@
 //     moved an order made after 19:00 to the next day in every report by creation date).
 //
 //   node scripts/linko-sync/import-report-details.mjs      (raw files: report_configs, products, orders,
-//                                                           orders_detail, order_returns)
-import { bumpSequence, connect, ensureRegistry, raw, register, runId, upsertById, utcIso } from "./lib.mjs"
+//                                                           orders_detail, order_returns; when downloaded:
+//                                                           report_configs_detail, report_patterns, static_widgets,
+//                                                           static_widgets_detail)
+import { bumpSequence, connect, ensureRegistry, hasRaw, raw, register, runId, upsertById, utcIso } from "./lib.mjs"
 
 const run = runId("report-details")
 const client = await connect()
 await ensureRegistry(client)
-const stats = { reports: { insert: 0, update: 0, same: 0 }, products: 0, listPrices: 0, returns: 0, orderMoments: 0 }
+const stats = {
+  reports: { insert: 0, update: 0, same: 0 },
+  patterns: { insert: 0, update: 0, same: 0 },
+  staticWidgets: { insert: 0, update: 0, same: 0 },
+  products: 0,
+  listPrices: 0,
+  returns: 0,
+  orderMoments: 0,
+}
 const utcText = (local) => (local ? utcIso(local).slice(0, 19).replace("T", " ") : null)
-const VIEW = { line: 0, pie: 1, bar: 2, histogram: 2 }
+// Linko's chart kinds (typeChart) → the builder's view: line, pie, histogram (Linko's "basic_column").
+const VIEW = { line: 0, pie: 1, basic_column: 2, bar: 2, histogram: 2 }
+/** The ids of Linko's «Пользователи» lists (employees / access rights, objects or bare ids), as JSON. */
+const idList = (list) => JSON.stringify((Array.isArray(list) ? list : []).map((item) => Number(item?.id ?? item)).filter((id) => Number.isInteger(id) && id > 0))
+const detailOf = (name) => (hasRaw(name) ? raw(name) : {})
 const TABLE_VIEW = 3
 
 /** The settings Linko saved for a report, in the form the old builder's page saves and opens (version 2). */
@@ -64,6 +81,8 @@ function reportConfig(report) {
     ...(from && to ? { from, to } : {}),
     view: chart ? (VIEW[chart.typeChart] ?? TABLE_VIEW) : TABLE_VIEW,
     type: report.report_type === "widget" ? "widget" : "table",
+    // «Сегодня» / «Вчера» / «Посл. 7» / «Месяц»: the report opens with that period of the day it is opened.
+    ...(code.periodType?.id && code.periodType.id !== "ownDate" ? { periodType: code.periodType.id } : {}),
   }
 }
 
@@ -77,10 +96,71 @@ try {
     config TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
   )`)
-  for (const report of raw("report_configs")) {
-    stats.reports[await upsertById(client, run, "old_saved_reports", report.id, { name: String(report.name ?? "").trim() || `№${report.id}`, config: JSON.stringify(reportConfig(report)) })]++
+  // The columns and tables lib/old-saved-reports-repo.ts keeps (the app adds them too; here for a run before it).
+  await client.query(`ALTER TABLE old_saved_reports
+    ADD COLUMN IF NOT EXISTS report_type TEXT NOT NULL DEFAULT 'table',
+    ADD COLUMN IF NOT EXISTS view_type TEXT NOT NULL DEFAULT 'user',
+    ADD COLUMN IF NOT EXISTS users TEXT NOT NULL DEFAULT '[]',
+    ADD COLUMN IF NOT EXISTS positions TEXT NOT NULL DEFAULT '[]'`)
+  await client.query(`CREATE TABLE IF NOT EXISTS old_report_patterns (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
+    description TEXT NOT NULL DEFAULT ''
+  )`)
+  await client.query(`CREATE TABLE IF NOT EXISTS old_static_widgets (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    key_name TEXT NOT NULL DEFAULT '',
+    show_in TEXT NOT NULL DEFAULT '',
+    view_type TEXT NOT NULL DEFAULT 'user',
+    users TEXT NOT NULL DEFAULT '[]',
+    positions TEXT NOT NULL DEFAULT '[]',
+    sort INTEGER NOT NULL DEFAULT 0
+  )`)
+  // A report's detail is the fresher copy (the list may be older) and the only one with «Пользователи».
+  const reportDetails = detailOf("report_configs_detail")
+  for (const listed of raw("report_configs")) {
+    const detail = reportDetails[listed.id]
+    const report = detail && !detail.__status ? { ...listed, ...detail } : listed
+    const values = {
+      name: String(report.name ?? "").trim() || `№${report.id}`,
+      config: JSON.stringify(reportConfig(report)),
+      report_type: report.report_type === "widget" ? "widget" : "table",
+    }
+    if (detail && !detail.__status) {
+      values.view_type = report.view_type === "position" ? "position" : "user"
+      values.users = idList(report.users)
+      values.positions = idList(report.positions)
+    }
+    stats.reports[await upsertById(client, run, "old_saved_reports", report.id, values)]++
   }
   await bumpSequence(client, "old_saved_reports")
+
+  // --- templates and static widgets ---------------------------------------------------------------------------
+  if (hasRaw("report_patterns")) {
+    for (const pattern of raw("report_patterns")) {
+      const values = { name: String(pattern.name ?? "").trim() || `№${pattern.id}`, config: JSON.stringify(reportConfig(pattern)), description: String(pattern.description ?? "") }
+      stats.patterns[await upsertById(client, run, "old_report_patterns", pattern.id, values)]++
+    }
+  }
+  if (hasRaw("static_widgets")) {
+    const widgetDetails = detailOf("static_widgets_detail")
+    for (const [index, listed] of raw("static_widgets").entries()) {
+      const detail = widgetDetails[listed.id]
+      const widget = detail && !detail.__status ? { ...listed, ...detail } : listed
+      const values = {
+        name: String(widget.name ?? ""),
+        key_name: String(widget.key_name ?? ""),
+        show_in: String(widget.show_in ?? ""),
+        view_type: widget.view_type === "position" ? "position" : "user",
+        users: idList(widget.users),
+        positions: idList(widget.positions),
+        sort: index,
+      }
+      stats.staticWidgets[await upsertById(client, run, "old_static_widgets", widget.id, values)]++
+    }
+  }
 
   // --- products: weight, block, sequence number, code -------------------------------------------------------
   const products = new Map((await client.query("SELECT id, weight, box_amount, order_number, integration_code FROM products")).rows.map((row) => [row.id, row]))

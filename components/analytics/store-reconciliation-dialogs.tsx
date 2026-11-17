@@ -1,13 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useState, type ReactNode } from "react"
-import { Send, X } from "lucide-react"
+import { X } from "lucide-react"
 
-import { balanceColor } from "@/components/analytics/balance/amount"
 import { ConfirmDialog as RequestConfirm } from "@/components/analytics/cash-management-shared"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
-import { Field, fieldClass } from "@/components/analytics/store-reconciliation-filters"
-import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { LINE_INPUT, LineDate, LineField, LineSelect } from "@/components/ref/line-fields"
+import { RefNothingFound } from "@/components/ref/list-kit"
+import { currencyLabel } from "@/lib/finance/currency"
 import { formatStatementDate, nowLocalIso } from "@/lib/finance/dates"
 import type { BalanceDateMode } from "@/lib/finance/types"
 import {
@@ -36,23 +36,36 @@ export async function postJson<T>(url: string, body: unknown): Promise<T> {
   return data
 }
 
-function DialogFrame({ title, width = 520, onClose, children, footer }: { title: ReactNode; width?: number; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+function DialogFrame({ title, width = 500, onClose, children, footer }: { title: ReactNode; width?: number; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   const { t } = useLanguage()
   return (
-    <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/30 py-10" onClick={onClose}>
-      <div className="w-full rounded-lg bg-white shadow-xl" style={{ maxWidth: width }} onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between gap-4 border-b border-[#efefef] px-6 py-4">
-          <h2 className="text-[15px] font-bold uppercase text-[#333]">{title}</h2>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#666]">
-            <X className="h-5 w-5" />
+    // Modal as in Linko: only × closes it.
+    <div className="fixed inset-0 z-[110] flex items-center justify-center overflow-y-auto bg-black/40 p-4">
+      <div role="dialog" aria-modal="true" className="max-h-full w-full overflow-y-auto rounded-[2px] bg-white shadow-[0_19px_60px_rgba(0,0,0,0.3),0_15px_20px_rgba(0,0,0,0.22)]" style={{ maxWidth: width }}>
+        <div className="flex h-[60px] items-center justify-between gap-4 border-b border-[#efefef] pl-[30px] pr-[20px]">
+          <h2 className="text-[13px] font-bold uppercase text-[#333]">{title}</h2>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#666] hover:text-black">
+            <X className="h-[22px] w-[22px]" />
           </button>
         </div>
         {children}
-        {footer && <div className="flex justify-end gap-3 border-t border-[#efefef] px-6 py-4">{footer}</div>}
+        {footer && <div className="flex h-[56px] items-center justify-end gap-3 border-t border-[#efefef] px-[26px]">{footer}</div>}
       </div>
     </div>
   )
 }
+
+/** Linko's footer action: the blue text button «СОХРАНИТЬ». */
+function TextAction({ label, busy, onClick }: { label: string; busy?: boolean; onClick: () => void }) {
+  const { t } = useLanguage()
+  return (
+    <button type="button" disabled={busy} onClick={onClick} className="text-[13px] font-semibold uppercase text-[#1E4A9A] hover:brightness-125 disabled:opacity-50">
+      {t(label)}
+    </button>
+  )
+}
+
+const BAR_ICON = "M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"
 
 // --- Telegram ------------------------------------------------------------------------------
 
@@ -134,23 +147,17 @@ export function TelegramDialog({
   return (
     <>
       <DialogFrame title={t("Сверка с клиентом через бот")} width={1000} onClose={onClose}>
-        <div className="px-6 pb-6">
+        <div className="px-[30px] pb-[10px]">
           <div className="flex flex-wrap items-center justify-between gap-3 py-4">
             <div className="flex flex-wrap items-center gap-3">
               {canSend && (
-                <button type="button" onClick={() => setConfirm(true)} className="flex h-[34px] items-center gap-2 rounded-sm bg-[#71ce87] px-4 font-semibold text-white">
-                  <Send className="h-4 w-4" /> {t("Отправить сверку")}
+                <button type="button" onClick={() => setConfirm(true)} className="flex h-[34px] items-center gap-[8px] rounded-[2px] bg-[#71ce87] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
+                  <svg viewBox="0 0 24 24" aria-hidden className="h-[16px] w-[16px] fill-white"><path d={BAR_ICON} /></svg> {t("Отправить сверку")}
                 </button>
               )}
-              <span className="font-semibold text-[#333]">{entity.name}</span>
             </div>
             <BalancePagination page={paging.page} pageSize={paging.pageSize} count={data?.count ?? 0} onChange={setPaging} />
           </div>
-          {data && !data.botConnected && (
-            <p className="mb-3 rounded-md bg-[#fff7e6] px-4 py-2 text-[13px] text-[#8a6d3b]">
-              {t("Телеграм-бот не подключен: сверки сохраняются со статусом «Не отправлено» и клиенту не доставляются.")}
-            </p>
-          )}
           {error && <p className="py-3 text-[#e57373]">{error}</p>}
           <div className={`text-[13px] text-[#333] ${loading ? "opacity-60" : ""}`}>
             <div className="grid grid-cols-12 gap-2 border-b border-[#efefef] py-3 font-semibold">
@@ -160,7 +167,7 @@ export function TelegramDialog({
               <span className="col-span-2">{t("Дата подтверждения")}</span>
               <span className="col-span-2 text-right">{t("Статус")}</span>
             </div>
-            {!rows.length && !loading && <p className="py-14 text-center font-semibold text-[#666]">{t("Пока сообщения нет")}</p>}
+            {!rows.length && !loading && <RefNothingFound text={t("Пока сообщения нет")} />}
             {rows.map((row) => (
               <div key={row.id} className="grid grid-cols-12 items-start gap-2 border-b border-dotted border-[#dbe0e8] py-3">
                 <span className="col-span-2 flex flex-col">
@@ -213,55 +220,39 @@ export function DeadlineDialog({
       setSaving(false)
     }
   }
+  // Linko's «ВЫПОЛНИТЬ»: «Подтверждение запроса», then on the grey band «Изменить срок долга» and the «Срок долга» day, «ДА».
   return (
-    <DialogFrame
-      title={`${t("Изменить срок долга")}: ${entity.name}`}
-      width={440}
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" onClick={onClose} className="h-10 rounded-md px-5 font-semibold text-[#586174]">
-            {t("Отмена")}
-          </button>
-          <button type="button" disabled={saving} onClick={() => void save()} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white disabled:opacity-60">
-            {t("Сохранить")}
-          </button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3 px-6 py-5">
-        <Field label="Срок долга">
-          <span className="flex items-center gap-2">
-            <input type="date" value={value} onChange={(event) => setValue(event.target.value)} className={fieldClass} />
-            {value && (
-              <button type="button" onClick={() => setValue("")} className="whitespace-nowrap text-[13px] font-semibold text-[#1E4A9A]">
-                {t("Очистить")}
-              </button>
-            )}
-          </span>
-        </Field>
-        {error && <p className="text-[#e57373]">{error}</p>}
+    <RequestConfirm title={t("Выполнить")} kind="request" confirmLabel="Да" busy={saving} error={error ? t(error) : undefined} onClose={onClose} onConfirm={() => void save()}>
+      <div className="-mx-[30px] mt-[19px] bg-[#f2f5f8] px-[30px] pb-[72px] pt-[18px]">
+        <p className="font-semibold">{t("Изменить срок долга")}</p>
+        <div className="mt-[14px]">
+          <LineDate label={t("Срок долга")} value={value} onChange={setValue} />
+        </div>
       </div>
-    </DialogFrame>
+    </RequestConfirm>
   )
 }
 
 // --- Списать / Добавить ------------------------------------------------------------------------
 
+/**
+ * «ДОБАВИТЬ РАСХОД / ПРИХОД КЛИЕНТУ <name>» as Linko shows it: Тип оплаты, Валюта, Сумма, Дата создания, Создал,
+ * Доставщик, Комментарий... and «Прочие приходы» / «Оплата (Кассир не принял)». Linko writes an expense always as
+ * «Прочие расходы» (its form shows the choice and «Создал» but does not send them); an income keeps the choice and
+ * «Создал». No day = now.
+ */
 export function CorrectionDialog({
   row,
   kind,
   options,
-  userName,
   currencies,
   onClose,
   onSaved,
 }: {
   row: StoreReconciliationRow
-  /** expense = "Списать", income = "Добавить". */
+  /** expense = ⊖ «Добавить расход», income = ⊕ «Добавить приход». */
   kind: "expense" | "income"
   options: StoreReconciliationOptions | null
-  userName: string
   /** Currency codes of the grid (balance lines). */
   currencies: string[]
   onClose: () => void
@@ -269,11 +260,11 @@ export function CorrectionDialog({
 }) {
   const { t } = useLanguage()
   const [form, setForm] = useState({
-    paymentType: "cash" as "cash" | "bank",
-    currency: options?.baseCurrency ?? currencies[0] ?? "SUM",
+    paymentType: "" as "" | "cash" | "bank",
+    currency: "",
     amount: "",
-    organization: "",
-    date: nowLocalIso().slice(0, 16),
+    date: "",
+    createdBy: "",
     deliveryMan: "",
     comment: "",
     type: "9" as "9" | "1",
@@ -286,6 +277,10 @@ export function CorrectionDialog({
 
   const amount = Number(form.amount.replace(/\s/g, "").replace(",", "."))
   const save = async () => {
+    if (!form.currency) {
+      setError(t("Выберите валюту"))
+      return
+    }
     if (!Number.isFinite(amount) || amount <= 0) {
       setError(t("Укажите сумму"))
       return
@@ -297,16 +292,17 @@ export function CorrectionDialog({
     setSaving(true)
     setError("")
     try {
+      const now = nowLocalIso()
       await postJson("/api/store-reconciliation/corrections", {
         clientId: form.clientId,
         kind: kind === "expense" ? "expense" : form.type === "1" ? "payment" : "income",
         amount,
         currency: form.currency,
         paymentType: form.paymentType,
-        organization: form.organization,
-        date: form.date,
+        date: `${form.date || now.slice(0, 10)}T${now.slice(11, 16)}`,
         deliveryMan: form.deliveryMan,
         comment: form.comment,
+        ...(kind === "income" && form.createdBy ? { createdBy: form.createdBy } : {}),
       })
       onSaved()
       onClose()
@@ -317,107 +313,49 @@ export function CorrectionDialog({
     }
   }
 
-  const currencyOptions = options?.currencies.map((currency) => currency.code) ?? currencies
+  const currencyOptions = (options?.currencies.map((currency) => currency.code) ?? currencies).map((code) => ({ value: code, label: currencyLabel(code) }))
+  const names = (list: string[] | undefined) => (list ?? []).map((name) => ({ value: name, label: name }))
   return (
     <DialogFrame
       title={`${kind === "expense" ? t("Добавить расход клиенту") : t("Добавить приход клиенту")} ${row.name}`}
       onClose={onClose}
-      footer={
-        <button type="button" disabled={saving} onClick={() => void save()} className="h-10 rounded-md bg-[#1E4A9A] px-6 font-semibold text-white disabled:opacity-60">
-          {t("Сохранить")}
-        </button>
-      }
+      footer={<TextAction label="Сохранить" busy={saving} onClick={() => void save()} />}
     >
-      <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-b border-[#efefef] px-6 py-3 text-[13px]">
-        {currencies.flatMap((code) =>
-          (["cash", "bank"] as const).map((field) => {
-            const value = row.currencies[code]?.[field] ?? 0
-            return (
-              <span key={`${code}.${field}`} className="py-1">
-                {currencyLabel(code)} {t(field === "cash" ? "нал." : "переч.")}{" "}
-                <span className="px-1 font-semibold" style={{ color: balanceColor(value, "card") }}>
-                  {formatMoney(value)}
-                </span>
-              </span>
-            )
-          }),
-        )}
-      </div>
-      <div className="grid grid-cols-1 gap-4 px-6 py-5">
+      <div className="flex flex-col gap-[12px] px-[30px] pb-[24px] pt-[30px]">
         {row.members.length > 1 && (
-          <Field label="Клиент">
-            <select value={form.clientId} onChange={(event) => set("clientId", Number(event.target.value))} className={fieldClass}>
-              {row.members.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.name || `#${member.id}`}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <LineSelect label={t("Клиент")} value={String(form.clientId)} onChange={(value) => set("clientId", Number(value))} options={row.members.map((member) => ({ value: String(member.id), label: member.name || `#${member.id}` }))} />
         )}
-        <Field label="Тип оплаты">
-          <select value={form.paymentType} onChange={(event) => set("paymentType", event.target.value as "cash" | "bank")} className={fieldClass}>
-            <option value="cash">{t("Наличные")}</option>
-            <option value="bank">{t("Перечисление")}</option>
-          </select>
-        </Field>
-        <Field label="Валюта">
-          <select value={form.currency} onChange={(event) => set("currency", event.target.value)} className={fieldClass}>
-            {currencyOptions.map((code) => (
-              <option key={code} value={code}>
-                {currencyLabel(code)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Сумма">
-          <input inputMode="decimal" value={form.amount} onChange={(event) => set("amount", event.target.value.replace(/[^\d.,\s]/g, ""))} className={fieldClass} />
-        </Field>
-        <Field label="Организация">
-          <select value={form.organization} onChange={(event) => set("organization", event.target.value)} className={fieldClass}>
-            <option value="">{t("Не указано")}</option>
-            {(options?.organizations ?? []).map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Дата создания">
-          <input type="datetime-local" value={form.date} onChange={(event) => set("date", event.target.value)} className={fieldClass} />
-        </Field>
-        <Field label="Создал">
-          <input value={userName} readOnly className={`${fieldClass} bg-[#f2f5f8] text-[#586174]`} />
-        </Field>
-        <Field label="Доставщик">
-          <select value={form.deliveryMan} onChange={(event) => set("deliveryMan", event.target.value)} className={fieldClass}>
-            <option value="">{t("Не указано")}</option>
-            {(options?.deliverers ?? []).map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Комментарий">
-          <textarea value={form.comment} onChange={(event) => set("comment", event.target.value)} rows={2} placeholder={`${t("Комментарий")}...`} className="w-full rounded-md border border-[#dbe0e8] px-3 py-2 text-[#17233b]" />
-        </Field>
-        {kind === "income" && (
-          <div className="flex flex-col gap-2 text-[14px] text-[#17233b]">
-            {(
-              [
-                ["9", "Прочие приходы"],
-                ["1", "Оплата (Кассир не принял)"],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="flex items-center gap-2">
-                <input type="radio" name="correction-type" checked={form.type === value} onChange={() => set("type", value)} className="h-4 w-4 accent-[#1E4A9A]" />
-                {t(label)}
-              </label>
-            ))}
-          </div>
-        )}
-        {error && <p className="text-[#e57373]">{error}</p>}
+        <LineSelect label={t("Тип оплаты")} value={form.paymentType} onChange={(value) => set("paymentType", value as "" | "cash" | "bank")} options={[{ value: "cash", label: t("Наличные") }, { value: "bank", label: t("Перечисление") }]} />
+        <LineSelect label={t("Валюта")} value={form.currency} onChange={(value) => set("currency", value)} options={currencyOptions} />
+        <LineField label={t("Сумма")} filled={!!form.amount}>
+          <input inputMode="decimal" value={form.amount} onChange={(event) => set("amount", event.target.value.replace(/[^\d.,\s]/g, ""))} className={LINE_INPUT} />
+        </LineField>
+        <div className="pt-[14px]">
+          <LineDate label={t("Дата создания")} value={form.date} onChange={(value) => set("date", value)} />
+        </div>
+        <LineSelect label={t("Создал")} value={form.createdBy} onChange={(value) => set("createdBy", value)} options={names(options?.users)} />
+        <LineSelect label={t("Доставщик")} value={form.deliveryMan} onChange={(value) => set("deliveryMan", value)} options={names(options?.deliverers)} />
+        <input
+          value={form.comment}
+          onChange={(event) => set("comment", event.target.value)}
+          maxLength={2000}
+          placeholder={`${t("Комментарий")}...`}
+          className="mt-[8px] h-[34px] w-full border-b border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#1E4A9A]"
+        />
+        <div role="radiogroup" className="mt-[18px] flex flex-col gap-[14px] text-[13px] text-black">
+          {(
+            [
+              ["9", "Прочие приходы"],
+              ["1", "Оплата (Кассир не принял)"],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value} className="flex cursor-pointer items-center gap-[16px]">
+              <input type="radio" name="correction-type" checked={form.type === value} onChange={() => set("type", value)} className="h-[20px] w-[20px] accent-[#666]" />
+              {t(label)}
+            </label>
+          ))}
+        </div>
+        {error && <p className="text-[13px] text-[#e57373]">{error}</p>}
       </div>
     </DialogFrame>
   )
