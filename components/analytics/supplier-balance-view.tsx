@@ -433,10 +433,8 @@ export function SupplierBalanceView() {
           error={statement.error}
           from={actFrom}
           to={actTo}
-          customPeriod={Boolean(get("fromProviderDate") || get("toProviderDate"))}
           canEdit={canEdit}
           onPeriodChange={(period) => update({ fromProviderDate: period.from, toProviderDate: period.to })}
-          onPeriodReset={() => update({ fromProviderDate: null, toProviderDate: null })}
           onEdit={(row) => update({ openBalanceUpdateDialog: row.sourceId })}
           onDelete={(row) => update({ transId: row.sourceId })}
           onClose={closeAct}

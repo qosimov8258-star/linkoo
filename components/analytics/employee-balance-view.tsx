@@ -12,11 +12,11 @@ import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/bal
 import { buildBalanceQuery, useBalanceList, useFinanceCurrencies, useLookup, type BalanceQuery } from "@/components/analytics/balance/use-balance"
 import { EmployeeActDialog } from "@/components/analytics/employee-balance-act"
 import {
-  EmployeeMovementDialog,
+  EmployeeOptionDialog,
   EmployeeSnackbar,
   EmployeeUsersSelect,
-  MOVEMENT_ACTION_LABELS,
-  type EmployeeMovementAction,
+  EMPLOYEE_OPTION_LABELS,
+  type EmployeeOptionType,
   type EmployeeOption,
 } from "@/components/analytics/employee-balance-dialogs"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
@@ -28,14 +28,14 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // "Баланс сотрудников" (demo #/statistics/employee-balance, a fork of the
 // van-sell page): per employee and currency the balance at the start of the
 // period, Зарплата / Зачислено KPI (credited salary plans), Введено с кассы,
-// Штрафы, Коректировки (manual "Зачислить" / "Списать") and the balance at the
+// Штрафы, Коректировки (manual fines and corrections) and the balance at the
 // end, from the shared finance ledger (GET /api/balances/employee). Positive =
 // the company owes the employee, negative = advance. Manual movements:
 // POST /api/employee-balance-transactions. State lives in the URL like the
 // demo: fromDate, toDate, users (1-2-3), search, page, pageSize, ordering,
-// dynamicList (open act), openAddDialog / openCreateDialog (open "Зачислить" /
-// "Списать" for an employee id, the van-sell dialog keys); the menu's
-// toggle/withProfit leftovers are ignored.
+// dynamicList (open act), employeeBalanceDialogOpen + optionType (Linko's ⋮
+// «Создать штраф» = penalty / «Создать корректировку» = none_type for an
+// employee id); the menu's toggle/withProfit leftovers are ignored.
 
 const GROUPS: BalanceColumnGroup[] = [
   { field: "begin_balance", label: "Баланс на начало периода" },
@@ -104,8 +104,8 @@ type ViewState = {
   ordering: string[]
   /** Open act (employee key). */
   detail: string | null
-  /** Open "Зачислить" (add) / "Списать" (expense) dialog. */
-  movement: { action: EmployeeMovementAction; employeeId: number } | null
+  /** Open «Штраф» (penalty) / «Корректировка» (none_type) dialog. */
+  movement: { type: EmployeeOptionType; employeeId: number } | null
 }
 
 const INITIAL_STATE: ViewState = { period: null, users: [], job: "", accessRight: "", organizationId: "", search: "", page: 1, pageSize: DEFAULT_PAGE_SIZE, ordering: [], detail: null, movement: null }
@@ -125,8 +125,8 @@ function readUrlState(): ViewState {
   const pageSize = Number(params.get("pageSize"))
   const page = Number(params.get("page"))
   const detail = params.get("dynamicList") ?? ""
-  const addId = positiveId(params.get("openAddDialog"))
-  const expenseId = positiveId(params.get("openCreateDialog"))
+  const optionId = positiveId(params.get("employeeBalanceDialogOpen"))
+  const optionType = params.get("optionType")
   return {
     period: from && to ? (from <= to ? { from, to } : { from: to, to: from }) : null,
     users: (params.get("users") ?? "").split("-").filter((id) => /^\d+$/.test(id)),
@@ -138,7 +138,7 @@ function readUrlState(): ViewState {
     pageSize: Number.isInteger(pageSize) && pageSize > 0 ? pageSize : DEFAULT_PAGE_SIZE,
     ordering: (params.get("ordering") ?? "").split(",").filter(Boolean),
     detail: /^\d+$/.test(detail) && detail !== "0" ? detail : null,
-    movement: addId ? { action: "add", employeeId: addId } : expenseId ? { action: "expense", employeeId: expenseId } : null,
+    movement: optionId && (optionType === "penalty" || optionType === "none_type") ? { type: optionType, employeeId: optionId } : null,
   }
 }
 
@@ -156,8 +156,8 @@ function writeUrlState(state: ViewState) {
   set("pageSize", String(state.pageSize))
   set("ordering", state.ordering.join(","))
   set("dynamicList", state.detail ?? "")
-  set("openAddDialog", state.movement?.action === "add" ? String(state.movement.employeeId) : "")
-  set("openCreateDialog", state.movement?.action === "expense" ? String(state.movement.employeeId) : "")
+  set("employeeBalanceDialogOpen", state.movement ? String(state.movement.employeeId) : "")
+  set("optionType", state.movement?.type ?? "")
   const query = params.toString()
   const next = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
   if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", next)
@@ -177,7 +177,13 @@ function useCanEdit(): boolean {
   return canEdit
 }
 
-type RowMenu = { employeeId: number; top: number; left: number }
+type RowMenu = { employeeId: number; rowKey: string; top: number; left: number }
+
+// Linko's menu icons (Material money-off, exposure, compare-arrows).
+const MONEY_OFF_ICON =
+  "M12.5 6.9c1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-.53.12-1.03.3-1.48.54l1.47 1.47c.41-.17.91-.27 1.51-.27zM5.33 4.06L4.06 5.33 7.5 8.77c0 2.08 1.56 3.21 3.91 3.91l3.51 3.51c-.34.48-1.05.91-2.42.91-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c.96-.18 1.82-.55 2.45-1.12l2.22 2.22 1.27-1.27L5.33 4.06z"
+const CORRECTION_ICON = "M15 17v2h2v-2h2v-2h-2v-2h-2v2h-2v2h2zm5-15H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM5 5h6v2H5V5zm15 15H4L20 4v16z"
+const ACT_ICON = "M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zm5.98-1v-3H22V8h-7.01V5L11 9l3.99 4z"
 
 export function EmployeeBalanceView() {
   const { t } = useLanguage()
@@ -305,14 +311,15 @@ export function EmployeeBalanceView() {
       <button type="button" onClick={() => update({ detail: row.key })} className="text-left text-[#333] hover:underline">
         {row.name || t("Не указано")}
       </button>
-      {canEdit && row.id !== null && (
+      {row.id !== null && (
         <button
           type="button"
           data-employee-menu
           aria-label={t("Действия")}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
-            setMenu((current) => (current?.employeeId === row.id ? null : { employeeId: row.id!, top: rect.bottom + 4, left: rect.left }))
+            // Linko's menu opens over the row, its left edge just before the ⋮.
+            setMenu((current) => (current?.employeeId === row.id ? null : { employeeId: row.id!, rowKey: row.key, top: rect.top - 13, left: rect.left - 30 }))
           }}
           className="mr-[13px] shrink-0 rounded-full p-0.5 text-[#333] hover:bg-[#f2f5f8]"
         >
@@ -416,18 +423,30 @@ export function EmployeeBalanceView() {
       </ExpandedOverlay>
 
       {menu && (
-        <div data-employee-menu className="fixed z-[95] w-48 rounded-sm bg-white py-1 shadow-xl" style={{ top: menu.top, left: menu.left }}>
-          {(Object.keys(MOVEMENT_ACTION_LABELS) as EmployeeMovementAction[]).map((action) => (
+        <div data-employee-menu role="menu" className="fixed z-[95] w-[280px] rounded-[2px] bg-white py-[8px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]" style={{ top: menu.top, left: menu.left }}>
+          {[
+            ...(canEdit
+              ? (Object.keys(EMPLOYEE_OPTION_LABELS) as EmployeeOptionType[]).map((type) => ({
+                  key: type,
+                  label: type === "penalty" ? "Создать штраф" : "Создать корректировку",
+                  icon: type === "penalty" ? MONEY_OFF_ICON : CORRECTION_ICON,
+                  run: () => update({ movement: { type, employeeId: menu.employeeId } }),
+                }))
+              : []),
+            { key: "act", label: "Показать акт сверки", icon: ACT_ICON, run: () => update({ detail: menu.rowKey }) },
+          ].map((item) => (
             <button
-              key={action}
+              key={item.key}
               type="button"
+              role="menuitem"
               onClick={() => {
-                update({ movement: { action, employeeId: menu.employeeId } })
+                item.run()
                 setMenu(null)
               }}
-              className={`block w-full px-4 py-2.5 text-left text-[14px] hover:bg-slate-50 ${action === "add" ? "text-[#48a34b]" : "text-[#E27676]"}`}
+              className="flex h-[48px] w-full items-center gap-[21px] pl-[20px] pr-[16px] text-left text-[13px] text-[#333] hover:bg-[#f5f5f5]"
             >
-              {t(MOVEMENT_ACTION_LABELS[action])}
+              <svg viewBox="0 0 24 24" aria-hidden className="h-[24px] w-[24px] shrink-0 fill-[#757575]"><path d={item.icon} /></svg>
+              {t(item.label)}
             </button>
           ))}
         </div>
@@ -500,11 +519,10 @@ export function EmployeeBalanceView() {
       )}
 
       {state.movement && canEdit && (
-        <EmployeeMovementDialog
-          key={`${state.movement.action}:${state.movement.employeeId}`}
-          action={state.movement.action}
+        <EmployeeOptionDialog
+          key={`${state.movement.type}:${state.movement.employeeId}`}
+          type={state.movement.type}
           employeeId={state.movement.employeeId}
-          employees={employees}
           currencies={currencyList}
           onClose={() => update({ movement: null })}
           onSaved={() => {
