@@ -127,6 +127,8 @@ type ClientRow = {
   in_route?: number | null
   is_problem?: number | null
   object_active?: number | null
+  last_order_date?: string | null
+  last_visit_date?: string | null
 }
 
 function rowToClient(row: ClientRow): Client {
@@ -163,6 +165,8 @@ function rowToClient(row: ClientRow): Client {
     balanceLines: parseBalanceLines(row.attributes),
     createdAt: row.created_at ?? undefined,
     createdBy: row.created_by || undefined,
+    lastOrderDay: row.last_order_date || undefined,
+    lastVisitDay: row.last_visit_date || undefined,
   }
 }
 
@@ -192,7 +196,7 @@ function parseAttributes(raw: string | null | undefined): Record<string, string>
 }
 
 /** Fields written by create / update. `balance`: undefined = keep (update), null = none. */
-export type ClientInput = Omit<Client, "id" | "balance" | "balanceLines" | "currentBalances" | "lastOrder" | "lastPayment" | "createdAt" | "createdBy"> & {
+export type ClientInput = Omit<Client, "id" | "balance" | "balanceLines" | "currentBalances" | "lastOrder" | "lastPayment" | "createdAt" | "createdBy" | "lastOrderDay" | "lastVisitDay"> & {
   balance?: number | null
   /** Create / rename even when a client with the same name and phone / INN exists. */
   allowDuplicate?: boolean

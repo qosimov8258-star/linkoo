@@ -4,7 +4,7 @@ import { X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { compareText } from "@/components/ref/list-kit"
+import { RefAppliedFilter, compareText } from "@/components/ref/list-kit"
 
 import { csvCell } from "@/lib/csv"
 import { readExcelRows } from "@/lib/excel-import"
@@ -595,14 +595,15 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
             ) : (
               <div className="shrink-0" style={{ width: "calc(326.5px + max(0px, 100vw - 1296px) * 0.25)" }}>
                 {activeFilterCount > 0 ? (
-                  <div className="relative mt-px flex h-[48.25px] w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
-                    <span>{t("Фильтр:")} {activeFilterCount} {t("элемента")}</span>
-                    <button type="button" onClick={() => setFilterOpen(true)} aria-label={t("Изменить фильтр")} className="relative ml-auto flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]">
-                      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]"><path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" /></svg>
-                      <span className="absolute bottom-[10px] h-[4px] w-[24px] bg-[#c8c8c8]" />
-                    </button>
-                    <button type="button" onClick={() => { setFilters(EMPTY_ORDER_FILTERS); setOnlyIds(null); setPage(1) }} aria-label={t("Очистить фильтр")} className="flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]"><path d={ICON.clear} /></svg></button>
-                  </div>
+                  <RefAppliedFilter
+                    count={activeFilterCount}
+                    onEdit={() => setFilterOpen(true)}
+                    onClear={() => {
+                      setFilters(EMPTY_ORDER_FILTERS)
+                      setOnlyIds(null)
+                      setPage(1)
+                    }}
+                  />
                 ) : (
                   <button
                     type="button"

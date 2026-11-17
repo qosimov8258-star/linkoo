@@ -41,6 +41,10 @@ export type Client = {
   lastPayment?: string | null
   createdAt?: string
   createdBy?: string
+  /** Linko's market last_order_date / last_visit_date (YYYY-MM-DD; "2020-01-01" = never): the latest order / visit made
+   * in the field. «Охват территорий» and the card count days from them. */
+  lastOrderDay?: string
+  lastVisitDay?: string
 }
 
 export const clientTabs = [

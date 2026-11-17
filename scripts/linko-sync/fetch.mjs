@@ -10,7 +10,8 @@
 // gps (every employee's GPS points), visit-sessions (timed visits),
 // finance-entities (van-sell / branch / employee / supplier acts), cashback-details, price-list-items (every product's
 // prices per price list, read product by product), transfer-logs («Логи» of the transfers between warehouses),
-// border-agents (the employees bound to each territory).
+// border-agents (the employees bound to each territory), market-users (each shop's «Агенты магазина», and its last
+// order / visit days, which only the shop's detail has).
 // LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
 // The raw files hold business data: backups/ is git-ignored, never commit them.
 import fs from "node:fs"
@@ -356,6 +357,40 @@ async function borderAgents() {
   console.log("border_agents".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
 }
 
+/** «Агенты магазина» of every shop (its agents, each with a comment and price lists): only on the shop's detail with its
+ * extra message (market/market/{id}/?with_extra_message=1 → extra_message.market_users). Shops without any are left out. */
+function slimMarketUsers(users) {
+  return (Array.isArray(users) ? users : []).map((item) => ({
+    id: item.id,
+    user: { id: item.user?.id, first_name: item.user?.first_name ?? "", second_name: item.user?.second_name ?? "" },
+    description: item.description ?? "",
+    price_lists: (item.price_lists ?? []).map((list) => ({ id: list.id, name: list.name ?? "" })),
+  }))
+}
+
+async function marketUsers() {
+  const out = {}
+  // The detail also carries the days the list leaves out: last_visit_date (and last_order_date) → market_activity.
+  const activity = {}
+  let failed = 0
+  await Promise.all(
+    load("markets").map(async (row) => {
+      const r = await get(`market/market/${row.id}/`, { with_extra_message: 1 })
+      if (r.status !== 200) {
+        failed++
+        out[row.id] = { __status: r.status }
+        return
+      }
+      const users = slimMarketUsers(r.json?.extra_message?.market_users)
+      if (users.length) out[row.id] = users
+      activity[row.id] = { last_order_date: r.json?.last_order_date ?? null, last_visit_date: r.json?.last_visit_date ?? null }
+    }),
+  )
+  save("market_users", { tpl: "market/market/{id}/?with_extra_message=1", data: out })
+  save("market_activity", { tpl: "market/market/{id}/?with_extra_message=1", data: activity })
+  console.log("market_users".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
+}
+
 const STEPS = {
   lists,
   "price-list-items": priceListItems,
@@ -371,6 +406,7 @@ const STEPS = {
   "cashback-details": cashbackDetails,
   "transfer-logs": transferLogs,
   "border-agents": borderAgents,
+  "market-users": marketUsers,
 }
 
 await login()

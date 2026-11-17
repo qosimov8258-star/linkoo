@@ -145,6 +145,8 @@ export function applyClientFilters(client: Client, filters: ClientFilters, debtL
   return true
 }
 
+/** The filter fields in use, as Linko counts them for «Фильтр: N элемента»: each filled field (each date of a period
+ * apart), a ticked option, the chosen weekdays, each attribute. */
 export function countClientFilters(filters: ClientFilters): number {
   return Object.entries(filters).reduce((sum, [key, value]) => {
     if (key === "attributes") return sum + Object.values(value as Record<string, string>).filter(Boolean).length

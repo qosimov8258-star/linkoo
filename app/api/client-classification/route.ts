@@ -30,7 +30,9 @@ export async function GET(request: NextRequest) {
   const dateType = params.get("date_type")
   const query: ClassificationParams = {
     closed: closed === "closed" || closed === "all" ? closed : "not_closed",
-    statuses: (params.get("order_status") ?? "2-3").split("-").filter((id) => /^\d{1,2}$/.test(id)).map(Number), // status ids (0 = "В процессе"), digits only
+    // Status ids (0 = «В процессе»), digits only. Without a choice Linko counts every status (a cancelled order never
+    // counts: lib/client-classification-repo.ts has no id for it).
+    statuses: (params.get("order_status") || "0-1-2-3-5").split("-").filter((id) => /^\d{1,2}$/.test(id)).map(Number),
     dateType: dateType === "created_date" || dateType === "accepted_time" ? dateType : "date_delivery",
     periods: dates as ClassificationParams["periods"],
     classes,

@@ -85,6 +85,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     .catch(() => null)) as { comment: string | null; reason: string | null } | null
   const today = todayIso()
   const daysSince = (day: string | null) => (day ? Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000)) : null)
+  // The card counts like Linko from the shop's own last order / visit days (its field activity; an office order does
+  // not move them); a shop without them (made here, never visited) falls back to its documents.
+  const fieldOrder = client.lastOrderDay || null
+  const fieldVisit = client.lastVisitDay || null
   return NextResponse.json({
     from,
     to,
@@ -92,10 +96,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     currencies,
     lastOrder,
     lastPayment,
-    daysSinceLastOrder: daysSince(lastOrder),
+    daysSinceLastOrder: daysSince(fieldOrder ?? lastOrder),
     daysSinceLastPayment: daysSince(lastPayment),
     lastVisit,
-    daysSinceLastVisit: daysSince(lastVisit),
+    daysSinceLastVisit: daysSince(fieldVisit ?? fieldOrder ?? lastVisit),
     lastRefusalComment: refusal?.comment?.trim() || null,
   })
 }

@@ -127,6 +127,19 @@ async function lockEmployee(tx: PgDb, employeeId: number) {
 }
 
 /** Starts a visit (201) or returns the one already started with this key (created: false). */
+/** Linko's market last_visit_date / last_order_date (clients.last_visit_date / last_order_date, «Охват территорий» and
+ * the card count from them): a visit moves the visit day, an order made during it the order day too; never backwards. */
+async function markClientActivity(tx: PgDb, clientId: number, atMs: number, withOrder: boolean): Promise<void> {
+  const day = localDay(atMs)
+  await tx
+    .prepare(
+      `UPDATE clients SET last_visit_date = CASE WHEN COALESCE(last_visit_date, '') < @day THEN @day ELSE last_visit_date END${
+        withOrder ? ", last_order_date = CASE WHEN COALESCE(last_order_date, '') < @day THEN @day ELSE last_order_date END" : ""
+      } WHERE id = @clientId`,
+    )
+    .run({ day, clientId })
+}
+
 export async function startVisit(actor: FieldActor, input: VisitStartInput): Promise<{ visit: FieldVisit; created: boolean }> {
   await ensureFieldSchema()
   const employeeId = actor.employee.id
@@ -174,6 +187,7 @@ export async function startVisit(actor: FieldActor, input: VisitStartInput): Pro
         clientLng,
         distance,
       })) as { id: number }
+    await markClientActivity(tx, input.clientId, input.startedAt, false)
     return { id: Number(row.id), created: true }
   })
   return { visit: (await getVisit(outcome.id))!, created: outcome.created }
@@ -230,6 +244,7 @@ export async function finishVisit(actor: FieldActor, input: VisitFinishInput): P
         orderId: input.orderId ?? null,
         comment: input.comment ?? "",
       })
+    await markClientActivity(tx, clientId, input.finishedAt, input.result === "order")
     // The event's position: where the visit was closed, else where it started.
     const lat = hasPosition(input) ? input.lat : num(visit.start_lat)
     const lng = hasPosition(input) ? input.lng : num(visit.start_lng)
@@ -313,6 +328,7 @@ export async function createOfficeRefusal(
          VALUES (@visitId, @userId, @employeeId, @clientId, @typeId, @reason, @comment, @at::timestamptz) RETURNING id`,
       )
       .get({ visitId: visit.id, userId: actor.user.id, employeeId, clientId: input.clientId, typeId: input.refusalTypeId, reason, comment: input.comment, at: moment })) as { id: number }
+    await markClientActivity(tx, input.clientId, at, false)
     return { visitId: Number(visit.id), refusalId: Number(refusal.id) }
   })
 }

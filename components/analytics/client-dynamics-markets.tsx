@@ -3,18 +3,21 @@
 import { useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
 
-import { RI, RefButton, usePaging } from "@/components/ref/list-kit"
+import { RI, RefButton, RefNothingFound, usePaging } from "@/components/ref/list-kit"
 import { ReportPager, ReportSearchField } from "@/components/ref/report-kit"
 import { SortArrows, nextSort, sortBy, type SortState } from "@/components/ref/sort-arrows"
-import { csvText } from "@/lib/csv"
+import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Linko's «Классификация и динамика клиентов» drill-down: a store count opens the stores of that class and period
-// under the table (market_classification/get_markets), and a store's «Ассортимент» opens what it bought
-// (market_classification/get_products) in a full-screen window.
+// under the table (market_classification/get_markets); a store's name opens its card, its «Ассортимент» what it
+// bought (market_classification/get_products) in a full-screen window. The page keeps all three in the URL.
 
 type MarketCell = { sale: number; sku: number; visits: number; successVisits: number }
 type Market = { id: number; name: string; periods: [MarketCell, MarketCell, MarketCell] }
+export type PeriodIndex = 0 | 1 | 2
+/** The «Ассортимент» window: the store and the period whose cell was clicked (Linko's marketId / listPeriod). */
+export type ProductsTarget = { id: number; name: string; period: PeriodIndex }
 type ProductRow = { key: string; name: string; values: [number, number, number]; dynamics: [number, number] }
 
 const PERIOD_PARAM = ["first", "second", "third"] as const
@@ -27,21 +30,30 @@ const GROUPS: { metric: keyof MarketCell; title: string }[] = [
 
 const format = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.round(value)).replace(/ /g, " ")
 
-function download(name: string, rows: (string | number)[][]) {
-  const url = URL.createObjectURL(new Blob([`﻿${csvText(rows)}`], { type: "text/csv;charset=utf-8" }))
-  const link = document.createElement("a")
-  link.href = url
-  link.download = name
-  link.click()
-  URL.revokeObjectURL(url)
-}
-
-export function ClassificationMarkets({ query, period, bucket }: { query: string; period: 0 | 1 | 2; bucket: number }) {
+export function ClassificationMarkets({
+  query,
+  period,
+  bucket,
+  title,
+  onOpenShop,
+  products,
+  onOpenProducts,
+  onCloseProducts,
+}: {
+  query: string
+  period: PeriodIndex
+  bucket: number
+  /** The class and its period, for the downloaded file. */
+  title: string
+  onOpenShop: (id: number) => void
+  products: ProductsTarget | null
+  onOpenProducts: (target: ProductsTarget) => void
+  onCloseProducts: () => void
+}) {
   const { t } = useLanguage()
   const [markets, setMarkets] = useState<Market[] | null>(null)
   const [search, setSearch] = useState("")
   const [sort, setSort] = useState<SortState<string>>(null)
-  const [products, setProducts] = useState<Market | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -71,9 +83,14 @@ export function ClassificationMarkets({ query, period, bucket }: { query: string
   const paging = usePaging(filtered.length)
   const pageRows = filtered.slice(paging.start, paging.end)
 
+  // Linko's «Скачать» of the list: an Excel of its stores (the search applied), the table's two header rows.
   function exportList() {
-    const header = [t("Клиент"), ...GROUPS.flatMap((group) => [1, 2, 3].map((n) => `${t(group.title)} · ${t("Период")} ${n}`))]
-    download("client-classification-markets.csv", [header, ...filtered.map((market) => [market.name, ...GROUPS.flatMap((group) => market.periods.map((cell) => Math.round(cell[group.metric])))])])
+    const groups = [t("Клиент"), ...GROUPS.flatMap((group) => [t(group.title), "", ""])]
+    const periods = ["", ...GROUPS.flatMap(() => [1, 2, 3].map((n) => `${t("Период")} ${n}`))]
+    const body = filtered.map((market) => [market.name, ...GROUPS.flatMap((group) => market.periods.map((cell) => Math.round(cell[group.metric])))])
+    // A file name cannot hold < > : " / \ | ? * (the browser would put "_" for the class "< 1 млн").
+    const name = `${t("Классификация и динамика клиентов")} - ${title}`.replace(/[<>:"/\\|?*]+/g, " ").replace(/\s+/g, " ").trim()
+    downloadExcelTable(name, [groups, periods, ...body], { merges: ["A1:A2", "B1:D1", "E1:G1", "H1:J1", "K1:M1"] })
   }
 
   const th = "border border-[#ddd] px-[6px] py-[10px] text-center text-[13px] font-semibold text-[#333]"
@@ -101,44 +118,48 @@ export function ClassificationMarkets({ query, period, bucket }: { query: string
           onNext={() => paging.setPage(paging.page + 1)}
         />
       </div>
-      <div className="overflow-x-auto bg-white">
-        <table data-no-sort className="w-full min-w-[1200px] border-collapse text-[13px]">
-          <thead>
-            <tr>
-              <th rowSpan={2} className={`${th} w-[240px]`}>{head("name", t("Клиент"))}</th>
-              {GROUPS.map((group) => <th key={group.metric} colSpan={3} className={th}>{t(group.title)}</th>)}
-            </tr>
-            <tr>
-              {GROUPS.flatMap((group) => [0, 1, 2].map((index) => <th key={`${group.metric}:${index}`} className={th}>{head(`${group.metric}:${index}`, `${t("Период")} ${index + 1}`)}</th>))}
-            </tr>
-          </thead>
-          <tbody>
-            {markets === null ? (
-              <tr><td colSpan={13} className="border border-[#ddd] py-[30px] text-center text-[#777]">{t("Загрузка...")}</td></tr>
-            ) : !pageRows.length ? (
-              <tr><td colSpan={13} className="border border-[#ddd] py-[30px] text-center text-[#777]">{t("Нет данных")}</td></tr>
-            ) : (
-              pageRows.map((market, rowIndex) => (
-                <tr key={market.id} className={`h-[42px] ${rowIndex % 2 ? "bg-[#f5f8fa]" : "bg-white"}`}>
-                  <td className="border border-[#ddd] px-[6px] font-semibold text-[#1E4A9A]">{market.name}</td>
-                  {GROUPS.flatMap((group) =>
-                    market.periods.map((cell, index) =>
-                      group.metric === "sku" ? (
-                        <td key={`${group.metric}:${index}`} className="border border-[#ddd] px-[6px] text-right">
-                          <button type="button" onClick={() => setProducts(market)} className="font-semibold text-[#1E4A9A] hover:underline">{format(cell.sku)}</button>
-                        </td>
-                      ) : (
-                        <td key={`${group.metric}:${index}`} className="border border-[#ddd] px-[6px] text-right">{format(cell[group.metric])}</td>
+      {markets !== null && !pageRows.length ? (
+        <RefNothingFound text="По вашему запросу ничего не найдено..." />
+      ) : (
+        <div id="mainTableWrapper" className="overflow-x-auto bg-white">
+          <table data-no-sort className="w-full min-w-[1200px] border-collapse text-[13px]">
+            <thead>
+              <tr>
+                <th rowSpan={2} className={`${th} w-[240px]`}>{head("name", t("Клиент"))}</th>
+                {GROUPS.map((group) => <th key={group.metric} colSpan={3} className={th}>{t(group.title)}</th>)}
+              </tr>
+              <tr>
+                {GROUPS.flatMap((group) => [0, 1, 2].map((index) => <th key={`${group.metric}:${index}`} className={th}>{head(`${group.metric}:${index}`, `${t("Период")} ${index + 1}`)}</th>))}
+              </tr>
+            </thead>
+            <tbody>
+              {markets === null ? (
+                <tr><td colSpan={13} className="border border-[#ddd] py-[30px] text-center text-[#777]">{t("Загрузка...")}</td></tr>
+              ) : (
+                pageRows.map((market, rowIndex) => (
+                  <tr key={market.id} className={`h-[42px] ${rowIndex % 2 ? "bg-[#f5f8fa]" : "bg-white"}`}>
+                    <td className="border border-[#ddd] px-[6px]">
+                      <button type="button" onClick={() => onOpenShop(market.id)} className="text-left text-[#1E4A9A] hover:underline">{market.name}</button>
+                    </td>
+                    {GROUPS.flatMap((group) =>
+                      market.periods.map((cell, index) =>
+                        group.metric === "sku" ? (
+                          <td key={`${group.metric}:${index}`} className="border border-[#ddd] px-[6px] text-right">
+                            <button type="button" onClick={() => onOpenProducts({ id: market.id, name: market.name, period: index as PeriodIndex })} className="text-[#1E4A9A] hover:underline">{format(cell.sku)}</button>
+                          </td>
+                        ) : (
+                          <td key={`${group.metric}:${index}`} className="border border-[#ddd] px-[6px] text-right">{format(cell[group.metric])}</td>
+                        ),
                       ),
-                    ),
-                  )}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-      {products && <ClassificationProducts query={query} market={products} onClose={() => setProducts(null)} />}
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {products && <ClassificationProducts query={query} target={products} onClose={onCloseProducts} />}
     </section>
   )
 }
@@ -149,12 +170,14 @@ const GROUP_BY: { value: "product" | "product_type" | "brand"; label: string }[]
   { value: "brand", label: "Бренд" },
 ]
 
-function ClassificationProducts({ query, market, onClose }: { query: string; market: Market; onClose: () => void }) {
+function ClassificationProducts({ query, target, onClose }: { query: string; target: ProductsTarget; onClose: () => void }) {
   const { t } = useLanguage()
+  const market = target
   const [groupBy, setGroupBy] = useState<(typeof GROUP_BY)[number]["value"]>("product")
   const [countType, setCountType] = useState<"amount" | "sum">("amount")
   const [rows, setRows] = useState<ProductRow[] | null>(null)
   const [search, setSearch] = useState("")
+  const [sort, setSort] = useState<SortState<string>>(null)
 
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && onClose()
@@ -178,13 +201,23 @@ function ClassificationProducts({ query, market, onClose }: { query: string; mar
     }
   }, [query, market.id, groupBy, countType])
 
+  // Linko lists the products by the clicked period's figure, largest first (newest first among equal ones, the API's
+  // order); a header sorts by its column.
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    return (rows ?? []).filter((row) => !needle || row.name.toLowerCase().includes(needle))
-  }, [rows, search])
+    const list = (rows ?? []).filter((row) => !needle || row.name.toLowerCase().includes(needle))
+    if (sort) return sortBy(list, sort, (row, key) => (key === "name" ? row.name : row.values[Number(key)]))
+    return [...list].sort((a, b) => b.values[target.period] - a.values[target.period])
+  }, [rows, search, sort, target.period])
   const paging = usePaging(filtered.length)
   const pageRows = filtered.slice(paging.start, paging.end)
   const th = "border border-[#e3e8ee] bg-[#f2f5f8] px-[6px] py-[8px] text-center text-[13px] font-semibold text-[#333]"
+  const sortHead = (key: string, label: string) => (
+    <button type="button" onClick={() => setSort((current) => nextSort(current, key))} className="inline-flex items-center justify-center gap-[2px] font-semibold">
+      {label}
+      <SortArrows dir={sort?.key === key ? sort.dir : null} />
+    </button>
+  )
 
   return (
     <div role="dialog" aria-modal="true" aria-label={market.name} className="fixed inset-0 z-[1000] overflow-y-auto bg-white text-[13px] text-[#333]">
@@ -237,7 +270,9 @@ function ClassificationProducts({ query, market, onClose }: { query: string; mar
           </colgroup>
           <thead>
             <tr>
-              {["Наименование", "Период 1", "Период 2", "Период 3", "Динамика 2", "Динамика 3"].map((title) => <th key={title} className={th}>{t(title)}</th>)}
+              <th className={th}>{sortHead("name", t("Наименование"))}</th>
+              {[0, 1, 2].map((index) => <th key={index} className={th}>{sortHead(String(index), `${t("Период")} ${index + 1}`)}</th>)}
+              {["Динамика 2", "Динамика 3"].map((title) => <th key={title} className={th}>{t(title)}</th>)}
             </tr>
           </thead>
           <tbody>

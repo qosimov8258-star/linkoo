@@ -3,7 +3,7 @@
 import { askDelete } from "@/lib/ask-confirm"
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
-import { compareText, RefImportDialog } from "@/components/ref/list-kit"
+import { compareText, RefAppliedFilter, RefImportDialog } from "@/components/ref/list-kit"
 import dynamic from "next/dynamic"
 import {
   RefreshCw,
@@ -26,13 +26,14 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
 
 import { AddOrderDialog } from "@/components/orders/add-order-dialog"
+import { ClientAgentsDialog, type ClientAgentRow } from "@/components/clients/client-agents-dialog"
 
 import { clientTabs, type Client } from "./clients-data"
 import { ClientDebtLimits } from "./client-debt-limits"
 import { invalidateDirectory, useDirectoryNames } from "./use-directory"
 import { MultiEditDialog, type MultiEditExtras, type MultiEditPatch } from "./multi-edit-dialog"
 import { TableColumnsDrawer } from "@/components/ref/table-columns-drawer"
-import { applyClientFilters, ClientsFilterPanel, DEBT_LIMIT_TYPES, emptyClientFilters, type ClientFilters, type DebtLimitFilterContext } from "./clients-filter-panel"
+import { applyClientFilters, ClientsFilterPanel, countClientFilters, DEBT_LIMIT_TYPES, emptyClientFilters, type ClientFilters, type DebtLimitFilterContext } from "./clients-filter-panel"
 
 const LocationPicker = dynamic(() => import("./location-picker").then((m) => m.LocationPicker), {
   ssr: false,
@@ -204,6 +205,8 @@ export function ClientsView() {
   const [selected, setSelected] = useState<number[]>([])
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [filters, setFilters] = useState<ClientFilters>(emptyClientFilters)
+  // Linko counts the filter fields in use (a zone, a type, each date of a period …).
+  const clientFilterCount = useMemo(() => countClientFilters(filters), [filters])
   const [importDialog, setImportDialog] = useState<"import" | "promotion" | "excel" | null>(null)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [multiEditOpen, setMultiEditOpen] = useState(false)
@@ -385,8 +388,11 @@ export function ClientsView() {
   const deepSelect = useRef<number[] | null>(null)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    deepLinkedShopId.current = Number(params.get("openShop")) || 0
-    deepLinkedUpdate.current = params.get("openUpdateDialog") === "true"
+    // Kept once read: the URL sync below drops openShop / openUpdateDialog at once, and a second run of this effect
+    // (React's development double run) must not forget the card the link asked for.
+    const linkedShop = Number(params.get("openShop"))
+    if (Number.isSafeInteger(linkedShop) && linkedShop > 0) deepLinkedShopId.current = linkedShop
+    if (params.get("openUpdateDialog") === "true") deepLinkedUpdate.current = true
     const tabEntry = Object.entries(TAB_PARAM).find(([, value]) => value === params.get("showTab"))
     if (tabEntry) {
       setActiveTab(tabEntry[0] as Client["tab"])
@@ -482,6 +488,9 @@ export function ClientsView() {
     if (match) {
       setDetailClient(match)
       if (deepLinkedUpdate.current) openEditModalFor(match)
+      // Used once: a later reload of the list (after a save) must not open the card again.
+      deepLinkedShopId.current = 0
+      deepLinkedUpdate.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, clients])
@@ -998,15 +1007,27 @@ export function ClientsView() {
             {selectedClients.length === 0 ? (
               <>
             <div className="w-[355px] shrink-0">
-              <button
-                type="button"
-                onClick={() => setFiltersOpen((open) => !open)}
-                aria-expanded={filtersOpen}
-                className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
-              >
-                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={CI.filter} /></svg>
-                <span className="pl-2 pr-4">{filtersOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
-              </button>
+              {/* Linko's applied filter: «Фильтр: N элемента» (✎ reopens it, ⊗ clears it) in place of «Показать фильтр». */}
+              {clientFilterCount > 0 && !filtersOpen ? (
+                <RefAppliedFilter
+                  count={clientFilterCount}
+                  onEdit={() => setFiltersOpen(true)}
+                  onClear={() => {
+                    setFilters(emptyClientFilters)
+                    setPage(1)
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  aria-expanded={filtersOpen}
+                  className="flex h-[30px] items-center rounded-[5px] bg-[#1E4A9A] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
+                >
+                  <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={CI.filter} /></svg>
+                  <span className="pl-2 pr-4">{filtersOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
+                </button>
+              )}
             </div>
 
             <div className="relative ml-[18px] flex w-[300px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
@@ -2299,10 +2320,22 @@ async function fetchFieldRecords(tab: "ОТЧЕТЫ" | "ОТКАЗЫ", clientId:
   return body
 }
 
-/** The client card opened from another page (Активность, Отслеживание): loads the client
- * by id and shows the same drawer as Клиенты, without the edit / delete buttons (those stay
- * on the Клиенты page). Closes itself when the client cannot be loaded. */
-export function ClientDrawer({ clientId, onClose }: { clientId: number; onClose: () => void }) {
+/** The client card opened from another page (Активность, Отслеживание, Классификация и динамика клиентов): loads the
+ * client by id and shows the same drawer as Клиенты, without the delete button (that stays on the Клиенты page).
+ * Closes itself when the client cannot be loaded. */
+export function ClientDrawer({
+  clientId,
+  onClose,
+  withCall = false,
+  editHref,
+}: {
+  clientId: number
+  onClose: () => void
+  /** «Позвонить»: Linko's card shows it where the page passes its call action (Классификация и динамика клиентов). */
+  withCall?: boolean
+  /** The pencil: Linko links it to the Клиенты edit form of the client in a new tab when the page has none. */
+  editHref?: string
+}) {
   const [client, setClient] = useState<Client | null>(null)
 
   useEffect(() => {
@@ -2328,7 +2361,7 @@ export function ClientDrawer({ clientId, onClose }: { clientId: number; onClose:
   }, [onClose])
 
   if (!client || client.id !== clientId) return null
-  return <ClientDetail client={client} onClose={onClose} variant="activity" />
+  return <ClientDetail client={client} onClose={onClose} variant="activity" withCall={withCall} editHref={editHref} />
 }
 
 export function ClientDetail({
@@ -2337,6 +2370,8 @@ export function ClientDetail({
   onEdit,
   onDelete,
   variant,
+  withCall = false,
+  editHref,
 }: {
   client: Client
   onClose: () => void
@@ -2344,6 +2379,10 @@ export function ClientDetail({
   onDelete?: () => void
   /** "activity": the card as the reference opens it from «Активность» (no delete icon, no «Позвонить», balance tiles only with a balance). */
   variant?: "activity"
+  /** Shows «Позвонить» in the "activity" card (pages that pass Linko's call action). */
+  withCall?: boolean
+  /** Without onEdit: the pencil opens this link (the Клиенты edit form) in a new tab. */
+  editHref?: string
 }) {
   const { t, language } = useLanguage()
   const fromActivity = variant === "activity"
@@ -2500,6 +2539,24 @@ export function ClientDetail({
     }
   }, [tab, subTab, client.id, client.name, client.createdAt, client.createdBy])
   const [orderOpen, setOrderOpen] = useState(false)
+  // «Агенты магазина»: Linko's market users of the shop (GET /api/clients/[id]/agents), edited in «Изменение агентов».
+  const [agents, setAgents] = useState<ClientAgentRow[] | null>(null)
+  const [agentsOpen, setAgentsOpen] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    setAgents(null)
+    fetch(`/api/clients/${client.id}/agents`, { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<ClientAgentRow[]>) : []))
+      .then((rows) => {
+        if (!cancelled) setAgents(Array.isArray(rows) ? rows : [])
+      })
+      .catch(() => {
+        if (!cancelled) setAgents([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [client.id])
   // Linko's «Позвонить» shows the client's numbers; «Отказ» opens «Создание отказа».
   const [phoneOpen, setPhoneOpen] = useState(false)
   const [refusalOpen, setRefusalOpen] = useState(false)
@@ -2549,13 +2606,19 @@ export function ClientDetail({
             <span>{client.name}</span>
           </div>
           <div className="-mr-[10px] flex items-center">
-            {onEdit && (
+            {onEdit ? (
               <button type="button" aria-label={t("Изменить")} onClick={onEdit} className="flex h-12 w-12 items-center justify-center">
                 <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
                   <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
                 </svg>
               </button>
-            )}
+            ) : editHref ? (
+              <a href={editHref} target="_blank" rel="noopener noreferrer" aria-label={t("Изменить")} title={t("Изменить")} className="flex h-12 w-12 items-center justify-center">
+                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                </svg>
+              </a>
+            ) : null}
             {onDelete && !fromActivity && (
               <button type="button" aria-label={t("Удалить")} onClick={onDelete} className="flex h-12 w-12 items-center justify-center">
                 <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
@@ -2612,7 +2675,7 @@ export function ClientDetail({
             </div>
 
             <div className="mt-5 flex gap-[10px]">
-              {!fromActivity && <span className="relative"><button
+              {(!fromActivity || withCall) && <span className="relative"><button
                 type="button"
                 disabled={!hasPhone}
                 aria-expanded={phoneOpen}
@@ -2687,21 +2750,32 @@ export function ClientDetail({
                 <div className="w-[134px] shrink-0 px-2">{t("Комментарий")}</div>
                 <div className="flex-1 px-2">{t("Прайс лист")}</div>
                 <div className="flex w-[44.7px] shrink-0 justify-center px-2">
-                  <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
-                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                  </svg>
+                  <button type="button" aria-label={t("Изменить")} title={t("Изменить")} onClick={() => setAgentsOpen(true)} className="flex h-5 w-5 items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+                      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                    </svg>
+                  </button>
                 </div>
               </div>
-              {/* Linko lists the client's responsible people (its agent, delivery man and collector) with a comment and a price list. */}
-              {[client.agent, client.deliverer, client.collector]
-                .filter((name, index, list) => name && name !== "Не указано" && list.indexOf(name) === index)
-                .map((name) => (
-                  <div key={name} className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
-                    <div className="w-[134px] shrink-0 px-2">{name}</div>
-                    <div className="w-[134px] shrink-0 px-2">-</div>
-                    <div className="flex-1 px-2">-</div>
-                  </div>
-                ))}
+              {/* Linko lists the shop's market users: each agent with its comment and price lists (one per line). */}
+              {(agents ?? []).map((agent) => (
+                <div key={agent.employeeId} className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
+                  <div className="w-[134px] shrink-0 px-2">{agent.name}</div>
+                  <div className="w-[134px] shrink-0 px-2">{agent.description || "-"}</div>
+                  <div className="flex-1 px-2">{agent.priceLists.length ? agent.priceLists.map((list) => <p key={list.id}>{list.name}</p>) : "-"}</div>
+                </div>
+              ))}
+              {agentsOpen && (
+                <ClientAgentsDialog
+                  clientId={client.id}
+                  agents={agents ?? []}
+                  onClose={() => setAgentsOpen(false)}
+                  onSaved={(rows) => {
+                    setAgents(rows)
+                    setAgentsOpen(false)
+                  }}
+                />
+              )}
 
               <div className="mt-[30px]">
                 <DetailSectionTitle>{t("Маршруты")}</DetailSectionTitle>
