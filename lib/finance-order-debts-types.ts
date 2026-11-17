@@ -174,8 +174,9 @@ export type OrderDebtOrderRow = {
   remaining: number
   /** The client is flagged "Требуется перерасчет". */
   wrongDebt: boolean
-  /** The client's whole order debt per currency ("Общий долг"). */
-  clientDebt: Record<string, number>
+  /** The balance of the client's financial account (all its shops) per currency — Linko's «Общий долг» columns (its
+   * order `currencies`): below zero while the client owes. */
+  clientBalance: Record<string, number>
 }
 
 export type OrderDebtListResult = {

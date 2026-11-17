@@ -4,7 +4,7 @@
 // debited the client (orders.no_debt), the product lines (order_items: price before the line discount + the discount)
 // and the history (order_logs).
 // Orders themselves (928, same ids) were imported earlier; the fields above are what the stock and the history need,
-// with the card's organization, payment type and term, currency, author, comment and invoice.
+// with the card's organization, payment type and term, currency, author, comment, invoice and accepted day.
 //
 //   node scripts/linko-sync/import-orders.mjs   (raw: orders, orders_detail, order_products, order_logs)
 import { connect, currencyCode, ensureRegistry, fullName, raw, register, runId, upsertById, utcIso } from "./lib.mjs"
@@ -71,6 +71,8 @@ try {
         invoice_active: row.invoice_is_active ? 1 : 0,
         // «Долги с заказов»: what Linko still counts unpaid on the order (its own allocation of the payments).
         linko_remaining: Number(row.total_balance) || 0,
+        // The day Linko accepted the order (its accepted_time, local): «Дата реализации» and the age of a debt.
+        accepted_date: String(doc.accepted_time ?? row.accepted_time ?? "").slice(0, 10),
       })
     ]++
   }
