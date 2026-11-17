@@ -163,6 +163,16 @@ export function monthTitle(year: number, month: number, language: LanguageCode):
 }
 
 /** "HH:mm" of a local "YYYY-MM-DDTHH:mm:ss". */
+const MONTHS_NOMINATIVE = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+
+/** Linko's text of a planned visit, «Следует посетить 17 Ноябрь 2026 года» (its server writes the month in the
+ * nominative), in the page's language. */
+export function planVisitText(day: string, t: (text: string) => string): string {
+  const [year, month, date] = day.slice(0, 10).split("-").map(Number)
+  const values: Record<string, string> = { day: String(date), month: t(MONTHS_NOMINATIVE[month - 1] ?? ""), year: String(year) }
+  return t("Следует посетить {day} {month} {year} года").replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match)
+}
+
 export const timeOf = (iso: string | null | undefined) => (iso && iso.length >= 16 ? iso.slice(11, 16) : "")
 
 /** "HH:mm:ss" of a local "YYYY-MM-DDTHH:mm:ss". */

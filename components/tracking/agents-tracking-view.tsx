@@ -96,7 +96,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i)
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5)
 
 export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlState; today: string }) {
-  const { t, language } = useLanguage()
+  const { t } = useLanguage()
   const router = useRouter()
   const canManage = useCanManage(["clients.manage"])
   const [state, setState] = useState<TrackingUrlState>(initial)
@@ -296,11 +296,11 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
           distance: client.distanceM !== null ? `${Math.round(client.distanceM)} ${t("м.")}` : "",
           actualLat: client.actualLat,
           actualLng: client.actualLng,
-          lines: eventSummary(client, current.date, t, language),
+          lines: eventSummary(client, current.date, t),
         },
       ]
     })
-  }, [current, shownClients, t, language])
+  }, [current, shownClients, t])
 
   const visits = useMemo(
     () =>

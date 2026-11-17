@@ -22,10 +22,9 @@ import {
 import { formatMoney } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
-import type { LanguageCode } from "@/lib/i18n/types"
 import type { TrackingClient, TrackingDay, TrackingEvent } from "@/lib/tracking-types"
 
-import { distanceColor, formatPillDay, moneyLines, secondsOf, shiftDay, timeOf, type DetailStatus } from "./agents-tracking-data"
+import { distanceColor, formatPillDay, moneyLines, planVisitText, secondsOf, shiftDay, timeOf, type DetailStatus } from "./agents-tracking-data"
 import { StatusFilterPanel } from "./agents-tracking-dialogs"
 
 // Right panel of Отслеживание in agent detail mode ("Показать путь"): header with the agent
@@ -68,8 +67,8 @@ export function durationText(seconds: number, t: (text: string) => string): stri
 const amountText = (event: TrackingEvent) => (event.amount !== null && event.currency ? `${formatMoney(event.amount)} ${event.currency}` : "")
 
 /** Plain-text lines of a client's events (the map popup uses them too). */
-export function eventSummary(client: TrackingClient, day: string, t: (text: string) => string, language: LanguageCode): string[] {
-  if (!client.events.length) return [fill(t("Следует посетить {date}"), { date: formatDateText(day, language) })]
+export function eventSummary(client: TrackingClient, day: string, t: (text: string) => string): string[] {
+  if (!client.events.length) return [planVisitText(day, t)]
   return client.events.map((event) => {
     switch (event.kind) {
       case "visit":
@@ -131,7 +130,7 @@ function EventLines({ client, day, actions }: { client: TrackingClient; day: str
       <ul>
         <li className="li-plan flex items-center gap-[8px] py-[3px] text-[12px] text-[#444]">
           <RotateCcw className="h-4 w-4 shrink-0 text-[#f0ad4e]" />
-          {fill(t("Следует посетить {date}"), { date: formatDateText(day, language) })}
+          {planVisitText(day, t)}
         </li>
       </ul>
     )
@@ -304,10 +303,15 @@ export function AgentDayPanel({
   onEditLock,
   actions,
   variant = "tracking",
+  planHeader,
 }: {
   /** "drawer": the agent drawer of the visit reports (Linko's drawer_agent_visit) — no agent switcher or
-   * status filter, only the сделки / посещено stats, a plain «Оптимизировать маршрут» button. */
-  variant?: "tracking" | "drawer"
+   * status filter, only the сделки / посещено stats, a plain «Оптимизировать маршрут» button.
+   * "plan": Анализ маршрутов → the agent's page (Linko's #/plan/:agentId): `planHeader` on top, the stats in two
+   * groups (сделки … / посещено …), the timeline in two columns around its line. */
+  variant?: "tracking" | "drawer" | "plan"
+  /** The "plan" page's agent card (name, Сумма продаж / план продаж, Данные за). */
+  planHeader?: ReactNode
   employeeId: number
   name: string
   day: TrackingDay | null
@@ -340,9 +344,13 @@ export function AgentDayPanel({
   const base = current?.baseCurrency ?? ""
   const stats = current?.stats
   const drawer = variant === "drawer"
+  const plan = variant === "plan"
 
   return (
-    <div className="relative flex h-full flex-col text-[13px] text-[#333]">
+    <div className={`relative flex flex-col text-[13px] text-[#333] ${plan ? "" : "h-full"}`}>
+      {plan ? (
+        planHeader
+      ) : (
       <header className="flex h-[60px] shrink-0 items-center gap-[10px] border-b border-[#eee] px-[16px]">
         <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-[#d5d9e0] text-white">
           <User className="h-6 w-6" />
@@ -380,9 +388,34 @@ export function AgentDayPanel({
           <X className="h-6 w-6" />
         </button>
       </header>
+      )}
       {filterOpen && <StatusFilterPanel value={status} onApply={onStatus} onClose={() => setFilterOpen(false)} />}
 
-      {drawer ? (
+      {plan ? (
+        // Linko's achieves: сделки (and оплаты) on the left, посещено (and отчеты / доставки / возвраты) on the right;
+        // a figure other than сделки / посещено only when it is not zero.
+        <div className="flex shrink-0 items-center justify-between border-x border-b border-[#e6e6e6] bg-white px-[20px] py-[10px]">
+          <div className="flex items-center">
+            <Stat icon={<Flame className="h-6 w-6" />} value={moneyLines(stats?.orders, base).join(" · ")} caption="сделки" />
+            {(stats?.payments.count ?? 0) > 0 && <Stat icon={<DollarSign className="h-6 w-6" />} value={moneyLines(stats?.payments, base).join(" · ")} caption="оплаты" />}
+          </div>
+          <div className="flex items-center">
+            <Stat
+              icon={<MapPin className="h-6 w-6" />}
+              value={
+                <>
+                  {stats?.done ?? 0} / {stats?.todo ?? 0}
+                  {(stats?.unplanned ?? 0) > 0 && <span className="text-[#ee667d]"> + {stats?.unplanned}</span>}
+                </>
+              }
+              caption="посещено"
+            />
+            {(stats?.reports ?? 0) > 0 && <Stat icon={<ClipboardList className="h-6 w-6" />} value={stats?.reports ?? 0} caption="отчеты" />}
+            {(stats?.deliveries ?? 0) > 0 && <Stat icon={<Truck className="h-6 w-6" />} value={stats?.deliveries ?? 0} caption="доставки" />}
+            {(stats?.returns.count ?? 0) > 0 && <Stat icon={<Undo2 className="h-6 w-6" />} value={moneyLines(stats?.returns, base).join(" · ")} caption="возвраты" />}
+          </div>
+        </div>
+      ) : drawer ? (
         <div className="flex shrink-0 items-center justify-between border-b border-[#eee] px-[20px] py-[10px]">
           <Stat icon={<Flame className="h-6 w-6" />} value={moneyLines(stats?.orders, base).join(" · ")} caption="сделки" />
           <Stat
@@ -432,9 +465,10 @@ export function AgentDayPanel({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        {drawer ? (
+        {drawer || plan ? (
+          // The drawer and the agent's page (Linko's #/plan/:agentId, centred) have a plain button, no menu.
           canManage && (
-            <button type="button" onClick={onOptimize} className="ml-auto flex h-[34px] items-center rounded-[4px] bg-[#536fe1] px-[16px] text-[12px] font-bold text-white">
+            <button type="button" onClick={onOptimize} className={`${plan ? "mx-auto" : "ml-auto"} flex h-[34px] items-center rounded-[4px] bg-[#536fe1] px-[16px] text-[12px] font-bold text-white`}>
               {t("Оптимизировать маршрут")}
             </button>
           )
@@ -500,7 +534,7 @@ export function AgentDayPanel({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-[20px]">
+      <div className={plan ? "pb-[20px]" : "min-h-0 flex-1 overflow-y-auto pb-[20px]"}>
         {error ? (
           <p className="px-[20px] py-[16px] text-center text-[#e53935]">{error}</p>
         ) : !current ? (
@@ -512,6 +546,61 @@ export function AgentDayPanel({
             <p className="-mt-[4px] text-center text-[13px] text-[#777]">
               {current.clients.length === 0 ? t("Для выбранного агента в эту дату не найдено планов") : t("Ничего не найдено")}
             </p>
+          </div>
+        ) : plan ? (
+          // Linko's #/plan/:agentId: the clients in two columns, one after the other, around the day's line. A client on
+          // the right has its ring on the line; one on the left has a dot there and its ring at the far left.
+          <div className="relative mx-[25px] pt-[10px]">
+            <span className="absolute bottom-0 left-1/2 top-0 w-[3px] -translate-x-1/2 bg-[#20abc8]" />
+            {current.truncated && <p className="mb-[8px] text-[12px] text-[#e57373]">{t("Показаны не все события дня")}</p>}
+            {clients.map((client, index) => {
+              const seq = current.clients.indexOf(client) + 1
+              const ring = client.refused ? "#ff5e5e" : client.unplanned ? "#d06000" : "#dde007"
+              const left = index % 2 === 0
+              return (
+                <div key={client.key} className={`relative mb-[9px] flex ${left ? "justify-start" : "justify-end"}`}>
+                  <span
+                    className={`absolute top-[10px] z-10 flex h-[24px] w-[24px] items-center justify-center rounded-full border-[3px] bg-white text-[11px] font-bold ${left ? "-left-[41px]" : "left-1/2 -translate-x-1/2"}`}
+                    style={{ borderColor: client.visited ? ring : "#536fe1" }}
+                  >
+                    {client.visited ? seq : ""}
+                  </span>
+                  {left && <span className="absolute left-1/2 top-[16px] z-10 h-[13px] w-[13px] -translate-x-1/2 rounded-full bg-[#20abc8]" />}
+                  <div className="relative w-[calc(50%-30px)] rounded-[3px] bg-white px-[16px] py-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.18)]">
+                    <span
+                      aria-hidden
+                      className={`absolute top-[16px] h-0 w-0 border-y-[7px] border-y-transparent ${left ? "-right-[7px] border-l-[7px] border-l-white" : "-left-[7px] border-r-[7px] border-r-white"}`}
+                    />
+                    <div className="mb-[4px] flex items-center gap-[8px]">
+                      {canManage && client.clientId !== null && (
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(client.clientId)}
+                          onChange={() => onToggle(client.clientId as number)}
+                          aria-label={client.clientName}
+                          className="h-4 w-4 shrink-0"
+                        />
+                      )}
+                      {client.clientId !== null ? (
+                        <button type="button" onClick={() => actions.onOpenClient(client.clientId as number)} className="min-w-0 truncate text-left text-[15px] font-bold text-[#333] hover:text-[#1E4A9A] hover:underline">
+                          {client.clientName}
+                        </button>
+                      ) : (
+                        <span className="min-w-0 truncate text-[15px] font-bold">{client.clientName || "—"}</span>
+                      )}
+                      {client.locationLocked && <Lock className="h-3.5 w-3.5 shrink-0 text-[#777]" aria-label={t("Локация заблокирована")} />}
+                      {client.visited && <b className="ml-auto shrink-0 text-[13px]">{timeOf(client.firstAt)}</b>}
+                      {client.distanceM !== null && (
+                        <span className={`shrink-0 text-[11px] font-semibold ${client.visited ? "" : "ml-auto"}`} style={{ color: distanceColor(client.distanceM) }}>
+                          {Math.round(client.distanceM)} {t("м.")}
+                        </span>
+                      )}
+                    </div>
+                    <EventLines client={client} day={date} actions={actions} />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         ) : (
           <div className="relative pl-[96px] pr-[16px]">
