@@ -81,7 +81,7 @@ function useUrlState() {
 type TopDialog =
   | { kind: "operation"; state: OperationDialogState }
   | { kind: "transfer" }
-  | { kind: "group" }
+  | { kind: "group"; client?: { id: number; name: string } }
   | { kind: "acceptanceInfo"; id: number }
   | { kind: "acceptanceEdit"; id: number }
 type Panel = "accept" | "requests" | "unverified"
@@ -132,6 +132,14 @@ function CashManagementContent() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [panel, setPanel] = useState<Panel | null>(null)
   const [dialog, setDialog] = useState<TopDialog | null>(null)
+  // Linko's «Добавить оплату» of a client card opens this page with its «Групповой приход» and the client chosen
+  // (?openTransactionGroupCreateDialog=true&initialClient=<id>&initialClientName=<name>).
+  const groupFromUrl = get("openTransactionGroupCreateDialog") === "true"
+  const initialClientId = Math.floor(Number(get("initialClient"))) || 0
+  const initialClientName = get("initialClientName")
+  useEffect(() => {
+    if (groupFromUrl) setDialog({ kind: "group", client: initialClientId ? { id: initialClientId, name: initialClientName } : undefined })
+  }, [groupFromUrl, initialClientId, initialClientName])
   const [popup, setPopup] = useState<DetailsPopup | null>(null)
   const [printing, setPrinting] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<CashOperation | null>(null)
@@ -508,7 +516,11 @@ function CashManagementContent() {
       {dialog?.kind === "group" && (
         <CashGroupIncomeDialog
           cashboxes={writable}
-          onClose={() => setDialog(null)}
+          initialClient={dialog.client}
+          onClose={() => {
+            setDialog(null)
+            if (groupFromUrl) update({ openTransactionGroupCreateDialog: null, initialClient: null, initialClientName: null })
+          }}
           onSaved={() => {
             setDialog(null)
             reloadAll()

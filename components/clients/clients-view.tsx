@@ -1,6 +1,5 @@
 "use client"
 
-import { MoneyInput } from "@/components/ui/money-input"
 import { askDelete } from "@/lib/ask-confirm"
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
@@ -22,7 +21,6 @@ import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import type { ClientVisitPage, ClientVisitRow, FieldRecordPage, FieldRecordRow } from "@/lib/field-activity/record-list-types"
 import type { LanguageCode } from "@/lib/i18n/types"
 import { formatMoney } from "@/lib/finance/currency"
-import { todayIso } from "@/lib/finance/dates"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
@@ -2129,6 +2127,133 @@ type ClientSummary = {
   lastOrder: string | null
   lastPayment: string | null
   daysSinceLastOrder: number | null
+  /** Linko's last_visit_date (a visit, or an order made here without one). */
+  daysSinceLastVisit?: number | null
+  /** The text of the client's latest refusal (Linko's last_reject_comment). */
+  lastRefusalComment?: string | null
+}
+
+const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+/** Linko's «Частота посещения» of a route plan. */
+const VISIT_FREQUENCY: Record<number, string> = { 1: "Раз в неделю", 2: "Раз в 2 недели", 3: "Раз в 3 недели", 4: "Раз в 4 недели" }
+type RoutePlanRow = { id: number; employeeId: number; weekdays: number[]; intervalWeeks: number }
+
+/** «Маршруты» of a client card: its route plans (agent, how often, weekdays), as Linko's market with_plan. */
+function useClientRoutes(clientId: number) {
+  const [rows, setRows] = useState<Array<{ id: number; agent: string; frequency: string; days: string[] }> | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetch(`/api/field-activity/route-plans?clientId=${clientId}`, { cache: "no-store" }).then((response) => (response.ok ? (response.json() as Promise<{ rows: RoutePlanRow[] }>) : { rows: [] })),
+      fetch("/api/employees", { cache: "no-store" }).then((response) => (response.ok ? (response.json() as Promise<Array<{ id: number; firstName?: string; lastName?: string }>>) : [])),
+    ])
+      .then(([plans, employees]) => {
+        if (cancelled) return
+        const names = new Map((Array.isArray(employees) ? employees : []).map((item) => [item.id, `${item.firstName ?? ""} ${item.lastName ?? ""}`.trim()]))
+        setRows(
+          // Linko lists the newest plan first.
+          [...(plans.rows ?? [])].sort((a, b) => b.id - a.id).map((plan) => ({
+            id: plan.id,
+            agent: names.get(plan.employeeId) || `№${plan.employeeId}`,
+            frequency: VISIT_FREQUENCY[plan.intervalWeeks] ?? VISIT_FREQUENCY[1],
+            days: [...plan.weekdays].sort((a, b) => a - b).map((day) => WEEKDAYS[day - 1] ?? String(day)),
+          })),
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setRows([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [clientId])
+  return rows
+}
+
+/** «СОЗДАНИЕ ОТКАЗА» of a client card (Linko's openCreateVisit): «Причина» — a «Тип отказа» or «Своя причина» with its text. */
+function RefusalCreateDialog({ clientId, onClose, onSaved }: { clientId: number; onClose: () => void; onSaved: () => void }) {
+  const { t } = useLanguage()
+  const [types, setTypes] = useState<Array<{ id: number; name: string }> | null>(null)
+  const [choice, setChoice] = useState<number | "own" | null>(null)
+  const [own, setOwn] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/refusal-types", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<Array<{ id: number; name: string }>>) : []))
+      .then((list) => {
+        if (!cancelled) setTypes(Array.isArray(list) ? list : [])
+      })
+      .catch(() => {
+        if (!cancelled) setTypes([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const save = async () => {
+    if (choice === null || (choice === "own" && !own.trim())) return setError(t("Выберите причину"))
+    setSaving(true)
+    setError("")
+    try {
+      const response = await fetch("/api/field-activity/refusals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, refusalTypeId: choice === "own" ? null : choice, comment: choice === "own" ? own.trim() : "" }),
+      })
+      const body = (await response.json().catch(() => null)) as { error?: string } | null
+      if (!response.ok) throw new Error(body?.error || "Не удалось сохранить")
+      onSaved()
+    } catch (reason) {
+      setError(t(reason instanceof Error ? reason.message : String(reason)))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4">
+      <div role="dialog" aria-modal="true" aria-label={t("Создание отказа")} className="flex max-h-full w-full max-w-[500px] flex-col rounded-[2px] bg-white shadow-[0_19px_60px_rgba(0,0,0,0.3),0_15px_20px_rgba(0,0,0,0.22)]">
+        <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] pl-[30px] pr-[20px]">
+          <h2 className="text-[13px] font-bold uppercase text-[#333]">{t("Создание отказа")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#666] hover:text-black">
+            <X className="h-[22px] w-[22px]" />
+          </button>
+        </div>
+        <div className="min-h-0 overflow-y-auto px-[30px] pb-[20px] pt-[38px]">
+          <p className="mb-[6px] text-[13px] font-semibold text-black">{t("Причина")}</p>
+          {types === null ? (
+            <p className="py-6 text-center text-[13px] text-[#999]">{t("Загрузка...")}</p>
+          ) : (
+            <div role="radiogroup" className="flex flex-col">
+              {[...types.map((type) => ({ value: type.id as number | "own", label: type.name })), { value: "own" as const, label: t("Своя причина") }].map((option) => (
+                <label key={String(option.value)} className="flex cursor-pointer items-start gap-[10px] py-[7px] text-[13px] text-black">
+                  <input type="radio" name="refusal-reason" checked={choice === option.value} onChange={() => setChoice(option.value)} className="mt-[1px] h-[18px] w-[18px] shrink-0 accent-[#666]" />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {choice === "own" && (
+            <input
+              autoFocus
+              value={own}
+              onChange={(event) => setOwn(event.target.value)}
+              maxLength={1000}
+              placeholder={`${t("Комментарий")}...`}
+              className="mt-[8px] h-[34px] w-full border-b border-[#e0e0e0] text-[13px] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#1E4A9A]"
+            />
+          )}
+          {error && <p className="mt-3 text-[13px] text-[#e57373]">{error}</p>}
+        </div>
+        <div className="flex h-[56px] shrink-0 items-center justify-end border-t border-[#efefef] px-[10px]">
+          <button type="button" disabled={saving} onClick={() => void save()} className="h-[36px] rounded-[2px] bg-[#71ce87] px-[16px] text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:opacity-50">
+            {t("Сохранить")}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /** Amount + currency code, 2 decimals (formatMoney); no code while it is unknown. */
@@ -2375,17 +2500,15 @@ export function ClientDetail({
     }
   }, [tab, subTab, client.id, client.name, client.createdAt, client.createdBy])
   const [orderOpen, setOrderOpen] = useState(false)
-  const [paymentOpen, setPaymentOpen] = useState(false)
-  const [paymentAmount, setPaymentAmount] = useState("")
-  const [paymentComment, setPaymentComment] = useState("")
-  // The business day (Asia/Tashkent), the day the server's "not after today" rule uses.
-  const [paymentDate, setPaymentDate] = useState(() => todayIso())
-  const [paymentError, setPaymentError] = useState("")
-  const [paymentSaving, setPaymentSaving] = useState(false)
-  const [paymentDone, setPaymentDone] = useState(false)
+  // Linko's «Позвонить» shows the client's numbers; «Отказ» opens «Создание отказа».
+  const [phoneOpen, setPhoneOpen] = useState(false)
+  const [refusalOpen, setRefusalOpen] = useState(false)
+  const [refusalDone, setRefusalDone] = useState(false)
   const [summary, setSummary] = useState<ClientSummary | null>(null)
-  const primaryPhone = client.phone.split(",")[0]?.trim() ?? ""
-  const hasPhone = primaryPhone !== "" && primaryPhone !== "-"
+  const phones = client.phone.split(",").map((phone) => phone.trim()).filter((phone) => phone && phone !== "-")
+  const hasPhone = phones.length > 0
+  const routes = useClientRoutes(client.id)
+  const router = useRouter()
   const periodEnd = new Date()
   const periodStart = new Date(periodEnd)
   periodStart.setDate(periodStart.getDate() - 30)
@@ -2475,40 +2598,59 @@ export function ClientDetail({
               />
               <DetailMetricRow
                 left={{ label: t("Сумма продаж за период (30 дней)"), value: summary ? sumOf("orders") : "…" }}
-                right={{ label: t("Прошло дней с последнего визита"), value: DAYS_SINCE_ANCHOR, red: true }}
+                right={{
+                  label: t("Прошло дней с последнего визита"),
+                  value: summary ? (summary.daysSinceLastVisit === null || summary.daysSinceLastVisit === undefined ? DAYS_SINCE_ANCHOR : String(summary.daysSinceLastVisit)) : "…",
+                  red: summary ? (summary.daysSinceLastVisit ?? Infinity) > 30 : true,
+                }}
                 bordered
               />
               <DetailMetricRow
                 left={{ label: t("Сумма возврата с заказов за период (30 дней)"), value: summary ? sumOf("returns") : "…" }}
-                right={{ label: t("Комментарий отказа"), value: t("Не указан") }}
+                right={{ label: t("Комментарий отказа"), value: summary?.lastRefusalComment || t("Не указан") }}
               />
             </div>
 
             <div className="mt-5 flex gap-[10px]">
-              {!fromActivity && <button
+              {!fromActivity && <span className="relative"><button
                 type="button"
                 disabled={!hasPhone}
-                onClick={() => hasPhone && (window.location.href = `tel:${primaryPhone}`)}
+                aria-expanded={phoneOpen}
+                onClick={() => setPhoneOpen((open) => !open)}
                 className={`${actionButton} bg-[#71ce87]`}
               >
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
                   <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
                 </svg>
                 <span className="pl-2 pr-4">{t("Позвонить")}</span>
-              </button>}
+              </button>
+              {phoneOpen && (
+                <span className="absolute left-[-42px] top-[calc(100%+4px)] z-[20] flex min-w-[168px] flex-col rounded-[2px] bg-white py-[8px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                  {phones.map((phone) => (
+                    <a key={phone} href={`tel:${phone}`} className="whitespace-nowrap px-[20px] py-[10px] text-[13px] text-black hover:bg-[#f5f5f5]">
+                      {phone}
+                    </a>
+                  ))}
+                </span>
+              )}
+              </span>}
               <button type="button" onClick={() => setOrderOpen(true)} className={`${actionButton} bg-[#1E4A9A]`}>
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z" />
                 </svg>
                 <span className="pl-2 pr-4">{t("Заказать")}</span>
               </button>
-              <button type="button" onClick={() => setTab("ОТКАЗЫ")} className={`${actionButton} bg-[#fa8072]`}>
+              <button type="button" onClick={() => setRefusalOpen(true)} className={`${actionButton} bg-[#fa8072]`}>
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" />
                 </svg>
                 <span className="pl-2 pr-4">{t("Отказ")}</span>
               </button>
-              <button type="button" onClick={() => (setPaymentError(""), setPaymentOpen(true))} className={`${actionButton} bg-[#71ce87]`}>
+              <button
+                type="button"
+                onClick={() => router.push(`/analytics/cash-management?openTransactionGroupCreateDialog=true&initialClient=${client.id}&initialClientName=${encodeURIComponent(client.name)}`)}
+                className={`${actionButton} bg-[#71ce87]`}
+              >
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
                   <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
                 </svg>
@@ -2520,82 +2662,21 @@ export function ClientDetail({
               <AddOrderDialog initialShopId={client.id} onClose={() => setOrderOpen(false)} onCreated={() => setOrderOpen(false)} />
             )}
 
-            {paymentOpen && (
-              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
-                <form
-                  onSubmit={async (event) => {
-                    event.preventDefault()
-                    setPaymentError("")
-                    const amount = Number(paymentAmount.replace(/\s/g, "").replace(",", "."))
-                    if (!paymentAmount.trim() || !Number.isFinite(amount) || amount <= 0) return setPaymentError(t("Укажите сумму"))
-                    if (amount > 1e13) return setPaymentError(t("Сумма слишком большая"))
-                    if (!paymentDate) return setPaymentError(t("Укажите дату"))
-                    setPaymentSaving(true)
-                    try {
-                      const response = await fetch("/api/client-payments", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          clientId: client.id,
-                          clientName: client.name,
-                          amount,
-                          comment: paymentComment.trim(),
-                          paymentDate,
-                        }),
-                      })
-                      const body = (await response.json().catch(() => null)) as { error?: string } | null
-                      if (!response.ok) {
-                        setPaymentError(body?.error ? t(body.error) : t("Не удалось добавить оплату"))
-                        return
-                      }
-                      setPaymentDone(true)
-                      setPaymentOpen(false)
-                      setPaymentAmount("")
-                      setPaymentComment("")
-                      loadSummary()
-                      window.setTimeout(() => setPaymentDone(false), 2500)
-                    } catch {
-                      setPaymentError(t("Не удалось добавить оплату"))
-                    } finally {
-                      setPaymentSaving(false)
-                    }
-                  }}
-                  className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
-                >
-                  <div className="mb-5 flex items-center justify-between">
-                    <h3 className="text-lg font-bold">{t("Добавить оплату")}</h3>
-                    <button type="button" onClick={() => setPaymentOpen(false)} aria-label={t("Закрыть")}>
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-                    {t("Сумма")} ({base}) *
-                    <MoneyInput
-                      autoFocus
-                      value={paymentAmount}
-                      onValueChange={(value) => (setPaymentAmount(value), setPaymentError(""))}
-                      className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none"
-                    />
-                  </label>
-                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-                    {t("Дата оплаты")} *
-                    <input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-semibold text-slate-900 outline-none" />
-                  </label>
-                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-                    {t("Комментарий")}
-                    <input value={paymentComment} onChange={(event) => setPaymentComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-semibold text-slate-900 outline-none" />
-                  </label>
-                  <p className="mb-4 text-[12px] text-slate-500">{t("Оплата попадет в «Оплаты от клиентов» как непринятая; примите ее в кассу там.")}</p>
-                  {paymentError && <p className="mb-3 text-[13px] font-semibold text-[#e57373]">{paymentError}</p>}
-                  <button type="submit" disabled={paymentSaving} className="w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white disabled:opacity-50">
-                    {t("Добавить")}
-                  </button>
-                </form>
-              </div>
+            {refusalOpen && (
+              <RefusalCreateDialog
+                clientId={client.id}
+                onClose={() => setRefusalOpen(false)}
+                onSaved={() => {
+                  setRefusalOpen(false)
+                  setRefusalDone(true)
+                  loadSummary()
+                  window.setTimeout(() => setRefusalDone(false), 2500)
+                }}
+              />
             )}
-            {paymentDone && (
+            {refusalDone && (
               <div className="fixed bottom-6 right-6 z-[60] rounded-md bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-xl">
-                {t("Оплата добавлена ✓")}
+                {t("Успешно сохранено")}
               </div>
             )}
 
@@ -2611,6 +2692,16 @@ export function ClientDetail({
                   </svg>
                 </div>
               </div>
+              {/* Linko lists the client's responsible people (its agent, delivery man and collector) with a comment and a price list. */}
+              {[client.agent, client.deliverer, client.collector]
+                .filter((name, index, list) => name && name !== "Не указано" && list.indexOf(name) === index)
+                .map((name) => (
+                  <div key={name} className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
+                    <div className="w-[134px] shrink-0 px-2">{name}</div>
+                    <div className="w-[134px] shrink-0 px-2">-</div>
+                    <div className="flex-1 px-2">-</div>
+                  </div>
+                ))}
 
               <div className="mt-[30px]">
                 <DetailSectionTitle>{t("Маршруты")}</DetailSectionTitle>
@@ -2624,21 +2715,26 @@ export function ClientDetail({
                     </svg>
                   </div>
                 </div>
-                {/* only a client that really has a route is listed: the agent of the client (the visit days are not stored per client) */}
-                {fromActivity && !(client.inRoute && client.agent && client.agent !== "Не указано") && (
+                {fromActivity && routes !== null && routes.length === 0 && (
                   <div className="relative h-[118px]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src="/robot-empty.png" alt="" className="absolute left-1/2 top-[10px] h-[103px] w-[100px] -translate-x-1/2 object-contain" />
                     <div className="absolute inset-x-0 top-[101px] text-center text-[13px] leading-[16.25px] text-[#666]">{t("Маршрут отсутствует")}</div>
                   </div>
                 )}
-                {client.inRoute && client.agent && client.agent !== "Не указано" && (
-                  <div className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
-                    <div className="w-[134px] shrink-0 px-2">{client.agent}</div>
-                    <div className="w-[178.7px] shrink-0 px-2">-</div>
-                    <div className="flex-1 px-2" />
+                {(routes ?? []).map((route) => (
+                  <div key={route.id} className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
+                    <div className="w-[134px] shrink-0 px-2">{route.agent}</div>
+                    <div className="w-[178.7px] shrink-0 px-2">{t(route.frequency)}</div>
+                    <div className="flex flex-1 flex-wrap gap-[8px] px-2">
+                      {route.days.map((day) => (
+                        <span key={day} className="rounded-[2px] bg-[#eeeeee] px-[9px] py-[4px] text-[13px] text-[#333]">
+                          {t(day)}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
 
               <div className={fromActivity ? "mt-[21px] pb-[15px]" : "mt-[21px]"}>

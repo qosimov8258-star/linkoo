@@ -1,7 +1,7 @@
 "use client"
 
 import { MoneyInput } from "@/components/ui/money-input"
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Check, Pencil, Trash2 } from "lucide-react"
 
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
@@ -66,7 +66,18 @@ function importDay(value: unknown): string {
   return ""
 }
 
-export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashboxes: CashboxWithBalance[]; onClose: () => void; onSaved: (count: number) => void }) {
+export function CashGroupIncomeDialog({
+  cashboxes,
+  initialClient,
+  onClose,
+  onSaved,
+}: {
+  cashboxes: CashboxWithBalance[]
+  /** The client the entry line starts with (a client card's «Добавить оплату»). */
+  initialClient?: { id: number; name: string }
+  onClose: () => void
+  onSaved: (count: number) => void
+}) {
   const { t } = useLanguage()
   const { base, rates, codes } = useCashRates()
   const branches = useJsonList<Named>("/api/branches").items
@@ -82,6 +93,13 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
     const preset = cashboxes.find((item) => item.name.trim().toLowerCase() === "naqd")
     return preset ? String(preset.id) : ""
   })
+  // Opened from a client card the page's cashboxes may arrive after the dialog: choose "naqd" then.
+  const [cashboxTouched, setCashboxTouched] = useState(false)
+  useEffect(() => {
+    if (cashboxId || cashboxTouched) return
+    const preset = cashboxes.find((item) => item.name.trim().toLowerCase() === "naqd")
+    if (preset) setCashboxId(String(preset.id))
+  }, [cashboxes, cashboxId, cashboxTouched])
   const [categoryId, setCategoryId] = useState("")
   const [debtCurrency, setDebtCurrency] = useState("")
   const [responsibleId, setResponsibleId] = useState("")
@@ -90,7 +108,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
   const [rate, setRate] = useState({ individualRate: false, customRate: "", debtRate: "" })
   const [rows, setRows] = useState<Row[]>([])
   const [notFounds, setNotFounds] = useState<NotFound[]>([])
-  const [entry, setEntry] = useState({ clientId: "", clientName: "", contractId: "", amount: "", organization: "", date: "", comment: "" })
+  const [entry, setEntry] = useState({ clientId: initialClient ? String(initialClient.id) : "", clientName: initialClient?.name ?? "", contractId: "", amount: "", organization: "", date: "", comment: "" })
   const [entryError, setEntryError] = useState("")
   const [agentOpen, setAgentOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -300,6 +318,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
             <SearchSelect
               value={cashboxId}
               onChange={(value) => {
+                setCashboxTouched(true)
                 setCashboxId(value)
                 setRate({ individualRate: false, customRate: "", debtRate: "" })
               }}

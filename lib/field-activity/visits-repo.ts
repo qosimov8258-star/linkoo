@@ -264,3 +264,55 @@ export async function finishVisit(actor: FieldActor, input: VisitFinishInput): P
   })
   return { visit: (await getVisit(outcome.id))!, finished: outcome.finished }
 }
+
+/**
+ * Linko's «Отказ» of a client card («Создание отказа»), made from the office: a visit of the user who makes it, started
+ * and finished now with result refusal, and its refusal (a «Тип отказа», or «Своя причина» as the comment). It has no
+ * position — the office is not at the client — so the mobile app's coordinate rule does not apply.
+ */
+export async function createOfficeRefusal(
+  actor: FieldActor,
+  input: { clientId: number; refusalTypeId: number | null; comment: string },
+): Promise<{ visitId: number; refusalId: number }> {
+  await ensureFieldSchema()
+  const employeeId = actor.employee.id
+  const at = Date.now()
+  return withTransaction(async (tx) => {
+    await lockEmployee(tx, employeeId)
+    const client = (await tx.prepare("SELECT id, location_lat, location_lng FROM clients WHERE id = ? FOR SHARE").get(input.clientId)) as
+      | { id: number; location_lat: number | null; location_lng: number | null }
+      | undefined
+    if (!client) throw new FieldError(FIELD_MESSAGES.clientNotFound, 400, { field: "clientId" })
+    let reason = ""
+    if (input.refusalTypeId) {
+      const type = (await tx.prepare("SELECT name FROM refusal_types WHERE id = ? FOR SHARE").get(input.refusalTypeId)) as { name: string } | undefined
+      if (!type) throw new FieldError(FIELD_MESSAGES.refusalTypeNotFound, 400, { field: "refusalTypeId" })
+      reason = type.name
+    }
+    const moment = new Date(at).toISOString()
+    const planned = await isPlanned(tx, employeeId, input.clientId, localDay(at))
+    const visit = (await tx
+      .prepare(
+        `INSERT INTO field_visits (client_key, user_id, employee_id, client_id, started_at, finished_at, result, comment, planned, client_lat, client_lng)
+         VALUES (@key, @userId, @employeeId, @clientId, @at::timestamptz, @at::timestamptz, 'refusal', '', @planned, @clientLat, @clientLng)
+         RETURNING id`,
+      )
+      .get({
+        key: `office-${employeeId}-${at}`,
+        userId: actor.user.id,
+        employeeId,
+        clientId: input.clientId,
+        at: moment,
+        planned,
+        clientLat: num(client.location_lat),
+        clientLng: num(client.location_lng),
+      })) as { id: number }
+    const refusal = (await tx
+      .prepare(
+        `INSERT INTO field_refusals (visit_id, user_id, employee_id, client_id, refusal_type_id, reason, comment, happened_at)
+         VALUES (@visitId, @userId, @employeeId, @clientId, @typeId, @reason, @comment, @at::timestamptz) RETURNING id`,
+      )
+      .get({ visitId: visit.id, userId: actor.user.id, employeeId, clientId: input.clientId, typeId: input.refusalTypeId, reason, comment: input.comment, at: moment })) as { id: number }
+    return { visitId: Number(visit.id), refusalId: Number(refusal.id) }
+  })
+}
