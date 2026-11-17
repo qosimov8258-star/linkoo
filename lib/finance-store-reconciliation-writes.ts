@@ -289,6 +289,8 @@ export const correctionSchema = z.object({
   date: z.string().trim().max(40).optional(),
   deliveryMan: z.string().trim().max(200).optional(),
   comment: z.string().trim().max(2000).optional(),
+  /** Linko's «Создал» of an income: the user it is written for (default: who saves it). */
+  createdBy: z.string().trim().max(200).optional(),
 })
 
 export type CorrectionInput = z.infer<typeof correctionSchema>

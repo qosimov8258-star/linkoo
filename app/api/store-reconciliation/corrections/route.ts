@@ -16,7 +16,9 @@ export async function POST(request: Request) {
   if (parsed.error) return parsed.error
 
   try {
-    return NextResponse.json(await createClientCorrection(parsed.data, auth.user.displayName), { status: 201 })
+    // Linko's «Создал» of an income names the user it is written for; an expense is always the saver's.
+    const createdBy = parsed.data.kind !== "expense" && parsed.data.createdBy ? parsed.data.createdBy : auth.user.displayName
+    return NextResponse.json(await createClientCorrection(parsed.data, createdBy), { status: 201 })
   } catch (error) {
     if (error instanceof FinanceInputError) return NextResponse.json({ error: error.message }, { status: error.status })
     // The client-payments lock timing out / the server busy: 409 / 503 JSON, never a 500.
