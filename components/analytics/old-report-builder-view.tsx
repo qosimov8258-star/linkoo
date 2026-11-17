@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
 import * as echarts from "echarts"
-import { Search, X } from "lucide-react"
+import { X } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
@@ -11,6 +11,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import type { BuilderResult } from "@/lib/report-builder-repo"
 import { BuilderPeriod, currentMonthPeriod, isoParam } from "./builder-period"
 import { BuilderNoData, BuilderTable, builderNumber } from "./builder-table"
+import { SaveTableDialog, SavedReportsDialog, periodTypeDates, type PeriodType, type SavedReport } from "./old-report-saved-dialogs"
 
 // Конструктор отчетов (the reference's "old" quick report, #/quick-report): the period, a "Модель" (the report
 // model) and the toolbar panels; every panel applies with ПРИМЕНИТЬ. The models and what the panels of a model list
@@ -445,8 +446,11 @@ export function OldReportBuilderView() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [saveOpen, setSaveOpen] = useState(false)
-  const [saveName, setSaveName] = useState("")
+  const [saving, setSaving] = useState(false)
   const [listOpen, setListOpen] = useState<"reports" | "widgets" | null>(null)
+  /** The saved report opened last: its row is marked in the list. */
+  const [selectedReport, setSelectedReport] = useState<number | null>(null)
+  const closeList = useCallback(() => setListOpen(null), [])
   const toolbarRef = useRef<HTMLDivElement>(null)
   const request = useRef(0)
   const infoRequests = useRef(new Map<string, Promise<ModelInfo | null>>())
@@ -623,31 +627,46 @@ export function OldReportBuilderView() {
       setSnack(t("Заполните данные и сохраните"))
       return
     }
-    setSaveName("")
     setSaveOpen(true)
   }
-  const save = async () => {
-    if (!saveName.trim()) return
+  /** The builder's current settings as a saved report keeps them, with the period kind of the save dialog. */
+  const currentConfig = (periodType: PeriodType) => ({ v: SAVED_VERSION, ...applied, modelName: appliedInfo?.name ?? "", from: period.from, to: period.to, view, periodType })
+  /** «Сохранить» (POST) or «Изменение таблицы» (PUT …/id): Linko's «Успешно сохранено», else its error. */
+  const send = async (url: string, method: "POST" | "PUT", name: string, periodType: PeriodType): Promise<boolean> => {
+    setSaving(true)
     try {
-      const response = await fetch("/api/old-saved-reports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: saveName.trim(), config: { v: SAVED_VERSION, ...applied, modelName: appliedInfo?.name ?? "", from: period.from, to: period.to, view } }),
-      })
-      if (response.ok) {
-        setSaveOpen(false)
-        setSnack(t("Настройки отчета сохранены"))
-      } else {
+      const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, config: currentConfig(periodType), reportType: "table" }) })
+      if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null
         setSnack(t(data?.error || "Не удалось сохранить"))
+        return false
       }
+      setSnack(t("Успешно сохранено"))
+      return true
     } catch {
       setSnack(t("Не удалось сохранить"))
+      return false
+    } finally {
+      setSaving(false)
     }
   }
+  const save = async (name: string, periodType: PeriodType) => {
+    if (await send("/api/old-saved-reports", "POST", name, periodType)) setSaveOpen(false)
+  }
+  const updateSaved = async (id: number, name: string, periodType: PeriodType) => {
+    if (!ready) {
+      setSnack(t("Заполните данные и сохраните"))
+      return false
+    }
+    const done = await send(`/api/old-saved-reports/${id}`, "PUT", name, periodType)
+    if (done) setSelectedReport(id)
+    return done
+  }
 
-  /** Opens a saved report: its model, fields, filters, period and view. */
-  const loadSaved = async (config: unknown) => {
+  /** Opens a saved report (or a template): its model, fields, filters, view and period — the dates it was saved with,
+   * or for a period kind (Сегодня, Вчера, Посл. 7, Месяц) the dates of that kind today, as Linko opens it. */
+  const loadSaved = async (report: SavedReport, pattern: boolean) => {
+    const config = report.config
     const data = (config && typeof config === "object" ? config : {}) as Record<string, unknown>
     const current = data.v === SAVED_VERSION
     // Version 1 kept the model's name.
@@ -690,10 +709,12 @@ export function OldReportBuilderView() {
     }
     setApplied(next)
     setDraft(next)
-    const from = isoParam(typeof data.from === "string" ? data.from : null)
-    const to = isoParam(typeof data.to === "string" ? data.to : null)
+    const kindDates = periodTypeDates(data.periodType)
+    const from = kindDates?.from ?? isoParam(typeof data.from === "string" ? data.from : null)
+    const to = kindDates?.to ?? isoParam(typeof data.to === "string" ? data.to : null)
     if (from && to && from <= to) applyPeriod(from, to)
     setView(typeof data.view === "number" && data.view >= 0 && data.view <= TABLE_VIEW ? data.view : TABLE_VIEW)
+    setSelectedReport(pattern ? null : report.id)
     setListOpen(null)
   }
 
@@ -904,30 +925,22 @@ export function OldReportBuilderView() {
         </section>
       )}
 
-      {saveOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" onMouseDown={() => setSaveOpen(false)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="old-save-title" onMouseDown={(event) => event.stopPropagation()} className="w-full max-w-[520px] rounded-[4px] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b border-[#e8e8e8] px-[30px] py-[20px]">
-              <h2 id="old-save-title" className="text-[14px] font-bold uppercase">{t("СОХРАНИТЬ ТАБЛИЦУ")}</h2>
-              <button type="button" onClick={() => setSaveOpen(false)} aria-label={t("Закрыть")} className="text-[#555] hover:text-black"><X className="h-6 w-6" /></button>
-            </header>
-            <div className="px-[30px] py-[24px]">
-              <label className="block">
-                <span className="mb-2 block text-[13px] font-semibold text-[#555]">{t("Название таблицы")}</span>
-                <input autoFocus value={saveName} onChange={(event) => setSaveName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void save() }} maxLength={255} className="w-full border-0 border-b border-[#d5d5d5] pb-2 text-[14px] outline-none focus:border-[#1E4A9A]" />
-              </label>
-            </div>
-            <footer className="flex justify-end border-t border-[#e8e8e8] px-[30px] py-[16px]">
-              <button type="button" disabled={!saveName.trim()} onClick={() => void save()} className="text-[13px] font-semibold uppercase text-[#1E4A9A] disabled:text-[#bbb]">{t("Сохранить")}</button>
-            </footer>
-          </div>
-        </div>
+      {saveOpen && <SaveTableDialog busy={saving} onClose={() => setSaveOpen(false)} onSave={(name, periodType) => void save(name, periodType)} />}
+
+      {listOpen && (
+        <SavedReportsDialog
+          kind={listOpen}
+          models={models ?? []}
+          selectedId={selectedReport}
+          onClose={closeList}
+          onOpen={(report, pattern) => void loadSaved(report, pattern)}
+          onUpdate={updateSaved}
+          onSnack={setSnack}
+        />
       )}
 
-      {listOpen && <SavedReportsDialog kind={listOpen} models={models ?? []} onClose={() => setListOpen(null)} onOpen={(config) => void loadSaved(config)} />}
-
       {snack && (
-        <div role="status" className="fixed bottom-0 left-1/2 z-[120] min-w-[288px] -translate-x-1/2 rounded-t-[2px] bg-[#333] px-[24px] py-[14px] text-[14px] leading-[20px] text-white shadow-lg">{snack}</div>
+        <div role="status" className="fixed bottom-0 left-1/2 z-[200] min-w-[288px] -translate-x-1/2 rounded-t-[2px] bg-[#333] px-[24px] py-[14px] text-[14px] leading-[20px] text-white shadow-lg">{snack}</div>
       )}
     </ReportPage>
   )
@@ -938,95 +951,5 @@ function FolderStar() {
     <svg viewBox="0 0 24 24" className="h-[20px] w-[20px] fill-white" aria-hidden>
       <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-2.06 11L15 15.28 12.06 17l.78-3.33-2.59-2.24 3.41-.29L15 8l1.34 3.14 3.41.29-2.59 2.24.78 3.33z" />
     </svg>
-  )
-}
-
-type SavedReport = { id: number; name: string; config: unknown }
-
-/** "ОТЧЕТЫ" / "ВИДЖЕТЫ": the saved reports of the builder, full screen, as the reference opens them. */
-function SavedReportsDialog({ kind, models, onClose, onOpen }: { kind: "reports" | "widgets"; models: ModelRef[]; onClose: () => void; onOpen: (config: unknown) => void }) {
-  const { t } = useLanguage()
-  const tabs = kind === "reports"
-    ? ["Мои отчеты", "Отчеты сотрудников", "Все", "Шаблоны отчетов", "Статические виджеты"]
-    : ["Мои виджеты", "Виджеты сотрудников", "Все", "Шаблоны виджетов", "Статические виджеты"]
-  const [tab, setTab] = useState(0)
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(0)
-  const [reports, setReports] = useState<SavedReport[] | null>(null)
-  const PAGE = 25
-
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/old-saved-reports")
-      .then((response) => (response.ok ? (response.json() as Promise<SavedReport[]>) : Promise.reject()))
-      .then((data) => { if (!cancelled) setReports(data) })
-      .catch(() => { if (!cancelled) setReports([]) })
-    return () => { cancelled = true }
-  }, [])
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose() }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
-  // This app keeps the reports of its own users only: "Мои" and "Все" list them, the other tabs have none.
-  const own = tab === 0 || tab === 2
-  const needle = query.trim().toLocaleLowerCase("ru")
-  const list = (own ? reports ?? [] : []).filter((report) => !needle || report.name.toLocaleLowerCase("ru").includes(needle))
-  const pages = Math.max(1, Math.ceil(list.length / PAGE))
-  const current = Math.min(page, pages - 1)
-  const shown = list.slice(current * PAGE, current * PAGE + PAGE)
-  // The model's name: of the list, else the one saved with the report (version 1 saved the name as the model).
-  const modelOf = (report: SavedReport) => {
-    const config = (report.config ?? {}) as { model?: unknown; modelName?: unknown }
-    const model = typeof config.model === "string" ? config.model : ""
-    return models.find((item) => item.key === model)?.name ?? (typeof config.modelName === "string" && config.modelName ? config.modelName : model)
-  }
-  const chartOf = (report: SavedReport) => {
-    const view = (report.config as { view?: unknown } | null)?.view
-    return typeof view === "number" && view >= 0 && view < TABLE_VIEW ? VIEWS[view].name : "Отсутствует"
-  }
-
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="old-reports-title" className="fixed inset-0 z-[110] flex flex-col bg-white">
-      <header className="flex h-[56px] items-center justify-between border-b border-[#e0e0e0] px-[30px]">
-        <h2 id="old-reports-title" className="text-[13px] font-bold uppercase">{t(kind === "reports" ? "ОТЧЕТЫ" : "ВИДЖЕТЫ")}</h2>
-        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#555] hover:text-black"><X className="h-[22px] w-[22px]" /></button>
-      </header>
-      <nav className="grid grid-cols-5 shadow-[0_2px_4px_rgba(0,0,0,0.08)]">
-        {tabs.map((item, index) => (
-          <button key={item} type="button" onClick={() => { setTab(index); setPage(0) }} className={`h-[52px] border-b-[3px] text-[13px] ${tab === index ? "border-[#1E4A9A] text-black" : "border-transparent text-[#333]"}`}>{t(item)}</button>
-        ))}
-      </nav>
-      <div className="flex items-center justify-between border-b border-[#e8e8e8] px-[30px] py-[14px]">
-        <label className="relative w-[275px]">
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} placeholder={t("Поиск таблицы...")} className="h-[32px] w-full border-b border-[#d5d5d5] pr-[30px] text-[13px] outline-none placeholder:text-[#999]" />
-          <Search className="absolute right-[-20px] top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#999]" />
-        </label>
-        <div className="flex items-center gap-[10px] text-[13px] text-[#555]">
-          <span>{list.length ? `${current * PAGE + 1} - ${current * PAGE + shown.length}` : "0 - 0"} {t("из")} {list.length}</span>
-          <button type="button" aria-label={t("Назад")} disabled={current === 0} onClick={() => setPage(current - 1)} className="flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 border-current text-[#777] disabled:text-[#ccc]"><svg viewBox="0 0 24 24" className="h-[12px] w-[12px] fill-current"><path d="M15 6v12l-8-6z" /></svg></button>
-          <button type="button" aria-label={t("Вперед")} disabled={current >= pages - 1} onClick={() => setPage(current + 1)} className="flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 border-current text-[#777] disabled:text-[#ccc]"><svg viewBox="0 0 24 24" className="h-[12px] w-[12px] fill-current"><path d="M9 6v12l8-6z" /></svg></button>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-[1fr_3fr_3fr_2fr_3fr_2fr] items-center border-b border-dotted border-[#bbb] px-[30px] py-[18px] text-center text-[13px] font-bold">
-          <span className="text-left">№</span><span>{t("Название")}</span><span>{t("Модель")}</span><span>{t("Тип")}</span><span>{t("Тип графика")}</span><span />
-        </div>
-        {reports === null && <p className="py-[40px] text-center text-[13px] text-[#999]">{t("Загрузка...")}</p>}
-        {reports !== null && shown.map((report) => (
-          <button key={report.id} type="button" onClick={() => onOpen(report.config)} className="grid w-full grid-cols-[1fr_3fr_3fr_2fr_3fr_2fr] items-center border-b border-dotted border-[#bbb] px-[30px] py-[14px] text-center text-[13px] hover:bg-[#f5f5f5]">
-            <span className="text-left">{report.id}</span>
-            <span>{report.name}</span>
-            <span>{modelOf(report) ? t(modelOf(report)) : ""}</span>
-            <span>{t("Таблица")}</span>
-            <span>{t(chartOf(report))}</span>
-            <span />
-          </button>
-        ))}
-        {reports !== null && shown.length === 0 && <p className="py-[40px] text-center text-[13px] text-[#999]">{t("По вашему запросу ничего не найдено")}</p>}
-      </div>
-    </div>
   )
 }

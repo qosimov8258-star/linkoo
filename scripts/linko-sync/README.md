@@ -44,6 +44,10 @@ the importers at another database of the same server; a remote host is refused u
   over its good units, null while pending) and its own `total_raw_cost` (which also counts raw material it no longer
   lists). `import-party-costs.mjs` keeps them in `linko_party_costs`; the batch detail of a copied batch shows them and
   its lines as booked, while the app's own batches follow the cost ledger. The ledgers are not touched.
+- **Конструктор отчетов → Отчеты / Виджеты**: the saved reports (`report_configs` + its detail list: who sees each one),
+  Linko's templates (`report_patterns`) and static widgets (`static_widgets` + detail); `import-report-details.mjs`
+  writes them to `old_saved_reports` (with `users` / `positions` / `view_type`), `old_report_patterns` and
+  `old_static_widgets`. Linko's position ids are the access rights' ids.
 - **Stock without a document** (balances loaded by Linko's 1C integration into the "Ожидается синхронизация: …"
   warehouses, equipment issued from a warehouse, a few corrections): production movements of direction `adjust`
   marked "Linko: …" (the ledger's "Прочие" column), so every product's balance in every warehouse equals Linko's.
