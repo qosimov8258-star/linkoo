@@ -4,6 +4,7 @@ import { Info } from "lucide-react"
 
 import { inputClass } from "@/components/analytics/cash-management-shared"
 import { BlueButton, CircleButton, CreateLink, SelectField, TextField, Toggle } from "@/components/products/catalog-form-ui"
+import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Field arrays of the product form: barcodes (demo module 3938), prices (2356) and box
@@ -150,6 +151,17 @@ export function PricesEditor({
   const names = [...new Set([...priceLists.map((entry) => entry.name), ...value.map((entry) => entry.name).filter(Boolean)])]
   const update = (index: number, patch: Partial<PriceDraft>) => onChange(value.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)))
   const currencyOptions = (current: string) => [...new Set([current, ...currencies].filter(Boolean))]
+  // The selects show each currency by its name of Валюты (a code like "01" reads as SUM); two currencies of the same
+  // name show their codes too, so a pick always maps back to one code.
+  const labelsOf = (codes: string[]) => {
+    const names = codes.map((code) => currencyLabel(code))
+    return codes.map((code, i) => (names.filter((name) => name === names[i]).length > 1 && names[i] !== code ? `${names[i]} (${code})` : names[i]))
+  }
+  const currencySelect = (current: string, onPick: (code: string) => void) => {
+    const codes = currencyOptions(current)
+    const labels = labelsOf(codes)
+    return { value: current ? labels[codes.indexOf(current)] : "", options: labels, onChange: (label: string) => onPick(codes[labels.indexOf(label)] ?? label) }
+  }
   return (
     <div className="mt-[14px]">
       {value.map((entry, index) => {
@@ -197,9 +209,7 @@ export function PricesEditor({
               />
               <SelectField
                 label={t("Валюта")}
-                value={cashCurrency}
-                options={currencyOptions(cashCurrency)}
-                onChange={(currency) => update(index, { currency, ...(nonCashCurrency === cashCurrency ? { nonCashCurrency: currency } : {}) })}
+                {...currencySelect(cashCurrency, (currency) => update(index, { currency, ...(nonCashCurrency === cashCurrency ? { nonCashCurrency: currency } : {}) }))}
                 className="ml-[10px] mt-4 w-[215px]"
               />
             </div>
@@ -207,9 +217,7 @@ export function PricesEditor({
               <TextField label={t("Цена безналичные")} numeric value={entry.nonCash} onChange={(nonCash) => update(index, { nonCash })} className="w-[215px]" />
               <SelectField
                 label={t("Валюта")}
-                value={nonCashCurrency}
-                options={currencyOptions(nonCashCurrency)}
-                onChange={(next) => update(index, { nonCashCurrency: next })}
+                {...currencySelect(nonCashCurrency, (next) => update(index, { nonCashCurrency: next }))}
                 className="ml-[10px] mt-4 w-[215px]"
               />
             </div>

@@ -97,16 +97,39 @@ function escapeRegExp(text: string): string {
 }
 
 /** Stored codes and spellings printed as they are (amount strings like "1 000 SUM", "Сумма (SUM)" literals,
- * option texts), the default shown names (SOM, ЕВРО) and every code of Валюты. Whole words only and
- * case-sensitive, so "SUMMARY" or "sum" are untouched. */
+ * option texts), the default shown names (SOM, ЕВРО) and every code of Валюты that has a letter. Whole words only
+ * and case-sensitive, so "SUMMARY" or "sum" are untouched. */
 function storedNames(): RegExp {
   if (namesPattern) return namesPattern
-  // A code of Валюты without a letter ("01", "02") is left out: as a whole word it would turn every "01" of the screen
-  // (a date, a number, a name like "01. …") into the currency's name.
+  // A code of Валюты without a letter ("01", "02") is not matched as a plain word: it would turn every "01" of the
+  // screen (a date, a number, a name like "01. …") into the currency's name. See numericCodePatterns.
   const words = new Set(["SUM", "SOM", "USD", "EURO", "EUR", "Euro", "ЕВРО", ...Object.keys(customLabels).filter((code) => /\p{L}/u.test(code))])
   const alternatives = [...words].filter(Boolean).sort((a, b) => b.length - a.length).map(escapeRegExp).join("|")
   namesPattern = new RegExp(`(?<![\\p{L}\\p{N}_'’])(${alternatives})(?![\\p{L}\\p{N}_'’])`, "gu")
   return namesPattern
+}
+
+/** An amount as the app prints it ("3 200", "1 234 567,5", "-8 156", "0.45"). */
+const PRINTED_AMOUNT = String.raw`[-−]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)`
+
+let numericPatterns: { key: string; afterAmount: RegExp; inParens: RegExp; alone: RegExp } | null = null
+
+/** Codes of Валюты without a letter ("01") are replaced only where they stand for a currency: right after an amount
+ * ("3 200 01" — not after a run of digit groups like a phone number's "45 01"), alone in parentheses ("Цена (01)"),
+ * or as the whole text of an element (a select, a currency cell). */
+function numericCodePatterns(): typeof numericPatterns {
+  const codes = Object.keys(customLabels).filter((code) => !/\p{L}/u.test(code))
+  if (!codes.length) return null
+  const key = codes.join("|")
+  if (numericPatterns?.key === key) return numericPatterns
+  const alternatives = codes.sort((a, b) => b.length - a.length).map(escapeRegExp).join("|")
+  numericPatterns = {
+    key,
+    afterAmount: new RegExp(`(?<![\\p{L}\\p{N}_.,:/])(?<!\\p{N}[ \\u00a0\\u202f])(${PRINTED_AMOUNT})([ \\u00a0\\u202f])(${alternatives})(?![\\p{L}\\p{N}_.,:/-])`, "gu"),
+    inParens: new RegExp(`\\((${alternatives})\\)`, "gu"),
+    alone: new RegExp(`^(\\s*)(${alternatives})(\\s*)$`, "u"),
+  }
+  return numericPatterns
 }
 
 /** Text with the stored currency names replaced by the shown ones of Валюты ("100 SUM" → "100 SOM",
@@ -114,11 +137,21 @@ function storedNames(): RegExp {
  * entry for the euro's name: EVRO, EURO …). Used by the DOM pass of lib/i18n/dom-translator.tsx for every
  * screen and by the Excel export. */
 export function showCurrencyNames(text: string, euro = currencyLabel("EUR")): string {
+  let out = text
   const pattern = storedNames()
   pattern.lastIndex = 0
-  if (!pattern.test(text)) return text
-  pattern.lastIndex = 0
-  return text.replace(pattern, (name) => (normCurrency(name) === "EUR" ? euro : currencyLabel(name)))
+  if (pattern.test(out)) {
+    pattern.lastIndex = 0
+    out = out.replace(pattern, (name) => (normCurrency(name) === "EUR" ? euro : currencyLabel(name)))
+  }
+  const numeric = numericCodePatterns()
+  if (numeric) {
+    out = out
+      .replace(numeric.afterAmount, (_match, amount: string, space: string, code: string) => `${amount}${space}${currencyLabel(code)}`)
+      .replace(numeric.inParens, (_match, code: string) => `(${currencyLabel(code)})`)
+      .replace(numeric.alone, (_match, before: string, code: string, after: string) => `${before}${currencyLabel(code)}${after}`)
+  }
+  return out
 }
 
 /** Lower-case code used by the older *_balance_transactions ledgers (sum/usd/eur). */
