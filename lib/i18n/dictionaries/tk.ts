@@ -6838,4 +6838,5 @@ export const tk: Record<string, string> = {
   "Вы уверены": "Ynanýarsyňyzmy",
   "Данные успешно объединены": "Maglumatlar üstünlikli birleşdirildi",
   "Все данные выбранных клиентов будут переписаны на имя клиента": "Saýlanan müşderileriň ähli maglumatlary şu müşderiniň adyna geçiriler",
+  "У этого типа есть подкатегории, поэтому его нельзя вложить в другой тип": "Bu görnüşiň öz kiçi kategoriýalary bar, şonuň üçin ony başga görnüşiň içine goýup bolmaýar",
 }

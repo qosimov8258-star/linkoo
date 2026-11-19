@@ -142,8 +142,13 @@ export function ProductTypeFormDialog({ typeId, onClose, onSaved }: { typeId: nu
               loading={types.loading}
               invalid={Boolean(fieldError("parent"))}
             />
-            {hasChildren && <span className="text-[12px] text-[#9aa3b6]">{t("Тип с подкатегориями не может быть подкатегорией")}</span>}
           </Field>
+          {/* Under the field (not inside its fixed-height box, where it ran over the next label). */}
+          {hasChildren && (
+            <p className="mb-[12px] mt-[6px] text-[12px] leading-[15px] text-[#7a8499]">
+              {t("У этого типа есть подкатегории, поэтому его нельзя вложить в другой тип")}
+            </p>
+          )}
           <Field label={t("Наименование категории")} filled={Boolean(draft.name)} required error={fieldError("name")}>
             <input
               autoFocus

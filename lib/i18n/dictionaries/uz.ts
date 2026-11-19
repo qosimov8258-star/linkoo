@@ -6821,4 +6821,5 @@ export const uz: Record<string, string> = {
   "Вы уверены": "Ishonchingiz komilmi",
   "Данные успешно объединены": "Ma'lumotlar muvaffaqiyatli birlashtirildi",
   "Все данные выбранных клиентов будут переписаны на имя клиента": "Tanlangan mijozlarning barcha ma'lumotlari quyidagi mijoz nomiga o'tkaziladi",
+  "У этого типа есть подкатегории, поэтому его нельзя вложить в другой тип": "Bu turning o'z subkategoriyalari bor, shuning uchun uni boshqa turning ichiga qo'yib bo'lmaydi",
 }

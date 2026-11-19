@@ -254,6 +254,8 @@ export function sortNodes<T extends { id: number; name: string; organization?: s
     if (field === "name") result = compareNames(a.name, b.name)
     else if (field === "division") result = compareNames(a.organization ?? "", b.organization ?? "")
     else if (field === "created_date") result = a.createdAt.localeCompare(b.createdAt)
+    // Порядок: the numbered ones first, ascending; the ones without a number (0) after them, by name.
+    else if (field === "position") result = (a.position || Number.MAX_SAFE_INTEGER) - (b.position || Number.MAX_SAFE_INTEGER) || compareNames(a.name, b.name)
     else result = (a.position ?? 0) - (b.position ?? 0) || compareNames(a.name, b.name)
     return result * direction || (a.id - b.id) * direction
   })

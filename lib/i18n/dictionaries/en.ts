@@ -6839,4 +6839,5 @@ export const en: Record<string, string> = {
   "Вы уверены": "Are you sure",
   "Данные успешно объединены": "Data merged successfully",
   "Все данные выбранных клиентов будут переписаны на имя клиента": "All data of the selected clients will be transferred to the client",
+  "У этого типа есть подкатегории, поэтому его нельзя вложить в другой тип": "This type has subcategories, so it cannot be put inside another type",
 }
