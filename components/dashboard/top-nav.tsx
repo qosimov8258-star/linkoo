@@ -240,6 +240,15 @@ export function navSectionLabel(pathname: string): string | null {
   return isAnalytics ? "Аналитика" : null
 }
 
+/**
+ * Top-nav tab lit for a page: the menu the page's link sits in (Склад for every page of the Склад menu, Финансы for
+ * its balances …), else navSectionLabel (the dashboard and the reports → Аналитика; settings pages → none).
+ */
+export function navTabLabel(pathname: string): string | null {
+  const menu = [...navItems].reverse().find((item) => item.label !== "Аналитика" && item.matches(pathname))
+  return menu?.label ?? navSectionLabel(pathname)
+}
+
 /** Branch picked in the account menu: `linko-branch` (id, read by the API) + `linko-branch-name` (label of the menu button). */
 function writeBranchCookies(id: number | undefined, name: string) {
   const maxAge = id ? 60 * 60 * 24 * 365 : 0
@@ -298,7 +307,8 @@ export function TopNav() {
   const menuWrapperRef = useRef<HTMLDivElement>(null)
   const [menuLeft, setMenuLeft] = useState(0)
 
-  const activeItem = [...navItems].reverse().find((item) => item.matches(pathname))
+  // The section of the page shown (Склад for Остаток, Перемещения …): its tab stays lit in a lighter blue.
+  const currentSection = navTabLabel(pathname)
   const desktopMenu = navItems.find((item) => item.label === openMenu)
 
   // Each mega-menu has its own natural width, so it can't be positioned with
@@ -496,6 +506,7 @@ export function TopNav() {
         <nav ref={navRef} className="ml-[91px] min-[1440px]:ml-[calc(50vw-697.87px)] max-[1439px]:ml-[max(20px,calc(50vw-582.37px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
           {navItems.map(({ label }) => {
             const isOpen = openMenu === label
+            const isCurrent = label === currentSection
 
             return (
               <button
@@ -516,10 +527,13 @@ export function TopNav() {
                 onFocus={() => setOpenMenu(label)}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
+                aria-current={isCurrent ? "location" : undefined}
                 className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
                     ? "bg-[#1E4A9A] shadow-[inset_0_-3px_0_#C9962B] hover:bg-[#1E4A9A]"
-                    : "hover:bg-[#17346B]"
+                    : isCurrent
+                      ? "bg-[#1E4A9A] hover:bg-[#2456AE]"
+                      : "hover:bg-[#17346B]"
                 } focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -662,7 +676,7 @@ export function TopNav() {
                     onClick={() => setMobileSection((current) => (current === label ? null : label))}
                     aria-expanded={expanded}
                     className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-semibold transition-colors ${
-                      activeItem?.label === label ? "bg-[#1E4A9A]" : "hover:bg-white/10"
+                      currentSection === label ? "bg-[#1E4A9A]" : "hover:bg-white/10"
                     } focus-visible:outline-2 focus-visible:outline-white`}
                   >
                     <Icon className="h-5 w-5" />
