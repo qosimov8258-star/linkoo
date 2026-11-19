@@ -27,8 +27,13 @@ export type BranchOption = { id: number; name: string }
 /** The detail list shows every movement regardless of the page period (demo itemFilterSerializer has no dates). */
 const ALL_TIME = { from: "1970-01-01", to: "2999-12-31" }
 
-/** Plain text of the demo "Описание" cell: "Передача склада (Передача № 12)", "Нет типа (comment)". */
+/** An «Отгрузка» leg (a production shift session handed over to a warehouse, lib/finance/sources.ts transferLeg):
+ * its number is the session's, not a transfer's, so it reads «Отгрузка № 6» and links to the plan detail. */
+const SHIPMENT_TITLE = "Отгрузка"
+
+/** Plain text of the demo "Описание" cell: "Передача склада (Передача № 12)", "Отгрузка № 6", "Нет типа (comment)". */
 export function branchStatementText(row: StatementRow, t: Translate): string {
+  if (row.docNumber && row.title === SHIPMENT_TITLE) return `${t(SHIPMENT_TITLE)} № ${row.docNumber}`
   if (row.docNumber) return `${t(row.title)} (${t("Передача")} № ${row.docNumber})`
   const details = [row.description, row.comment].filter(Boolean).join(", ")
   return details ? `${t(row.title)} (${details})` : t(row.title)
@@ -37,6 +42,20 @@ export function branchStatementText(row: StatementRow, t: Translate): string {
 function BranchStatementDescription({ row }: { row: StatementRow }) {
   const { t } = useLanguage()
   if (!row.docNumber) return <span>{branchStatementText(row, t)}</span>
+  if (row.title === SHIPMENT_TITLE) {
+    const shipment = branchStatementText(row, t)
+    return (
+      <span title={row.description || undefined}>
+        {row.href ? (
+          <Link href={row.href} className="font-semibold text-[#129fdd] hover:underline">
+            {shipment}
+          </Link>
+        ) : (
+          <span className="font-semibold">{shipment}</span>
+        )}
+      </span>
+    )
+  }
   const label = `${t("Передача")} № ${row.docNumber}`
   return (
     <span title={row.description || undefined}>

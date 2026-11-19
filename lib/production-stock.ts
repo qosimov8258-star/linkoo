@@ -3,7 +3,7 @@ import "server-only"
 import type { PgDb } from "@/lib/db"
 import { docYearOk } from "@/lib/document-dates"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
-import { lockWarehouseStock, shortageMessage, warehouseStock } from "@/lib/internal-transfers-stock"
+import { lockWarehouseStock, warehouseStock } from "@/lib/internal-transfers-stock"
 import type { StockShortage } from "@/lib/internal-transfers-types"
 import { itemKey, ProductionError, textKey, type ItemKind } from "@/lib/production-schema"
 import { getItemCosts } from "@/lib/stock/costs"
@@ -23,22 +23,20 @@ import { getStockBalances } from "@/lib/stock/ledger"
 //               exactly what transfers and write-offs check;
 //   cost      = the ONE cost of goods (lib/stock/costs.ts) at the end of the day.
 
-export type CatalogItem = { key: string; kind: ItemKind; id: number; name: string; unit: string; type: string }
+/** `code`: the item's article ('' without one): with the type, it tells apart items of the same name in a picker. */
+export type CatalogItem = { key: string; kind: ItemKind; id: number; name: string; unit: string; type: string; code?: string }
 export type StockItem = CatalogItem & {
   /** What can be consumed / moved out (see above). */
   available: number
   /** On hand at the end of the day, defective units included (what a count finds). */
   onHand: number
-  /** Defective units (production brak) included in onHand. */
+  /** Defective units (brak) included in onHand. */
   stockDefects: number
-  /** "Брак" of the pickers: everything booked as defective here by batches that were not cancelled. */
+  /** «Браковано» of the pickers: the defective units on hand (= stockDefects), as the reference's stock
+   * balances show them. Spoiled raw already used up and a batch's defective output (never in the
+   * warehouse) are not stock, so they are not counted. */
   defects: number
   cost: number
-}
-
-function num(value: unknown) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : 0
 }
 
 const round6 = (value: number) => {
@@ -48,13 +46,17 @@ const round6 = (value: number) => {
 
 const RAW_NOT_DELETED = "COALESCE(to_jsonb(raw_materials)->>'deleted', '0') = '0'"
 
+type CatalogRow = { id: number; name: string; unit: string; type: string; code: string | null }
+
+/** Every product, then every raw material (each by name): like the reference, whose pickers list products only,
+ * a product comes before a raw material of the same name (the raw-materials catalog is Mezon's own). */
 export async function listCatalog(db: PgDb): Promise<CatalogItem[]> {
-  const products = (await db.prepare("SELECT id, name, unit, type FROM products WHERE deleted = 0 ORDER BY name").all()) as Array<{ id: number; name: string; unit: string; type: string }>
-  const rawMaterials = (await db.prepare(`SELECT id, name, unit, type FROM raw_materials WHERE ${RAW_NOT_DELETED} ORDER BY name`).all()) as Array<{ id: number; name: string; unit: string; type: string }>
-  return [
-    ...rawMaterials.map((row) => ({ key: itemKey("raw_material", row.id), kind: "raw_material" as const, id: row.id, name: row.name, unit: row.unit, type: row.type })),
-    ...products.map((row) => ({ key: itemKey("product", row.id), kind: "product" as const, id: row.id, name: row.name, unit: row.unit, type: row.type })),
-  ]
+  const products = (await db.prepare("SELECT id, name, unit, type, COALESCE(article, '') AS code FROM products WHERE deleted = 0 ORDER BY name").all()) as CatalogRow[]
+  const rawMaterials = (await db
+    .prepare(`SELECT id, name, unit, type, COALESCE(article, '') AS code FROM raw_materials WHERE ${RAW_NOT_DELETED} ORDER BY name`)
+    .all()) as CatalogRow[]
+  const toItem = (kind: ItemKind, row: CatalogRow): CatalogItem => ({ key: itemKey(kind, row.id), kind, id: row.id, name: row.name, unit: row.unit, type: row.type, code: String(row.code ?? "") })
+  return [...products.map((row) => toItem("product", row)), ...rawMaterials.map((row) => toItem("raw_material", row))]
 }
 
 /** A product / raw material that can be used in new records (deleted ones are not). */
@@ -119,42 +121,20 @@ export async function warehouseOnHand(db: PgDb, warehouse: string, day: string):
  * the raw-material pickers and of the "Сверить" dialog. */
 export async function listWarehouseItems(db: PgDb, warehouse: string, day = todayIso()): Promise<StockItem[]> {
   const hasWarehouse = Boolean(textKey(warehouse))
-  const [catalog, stock, onHand, costs, defects] = await Promise.all([
+  const [catalog, stock, onHand, costs] = await Promise.all([
     listCatalog(db),
     hasWarehouse ? warehouseStock(warehouse, day, db) : Promise.resolve(new Map()),
     hasWarehouse ? warehouseOnHand(db, warehouse, day) : Promise.resolve(new Map<string, { qty: number; defects: number }>()),
     getItemCosts({ date: day }, db),
-    hasWarehouse ? defectTotals(db, warehouse) : Promise.resolve(new Map<string, number>()),
   ])
   return catalog.map((item) => ({
     ...item,
     available: stock.get(item.key)?.available ?? 0,
     onHand: onHand.get(item.key)?.qty ?? 0,
     stockDefects: onHand.get(item.key)?.defects ?? 0,
-    defects: defects.get(item.key) ?? 0,
+    defects: onHand.get(item.key)?.defects ?? 0,
     cost: round6(costs.get(item.key) ?? 0),
   }))
-}
-
-/** "Брак" shown in the pickers: every defect booked in the warehouse (output
- * and raw material) by batches that were not cancelled. */
-async function defectTotals(db: PgDb, warehouse: string) {
-  const rows = (await db
-    .prepare(
-      `SELECT m.warehouse, m.item_kind, m.item_id, SUM(m.amount) AS total
-       FROM production_movements m LEFT JOIN production_parties p ON p.id = m.party_id
-       WHERE m.is_defect = 1 AND (p.id IS NULL OR p.status <> 'cancelled')
-       GROUP BY m.warehouse, m.item_kind, m.item_id`,
-    )
-    .all()) as Array<{ warehouse: string; item_kind: string; item_id: number; total: number }>
-  const wanted = textKey(warehouse)
-  const totals = new Map<string, number>()
-  for (const row of rows) {
-    if (textKey(row.warehouse) !== wanted) continue
-    const key = itemKey(row.item_kind, row.item_id)
-    totals.set(key, round6((totals.get(key) ?? 0) + num(row.total)))
-  }
-  return totals
 }
 
 /** Unit cost per item key at the end of `day` (the shared cost of goods). */
@@ -207,6 +187,18 @@ export async function ensureAvailable(tx: PgDb, warehouse: string, needs: StockN
         })
       }
     }
-    if (shortages.length) throw new ProductionError(409, `${prefix}${shortageMessage(warehouse, shortages)}`, { shortages, date: day })
+    if (shortages.length) throw new ProductionError(409, `${prefix}${productionShortageMessage(warehouse, shortages)}`, { shortages, date: day })
   }
+}
+
+/** A production stock refusal in the reference's own words: "toshkent suv недостаточно на складе Сырьё Склад.
+ * Доступно: 39.50, необходимо: 40" (Доступно with two decimals, as there), several items joined by "; " (the first
+ * five, then "… (+N)"). lib/i18n/translate.ts translates the fixed words; names and quantities are data. */
+export function productionShortageMessage(warehouse: string, shortages: StockShortage[]): string {
+  // The fixed words are dictionary keys of their own (the translation fills them in, lib/i18n/translate.ts).
+  const [short, available, required] = ["недостаточно на складе", "Доступно", "необходимо"]
+  const parts = shortages
+    .slice(0, 5)
+    .map((shortage) => `${shortage.product} ${short} ${warehouse.trim()}. ${available}: ${Math.max(0, shortage.available).toFixed(2)}, ${required}: ${round6(shortage.required)}`)
+  return `${parts.join("; ")}${shortages.length > 5 ? `; … (+${shortages.length - 5})` : ""}`
 }

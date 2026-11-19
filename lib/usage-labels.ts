@@ -112,6 +112,7 @@ const LABELS: Record<string, string> = {
   production_parties: "Партии",
   production_recipe_items: "Рецепты",
   production_recipes: "Рецепты",
+  production_shift_sessions: "Смены работников",
   production_staff: "Сотрудники производства",
   production_stages: "Этапы производства",
   products: "Продукты",

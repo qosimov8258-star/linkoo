@@ -256,13 +256,24 @@ const IT = "internal_transfers"
  * the given_at / accepted_at columns fall back to the document dates (the
  * planned «Дата доставки» only for the receiver, as the stock core does).
  * `side` = the warehouse column of the entity: "from" = sender, "to" = receiver. */
-function transferLeg(ctx: SourceContext, side: "from" | "to"): { ts: string; where: string } {
+function transferLeg(ctx: SourceContext, side: "from" | "to"): { ts: string; where: string; title: string; doc: string; href: string } {
   const local = (column: string) => (ctx.s.col(IT, column) ? [`fin_ts(t.${column})`] : [])
   const moments =
     side === "from"
       ? [...local("given_at"), ...local("created_at_label"), utcTs("t.created_at")]
       : [...local("accepted_at"), ...local("delivered_at"), ...local("created_at_label"), utcTs("t.created_at")]
-  return { ts: ts(...moments), where: side === "from" ? "t.status IN ('в пути', 'принят')" : "t.status = 'принят'" }
+  // An «Отгрузка» (source 'shipment': a production shift session's output handed over to a warehouse, lib/production-
+  // sessions-repo.ts) moves the goods like a transfer, so its value still reaches the branches / the van it crosses;
+  // but it is no «Передача склада»: it is titled «Отгрузка», numbered by its session and opens in План приемок.
+  const leg = { ts: ts(...moments), where: side === "from" ? "t.status IN ('в пути', 'принят')" : "t.status = 'принят'" }
+  if (!(ctx.s.col(IT, "source") && ctx.s.col(IT, "source_id"))) return { ...leg, title: "'Передача склада'", doc: "t.id::text", href: "'/analytics/internal-transfers'" }
+  const shipment = "COALESCE(t.source, '') = 'shipment'"
+  return {
+    ...leg,
+    title: `CASE WHEN ${shipment} THEN 'Отгрузка' ELSE 'Передача склада' END`,
+    doc: `CASE WHEN ${shipment} THEN t.source_id::text ELSE t.id::text END`,
+    href: `CASE WHEN ${shipment} THEN '/analytics/receipt-transfer-plan?tab=' || CASE WHEN t.status = 'принят' THEN 'receive_history' ELSE 'receive' END || '&id=shipment-' || t.source_id ELSE '/analytics/internal-transfers' END`,
+  }
 }
 
 /** Currency of an internal transfer's amount `t.amount`, with the join it needs
@@ -960,12 +971,12 @@ function vansellSources(ctx: SourceContext): string[] {
           org: "fin_place(t.organization)",
           src: "'internal_transfer'",
           src_id: "t.id",
-          title: "'Передача склада'",
-          doc: "t.id::text",
+          title: leg.title,
+          doc: leg.doc,
           descr: "t.from_warehouse || ' → ' || t.to_warehouse",
           cmt: "t.comment",
           cby: "t.created_by",
-          href: "'/analytics/internal-transfers'",
+          href: leg.href,
         },
         `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) JOIN emp_keys ek ON ek.k = w.manager_k
          LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse) ${currency.join}
@@ -1055,12 +1066,12 @@ function branchSources(ctx: SourceContext): string[] {
           org: "fin_place(t.organization)",
           src: "'internal_transfer'",
           src_id: "t.id",
-          title: "'Передача склада'",
-          doc: "t.id::text",
+          title: leg.title,
+          doc: leg.doc,
           descr: "t.from_warehouse || ' → ' || t.to_warehouse",
           cmt: "t.comment",
           cby: "t.created_by",
-          href: "'/analytics/internal-transfers'",
+          href: leg.href,
         },
         `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse) ${currency.join}
          WHERE ${leg.where} AND w.branch_id IS NOT NULL AND w2.branch_id IS DISTINCT FROM w.branch_id${afterHistory(ctx, "branch", leg.ts)}`,

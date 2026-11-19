@@ -10,6 +10,20 @@ type ExcelOptions = {
   merges?: string[]
   /** Column widths in characters, one entry per column from the first (shorter lists leave the rest at the default). */
   widths?: number[]
+  /** Name of the sheet (default "Sheet1"); the reference names it like the file («Производственные заявки»). */
+  sheetName?: string
+}
+
+/** A sheet name Excel accepts: at most 31 characters, none of \ / ? * [ ] :, no apostrophe at either end. */
+function sheetTitle(name: string | undefined): string {
+  const cleaned = String(name ?? "")
+    .replace(/[\\/?*[\]:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^'+|'+$/g, "")
+    .slice(0, 31)
+    .trim()
+  return cleaned || "Sheet1"
 }
 
 /** Downloads a genuine .xlsx workbook (no server round-trip required). Texts print currencies
@@ -26,7 +40,7 @@ export function downloadExcelTable(fileName: string, rows: ExcelCell[][], option
   worksheet["!cols"] = options.widths ? options.widths.map((wch) => ({ wch })) : columnWidths(data)
   if (options.merges) worksheet["!merges"] = options.merges.map((range) => XLSX.utils.decode_range(range))
   const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1")
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetTitle(options.sheetName))
   const baseName = fileName.replace(/\.(xlsx|xls)$/i, "")
   XLSX.writeFile(workbook, `${baseName}.xlsx`, { bookType: "xlsx" })
 }

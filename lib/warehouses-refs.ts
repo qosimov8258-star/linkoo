@@ -53,6 +53,9 @@ const TABLE_LABELS: Record<string, string> = {
   supplier_returns: "Возврат поставщику",
   write_offs: "Списание",
   internal_transfers: "Передачи между складами",
+  // Not a table: the «Отгрузка» documents among internal_transfers (source 'shipment', a production shift session's
+  // output handed over, lib/production-sessions-repo.ts), counted on their own (warehouseUsage).
+  production_shipment: "Отгрузка",
   production_stages: "Этапы производства",
   production_movements: "Производство",
   production_inventories: "Инвентаризация производства",
@@ -110,11 +113,20 @@ export async function warehouseUsage(db: PgDb, warehouse: { id: number; name: st
   const usage: WarehouseUsage[] = []
   for (const [table, tableRefs] of byTable) {
     const conditions = tableRefs.map((ref) => (ref.kind === "id" ? `${quoteIdent(ref.column)} = @id` : `fin_key(${quoteIdent(ref.column)}) = fin_key(@name)`))
-    const row = (await db.prepare(`SELECT COUNT(*) AS n FROM ${quoteIdent(table)} WHERE ${conditions.join(" OR ")}`).get({ id: warehouse.id, name: warehouse.name })) as
-      | { n: string | number }
-      | undefined
+    // An «Отгрузка» (internal_transfers source 'shipment') is no «Передача между складами» (the transfer list hides
+    // it): it is counted under its own label ("production_shipment", the stock views' name of it). The source column
+    // is read through to_jsonb: an older schema may lack it (then every row is an ordinary transfer).
+    const shipment = table === "internal_transfers" ? `COALESCE(to_jsonb(${quoteIdent(table)})->>'source', '') = 'shipment'` : "false"
+    const row = (await db
+      .prepare(
+        `SELECT COUNT(*) FILTER (WHERE NOT (${shipment})) AS n, COUNT(*) FILTER (WHERE ${shipment}) AS shipments
+           FROM ${quoteIdent(table)} WHERE ${conditions.join(" OR ")}`,
+      )
+      .get({ id: warehouse.id, name: warehouse.name })) as { n: string | number; shipments: string | number } | undefined
     const count = Number(row?.n ?? 0)
     if (count > 0) usage.push({ table, label: warehouseReferenceLabel(table), count })
+    const shipments = Number(row?.shipments ?? 0)
+    if (shipments > 0) usage.push({ table: "production_shipment", label: warehouseReferenceLabel("production_shipment"), count: shipments })
   }
   return usage
 }

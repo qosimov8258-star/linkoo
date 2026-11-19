@@ -98,6 +98,9 @@ export type NetCostDocument = {
   cost: number
   /** Scope balance after the movement. */
   balanceAfter: number
+  /** The document's own page, when it has one other than NET_COST_DOC_LINKS (a production «Отгрузка»: the plan; a
+   * production line: its batch or the stage's Активность, lib/stock/production-documents.ts). docId 0 = no number. */
+  href?: string
 }
 
 export type NetCostDetail = NetCostRecord & {
@@ -108,6 +111,10 @@ export type NetCostDetail = NetCostRecord & {
   documents: NetCostDocument[]
   /** Movements that left the balance negative while this record was in effect. */
   negativeTransactions: NetCostDocument[]
+  /** The source document as shown, when it differs from sourceType / sourceId: a transfer that is a production
+   * «Отгрузка» (docType "production_shipment", docId = its shift session, href = the plan detail), or a production line
+   * named by its batch / stage (docType "production_parties" / "production_activity" …, docId 0 = no number). */
+  sourceDocument?: Pick<NetCostDocument, "docType" | "docId" | "href">
 }
 
 export type NetCostItemOption = { key: string; name: string; kind: "product" | "raw_material" }
@@ -145,6 +152,17 @@ export const NET_COST_SOURCE_LABELS: Record<string, string> = {
   production_movements: "Производство",
   stock_inventories: "Инвентаризация",
   internal_transfers: "Передача на склад",
+  // A transfer that is a production «Отгрузка» (internal_transfers source 'shipment'): № = its shift session.
+  production_shipment: "Отгрузка",
+  // A production line is named by what it belongs to (lib/stock/production-documents.ts), as in Движение товаров:
+  // its batch (№ = the batch), a stage's Активность (a shift entry: docId 0, no number) or reconciliation, or a
+  // balance copied from Linko that is no production document (docId 0).
+  production_parties: "Партия",
+  production_activity: "Активность",
+  production_inventories: "Инвентаризация",
+  production_adjustment: "Не указано",
+  inventory_work: "Работа с инвентарем",
+  undocumented_stock: "Остаток без документа",
   supplier_returns: "Возврат поставщику",
   write_offs: "Списание",
   orders: "Заказ",

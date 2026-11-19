@@ -48,17 +48,20 @@ export function InventoryFormDialog({
   options,
   onClose,
   onSaved,
+  initialWarehouse,
 }: {
   /** null = "Добавить", a pending inventory = "Изменение". */
   inventory: StockInventoryDetail | null
   options: StockInventoryOptions | null
   onClose: () => void
   onSaved: (detail: StockInventoryDetail, created: boolean, message: string) => void
+  /** Opt-in: the warehouse a new inventory starts with (a production stage's «Сверить» opens its own warehouse). */
+  initialWarehouse?: string
 }) {
   const { t } = useLanguage()
   const editing = inventory !== null
   const [type, setType] = useState<StockInventoryType>(inventory?.type ?? "fact_date")
-  const [warehouse, setWarehouse] = useState(inventory?.warehouse ?? "")
+  const [warehouse, setWarehouse] = useState(inventory?.warehouse ?? initialWarehouse ?? "")
   const [invDate, setInvDate] = useState(inventory?.type === "custom_date" ? inventory.invDate : "")
   const [forDayEnd, setForDayEnd] = useState(inventory?.type === "custom_date" ? inventory.forDayEnd : false)
   // "Комментарий" under the header fields; an edited document starts from the comment it already has.

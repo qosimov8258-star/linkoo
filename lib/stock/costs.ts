@@ -299,6 +299,19 @@ export async function withCostOfGoods<T extends { id: number; cost: number }>(ki
   })
 }
 
+/** The value the products.cost cache holds for a product (base currency, on `today`): the "Общий" average of the
+ * ledger, or — for a product without ledger history up to that day — its initial ("по умолчанию") cost, else its
+ * stored cost. refreshProductCostCache writes it; a caller can compare it with the stored cost to find stale rows. */
+export function cachedProductCost(
+  ledger: CostLedger,
+  row: { id: number; cost: number | null; initial_cost: number | null },
+  today: string = todayIso(),
+): number {
+  const list = ledger.averages.get(`product:${row.id}`)
+  const average = list ? averageOn(list, today) : undefined
+  return round6(average ?? (Number(row.initial_cost ?? row.cost) || 0))
+}
+
 /** Brings the products.cost cache to the cost of goods (base currency, today) inside `tx`,
  * for the given live products: the "Общий" average of the ledger, or — for an item without
  * ledger history up to today — its initial ("по умолчанию") cost, which is frozen first
@@ -318,9 +331,7 @@ export async function refreshProductCostCache(tx: PgDb, ids: number[]): Promise<
   const targets: number[] = []
   const values: number[] = []
   for (const row of rows) {
-    const list = ledger.averages.get(`product:${row.id}`)
-    const average = list ? averageOn(list, today) : undefined
-    const cost = round6(average ?? (Number(row.initial_cost ?? row.cost) || 0))
+    const cost = cachedProductCost(ledger, row, today)
     if (!Number.isFinite(cost) || cost === Number(row.cost)) continue
     targets.push(Number(row.id))
     values.push(cost)

@@ -503,7 +503,9 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="ml-[91px] min-[1440px]:ml-[calc(50vw-697.87px)] max-[1439px]:ml-[max(20px,calc(50vw-582.37px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
+        {/* Below 1100 px (from lg, 1024) the bar is a little tighter (menu margin, item padding and icon gap), so the
+            Russian menu and the account block fit: at 1024 they ran to 1049 px and widened every page. */}
+        <nav ref={navRef} className="ml-[91px] min-[1440px]:ml-[calc(50vw-697.87px)] max-[1439px]:ml-[max(20px,calc(50vw-582.37px))] max-[1099px]:ml-[8px] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
           {navItems.map(({ label }) => {
             const isOpen = openMenu === label
             const isCurrent = label === currentSection
@@ -528,7 +530,7 @@ export function TopNav() {
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
                 aria-current={isCurrent ? "location" : undefined}
-                className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
+                className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] max-[1099px]:gap-[3px] max-[1099px]:pl-[3px] max-[1099px]:pr-[3px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
                     ? "bg-[#1E4A9A] shadow-[inset_0_-3px_0_#C9962B] hover:bg-[#1E4A9A]"
                     : isCurrent

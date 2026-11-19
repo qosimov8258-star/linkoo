@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useState, type FormEvent } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { CircleAlert, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
@@ -59,6 +59,28 @@ function StockMoveContent() {
   const data = list.data
   const rows = data?.results ?? []
 
+  // A user who may not read purchase costs gets a «Себестоимость» request answered in the quantity mode
+  // (lib/stock-movement-report.ts movementRequest). Once such an answer has come for the current request (the list
+  // keeps the previous answer while it loads, so only a finished load counts), the toggle goes and the report is
+  // back on Кол-во, in the same history entry. Readers of costs never get that answer.
+  const [costRefused, setCostRefused] = useState(false)
+  const awaitingAnswer = useRef(false)
+  useEffect(() => {
+    if (list.loading) {
+      awaitingAnswer.current = true
+      return
+    }
+    if (!awaitingAnswer.current) return
+    awaitingAnswer.current = false
+    if (list.error || state.toggle !== "price" || data?.mode !== "quantity") return
+    setCostRefused(true)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("toggle")
+    url.searchParams.delete("page")
+    if ((url.searchParams.get("ordering") ?? "").includes(".value")) url.searchParams.delete("ordering")
+    window.history.replaceState(null, "", url)
+  }, [list.loading, list.error, data, state.toggle])
+
   // --- local UI state ---------------------------------------------------------------
   const [filterOpen, setFilterOpen] = useState(false)
   const [lookupsWanted, setLookupsWanted] = useState(false)
@@ -100,7 +122,7 @@ function StockMoveContent() {
   })
   const toggles: Array<{ id: MoveToggle; label: string }> = [
     { id: "quantity", label: "Кол-во" },
-    { id: "price", label: "Себестоимость" },
+    ...(costRefused ? [] : [{ id: "price" as const, label: "Себестоимость" }]),
     // Demo: no price-list tab when grouping by warehouse / branch.
     ...(state.groupBy === "stock" || state.groupBy === "branch" ? [] : [{ id: "priceList" as const, label: "Прайс лист" }]),
   ]

@@ -125,13 +125,23 @@ export const MOVE_KIND_LABELS: Record<StockMoveKind, string> = {
   none_out: "Прочий расход",
 }
 
-/** Source documents of the ledger (doc_type → label, page). */
+/** Source documents of the ledger (doc_type → label, page; "" = no page). The production lines are named by what
+ * they belong to (lib/stock-movement-report.ts productionDocuments): a batch, a stage's Активность or reconciliation,
+ * or a balance copied from Linko that is no production document. */
 export const MOVE_DOC_TYPES: Record<string, { label: string; href: string }> = {
   supplier_incomings: { label: "Приход от поставщиков", href: "/analytics/supplier-incomings" },
   supplier_returns: { label: "Возврат поставщиков", href: "/analytics/supplier-returns" },
   write_offs: { label: "Списание", href: "/analytics/write-offs" },
   internal_transfers: { label: "Передачи между складами", href: "/analytics/internal-transfers" },
-  production_movements: { label: "Производство", href: "/analytics/production-batches" },
+  // A production «Отгрузка» (internal_transfers source 'shipment'): № = its shift session, opened in План приемок и передач.
+  production_shipment: { label: "Отгрузка", href: "/analytics/receipt-transfer-plan" },
+  production_movements: { label: "Производство", href: "" },
+  production_parties: { label: "Партия", href: "/analytics/production-batches" },
+  production_activity: { label: "Активность", href: "/analytics/production-stages" },
+  production_inventories: { label: "Инвентаризация", href: "/analytics/production-stages" },
+  production_adjustment: { label: "Не указано", href: "" },
+  inventory_work: { label: "Работа с инвентарем", href: "" },
+  undocumented_stock: { label: "Остаток без документа", href: "" },
   stock_inventories: { label: "Инвентаризация", href: "/analytics/inventory" },
   orders: { label: "Заказ", href: "/analytics/sales" },
 }

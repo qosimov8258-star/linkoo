@@ -175,13 +175,15 @@ export function StockMoveDetail({ url, kind, onKindChange, onClose }: { url: str
                   <tbody>
                     {documents.map((document) => {
                       const source = MOVE_DOC_TYPES[document.docType]
-                      const label = `${source ? t(source.label) : document.docType} №${document.docId}`
+                      // docId 0: a line of no numbered document (a stage's Активность, a balance copied from Linko).
+                      const label = `${source ? t(source.label) : document.docType}${document.docId ? ` №${document.docId}` : ""}`
+                      const href = document.href ?? source?.href
                       return (
-                        <tr key={`${document.docType}.${document.docId}.${document.kind}.${document.warehouse}.${document.day}`} className="border-b border-[#efefef]">
+                        <tr key={`${document.docType}.${document.docId}.${document.kind}.${document.warehouse}.${document.day}.${document.href ?? ""}`} className="border-b border-[#efefef]">
                           <td className="whitespace-nowrap px-3 py-2">{formatDotDate(document.day)}</td>
                           <td className="px-3 py-2">
-                            {source ? (
-                              <Link href={source.href} className="text-[#1E4A9A] hover:underline">
+                            {href ? (
+                              <Link href={href} className="text-[#1E4A9A] hover:underline">
                                 {label}
                               </Link>
                             ) : (

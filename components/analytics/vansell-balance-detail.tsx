@@ -29,10 +29,24 @@ function isManual(row: StatementRow) {
   return row.editable && row.source === "vansell_manual" && (row.column === "none_type_plus" || row.column === "none_type_minus")
 }
 
-/** Demo texts: "Передача склада (Передача № 5)", "Оплата на кассу (Передача № 7)", "Нет типа (comment)". */
+/** An «Отгрузка» leg (a production shift session handed over to a warehouse, lib/finance/sources.ts transferLeg):
+ * its number is the session's, not a transfer's, so it reads «Отгрузка № 6» and links to the plan detail. */
+const SHIPMENT_TITLE = "Отгрузка"
+
+/** Demo texts: "Передача склада (Передача № 5)", "Оплата на кассу (Передача № 7)", "Отгрузка № 6", "Нет типа (comment)". */
 function RowDescription({ row }: { row: StatementRow }) {
   const { t } = useLanguage()
   if (row.title === "Нет типа" || !row.docNumber) return <span>{describeStatementRow(row, t)}</span>
+  if (row.title === SHIPMENT_TITLE) {
+    const shipment = rowDescriptionText(row, t)
+    return row.href ? (
+      <Link href={row.href} className="text-[#129fdd] hover:underline">
+        {shipment}
+      </Link>
+    ) : (
+      <span>{shipment}</span>
+    )
+  }
   const reference = `${t("Передача")} № ${row.docNumber}`
   return (
     <span>
@@ -51,6 +65,7 @@ function RowDescription({ row }: { row: StatementRow }) {
 
 function rowDescriptionText(row: StatementRow, t: (text: string) => string) {
   if (row.title === "Нет типа" || !row.docNumber) return describeStatementRow(row, t)
+  if (row.title === SHIPMENT_TITLE) return `${t(SHIPMENT_TITLE)} № ${row.docNumber}`
   return `${t(row.title)} (${t("Передача")} № ${row.docNumber})`
 }
 

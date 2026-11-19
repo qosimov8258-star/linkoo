@@ -27,6 +27,7 @@ import {
   type WarehouseRef,
 } from "@/lib/internal-transfers-stock"
 import {
+  SHIPMENT_ACTIONS,
   TRANSFER_EDITABLE,
   TRANSFER_STATUSES,
   TRANSFER_TRANSITIONS,
@@ -59,15 +60,22 @@ import {
 export const MAX_TRANSFER_QTY = 1e9
 export const MAX_TRANSFER_PRICE = 1e13
 
+/** Refusals of an «Отгрузка» (source 'shipment', made by «Передать на склад» of a production shift session). */
+export const SHIPMENT_READ_ONLY = "Документ создан сменой производства — изменить его нельзя"
+export const SHIPMENT_ACTION_REFUSED = "Действие недоступно для отгрузки производства"
+/** Ids of the «Отгрузка» documents start here: the Linko import (scripts/linko-sync/import-stock-docs.mjs) writes
+ * internal_transfers by Linko's own ids from 1 upwards, so a shipment never takes an id a Linko transfer will have. */
+export const SHIPMENT_ID_BASE = 1_000_000_000
+
 declare global {
-  var __linkoTransfersSchemaV3: Promise<void> | undefined
+  var __linkoTransfersSchemaV4: Promise<void> | undefined
   /** Ledger fingerprint the stored transfer values were last found equal to (syncTransferValues). */
   var __linkoTransferValuesAtV2: string | undefined
 }
 
 export async function ensureTransfersSchema(): Promise<void> {
-  if (!globalThis.__linkoTransfersSchemaV3) {
-    globalThis.__linkoTransfersSchemaV3 = outsideTransaction(async () => {
+  if (!globalThis.__linkoTransfersSchemaV4) {
+    globalThis.__linkoTransfersSchemaV4 = outsideTransaction(async () => {
       await ensureStockSchema()
       await getDb().exec(`
         ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS given_at TEXT NOT NULL DEFAULT '';
@@ -77,6 +85,11 @@ export async function ensureTransfersSchema(): Promise<void> {
         ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS cancelled_at TEXT NOT NULL DEFAULT '';
         ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS cancelled_by TEXT NOT NULL DEFAULT '';
         ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT '';
+        -- v4 (SESSIONS): what made the document. 'shipment' = the «Отгрузка» of a production shift session
+        -- («Передать на склад», source_id = production_shift_sessions.id); '' = an ordinary transfer. One per session.
+        ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '';
+        ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS source_id INTEGER;
+        CREATE UNIQUE INDEX IF NOT EXISTS internal_transfers_shipment_uidx ON internal_transfers (source_id) WHERE source = 'shipment';
         CREATE TABLE IF NOT EXISTS internal_transfer_logs (
           id SERIAL PRIMARY KEY,
           transfer_id INTEGER NOT NULL REFERENCES internal_transfers(id) ON DELETE CASCADE,
@@ -101,11 +114,11 @@ export async function ensureTransfersSchema(): Promise<void> {
         END $$;
       `)
     }).catch((error) => {
-      globalThis.__linkoTransfersSchemaV3 = undefined
+      globalThis.__linkoTransfersSchemaV4 = undefined
       throw error
     })
   }
-  await globalThis.__linkoTransfersSchemaV3
+  await globalThis.__linkoTransfersSchemaV4
 }
 
 /** The lines of a transfer without a price list, valued at the cost of goods (`priced: "cost"`). */
@@ -293,6 +306,8 @@ export type TransferRow = {
   cancelled_at: string
   cancelled_by: string
   currency: string
+  source?: string | null
+  source_id?: number | null
 }
 
 export function parseItems(text: string): TransferItem[] {
@@ -356,6 +371,8 @@ export function rowToTransfer(row: TransferRow): Transfer {
     cancelledAt: localIso(row.cancelled_at ?? ""),
     cancelledBy: row.cancelled_by ?? "",
     updatedAt: localIso(row.updated_at, true),
+    source: row.source === "shipment" ? "shipment" : "",
+    sourceId: row.source_id === null || row.source_id === undefined ? null : Number(row.source_id),
   }
 }
 
@@ -613,7 +630,10 @@ async function applyAction(tx: PgDb, current: Transfer, action: TransferAction, 
     const catalog = index ?? (await catalogIndex(tx))
     const stock = await warehouseStock(current.fromWarehouse, moment.slice(0, 10), tx)
     // A confirmed transfer reserves its goods at the source (lib/stock/sources.ts buildPendingSql): its own
-    // reservation is available to it.
+    // reservation is available to it. That reservation holds only the good lines: a Брак line moves defective units
+    // and reserves no good ones (the 'потвержден' part of buildPendingSql filters them out), so only the good lines
+    // give their quantity back here. A Брак line is checked against the defective units alone. Both sides change
+    // together: giving a Брак line back as well would count it twice and let good stock go negative.
     if (current.status === "потвержден") {
       for (const item of current.items) {
         if (item.defect) continue
@@ -702,6 +722,9 @@ export async function transferAction(id: number, action: TransferAction, options
     )
     const current = await lockTransfer(tx, id)
     if (!current) return { error: "Передача не найдена", status: 404 }
+    // An «Отгрузка» of a production shift session is only accepted or its acceptance undone (Linko's shipment
+    // done / cancel); it is never given back, approved or cancelled.
+    if (current.source === "shipment" && !SHIPMENT_ACTIONS.includes(action)) return { error: SHIPMENT_ACTION_REFUSED, status: 409 }
     // Re-entrant: costs nothing unless a rename landed between the unlocked read and the locks.
     await lockWarehouseStock(tx, [current.fromWarehouse, current.toWarehouse])
     return applyAction(tx, current, action, options, userName)
@@ -801,6 +824,69 @@ export async function createTransfer(input: TransferInput, userName: string): Pr
   return pathTo(input.status).length ? revalued(change) : change
 }
 
+/**
+ * The «Отгрузка» of a production shift session («Передать на склад», lib/production-sessions-repo.ts): the session's
+ * output moves from the warehouse it was booked in to the chosen one — given at once (now) and waiting in Приемка of
+ * the target, as Linko's shipment. Runs inside the caller's transaction (a savepoint here), which already holds the
+ * stock locks of both warehouses (taken first, the lock order of every stock writer) and the session row; the locks
+ * taken here again are re-entrant. As every transfer without a price list, the lines are valued at the cost of goods
+ * when the goods leave, and the give refuses goods the source does not hold on every day from now on (409 with the
+ * shortages). Its id is taken from SHIPMENT_ID_BASE upwards under a lock of its own (Linko's transfer ids, which the
+ * import writes as they are, never reach that range; the Linko sync must keep the table's sequence and its upserts
+ * below it — a partner task), or from the table's sequence once that has reached the range. A refusal comes back as a
+ * TransferError and writes nothing.
+ * The caller brings the stored values to the cost ledger after its commit (syncTransferValues).
+ */
+export async function createShipmentTransfer(
+  tx: PgDb,
+  input: { sessionId: number; fromWarehouse: string; toWarehouse: string; items: TransferLineInput[] },
+  userName: string,
+): Promise<TransferChange> {
+  const index = await catalogIndex(tx)
+  const request: TransferInput = {
+    fromWarehouse: input.fromWarehouse,
+    toWarehouse: input.toWarehouse,
+    createdAt: "",
+    deliveredAt: "",
+    priceList: "",
+    currency: "",
+    organization: "",
+    invoiceNumber: "",
+    transportNumber: "",
+    driver: "",
+    // Linko's shipment carries its own comment («Комментарий отсутствует» without one): none is written.
+    comment: "",
+    status: "в пути",
+    items: input.items,
+  }
+  const checked = await normalize(tx, request, index)
+  if (isTransferError(checked)) return checked
+  return inTransaction(async (sp) => {
+    const data = await lockedInput(sp, checked, await lockTransferWarehouses(sp, checked), request, index)
+    await sp.prepare("SELECT pg_advisory_xact_lock(hashtext('linko-transfer-shipment-id')) AS ok").get()
+    // Ordinary transfers take their ids from the table's sequence. Should that sequence ever reach the shipments'
+    // range (a Linko sync that sets it from MAX(id) of the whole table, shipments included), the shipments take
+    // theirs from the same sequence from then on, so an ordinary transfer and an «Отгрузка» never get one id.
+    const next = (await sp
+      .prepare(
+        `SELECT CASE WHEN COALESCE(pg_sequence_last_value(s.seq), 0) >= @base THEN nextval(s.seq)
+                     ELSE GREATEST((SELECT COALESCE(MAX(id), 0) + 1 FROM internal_transfers WHERE id >= @base), @base) END AS id
+           FROM (SELECT CAST(pg_get_serial_sequence('internal_transfers', 'id') AS regclass) AS seq) s`,
+      )
+      .get({ base: SHIPMENT_ID_BASE })) as { id: number | string }
+    const id = Number(next.id)
+    const row = values(data)
+    const columns = ["id", ...Object.keys(row), "status", "created_by", "source", "source_id", "updated_at"]
+    await sp
+      .prepare(`INSERT INTO internal_transfers (${columns.join(", ")}) VALUES (${columns.map((column) => (column === "updated_at" ? "datetime('now')" : `@${column}`)).join(", ")})`)
+      .run({ ...row, id, status: "потвержден", created_by: userName, source: "shipment", source_id: input.sessionId })
+    let transfer = (await getTransfer(id, sp))!
+    await addLog(sp, transfer, "created", userName)
+    transfer = await applyAction(sp, transfer, "give", {}, userName, index)
+    return transfer
+  })
+}
+
 export async function updateTransfer(id: number, input: TransferInput, userName: string): Promise<TransferChange> {
   await ensureTransfersSchema()
   const db = getDb()
@@ -814,6 +900,7 @@ export async function updateTransfer(id: number, input: TransferInput, userName:
     const locked = await lockTransferWarehouses(tx, checked)
     const current = await lockTransfer(tx, id)
     if (!current) return { error: "Передача не найдена", status: 404 }
+    if (current.source === "shipment") return { error: SHIPMENT_READ_ONLY, status: 409 }
     if (!TRANSFER_EDITABLE.includes(current.status)) {
       return { error: "Изменять можно только передачу в статусе «ожидает» или «подтвержден»", status: 409 }
     }
@@ -828,14 +915,17 @@ export async function updateTransfer(id: number, input: TransferInput, userName:
   })
 }
 
-/** Hard delete of a transfer without stock effect (the UI cancels instead). */
-export async function deleteTransfer(id: number): Promise<"ok" | "not_found" | "locked"> {
+/** Hard delete of a transfer without stock effect (the UI cancels instead).
+ * An «Отгрузка» of a production shift session is never deleted (its session points at it): it comes back as
+ * "shipment", which the route answers with 409 SHIPMENT_READ_ONLY, as an edit of it. */
+export async function deleteTransfer(id: number): Promise<"ok" | "not_found" | "locked" | "shipment"> {
   await ensureTransfersSchema()
   // The status is read from the locked row, so a delete racing "give" can never
   // wipe a transfer that has just gone in transit.
   return withTransaction(async (tx) => {
-    const locked = (await tx.prepare("SELECT status FROM internal_transfers WHERE id = @id FOR UPDATE").get({ id })) as { status: string } | undefined
+    const locked = (await tx.prepare("SELECT status, source FROM internal_transfers WHERE id = @id FOR UPDATE").get({ id })) as { status: string; source: string | null } | undefined
     if (!locked) return "not_found"
+    if (locked.source === "shipment") return "shipment"
     if (locked.status === "в пути" || locked.status === "принят") return "locked"
     await tx.prepare("DELETE FROM internal_transfers WHERE id = @id").run({ id })
     return "ok"

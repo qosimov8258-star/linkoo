@@ -23,6 +23,9 @@ export function CatalogFilterBar({
   onClose,
   onClear,
   onApply,
+  barWidth,
+  hidePerfectStore,
+  searchableType,
 }: {
   kind: CatalogKind
   filters: CatalogFilters
@@ -32,13 +35,20 @@ export function CatalogFilterBar({
   onClose: () => void
   onClear: () => void
   onApply: (filters: CatalogFilters) => void
+  /** Width of the applied-filter bar ("Фильтр: N элемента" + edit + clear): it must end inside the caller's filter
+   * column, or the search field next to it covers its clear button (default 346.5, the catalog pages' column). */
+  barWidth?: number
+  /** No «Только Perfect Store продукты» (the reference's production product filter has none). */
+  hidePerfectStore?: boolean
+  /** «Тип продукта» narrows as you type (the reference's autocomplete) instead of a plain list. */
+  searchableType?: boolean
 }) {
   const { t } = useLanguage()
   const count = filterCount(filters)
   return (
     <>
       {count > 0 ? (
-        <FilterToggle count={count} open={open} onOpen={onOpen} onClose={onClose} onClear={onClear} />
+        <FilterToggle count={count} open={open} onOpen={onOpen} onClose={onClose} onClear={onClear} barWidth={barWidth} />
       ) : (
         <button type="button" onClick={open ? onClose : onOpen} className="flex items-center text-[13px] text-[#1E4A9A]">
           {t("Показать фильтр")}
@@ -47,7 +57,7 @@ export function CatalogFilterBar({
       )}
       {open && (
         <div className="absolute left-0 top-0 z-30">
-          <CatalogFilterPanel kind={kind} filters={filters} options={options} onClose={onClose} onApply={onApply} />
+          <CatalogFilterPanel kind={kind} filters={filters} options={options} onClose={onClose} onApply={onApply} hidePerfectStore={hidePerfectStore} searchableType={searchableType} />
         </div>
       )}
     </>
@@ -60,12 +70,16 @@ function CatalogFilterPanel({
   options,
   onClose,
   onApply,
+  hidePerfectStore,
+  searchableType,
 }: {
   kind: CatalogKind
   filters: CatalogFilters
   options: CatalogOptions | null
   onClose: () => void
   onApply: (filters: CatalogFilters) => void
+  hidePerfectStore?: boolean
+  searchableType?: boolean
 }) {
   const { t } = useLanguage()
   const [draft, setDraft] = useState<CatalogFilters>(filters)
@@ -86,7 +100,11 @@ function CatalogFilterPanel({
   return (
     <RefFilterPanel narrow onClose={onClose} onApply={() => onApply(draft)} applyClassName="mt-[25px]">
       <div className="-mt-px">
-        <FilterSelect label={t("Тип продукта")} value={draft.typeParent} onChange={(value) => set({ typeParent: value, typeChild: "" })} options={types.map((type) => type.name)} />
+        {searchableType ? (
+          <FilterSearchSelect label={t("Тип продукта")} value={draft.typeParent} onChange={(value) => set({ typeParent: value, typeChild: "" })} options={types.map((type) => type.name)} />
+        ) : (
+          <FilterSelect label={t("Тип продукта")} value={draft.typeParent} onChange={(value) => set({ typeParent: value, typeChild: "" })} options={types.map((type) => type.name)} />
+        )}
         {draft.typeParent && <FilterSelect label={t("Подкатегория")} value={draft.typeChild} onChange={(value) => set({ typeChild: value })} options={children} />}
         <FilterSelect
           label={t("Показать только")}
@@ -109,9 +127,96 @@ function CatalogFilterPanel({
       <div className="mt-[3px] flex flex-col gap-[10px]">
         <FilterCheck compact label={t("Только ММЛ продукты")} checked={draft.isMML} onChange={(isMML) => set({ isMML })} />
         <FilterCheck compact label={t("Инвентари")} checked={draft.isGear} onChange={(isGear) => set({ isGear })} />
-        {kind === "product" && <FilterCheck compact label={t("Только Perfect Store продукты")} checked={draft.isPerfectStore} onChange={(isPerfectStore) => set({ isPerfectStore })} />}
+        {kind === "product" && !hidePerfectStore && <FilterCheck compact label={t("Только Perfect Store продукты")} checked={draft.isPerfectStore} onChange={(isPerfectStore) => set({ isPerfectStore })} />}
       </div>
     </RefFilterPanel>
+  )
+}
+
+/** One choice with a search field, styled like FilterSelect (the reference's «Тип продукта» autocomplete): typing narrows
+ * the list, Enter takes the first match, «Сбросить» clears the field. */
+function FilterSearchSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const rootRef = useRef<HTMLDivElement>(null)
+  const needle = search.trim().toLocaleLowerCase("ru")
+  const shown = needle ? options.filter((option) => option.toLocaleLowerCase("ru").includes(needle)) : options
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [open])
+
+  const choose = (option: string) => {
+    onChange(option)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={rootRef} className="relative h-[62px]">
+      <div className={`absolute inset-x-0 top-[18px] h-[36px] border-b ${open ? "border-[#d9d9d9]" : "border-[#e8e8e8]"}`}>
+        {(value || open) && <span className="absolute left-0 top-[-8px] text-[10px] font-bold leading-3 text-black">{label}</span>}
+        {open ? (
+          <input
+            autoFocus
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation()
+                setOpen(false)
+              }
+              if (event.key !== "Enter") return
+              event.preventDefault()
+              if (shown[0]) choose(shown[0])
+            }}
+            placeholder={value}
+            aria-label={label}
+            className="absolute inset-x-0 top-[8px] h-[24px] bg-transparent pr-8 text-[13px] font-semibold text-black outline-none placeholder:text-black/40"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("")
+              setOpen(true)
+            }}
+            className="absolute inset-0 text-left text-[13px] font-semibold text-black"
+          >
+            {value ? <span className="absolute inset-x-0 top-[10px] truncate pr-8">{value}</span> : <span className="absolute left-0 top-[13px] leading-4">{label}</span>}
+          </button>
+        )}
+      </div>
+      <span aria-hidden className={`pointer-events-none absolute right-[10px] top-[37px] h-0 w-0 border-x-[5px] border-x-transparent ${open ? "border-b-[5px] border-b-[#999]" : "border-t-[5px] border-t-[#999]"}`} />
+      {open && (
+        <div className="absolute inset-x-0 top-[54px] z-50 max-h-[205px] overflow-y-auto bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+          {value && (
+            <button type="button" onClick={() => choose("")} className="block h-9 w-full px-[10px] text-left text-[13px] text-[#999] hover:bg-[#f2f5f8]">
+              {t("Сбросить")}
+            </button>
+          )}
+          {shown.length === 0 ? (
+            <div className="h-9 px-[10px] text-[13px] leading-9 text-[#999]">{t("Ничего не найдено")}</div>
+          ) : (
+            shown.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => choose(option)}
+                className={`block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${option === value ? "text-[#1E4A9A]" : ""}`}
+              >
+                {option}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

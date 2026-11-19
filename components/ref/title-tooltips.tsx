@@ -28,7 +28,7 @@ const ADD_TIPS: Record<string, string> = {
   "/analytics/internal-transfers": "Добавить передачу",
   "/analytics/products": "Добавить продукт",
   "/analytics/raw-materials": "Добавить сырье",
-  "/analytics/production-batches": "Добавить партию",
+  // (Партии: the «+» icon button carries its own title «Добавить партию»; this table only hints text buttons.)
   "/analytics/inventory-management": "Добавить инвентарь",
   "/analytics/repricing": "Добавить",
 }

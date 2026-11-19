@@ -112,8 +112,10 @@ export function ShiftsView() {
   async function remove(shift: Shift) {
     const response = await fetch(`/api/work-shifts/${shift.id}`, { method: "DELETE" })
     if (!response.ok) {
-      const data = (await response.json().catch(() => ({}))) as { error?: string }
-      notify(t(data.error || "Не удалось удалить смену"))
+      const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: Array<{ label: string; count: number }> }
+      // A shift that production staff hold: the refusal names where it is used ("… : Сотрудники производства (2)").
+      const usage = Array.isArray(data.usage) ? data.usage.map((item) => `${t(item.label)} (${item.count})`).join(", ") : ""
+      notify(`${t(data.error || "Не удалось удалить смену")}${usage ? `: ${usage}` : ""}`)
       return
     }
     setDeleting(null)

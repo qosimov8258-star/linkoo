@@ -106,11 +106,21 @@ function loadItems(): FavoriteItem[] {
   return DEFAULT_ITEMS
 }
 
+/** Opt-in behaviour of the star (pages pass it through RefHeader's `favorites`). */
+export type FavoritesOptions = {
+  /** The star shows whether this page is saved, as the reference's star does: blue (#4f71dc) with «Добавлено в
+   * избранные», and a click removes the page again. Without it every click adds the page once more. */
+  toggle?: boolean
+  /** The drawer is drawn into the document body: the page heading then holds only the star, «Избранные» and the
+   * page's name (not the drawer's title, list and empty text). */
+  portal?: boolean
+}
+
 /**
  * Shared "★ | Избранные" header trigger. The star adds / removes the current page
  * (like the reference app); the label opens the slide-in favorites drawer.
  */
-export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E4A9A]" }: { className?: string }) {
+export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E4A9A]", toggle = false, portal = false }: { className?: string } & FavoritesOptions) {
   const { t } = useLanguage()
   const router = useRouter()
   const pathname = usePathname()
@@ -121,6 +131,9 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
   const [pageTitle, setPageTitle] = useState("")
   const rowRef = useRef<HTMLSpanElement>(null)
   const [titleTip, setTitleTip] = useState<{ left: number; top: number } | null>(null)
+  // `portal`: the drawer goes into document.body once the page runs in the browser (nothing to draw on the server).
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
   const sectionLabel = navSectionLabel(pathname)
 
   // Hovering the page title shows the name of its top-nav section, like the reference.
@@ -162,8 +175,15 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
     } catch {}
   }
 
-  // Like the reference app, the star never turns "on": every click appends the current page again.
+  // Without `toggle` every click appends the current page again. With it the star is the reference's: a saved page
+  // shows blue and a click removes it (every entry of the page, so an older duplicate does not keep it "on").
+  const saved = toggle && items.some((item) => item.href === pathname)
+  const starLabel = saved ? t("Добавлено в избранные") : t("Добавить в избранные")
   const addFavorite = () => {
+    if (saved) {
+      save(items.filter((item) => item.href !== pathname))
+      return
+    }
     const label = pageName(rowRef.current?.closest("h1")) || pageTitle || document.title.split("—")[0].trim().slice(0, MAX_LABEL)
     save([...items, { label, href: pathname }])
     setPageTitle(label)
@@ -185,55 +205,10 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
     router.push(item.href)
   }
 
-  return (
+  // The backdrop and the slide-in list. Inline they sit inside the page heading; with `portal` they go into the
+  // body, wrapped in the heading's own type (18 px bold #5d6474), so they look exactly the same.
+  const drawer = (
     <>
-      <span
-        ref={(node) => {
-          rowRef.current = node
-          // Mark the title row and its page header so global CSS can give every page the reference look.
-          const row = node?.parentElement
-          if (!row) return
-          row.setAttribute("data-ref-title", "")
-          const header = row.closest("header")
-          if (header) header.setAttribute("data-ref-header", "")
-        }}
-        {...{ [OWN_UI]: "" }}
-        className="relative flex items-center"
-      >
-        <button
-          type="button"
-          onClick={addFavorite}
-          onMouseEnter={() => setTip(true)}
-          onMouseLeave={() => setTip(false)}
-          aria-label={t("Добавить в избранные")}
-          className="flex items-center"
-        >
-          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]">
-            <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-          </svg>
-        </button>
-        {tip && (
-          <span role="tooltip" className="pointer-events-none absolute left-[34px] top-[-5px] z-50 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90">
-            {t("Добавить в избранные")}
-          </span>
-        )}
-        <button type="button" onClick={() => setOpen(true)} className={className.replace(/gap-\[5px\]|gap-2/, "ml-[5px]")}>
-          {t("Избранные")}
-        </button>
-      </span>
-
-      {titleTip &&
-        sectionLabel &&
-        createPortal(
-          <span
-            role="tooltip"
-            style={{ left: titleTip.left, top: titleTip.top }}
-            className="pointer-events-none fixed z-[1000] whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] font-sans text-[13px] font-normal leading-[17px] text-white opacity-90"
-          >
-            {t(sectionLabel)}
-          </span>,
-          document.body,
-        )}
       <div
         {...{ [OWN_UI]: "" }}
         aria-hidden={!open}
@@ -292,6 +267,68 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#1E
           })}
         </ul>
       </aside>
+    </>
+  )
+
+  return (
+    <>
+      <span
+        ref={(node) => {
+          rowRef.current = node
+          // Mark the title row and its page header so global CSS can give every page the reference look.
+          const row = node?.parentElement
+          if (!row) return
+          row.setAttribute("data-ref-title", "")
+          const header = row.closest("header")
+          if (header) header.setAttribute("data-ref-header", "")
+        }}
+        {...{ [OWN_UI]: "" }}
+        className="relative flex items-center"
+      >
+        <button
+          type="button"
+          onClick={addFavorite}
+          onMouseEnter={() => setTip(true)}
+          onMouseLeave={() => setTip(false)}
+          aria-label={starLabel}
+          aria-pressed={toggle ? saved : undefined}
+          className="flex items-center"
+        >
+          <svg viewBox="0 0 24 24" className={`h-6 w-6 ${saved ? "fill-[#4f71dc]" : "fill-[#5d6474]"}`}>
+            <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+          </svg>
+        </button>
+        {tip && (
+          <span role="tooltip" className="pointer-events-none absolute left-[34px] top-[-5px] z-50 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90">
+            {starLabel}
+          </span>
+        )}
+        <button type="button" onClick={() => setOpen(true)} className={className.replace(/gap-\[5px\]|gap-2/, "ml-[5px]")}>
+          {t("Избранные")}
+        </button>
+      </span>
+
+      {titleTip &&
+        sectionLabel &&
+        createPortal(
+          <span
+            role="tooltip"
+            style={{ left: titleTip.left, top: titleTip.top }}
+            className="pointer-events-none fixed z-[1000] whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] font-sans text-[13px] font-normal leading-[17px] text-white opacity-90"
+          >
+            {t(sectionLabel)}
+          </span>,
+          document.body,
+        )}
+      {portal
+        ? mounted &&
+          createPortal(
+            <div {...{ [OWN_UI]: "" }} className="font-sans text-[18px] font-bold leading-[22px] text-[#5d6474]">
+              {drawer}
+            </div>,
+            document.body,
+          )
+        : drawer}
     </>
   )
 }
