@@ -29,8 +29,8 @@ import { PRODUCT_TYPES_API, PRODUCT_TYPE_ORDERINGS, PRODUCT_TYPE_PAGE_SIZE, type
 // picture), hover ✎ / 🗑. Create / update dialog = product-types-form.tsx, delete confirm =
 // dictionaries-shared.tsx. Like the demo the state lives in the URL (?openCreateDialog=true,
 // ?productType=<id>&openUpdateDialog=true | openDeleteDialog=true, ?ordering). Like the demo
-// there is no search box and no paginator: every type is listed, by its Порядок (numbered «1. …»; a column header
-// sorts by that column instead).
+// there is no search box and no paginator: every type is listed by its Порядок (a column header sorts by that
+// column instead).
 
 export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
   if (embedded) return <ProductTypesGrid />
@@ -60,15 +60,12 @@ function ProductTypesGrid() {
 
   // demo rows: Bootstrap grid xs-3 / 3 / 3 / 2 / 1; the children of a type sit in a nested grid
   // (picture xs-1, name xs-4, organization xs-3, date xs-2, bot xs-1, actions xs-1)
-  /** The name with its Порядок in front ("1. …"); a type without one is printed as it is. */
-  const numbered = (node: ProductTypeNode) => (node.position > 0 ? `${node.position}. ${node.name}` : node.name)
-
   function renderNode(node: ProductTypeNode) {
     const group = node.children.length > 0
     return (
       <div key={node.id}>
         <div className={`${DICT_ROW} grid-cols-[311.8px_303.7px_303.8px_1fr] ${group ? "font-semibold" : ""}`}>
-          <div className="break-words py-3 pr-4 font-semibold leading-[16.25px]">{numbered(node)}</div>
+          <div className="break-words py-3 pr-4 font-semibold leading-[16.25px]">{node.name}</div>
           <div className="py-3 pr-4 leading-[16.25px]">{node.organization || notSet}</div>
           <div className="whitespace-nowrap py-3 pr-4 leading-[16.25px]">{created(node)}</div>
           <div className="py-3 pr-4 leading-[16.25px]">{node.showInBot ? t("Да") : t("Нет")}</div>
@@ -79,7 +76,7 @@ function ProductTypesGrid() {
             <div className="flex min-h-[45px] items-center break-words py-2.5 pr-4 leading-[16.25px]">
               {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
               {child.imageUrl && <img src={child.imageUrl} alt="" className="mr-2 max-h-10 max-w-10 object-contain" />}
-              {numbered(child)}
+              {child.name}
             </div>
             <div className="py-2.5 pr-4">{child.organization || notSet}</div>
             <div className="whitespace-nowrap py-2.5 pr-4">{created(child)}</div>
