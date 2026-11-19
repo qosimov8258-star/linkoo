@@ -8,7 +8,8 @@ import { LineField } from "@/components/analytics/catalog-ui"
 import { LinePick } from "@/components/analytics/settings-list-kit"
 import { Check as StaffCheck, MultiSelectField, Switch, type Option } from "@/components/staff/staff-kit"
 import type { Employee, EmployeeOptions } from "@/components/analytics/employees-data"
-import { normalizeUsername, passwordProblem, usernameProblem } from "@/lib/auth-policy"
+import { PasswordInput } from "@/components/ui/password-input"
+import { normalizeUsername, passwordHintFor, passwordProblem, usernameProblem, type PasswordPolicy } from "@/lib/auth-policy"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
 
@@ -128,17 +129,32 @@ function AccountField({ label, value, onChange, required, secret, disabled }: { 
       <span className={`pointer-events-none absolute left-0 transition-all ${floating ? "-top-[1.2px] text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-semibold leading-4"}`}>
         {label}{required && <span className="font-semibold text-[#e57373]"> *</span>}
       </span>
-      <input
-        type={secret ? "password" : "text"}
-        autoComplete={secret ? "new-password" : "off"}
-        aria-label={label}
-        disabled={disabled}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        className="absolute inset-x-0 -bottom-px h-[26px] bg-transparent text-[13px] font-semibold outline-none disabled:cursor-not-allowed"
-      />
+      {secret ? (
+        <PasswordInput
+          autoComplete="new-password"
+          aria-label={label}
+          disabled={disabled}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          wrapperClassName="absolute inset-x-0 -bottom-px h-[26px]"
+          className="h-full w-full bg-transparent text-[13px] font-semibold outline-none disabled:cursor-not-allowed"
+          toggleClassName="w-8 justify-end"
+        />
+      ) : (
+        <input
+          type="text"
+          autoComplete="off"
+          aria-label={label}
+          disabled={disabled}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          className="absolute inset-x-0 -bottom-px h-[26px] bg-transparent text-[13px] font-semibold outline-none disabled:cursor-not-allowed"
+        />
+      )}
     </div>
   )
 }
@@ -189,6 +205,8 @@ export function EmployeeDialog({
   const required = t("Обязательное поле")
   // The login the employee has now: the linked account's, else an older one without an account.
   const storedLogin = employee?.account ?? employee?.login ?? ""
+  // The password rules of the account (a new one is an employee's account; lib/auth-policy.ts).
+  const passwordPolicy: PasswordPolicy = employee?.passwordPolicy ?? "employee"
   const loginChanged = normalizeUsername(draft.login) !== normalizeUsername(storedLogin)
   // The access right of a linked account is the account's rights: only an administrator changes it.
   const accessRightLocked = !canManageAccounts && Boolean(employee?.account) && Boolean(employee?.accessRightId)
@@ -229,7 +247,9 @@ export function EmployeeDialog({
       }
       if (!draft.accessRightId) found.accessRightId = required
       if (draft.password) {
-        const weak = passwordProblem(draft.password, login)
+        // An employee's account takes a short password (lib/auth-policy.ts); an administrator's account
+        // linked to the employee keeps the standard rules (the server checks them again).
+        const weak = passwordProblem(draft.password, login, passwordPolicy)
         if (weak) found.password = t(weak)
       }
       if (draft.password !== draft.passwordConfirm) found.passwordConfirm = t("Пароли не совпадают")
@@ -393,7 +413,7 @@ export function EmployeeDialog({
                   ? t(ADMIN_ONLY)
                   : employee?.account
                     ? t("Оставьте пустым, чтобы не менять. Новый пароль нужно будет сменить при следующем входе.")
-                    : `${t("Не менее 8 символов; пароль не может состоять только из цифр.")} ${t("Этот пароль нужно будет сменить при первом входе.")}`}
+                    : `${t(passwordHintFor(passwordPolicy))} ${t("Этот пароль нужно будет сменить при первом входе.")}`}
               </p>
               {!employee && (
                 <div className="mt-[8px]">

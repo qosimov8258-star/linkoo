@@ -3,6 +3,7 @@
 import { KeyRound, Pencil, Trash2, X } from "lucide-react"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
+import { PasswordInput } from "@/components/ui/password-input"
 import { PASSWORD_MIN, normalizeUsername, passwordProblem, usernameProblem } from "@/lib/auth-policy"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -335,13 +336,14 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
               </p>
               <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                 {isNew ? t("Пароль") : t("Новый пароль")} {isNew && <span className="text-red-500">*</span>}
-                <input
-                  type="password"
+                <PasswordInput
                   value={draft.password}
                   onChange={(event) => setDraft((value) => ({ ...value, password: event.target.value }))}
                   minLength={PASSWORD_MIN}
-                  className={fieldClass}
+                  className={fieldClass.replace("mt-[6px] ", "")}
                   autoComplete="new-password"
+                  wrapperClassName="mt-[6px]"
+                  toggleClassName="w-8 justify-end"
                 />
               </label>
               <p className="text-[12px] text-slate-400">

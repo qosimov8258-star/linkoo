@@ -21,6 +21,7 @@ import {
 } from "lucide-react"
 
 import { analyticsReports } from "@/lib/analytics-catalog"
+import { passwordPolicyFor } from "@/lib/auth-policy"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { AccountDropdown, ChangePasswordDialog, ROLE_LABELS, type AccountUser } from "./account-dropdown"
@@ -385,7 +386,7 @@ export function TopNav() {
       .then((data: (Partial<AccountUser> & { mustChangePassword?: boolean }) | null) => {
         if (cancelled || !data?.username) return
         const role = data.role === "admin" || data.role === "manager" ? data.role : "viewer"
-        setAccount({ displayName: data.displayName || data.username, username: data.username, role })
+        setAccount({ displayName: data.displayName || data.username, username: data.username, role, employeeId: typeof data.employeeId === "number" ? data.employeeId : null })
         // A password set by an administrator, the first (seeded) password or a
         // legacy weak one must be replaced before working on: the dialog opens
         // by itself and cannot be dismissed until the password is changed.
@@ -729,6 +730,7 @@ export function TopNav() {
       {passwordOpen && (
         <ChangePasswordDialog
           username={account?.username ?? ""}
+          policy={account ? passwordPolicyFor(account) : "standard"}
           required={passwordRequired}
           onChanged={() => {
             if (passwordRequired) setReloadAfterPassword(true)

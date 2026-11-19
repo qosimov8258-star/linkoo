@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { hashPassword, isLegacyHash, legacyMatchIsExact, verifyPassword } from "@/lib/auth"
 import { EMPLOYEE_ACCESS_SQL, ensureUserEmployeeLink } from "@/lib/auth-employee"
-import { normalizeUsername, passwordProblem } from "@/lib/auth-policy"
+import { normalizeUsername, passwordPolicyFor, passwordProblem } from "@/lib/auth-policy"
 import { parseBody } from "@/lib/auth-request"
 import { toRole } from "@/lib/current-user"
 import { getDb } from "@/lib/db"
@@ -21,6 +21,7 @@ type UserRow = {
   role: string
   access_right_id: number | null
   must_change_password: number | null
+  employee_id: number | null
   has_access: boolean
 }
 
@@ -102,11 +103,18 @@ async function replaceLegacyHash(user: UserRow, password: string): Promise<{ mus
  * this sign-in already knows (the one it checked, or the one replaceLegacyHash
  * wrote) is fine; another hash is fine only if the password matches it too
  * (another sign-in re-hashed the same legacy password). */
-async function passwordStillCurrent(userId: number, password: string, knownHashes: string[]): Promise<boolean> {
-  const row = (await getDb().prepare("SELECT password_hash FROM users WHERE id = ?").get(userId)) as { password_hash: string } | undefined
-  if (!row) return false
-  if (knownHashes.includes(row.password_hash)) return true
-  return verifyPassword(password, row.password_hash)
+async function passwordStillCurrent(
+  userId: number,
+  password: string,
+  knownHashes: string[],
+): Promise<{ role: string; employeeId: number | null } | null> {
+  const row = (await getDb().prepare("SELECT password_hash, role, employee_id FROM users WHERE id = ?").get(userId)) as
+    | { password_hash: string; role: string; employee_id: number | null }
+    | undefined
+  if (!row) return null
+  if (!knownHashes.includes(row.password_hash) && !(await verifyPassword(password, row.password_hash))) return null
+  // The account's role and employee link as they are now (they decide its password policy).
+  return { role: row.role, employeeId: row.employee_id === null ? null : Number(row.employee_id) }
 }
 
 export async function POST(request: NextRequest) {
@@ -154,25 +162,41 @@ export async function POST(request: NextRequest) {
   // password weaker than today's policy must be replaced right after sign-in;
   // until then the API refuses everything else (middleware.ts, lib/rbac.ts).
   // So must a password only partly counted by a legacy hash (replaceLegacyHash).
-  const weakPassword = passwordProblem(password, user.username) !== null
+  // Weak by the account's own policy: an employee's account may keep a short password (lib/auth-policy.ts).
+  const employeeId = user.employee_id === null ? null : Number(user.employee_id)
+  let policy = passwordPolicyFor({ role: user.role, employeeId })
+  const weakPassword = passwordProblem(password, user.username, policy) !== null
   const legacy = await replaceLegacyHash(user, password)
-  const mustChangePassword = Number(user.must_change_password) === 1 || weakPassword || legacy.mustChange
+  let mustChangePassword = Number(user.must_change_password) === 1 || weakPassword || legacy.mustChange
   if (weakPassword && Number(user.must_change_password) !== 1) {
     await getDb().prepare("UPDATE users SET must_change_password = 1 WHERE id = ?").run(user.id)
   }
 
-  const role = toRole(user.role)
+  let role = toRole(user.role)
   const ttlMs = remember ? REMEMBER_TTL_MS : SESSION_TTL_MS
   const sid = crypto.randomUUID()
-  const token = await signSession({ userId: user.id, role, sessionId: sid, mustChangePassword, remember: remember === true }, ttlMs)
+  let token = await signSession({ userId: user.id, role, sessionId: sid, mustChangePassword, remember: remember === true }, ttlMs)
 
   const userAgent = (request.headers.get("user-agent") || "").slice(0, 500)
   await recordSession({ id: sid, userId: user.id, ip, userAgent })
   // The password was changed or reset while it was being checked: the session
   // is ended and the sign-in fails as with any password that is not current.
-  if (!(await passwordStillCurrent(user.id, password, [user.password_hash, legacy.hash]))) {
+  const current = await passwordStillCurrent(user.id, password, [user.password_hash, legacy.hash])
+  if (!current) {
     await revokeSession(sid, user.id)
     return NextResponse.json({ error: "Неверный логин или пароль" }, { status: 401 })
+  }
+  // The role or the employee link changed while the password was checked (a promotion to administrator ends
+  // the sessions it finds, not this one, recorded after it): the policy is decided again from the row read
+  // after the session was recorded, so a short password that no longer fits must be replaced right away.
+  if (current.role !== user.role || current.employeeId !== employeeId) {
+    policy = passwordPolicyFor(current)
+    role = toRole(current.role)
+    if (!mustChangePassword && passwordProblem(password, user.username, policy) !== null) {
+      await getDb().prepare("UPDATE users SET must_change_password = 1 WHERE id = ?").run(user.id)
+      mustChangePassword = true
+    }
+    token = await signSession({ userId: user.id, role, sessionId: sid, mustChangePassword, remember: remember === true }, ttlMs)
   }
   // The sign-in journal (lib/auth-logs-repo.ts); a failure to write it never blocks the sign-in.
   await recordAuthLog({ sessionId: sid, username: user.username, ip, userAgent }).catch(() => {})
@@ -183,6 +207,8 @@ export async function POST(request: NextRequest) {
     displayName: user.display_name,
     role,
     mustChangePassword,
+    // The rules the password-change form checks the new password against.
+    passwordPolicy: policy,
   })
   // Without "remember me" a session cookie that the browser clears on close.
   response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(remember === true, ttlMs))

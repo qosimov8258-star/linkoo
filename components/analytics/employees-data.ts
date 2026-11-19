@@ -1,3 +1,5 @@
+import type { PasswordPolicy } from "@/lib/auth-policy"
+
 export type Employee = {
   id: number
   firstName: string
@@ -7,6 +9,9 @@ export type Employee = {
   /** Login of the sign-in account linked to the employee, or null: only that account signs in. The form
    * creates it from the login and a password (an older login without a password has none). */
   account: string | null
+  /** The password rules of that account (lib/auth-policy.ts): "employee" (short passwords) unless an
+   * administrator's account is linked. Optional for rows built without an account. */
+  passwordPolicy?: PasswordPolicy
   /** True while the linked account may sign in (the employee is active and has "Доступ к системе"). */
   canSignIn: boolean
   phone: string

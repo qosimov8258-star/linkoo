@@ -6821,4 +6821,10 @@ export const uz: Record<string, string> = {
   "Вы уверены": "Ishonchingiz komilmi",
   "Данные успешно объединены": "Ma'lumotlar muvaffaqiyatli birlashtirildi",
   "Все данные выбранных клиентов будут переписаны на имя клиента": "Tanlangan mijozlarning barcha ma'lumotlari quyidagi mijoz nomiga o'tkaziladi",
+  // Password fields: the eye button (components/ui/password-input.tsx)
+  "Показать пароль": "Parolni ko'rsatish",
+  "Скрыть пароль": "Parolni yashirish",
+  // Short passwords of employee accounts (lib/auth-policy.ts PasswordPolicy "employee")
+  "Пароль должен содержать не менее 3 символов": "Parol kamida 3 ta belgidan iborat bo'lishi kerak",
+  "Не менее 3 символов; можно только цифры.": "Kamida 3 ta belgi; faqat raqamlar ham bo'lishi mumkin.",
 }

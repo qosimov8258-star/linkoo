@@ -5,6 +5,29 @@ export const USERNAME_MIN = 3
 export const USERNAME_MAX = 64
 export const PASSWORD_MIN = 8
 export const PASSWORD_MAX = 200
+/** Minimum length of an employee account's password (see PasswordPolicy). */
+export const EMPLOYEE_PASSWORD_MIN = 3
+
+/**
+ * Which password rules an account follows. "employee": an account linked to an employee (Сотрудники,
+ * users.employee_id) that is not an administrator's: 3 characters are enough and digits alone are allowed
+ * (the user's choice, 2026-11-19: agents and other staff sign in with a short code). "standard": every
+ * other account, administrators included (at least 8, not only digits, not a common password).
+ */
+export type PasswordPolicy = "standard" | "employee"
+
+export function passwordPolicyFor(account: { role?: string | null; employeeId?: number | null }): PasswordPolicy {
+  return account.employeeId != null && account.role !== "admin" ? "employee" : "standard"
+}
+
+export function passwordMinFor(policy: PasswordPolicy): number {
+  return policy === "employee" ? EMPLOYEE_PASSWORD_MIN : PASSWORD_MIN
+}
+
+/** The hint under a password field (Russian i18n key). */
+export function passwordHintFor(policy: PasswordPolicy): string {
+  return policy === "employee" ? "Не менее 3 символов; можно только цифры." : "Не менее 8 символов; пароль не может состоять только из цифр."
+}
 
 /** Canonical login: Unicode NFKC (full-width / compatibility forms folded),
  * trimmed and lower-cased, so 'ADMIN' and 'admin' are the same account. */
@@ -45,8 +68,14 @@ const COMMON_PASSWORDS = new Set([
   "йцукенгш",
 ])
 
-/** Error message (Russian i18n key) for a weak password, or null when it passes. */
-export function passwordProblem(password: string, username?: string): string | null {
+/** Error message (Russian i18n key) for a weak password, or null when it passes the account's policy. */
+export function passwordProblem(password: string, username?: string, policy: PasswordPolicy = "standard"): string | null {
+  if (policy === "employee") {
+    if (password.length < EMPLOYEE_PASSWORD_MIN) return "Пароль должен содержать не менее 3 символов"
+    if (password.length > PASSWORD_MAX) return "Пароль слишком длинный"
+    if (username && password.toLowerCase() === normalizeUsername(username)) return "Пароль не должен совпадать с логином"
+    return null
+  }
   if (password.length < PASSWORD_MIN) return "Пароль должен содержать не менее 8 символов"
   if (password.length > PASSWORD_MAX) return "Пароль слишком длинный"
   if (/^\d+$/.test(password)) return "Пароль не может состоять только из цифр"

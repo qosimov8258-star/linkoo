@@ -1,6 +1,7 @@
 import "server-only"
 
 import { accountOfEmployee, ensureUserEmployeeLink, lockAccessChanges, otherAdminsWithAccess, revokeEmployeeSessions } from "@/lib/auth-employee"
+import { passwordPolicyFor } from "@/lib/auth-policy"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import {
   accountConflict,
@@ -50,6 +51,8 @@ type Row = {
   login: string
   /** Login of the linked sign-in account (users.employee_id), or null. */
   user_login?: string | null
+  /** Role of that account, or null. */
+  user_role?: string | null
   phone: string
   integration_code: string
   position: string
@@ -123,7 +126,7 @@ async function selectSql(db: PgDb): Promise<string> {
   const jobs = await tableExists(db, "job_positions")
   return `
   SELECT ${EMPLOYEE_COLUMNS.map((column) => `e.${column}`).join(", ")}, ar.id AS access_right_ref, ar.name AS access_right_name,
-         ${jobs ? "jp.name" : "NULL::text"} AS job_name, acc.username AS user_login
+         ${jobs ? "jp.name" : "NULL::text"} AS job_name, acc.username AS user_login, acc.role AS user_role
   FROM employees e
   LEFT JOIN LATERAL (SELECT u.username, u.role, u.access_right_id FROM users u WHERE u.employee_id = e.id ORDER BY u.id LIMIT 1) acc ON TRUE
   LEFT JOIN access_rights ar ON ar.id = COALESCE(e.access_right_id, CASE WHEN acc.role <> 'admin' THEN acc.access_right_id END)${jobs ? "\n  LEFT JOIN job_positions jp ON jp.id = e.job_id" : ""}`
@@ -173,6 +176,9 @@ function rowToEmployee(row: Row, live: LiveIds): Employee {
     // The login of the linked account (the one that really signs in); otherwise an older login without one.
     login: row.user_login || row.login || "",
     account: row.user_login || null,
+    // The rules a new password of the account follows: an employee's short ones, unless an administrator's
+    // account is linked (lib/auth-policy.ts; planAccount checks it again).
+    passwordPolicy: passwordPolicyFor({ role: row.user_role ?? null, employeeId: row.id }),
     // The account signs in only while the employee is active and has "Доступ к системе" (lib/auth-employee.ts).
     canSignIn: Boolean(row.user_login) && row.active === 1 && row.system_access === 1,
     phone: row.phone,

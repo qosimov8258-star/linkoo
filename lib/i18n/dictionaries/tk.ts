@@ -6838,4 +6838,10 @@ export const tk: Record<string, string> = {
   "Вы уверены": "Ynanýarsyňyzmy",
   "Данные успешно объединены": "Maglumatlar üstünlikli birleşdirildi",
   "Все данные выбранных клиентов будут переписаны на имя клиента": "Saýlanan müşderileriň ähli maglumatlary şu müşderiniň adyna geçiriler",
+  // Password fields: the eye button (components/ui/password-input.tsx)
+  "Показать пароль": "Paroly görkez",
+  "Скрыть пароль": "Paroly gizle",
+  // Short passwords of employee accounts (lib/auth-policy.ts PasswordPolicy "employee")
+  "Пароль должен содержать не менее 3 символов": "Parol azyndan 3 nyşandan ybarat bolmaly",
+  "Не менее 3 символов; можно только цифры.": "Azyndan 3 nyşan; diňe sanlar hem bolup biler.",
 }

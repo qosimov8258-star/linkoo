@@ -6839,4 +6839,10 @@ export const en: Record<string, string> = {
   "Вы уверены": "Are you sure",
   "Данные успешно объединены": "Data merged successfully",
   "Все данные выбранных клиентов будут переписаны на имя клиента": "All data of the selected clients will be transferred to the client",
+  // Password fields: the eye button (components/ui/password-input.tsx)
+  "Показать пароль": "Show password",
+  "Скрыть пароль": "Hide password",
+  // Short passwords of employee accounts (lib/auth-policy.ts PasswordPolicy "employee")
+  "Пароль должен содержать не менее 3 символов": "The password must contain at least 3 characters",
+  "Не менее 3 символов; можно только цифры.": "At least 3 characters; digits only are allowed.",
 }

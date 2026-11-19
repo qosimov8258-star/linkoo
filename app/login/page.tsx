@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 
+import { passwordPolicyFor } from "@/lib/auth-policy"
 import { getCurrentUser } from "@/lib/current-user"
 
 import { LoginScreen } from "./login-screen"
@@ -20,5 +21,13 @@ export default async function LoginPage({ searchParams }: PageProps) {
   const from = single(params.from)
   const user = await getCurrentUser()
   if (user && !user.mustChangePassword) redirect(safeRedirectPath(from))
-  return <LoginScreen mode="login" from={from} reason={single(params.reason)} mustChangeFor={user?.username} />
+  return (
+    <LoginScreen
+      mode="login"
+      from={from}
+      reason={single(params.reason)}
+      mustChangeFor={user?.username}
+      mustChangePolicy={user ? passwordPolicyFor(user) : undefined}
+    />
+  )
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
 import { hashPassword, isLegacyHash, legacyMatchIsExact, verifyPassword } from "@/lib/auth"
-import { normalizeUsername, passwordProblem } from "@/lib/auth-policy"
+import { normalizeUsername, passwordPolicyFor, passwordProblem } from "@/lib/auth-policy"
 import { parseBody } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
 import { getDb } from "@/lib/db"
@@ -107,7 +107,7 @@ export async function PUT(request: NextRequest) {
   clearFailures(clientKey)
   const { currentPassword, newPassword } = check
 
-  const problem = passwordProblem(newPassword, user.username)
+  const problem = passwordProblem(newPassword, user.username, passwordPolicyFor(user))
   if (problem) return NextResponse.json({ error: problem }, { status: 400 })
   // The same text again is allowed only to re-store a password of 72 bytes or
   // more that a legacy hash counted just in part (lib/auth.ts): the sign-in
