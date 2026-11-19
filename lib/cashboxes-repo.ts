@@ -342,12 +342,15 @@ async function resolveInput(db: PgDb, body: CashboxInputBody, current: CashboxRo
   else if (context.currencies.some((item) => item.code === code)) currency = code
   else throw new CashboxError("Неизвестная валюта", 400, "currency")
 
+  // The cashier is optional: a new cashbox without one has none; an edit that sends none keeps the stored one
+  // (the form no longer asks for it); a cashier that is sent must be a known employee.
   let cashier: { id: number | null; name: string } | null
   const cashierText = (body.cashier ?? "").trim()
   if (body.cashierId) cashier = await findEmployee(db, { id: body.cashierId })
+  else if (!cashierText) cashier = current ? { id: current.cashier_id, name: current.cashier ?? "" } : { id: null, name: "" }
   else if (current && cashboxNameKey(cashierText) === cashboxNameKey(current.cashier)) cashier = { id: current.cashier_id, name: current.cashier ?? "" }
   else cashier = await findEmployee(db, { name: cashierText })
-  if (!cashier || !cashier.name) throw new CashboxError("Сотрудник не найден", 400, "cashier")
+  if (!cashier || ((body.cashierId || cashierText) && !cashier.name)) throw new CashboxError("Сотрудник не найден", 400, "cashier")
 
   let branch = ""
   const branchKey = cashboxNameKey(body.branch)

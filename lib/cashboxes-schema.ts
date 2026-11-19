@@ -53,7 +53,7 @@ export const cashboxInputSchema = z
     ),
   })
   .superRefine((value, ctx) => {
-    if (!value.cashierId && !value.cashier) ctx.addIssue({ code: "custom", path: ["cashier"], message: REQUIRED })
+    // The cashier is optional (the user's choice, 2026-11-19): a cashbox is created without one.
     const rawType = value.paymentType || value.type
     if (!rawType) ctx.addIssue({ code: "custom", path: ["paymentType"], message: REQUIRED })
     else if (!cashboxTypeOf(rawType)) ctx.addIssue({ code: "custom", path: ["paymentType"], message: "Неизвестный тип оплаты" })

@@ -22,25 +22,24 @@ import {
 } from "./cashboxes-data"
 
 // "Добавить кассу" / "Изменить кассу" (demo module 4335, form CashboxCreateForm):
-// Наименование ★, Валюта ★, Кассир ★, Филиал, Тип оплаты ★, Вэнсел, Порядковый номер ★,
-// "Сохранить". The selects come from GET /api/cashboxes/options (currencies, employees,
-// branches); values of an edited row that are not in those lists (older data) stay
-// selectable as they are and are kept unchanged by the server.
+// Наименование ★, Валюта ★, Филиал, Тип оплаты ★, Вэнсел, Порядковый номер ★, "Сохранить".
+// No «Кассир» (the user's choice, 2026-11-19): a cashbox is created without a cashier, and an
+// edit keeps the stored one (lib/cashboxes-repo.ts resolveInput). The selects come from
+// GET /api/cashboxes/options (currencies, branches); values of an edited row that are not in
+// those lists (older data) stay selectable as they are and are kept unchanged by the server.
 
-/** Select value of a stored cashier / branch that is not in the option list. */
+/** Select value of a stored branch that is not in the option list. */
 const LEGACY = "legacy"
 
-type Draft = { name: string; currency: string; cashier: string; branch: string; type: CashboxType | ""; vansell: boolean; orderNumber: string }
+type Draft = { name: string; currency: string; branch: string; type: CashboxType | ""; vansell: boolean; orderNumber: string }
 type Errors = Partial<Record<CashboxField, string>>
 
-const EMPTY_DRAFT: Draft = { name: "", currency: "", cashier: "", branch: "", type: "", vansell: false, orderNumber: "" }
+const EMPTY_DRAFT: Draft = { name: "", currency: "", branch: "", type: "", vansell: false, orderNumber: "" }
 
 /** Maps a server field name to the dialog field. */
 const FIELD_ALIASES: Record<string, CashboxField> = {
   name: "name",
   currency: "currency",
-  cashier: "cashier",
-  cashierId: "cashier",
   branch: "branch",
   branchId: "branch",
   paymentType: "paymentType",
@@ -57,14 +56,10 @@ export function cashboxRequestErrors(body: CashboxErrorBody, fallback: string): 
 }
 
 function draftFromCashbox(cashbox: Cashbox, options: CashboxOptions): Draft {
-  const employee =
-    options.employees.find((item) => cashbox.cashierId !== null && item.id === cashbox.cashierId) ??
-    options.employees.find((item) => cashboxNameKey(item.name) === cashboxNameKey(cashbox.cashier))
   const branch = options.branches.find((item) => cashboxNameKey(item.name) === cashboxNameKey(cashbox.branch))
   return {
     name: cashbox.name,
     currency: cashbox.currency ? normCurrency(cashbox.currency) : "",
-    cashier: employee ? String(employee.id) : cashbox.cashier ? LEGACY : "",
     branch: branch ? String(branch.id) : cashbox.branch ? LEGACY : "",
     type: cashbox.type,
     vansell: cashbox.vansell,
@@ -79,7 +74,6 @@ function validate(draft: Draft): Errors {
   const errors: Errors = {}
   if (!draft.name.trim()) errors.name = "Обязательное поле"
   if (!draft.currency) errors.currency = "Обязательное поле"
-  if (!draft.cashier) errors.cashier = "Обязательное поле"
   if (!draft.type) errors.paymentType = "Обязательное поле"
   const position = draft.orderNumber.trim()
   if (!position) errors.orderNumber = "Обязательное поле"
@@ -142,14 +136,6 @@ export function CashboxFormModal({
     return list
   }, [options, cashbox])
 
-  const cashierOptions = useMemo<PickOption[]>(() => {
-    const list = (options?.employees ?? [])
-      .filter((item) => item.active || String(item.id) === draft?.cashier)
-      .map((item) => ({ value: String(item.id), label: item.name, hint: [t(item.position), item.active ? "" : t("Неактивный")].filter(Boolean).join(" · ") || undefined }))
-    if (cashbox && options && draftFromCashbox(cashbox, options).cashier === LEGACY) list.unshift({ value: LEGACY, label: cashbox.cashier, hint: t("Нет в списке сотрудников") })
-    return list
-  }, [options, cashbox, draft?.cashier, t])
-
   const branchOptions = useMemo<PickOption[]>(() => {
     const list = (options?.branches ?? []).map((item) => ({ value: String(item.id), label: item.name }))
     if (cashbox && options && draftFromCashbox(cashbox, options).branch === LEGACY) list.unshift({ value: LEGACY, label: cashbox.branch })
@@ -177,7 +163,6 @@ export function CashboxFormModal({
       paymentType: draft.type,
       vansell: draft.vansell,
       orderNumber: Number(draft.orderNumber.trim()),
-      ...(draft.cashier === LEGACY ? { cashier: cashbox?.cashier ?? "" } : { cashierId: Number(draft.cashier) }),
       ...(draft.branch === LEGACY ? { branch: cashbox?.branch ?? "" } : draft.branch ? { branchId: Number(draft.branch) } : { branchId: null, branch: "" }),
     }
     setSaving(true)
@@ -212,7 +197,6 @@ export function CashboxFormModal({
   const busy = saving || (!draft && !loadError)
 
   const currencyItems = currencyOptions.map(({ value, label }) => ({ value, label }))
-  const cashierItems = cashierOptions.map(({ value, label }) => ({ value, label }))
   const branchItems = branchOptions.map(({ value, label }) => ({ value, label }))
   const typeItems = typeOptions.map(({ value, label }) => ({ value, label }))
   const textField = (label: string, field: CashboxField, value: string, onChange: (value: string) => void, required = true) => (
@@ -237,7 +221,6 @@ export function CashboxFormModal({
           <>
             {textField(t("Наименование"), "name", draft.name, (name) => change({ name }, "name"))}
             <div className="mt-[27px]"><LinePick label={t("Валюта")} required value={draft.currency} options={currencyItems} onChange={(value) => change({ currency: value }, "currency")} error={fieldError("currency")} /></div>
-            <div className="mt-[22px]"><LinePick label={t("Кассир")} required value={draft.cashier} options={cashierItems} onChange={(value) => change({ cashier: value }, "cashier")} error={fieldError("cashier")} /></div>
             <div className="mt-[22px]"><LinePick label={t("Филиал")} value={draft.branch} options={branchItems} onChange={(value) => change({ branch: value }, "branch")} error={fieldError("branch")} /></div>
             <div className="mt-[22px]">
               <LinePick

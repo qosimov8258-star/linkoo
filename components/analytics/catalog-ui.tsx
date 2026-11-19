@@ -40,6 +40,10 @@ function isTopmost(root: HTMLElement | null): boolean {
 export function Modal({ title, onClose, footer, children, width = 500, bodyClassName = "px-[30px] pb-[24px] pt-[24px]", titleClassName = "text-[13px]", headerClassName = "pl-[30px]", anchorTop = false, scrollAll = false, closeInset = "pr-[15px]", footerClassName = "", escapeCloses = true }: { escapeCloses?: boolean; footerClassName?: string; closeInset?: string; title: string; onClose: () => void; footer: ReactNode; children: ReactNode; width?: number; bodyClassName?: string; titleClassName?: string; headerClassName?: string; anchorTop?: boolean | number; scrollAll?: boolean }) {
   const { t } = useLanguage()
   const rootRef = useRef<HTMLDivElement>(null)
+  // The dialog lives in document.body, which the server render does not have: a page that opens with the dialog
+  // already up (?openCreateDialog=true on a reload) renders it after hydration instead of failing on the server.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
   // The reference's modal dialogs (Должности, Кассы, Права доступа, Типы клиентов) ignore clicks on the dim backdrop:
   // they close with × / Cancel. Escape closes the topmost dialog (app rule); `escapeCloses={false}` opts out.
   useEffect(() => {
@@ -50,6 +54,7 @@ export function Modal({ title, onClose, footer, children, width = 500, bodyClass
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose, escapeCloses])
+  if (!mounted) return null
   return createPortal(
     // Reference rule (old Material-UI Dialog, measured on 25 dialogs from 267 px to 1905 px): the dialog is centered by its
     // height at open time and never closer than 80 px to the top (tall ones: y = 80 and the page scrolls). So the default is
