@@ -1322,6 +1322,7 @@ async function bootstrapSchema(): Promise<void> {
   await convertRealColumns(pool)
   await clearDemoColumnDefaults(pool)
   await normalizeEmployeePositions(pool)
+  await seedDefaultCurrency(pool)
   await seedAdminIfEmpty(pool)
   await flagLegacyAdminPassword(pool)
 }
@@ -1582,6 +1583,42 @@ async function clearDemoColumnDefaults(pool: Pool): Promise<void> {
 }
 
 // --- first administrator --------------------------------------------------------
+// A new company starts with its base currency, SOM (code SUM, rate 1), so the forms that need a currency (a
+// product's prices, a cash box, a branch) offer one at once. Written once, only into an empty currencies table: a
+// company with its own currencies is left alone, and a currency deleted later does not come back (the app_settings
+// mark, as for the default roles and positions).
+const DEFAULT_CURRENCY_SEED_KEY = "seed:default_currency"
+
+async function seedDefaultCurrency(pool: Pool): Promise<void> {
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('linko:default-currency'))")
+    await client.query(`CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT '',
+      updated_by TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    const marked = await client.query("SELECT 1 FROM app_settings WHERE key = $1", [DEFAULT_CURRENCY_SEED_KEY])
+    if (!marked.rowCount) {
+      const { rows } = await client.query("SELECT COUNT(*)::int AS count FROM currencies")
+      const empty = rows[0].count === 0
+      if (empty) await client.query("INSERT INTO currencies (name, code, rate, is_base) VALUES ('SOM', 'SUM', 1, 1) ON CONFLICT (code) DO NOTHING")
+      await client.query("INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING", [
+        DEFAULT_CURRENCY_SEED_KEY,
+        empty ? "written" : "skipped: the company has its own currencies",
+      ])
+    }
+    await client.query("COMMIT")
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
 // The password comes from ADMIN_INITIAL_PASSWORD; without it a random one-time
 // password is generated and printed once to the server log. Either way the
 // account must change it at the first sign-in (must_change_password).
