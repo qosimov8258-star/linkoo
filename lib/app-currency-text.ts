@@ -31,7 +31,8 @@ export function appCurrencyTextConverter(work: string, rates: Record<string, num
   const shownLabel = work === "EUR" ? euroName : currencyLabel(work)
   // Every spelling of another currency than the app one (the euro's name in the UI language and the names of
   // Валюты too).
-  const names = [...new Set([...SPELLINGS, ...Object.values(currencyNames()), euroName])].filter((name) => name && canonical(name) !== work)
+  // A name without a letter or currency sign ("01") is not matched in free text (it would hit plain numbers).
+  const names = [...new Set([...SPELLINGS, ...Object.values(currencyNames()), euroName])].filter((name) => name && /[\p{L}€$]/u.test(name) && canonical(name) !== work)
   if (!names.length) return null
   const alternatives = names.sort((a, b) => b.length - a.length).map(escape).join("|")
   const pattern = new RegExp(`(?<![\\p{L}\\p{N}_.,])(${AMOUNT})[ \\u00a0\\u202f]?(${alternatives})(?![\\p{L}\\p{N}_])`, "gu")
