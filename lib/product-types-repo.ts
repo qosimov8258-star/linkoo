@@ -80,7 +80,8 @@ export async function listProductTypes(): Promise<ProductType[]> {
 /** The tree grid: top-level types (searched, sorted, paged) with their children. Default order = name (the demo ignores its "order" field here). */
 export async function listProductTypeTree(query: DictionaryListQuery): Promise<ProductTypeTreeResult> {
   const types = (await allRows(await dictionariesDb())).map(rowToType)
-  const tree = filterTree(buildTree<ProductType, ProductTypeNode>(types, query.ordering || "name"), query.search)
+  // Without a chosen column the types follow their Порядок (lib/dictionaries-schema.ts sortNodes "position").
+  const tree = filterTree(buildTree<ProductType, ProductTypeNode>(types, query.ordering || "position"), query.search)
   const start = (query.page - 1) * query.pageSize
   return { count: tree.length, results: tree.slice(start, start + query.pageSize) }
 }

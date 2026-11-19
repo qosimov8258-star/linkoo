@@ -6827,4 +6827,5 @@ export const uz: Record<string, string> = {
   // Short passwords of employee accounts (lib/auth-policy.ts PasswordPolicy "employee")
   "Пароль должен содержать не менее 3 символов": "Parol kamida 3 ta belgidan iborat bo'lishi kerak",
   "Не менее 3 символов; можно только цифры.": "Kamida 3 ta belgi; faqat raqamlar ham bo'lishi mumkin.",
+  "У этого типа есть подкатегории, поэтому его нельзя вложить в другой тип": "Bu turning o'z subkategoriyalari bor, shuning uchun uni boshqa turning ichiga qo'yib bo'lmaydi",
 }

@@ -6844,4 +6844,5 @@ export const tk: Record<string, string> = {
   // Short passwords of employee accounts (lib/auth-policy.ts PasswordPolicy "employee")
   "Пароль должен содержать не менее 3 символов": "Parol azyndan 3 nyşandan ybarat bolmaly",
   "Не менее 3 символов; можно только цифры.": "Azyndan 3 nyşan; diňe sanlar hem bolup biler.",
+  "У этого типа есть подкатегории, поэтому его нельзя вложить в другой тип": "Bu görnüşiň öz kiçi kategoriýalary bar, şonuň üçin ony başga görnüşiň içine goýup bolmaýar",
 }

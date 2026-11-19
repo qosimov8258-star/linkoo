@@ -6845,4 +6845,5 @@ export const en: Record<string, string> = {
   // Short passwords of employee accounts (lib/auth-policy.ts PasswordPolicy "employee")
   "Пароль должен содержать не менее 3 символов": "The password must contain at least 3 characters",
   "Не менее 3 символов; можно только цифры.": "At least 3 characters; digits only are allowed.",
+  "У этого типа есть подкатегории, поэтому его нельзя вложить в другой тип": "This type has subcategories, so it cannot be put inside another type",
 }

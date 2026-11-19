@@ -124,12 +124,15 @@ export function BarcodesEditor({ value, onChange, error }: { value: string[]; on
   )
 }
 
-/** Price blocks: "Продажная цена" + "Добавить новую цену" ("Удалить новую цену" on all but the last block). */
+/** Price blocks: "Продажная цена" + "Добавить новую цену" ("Удалить новую цену" on all but the last block).
+ * A price without a chosen currency is in `defaultCurrency` (what saving sends), and its fields show it; «Цена
+ * безналичные» and its currency follow «Цена наличные» and its currency until they are given another value. */
 export function PricesEditor({
   value,
   onChange,
   priceLists,
   currencies,
+  defaultCurrency,
   savedNames = [],
   error,
 }: {
@@ -137,6 +140,8 @@ export function PricesEditor({
   onChange: (value: PriceDraft[]) => void
   priceLists: Array<{ name: string; currency: string }>
   currencies: string[]
+  /** The currency of a price without one: the app currency, else the base currency. */
+  defaultCurrency: string
   /** Price lists the item already has a stored price in ("Удалить цену" instead of "Удалить новую цену"). */
   savedNames?: string[]
   error?: string
@@ -149,6 +154,9 @@ export function PricesEditor({
     <div className="mt-[14px]">
       {value.map((entry, index) => {
         const last = index === value.length - 1
+        // As saving resolves them (catalog-form bodyOf): the chosen currency, else the default one.
+        const cashCurrency = entry.currency || defaultCurrency
+        const nonCashCurrency = entry.nonCashCurrency || cashCurrency
         return (
           <div key={index} className={index === 0 ? "" : "mt-[2px]"}>
             <div className="relative flex h-[30px] items-center">
@@ -179,12 +187,19 @@ export function PricesEditor({
               </span>
             </div>
             <div className="mt-1 flex items-start">
-              <TextField label={t("Цена наличные")} numeric value={entry.cash} onChange={(cash) => update(index, { cash })} className="w-[215px]" />
+              <TextField
+                label={t("Цена наличные")}
+                numeric
+                value={entry.cash}
+                // The non-cash price is the cash one until it is given its own value.
+                onChange={(cash) => update(index, { cash, ...(entry.nonCash === "" || entry.nonCash === entry.cash ? { nonCash: cash } : {}) })}
+                className="w-[215px]"
+              />
               <SelectField
                 label={t("Валюта")}
-                value={entry.currency}
-                options={currencyOptions(entry.currency)}
-                onChange={(currency) => update(index, { currency })}
+                value={cashCurrency}
+                options={currencyOptions(cashCurrency)}
+                onChange={(currency) => update(index, { currency, ...(nonCashCurrency === cashCurrency ? { nonCashCurrency: currency } : {}) })}
                 className="ml-[10px] mt-4 w-[215px]"
               />
             </div>
@@ -192,9 +207,9 @@ export function PricesEditor({
               <TextField label={t("Цена безналичные")} numeric value={entry.nonCash} onChange={(nonCash) => update(index, { nonCash })} className="w-[215px]" />
               <SelectField
                 label={t("Валюта")}
-                value={entry.nonCashCurrency}
-                options={currencyOptions(entry.nonCashCurrency)}
-                onChange={(nonCashCurrency) => update(index, { nonCashCurrency })}
+                value={nonCashCurrency}
+                options={currencyOptions(nonCashCurrency)}
+                onChange={(next) => update(index, { nonCashCurrency: next })}
                 className="ml-[10px] mt-4 w-[215px]"
               />
             </div>

@@ -484,6 +484,7 @@ export function CatalogFormDialog({
             onChange={(prices) => set({ prices })}
             priceLists={options?.priceLists ?? []}
             currencies={options?.currencies ?? ["SUM"]}
+            defaultCurrency={app.code || options?.baseCurrency || options?.currencies[0] || "SUM"}
             savedNames={item?.priceLists.map((entry) => entry.name) ?? []}
             error={errors.priceLists}
           />

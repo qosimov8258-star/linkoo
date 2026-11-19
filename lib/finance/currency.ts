@@ -101,7 +101,9 @@ function escapeRegExp(text: string): string {
  * case-sensitive, so "SUMMARY" or "sum" are untouched. */
 function storedNames(): RegExp {
   if (namesPattern) return namesPattern
-  const words = new Set(["SUM", "SOM", "USD", "EURO", "EUR", "Euro", "ЕВРО", ...Object.keys(customLabels)])
+  // A code of Валюты without a letter ("01", "02") is left out: as a whole word it would turn every "01" of the screen
+  // (a date, a number, a name like "01. …") into the currency's name.
+  const words = new Set(["SUM", "SOM", "USD", "EURO", "EUR", "Euro", "ЕВРО", ...Object.keys(customLabels).filter((code) => /\p{L}/u.test(code))])
   const alternatives = [...words].filter(Boolean).sort((a, b) => b.length - a.length).map(escapeRegExp).join("|")
   namesPattern = new RegExp(`(?<![\\p{L}\\p{N}_'’])(${alternatives})(?![\\p{L}\\p{N}_'’])`, "gu")
   return namesPattern
