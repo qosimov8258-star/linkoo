@@ -29,7 +29,8 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
   `)
   const count = Number(((await db.prepare("SELECT COUNT(*) AS count FROM period_closings").get()) as { count: number | string }).count)
   if (count === 0) {
-    const seed = db.prepare("INSERT INTO period_closings (id, class_name, name, is_auto, days) VALUES (@id, @class_name, @name, 1, @days)")
+    // Two first requests of a fresh database may both find it empty: the second one's rows are already there.
+    const seed = db.prepare("INSERT INTO period_closings (id, class_name, name, is_auto, days) VALUES (@id, @class_name, @name, 1, @days) ON CONFLICT DO NOTHING")
     await seed.run({ id: 1, class_name: "order", name: "Заказ", days: 1 })
     await seed.run({ id: 2, class_name: "transaction", name: "Касса", days: 1 })
     await seed.run({ id: 3, class_name: "orderreturn", name: "Возврат", days: 2 })
