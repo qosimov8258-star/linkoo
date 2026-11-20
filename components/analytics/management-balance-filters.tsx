@@ -49,7 +49,8 @@ export function ManagementFilterBar({
       </div>
       <div className="absolute left-[710px] top-[26px] h-[36px] w-[350px] border-b border-[#e8e8e8]">
         <button type="button" onClick={() => setPickerOpen((open) => !open)} className="absolute left-0 top-[9px] text-[13px] text-black">
-          {formatRangeLabel(parseISODate(draft.from), parseISODate(draft.to)).toLowerCase()}
+          {/* Linko: «01 нояб. 2026 – 20 нояб. 2026» (an en dash). */}
+          {formatRangeLabel(parseISODate(draft.from), parseISODate(draft.to)).toLowerCase().replace(" - ", " – ")}
         </button>
         {pickerOpen && (
           <DateRangePicker
@@ -64,7 +65,7 @@ export function ManagementFilterBar({
           />
         )}
       </div>
-      <button type="button" onClick={apply} className="absolute left-[1075px] top-[26px] h-[30px] rounded-[4px] bg-[#1E4A9A] px-[16px] text-[13px] font-bold text-white uppercase">
+      <button type="button" onClick={apply} className="absolute left-[1075px] top-[26px] h-[30px] rounded-[4px] bg-[#1E4A9A] px-[16px] text-[13px] font-semibold text-white">
         {t("Применить")}
       </button>
       {extra && <div className="absolute right-[30px] top-[17px]">{extra}</div>}

@@ -321,11 +321,75 @@ export async function createCatalogItemTx(tx: PgDb, kind: CatalogKind, patch: Ca
   return id
 }
 
-export async function createCatalogItem(kind: CatalogKind, patch: CatalogPatch): Promise<number> {
+/**
+ * «Характеристика» of a product: {attribute id: value} into product_attribute_assignments. Unknown attributes, a
+ * select value off its list or a non-number of a number field are refused (400); an empty value is dropped.
+ */
+async function writeItemAttributes(tx: PgDb, kind: CatalogKind, id: number, values: Record<string, string> | undefined): Promise<void> {
+  if (values === undefined || kind !== "product") return
+  const wanted: Record<string, string> = Object.fromEntries(
+    Object.entries(values)
+      .map(([key, value]): [string, string] => [key, String(value).trim()])
+      .filter(([, value]) => value !== ""),
+  )
+  const exists = (await tx.prepare("SELECT to_regclass('product_attributes') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (Object.keys(wanted).length && exists?.ok) {
+    const rows = (await tx.prepare("SELECT id, name, field_type FROM product_attributes WHERE id = ANY(@ids::integer[])").all({ ids: Object.keys(wanted).map(Number) })) as Array<{
+      id: number
+      name: string
+      field_type: string
+    }>
+    const byId = new Map(rows.map((row) => [String(row.id), row]))
+    for (const [key, value] of Object.entries(wanted)) {
+      const attribute = byId.get(key)
+      if (!attribute) throw new CatalogError("Атрибут не найден", 400, { attributes: "Атрибут не найден" })
+      if (/цифр/i.test(attribute.field_type) && !Number.isFinite(Number(value.replace(",", ".")))) throw new CatalogError("Некорректное число", 400, { attributes: "Некорректное число" })
+      if (!/цифр|текст/i.test(attribute.field_type)) {
+        const listed = (await tx.prepare("SELECT values_json FROM product_attribute_values WHERE fin_key(attribute) = fin_key(@name)").all({ name: attribute.name })) as Array<{ values_json: string }>
+        const allowed = listed.flatMap((row) => {
+          try {
+            const parsed = JSON.parse(row.values_json) as unknown
+            return Array.isArray(parsed) ? parsed.map(String) : []
+          } catch {
+            return []
+          }
+        })
+        if (!allowed.includes(value)) throw new CatalogError("Значение атрибута не найдено", 400, { attributes: "Значение атрибута не найдено" })
+      }
+    }
+  } else if (Object.keys(wanted).length) throw new CatalogError("Атрибут не найден", 400, { attributes: "Атрибут не найден" })
+  await tx.exec(`CREATE TABLE IF NOT EXISTS product_attribute_assignments (
+    product_id INTEGER PRIMARY KEY,
+    values_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  if (!Object.keys(wanted).length) {
+    await tx.prepare("DELETE FROM product_attribute_assignments WHERE product_id = @id").run({ id })
+    return
+  }
+  await tx
+    .prepare(
+      `INSERT INTO product_attribute_assignments (product_id, values_json) VALUES (@id, @values)
+       ON CONFLICT (product_id) DO UPDATE SET values_json = excluded.values_json, updated_at = datetime('now')
+       RETURNING product_id`,
+    )
+    .get({ id, values: JSON.stringify(wanted) })
+}
+
+/** Removes a product's «Характеристика» values (its own data, like its photos and limits). */
+async function dropItemAttributes(tx: PgDb, kind: CatalogKind, id: number): Promise<void> {
+  if (kind !== "product") return
+  const exists = (await tx.prepare("SELECT to_regclass('product_attribute_assignments') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (exists?.ok) await tx.prepare("DELETE FROM product_attribute_assignments WHERE product_id = @id").run({ id })
+}
+
+export async function createCatalogItem(kind: CatalogKind, patch: CatalogPatch, attributes?: Record<string, string>): Promise<number> {
   await catalogDb()
   return withTransaction(async (tx) => {
     await lockCatalog(tx)
-    return createCatalogItemTx(tx, kind, patch)
+    const id = await createCatalogItemTx(tx, kind, patch)
+    await writeItemAttributes(tx, kind, id, attributes)
+    return id
   })
 }
 
@@ -351,11 +415,13 @@ export async function updateCatalogItemTx(tx: PgDb, kind: CatalogKind, id: numbe
   return { id, renamed }
 }
 
-export async function updateCatalogItem(kind: CatalogKind, id: number, patch: CatalogPatch): Promise<CatalogUpdateResult | null> {
+export async function updateCatalogItem(kind: CatalogKind, id: number, patch: CatalogPatch, attributes?: Record<string, string>): Promise<CatalogUpdateResult | null> {
   await catalogDb()
   return withTransaction(async (tx) => {
     await lockCatalog(tx)
-    return updateCatalogItemTx(tx, kind, id, patch)
+    const result = await updateCatalogItemTx(tx, kind, id, patch)
+    if (result) await writeItemAttributes(tx, kind, id, attributes)
+    return result
   })
 }
 
@@ -429,6 +495,7 @@ export async function deleteCatalogItem(kind: CatalogKind, id: number, mode: Cat
     }
     await tx.prepare("DELETE FROM product_images WHERE item_kind = @kind AND item_id = @id").run({ kind, id })
     await tx.prepare("DELETE FROM product_limits WHERE item_kind = @kind AND item_id = @id").run({ kind, id })
+    await dropItemAttributes(tx, kind, id)
     const result = await tx.prepare(`DELETE FROM ${CATALOG_TABLE[kind]} WHERE id = @id`).run({ id })
     return result.changes > 0 ? "hard" : null
   })
@@ -464,6 +531,8 @@ async function moveCatalogItem(tx: PgDb, from: CatalogKind, id: number, to: Cata
   const newId = Number(inserted.lastInsertRowid)
   await tx.prepare("UPDATE product_images SET item_kind = @to, item_id = @newId WHERE item_kind = @from AND item_id = @id").run({ to, from, newId, id })
   await tx.prepare("UPDATE product_limits SET item_kind = @to, item_id = @newId WHERE item_kind = @from AND item_id = @id").run({ to, from, newId, id })
+  // «Характеристика» belongs to products only: a product moved to Сырье leaves its attribute values behind.
+  await dropItemAttributes(tx, from, id)
   await lockStockWrites(tx)
   const usage = await catalogUsage(tx, { kind: from, id, name: item.name, deleted: item.deleted })
   if (usage.length) return setDeleted(tx, from, id, true, userName)

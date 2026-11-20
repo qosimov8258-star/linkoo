@@ -1,12 +1,11 @@
 "use client"
 
-import type { ReactNode } from "react"
-
 import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import type { CashQuery } from "@/components/analytics/cash/use-cash"
-import { MultiSelect } from "@/components/analytics/client-balance-filters"
 import { FilterDate, FilterSelect, RefFilterPanel } from "@/components/ref/list-kit"
+import { LinkoMultiField, LinkoSingleField } from "@/components/ref/linko-select-fields"
 import { ReportMultiChipField } from "@/components/ref/report-kit"
+import { compareCurrencyCodes, currencyLabel } from "@/lib/finance/currency"
 import { formatStatementDate, isIsoDay } from "@/lib/finance/dates"
 import { NO_CLIENT_TYPE } from "@/lib/finance-client-balance-types"
 import {
@@ -46,6 +45,8 @@ export type CustomerPaymentsFilters = {
   endInvoiceDate: string
   showInvoice: string
   currency: string
+  /** Linko's «Тип оплаты»: cash | bank. */
+  paymentType: string
   notAccept: boolean
 }
 
@@ -63,11 +64,11 @@ export type CustomerPaymentsState = {
 
 type ListKey = "branch" | "deliveryMan" | "division" | "cashbox" | "border" | "client" | "marketResponsibleAgent" | "marketResponsibleDeliveryMan"
 type DayKey = "fromDate" | "toDate" | "beginAcceptedTime" | "endAcceptedTime" | "beginInvoiceDate" | "endInvoiceDate"
-type TextKey = "marketTypeParent" | "marketType" | "user" | "acceptedBy" | "status" | "showInvoice" | "currency"
+type TextKey = "marketTypeParent" | "marketType" | "user" | "acceptedBy" | "status" | "showInvoice" | "currency" | "paymentType"
 
 const LIST_KEYS: ListKey[] = ["branch", "deliveryMan", "division", "cashbox", "border", "client", "marketResponsibleAgent", "marketResponsibleDeliveryMan"]
 const DAY_KEYS: DayKey[] = ["fromDate", "toDate", "beginAcceptedTime", "endAcceptedTime", "beginInvoiceDate", "endInvoiceDate"]
-const TEXT_KEYS: TextKey[] = ["marketTypeParent", "marketType", "user", "acceptedBy", "status", "showInvoice", "currency"]
+const TEXT_KEYS: TextKey[] = ["marketTypeParent", "marketType", "user", "acceptedBy", "status", "showInvoice", "currency", "paymentType"]
 
 export const CUSTOMER_PAYMENTS_PAGE_SIZE = 25
 
@@ -94,6 +95,7 @@ export function emptyCustomerPaymentFilters(): CustomerPaymentsFilters {
     endInvoiceDate: "",
     showInvoice: "",
     currency: "",
+    paymentType: "",
     notAccept: false,
   }
 }
@@ -110,6 +112,7 @@ export function stateFromParams(params: ParamReader): CustomerPaymentsState {
   for (const key of TEXT_KEYS) filters[key] = params.get(key)?.trim() ?? ""
   if (!["set", "not_set"].includes(filters.showInvoice)) filters.showInvoice = ""
   if (!(CLIENT_CONFIRMATIONS as readonly string[]).includes(filters.status)) filters.status = ""
+  if (!["cash", "bank"].includes(filters.paymentType)) filters.paymentType = ""
   filters.notAccept = ["1", "true"].includes(params.get("notAccept") ?? "")
   const tab = params.get("showTab") ?? ""
   const page = Number(params.get("page"))
@@ -173,7 +176,9 @@ export function customerPaymentsTotalsQuery(state: CustomerPaymentsState): CashQ
     clientType: f.marketTypeParent ? [f.marketTypeParent] : [],
     cashbox: f.cashbox,
     zone: f.border,
-    client: f.client,
+    // Linko's «Клиент» (client=<id>) is a financial account.
+    account: f.client,
+    paymentType: f.paymentType,
     createdBy: f.user ? [f.user] : [],
     acceptedBy: f.acceptedBy ? [f.acceptedBy] : [],
     responsibleAgent: f.marketResponsibleAgent,
@@ -202,18 +207,6 @@ export function formatRuDate(iso: string, withTime = true, language = "ru"): str
 
 // --- panel ------------------------------------------------------------------------
 
-const fieldClass = "h-10 w-full rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]"
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  const { t } = useLanguage()
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <span className="text-sm text-[#586174]">{t(label)}</span>
-      {children}
-    </div>
-  )
-}
-
 type Option = { value: string; label: string }
 
 /** Reference-style (Material) filter fields over the {value,label} option lists of this page. */
@@ -237,34 +230,10 @@ export function RDate({ label, from, to, onChange }: { label: string; from: stri
   return <FilterDate label={t(label)} begin={from} end={to} onChange={onChange} />
 }
 
-function Select({ value, options, onChange, disabled = false }: { value: string; options: Option[]; onChange: (next: string) => void; disabled?: boolean }) {
-  const { t } = useLanguage()
-  return (
-    <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className={`${fieldClass} disabled:bg-[#f2f5f8]`}>
-      <option value="">{disabled ? t("Нет данных") : t("Все")}</option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function DayRange({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
-  const { t } = useLanguage()
-  return (
-    <span className="flex items-center gap-2">
-      <input type="date" value={from} aria-label={t("с")} onChange={(event) => onChange(event.target.value, to)} className={`${fieldClass} min-w-0 px-2`} />
-      <span className="text-[#586174]">—</span>
-      <input type="date" value={to} aria-label={t("по")} onChange={(event) => onChange(from, event.target.value)} className={`${fieldClass} min-w-0 px-2`} />
-    </span>
-  )
-}
-
 const names = (values: string[]): Option[] => values.map((value) => ({ value, label: value }))
 
-/** Inline 4-column filter panel ("Применить" applies the draft). */
+/** Linko's ClientTransactionFilterForm: a panel over the whole list, its fields four per row in Linko's order
+ * («Применить» applies the draft). */
 export function CustomerPaymentsFilterPanel({
   draft,
   onChange,
@@ -279,69 +248,74 @@ export function CustomerPaymentsFilterPanel({
   onClose: () => void
 }) {
   const { t } = useLanguage()
-  const set = <K extends keyof CustomerPaymentsFilters>(key: K, value: CustomerPaymentsFilters[K]) => onChange({ ...draft, [key]: value })
-  const typeOptions: Option[] = [
-    ...(options?.untyped ? [{ value: NO_CLIENT_TYPE, label: t("Не указано") }] : []),
-    ...names(options?.clientTypes ?? []),
-  ]
+  const set = <K extends keyof CustomerPaymentsFilters>(key: K) => (value: CustomerPaymentsFilters[K]) => onChange({ ...draft, [key]: value })
+  const list = (values: string[] | undefined): Option[] | null => (options ? names(values ?? []) : null)
+  const typeOptions: Option[] | null = options
+    ? [...(options.untyped ? [{ value: NO_CLIENT_TYPE, label: t("Не указано") }] : []), ...names(options.clientTypes)]
+    : null
+  // Linko's user fields list the active staff in their order (by id).
+  const staff = options ? names([...new Set([...options.employees].sort((a, b) => a.id - b.id).map((employee) => employee.name))]) : null
+  const period = (label: string, from: DayKey, to: DayKey) => (
+    <FilterDate iconEnd className="!h-[67px]" label={t(label)} begin={draft[from]} end={draft[to]} onChange={(begin, end) => onChange({ ...draft, [from]: begin, [to]: end })} />
+  )
   return (
-    <RefFilterPanel narrow onClose={onClose} onApply={onApply} className="!w-[310px] max-h-[calc(100vh-120px)] overflow-y-auto">
-      <div className="grid grid-cols-1">
-        <RMulti label="Филиалы" value={draft.branch} options={names(options?.branches ?? [])} onChange={(value) => set("branch", value)} />
-        <RMulti label="Доставщик" value={draft.deliveryMan} options={names(options?.deliverers ?? [])} onChange={(value) => set("deliveryMan", value)} />
-        <RMulti label="Организация" value={draft.division} options={names(options?.organizations ?? [])} onChange={(value) => set("division", value)} />
-        <RSel label="Тип клиента" value={draft.marketTypeParent} options={typeOptions} onChange={(value) => onChange({ ...draft, marketTypeParent: value, marketType: "" })} />
-        {draft.marketTypeParent && (
-          <RSel label="Подкатегория" value={draft.marketType} options={[]} onChange={(value) => set("marketType", value)} disabled />
-        )}
-        <RMulti label="Касса"
-            value={draft.cashbox}
-            options={(options?.cashboxes ?? []).map((cashbox) => ({ value: String(cashbox.id), label: cashbox.name }))}
-            onChange={(value) => set("cashbox", value)}
-          />
-        <RMulti label="Зона" value={draft.border} options={names(options?.zones ?? [])} onChange={(value) => set("border", value)} />
-        <RMulti label="Клиент"
-            value={draft.client}
-            options={(options?.clients ?? []).map((client) => ({ value: String(client.id), label: client.name }))}
-            onChange={(value) => set("client", value)}
-          />
-        <RSel label="Создал" value={draft.user} options={names(options?.users ?? [])} onChange={(value) => set("user", value)} />
-        <RSel label="Принял" value={draft.acceptedBy} options={names(options?.acceptedBy ?? [])} onChange={(value) => set("acceptedBy", value)} />
-        <RMulti label="Ответственный агент магазина" value={draft.marketResponsibleAgent} options={names(options?.agents ?? [])} onChange={(value) => set("marketResponsibleAgent", value)} />
-        <RMulti label="Ответственный доставщик магазина"
-            value={draft.marketResponsibleDeliveryMan}
-            options={names(options?.deliverers ?? [])}
-            onChange={(value) => set("marketResponsibleDeliveryMan", value)}
-          />
-        <RSel label="Подтверждение клиента"
-            value={draft.status}
-            options={CLIENT_CONFIRMATIONS.map((status) => ({ value: status, label: t(CLIENT_CONFIRMATION_FILTER_LABELS[status]) }))}
-            onChange={(value) => set("status", value)}
-          />
-        <RDate label="Дата оплаты" from={draft.fromDate} to={draft.toDate} onChange={(from, to) => onChange({ ...draft, fromDate: from, toDate: to })} />
-        <RDate label="Дата получения"
-            from={draft.beginAcceptedTime}
-            to={draft.endAcceptedTime}
-            onChange={(from, to) => onChange({ ...draft, beginAcceptedTime: from, endAcceptedTime: to })}
-          />
-        <RDate label="Дата счет фактуры"
-            from={draft.beginInvoiceDate}
-            to={draft.endInvoiceDate}
-            onChange={(from, to) => onChange({ ...draft, beginInvoiceDate: from, endInvoiceDate: to })}
-          />
-        <RSel label="Счета фактура"
-            value={draft.showInvoice}
-            options={[
-              { value: "set", label: t("Установлен") },
-              { value: "not_set", label: t("Не установлен") },
-            ]}
-            onChange={(value) => set("showInvoice", value)}
-          />
-        <RSel label="Валюта"
-            value={draft.currency}
-            options={(options?.currencies ?? []).map((currency) => ({ value: currency.code, label: currency.label }))}
-            onChange={(value) => set("currency", value)}
-          />
+    <RefFilterPanel onClose={onClose} onApply={onApply} applyClassName="mt-[15px]">
+      <div className="grid grid-cols-4 items-end gap-x-5 gap-y-[5px]">
+        {period("Дата оплаты", "fromDate", "toDate")}
+        {period("Дата получения", "beginAcceptedTime", "endAcceptedTime")}
+        {period("Дата счет фактуры", "beginInvoiceDate", "endInvoiceDate")}
+        <LinkoMultiField label="Филиалы" options={list(options?.branches)} value={draft.branch} onChange={set("branch")} />
+        <LinkoMultiField label="Доставщик" options={list(options?.deliverers)} value={draft.deliveryMan} onChange={set("deliveryMan")} />
+        <LinkoMultiField label="Организация" options={list(options?.organizations)} value={draft.division} onChange={set("division")} />
+        <LinkoSingleField label="Тип клиента" options={typeOptions} value={draft.marketTypeParent} onChange={(value) => onChange({ ...draft, marketTypeParent: value, marketType: "" })} />
+        {draft.marketTypeParent && <LinkoSingleField label="Подкатегория" options={[]} value={draft.marketType} onChange={set("marketType")} />}
+        <LinkoMultiField
+          label="Касса"
+          options={options ? options.cashboxes.map((cashbox) => ({ value: String(cashbox.id), label: cashbox.name })) : null}
+          value={draft.cashbox}
+          onChange={set("cashbox")}
+        />
+        <LinkoMultiField label="Зона" options={list(options?.zones)} value={draft.border} onChange={set("border")} />
+        <LinkoMultiField
+          label="Клиент"
+          options={options ? (options.accounts ?? []).map((account) => ({ value: String(account.id), label: account.name })) : null}
+          value={draft.client}
+          onChange={set("client")}
+        />
+        <LinkoSingleField label="Создал" options={staff} value={draft.user} onChange={set("user")} />
+        <LinkoSingleField label="Принял" options={staff} value={draft.acceptedBy} onChange={set("acceptedBy")} />
+        <LinkoMultiField label="Ответственный агент магазина" options={list(options?.agents)} value={draft.marketResponsibleAgent} onChange={set("marketResponsibleAgent")} />
+        <LinkoMultiField label="Ответственный доставщик магазина" options={list(options?.deliverers)} value={draft.marketResponsibleDeliveryMan} onChange={set("marketResponsibleDeliveryMan")} />
+        <LinkoSingleField
+          label="Подтверждение клиента"
+          options={CLIENT_CONFIRMATIONS.map((status) => ({ value: status, label: t(CLIENT_CONFIRMATION_FILTER_LABELS[status]) }))}
+          value={draft.status}
+          onChange={set("status")}
+        />
+        <LinkoSingleField
+          label="Счета фактура"
+          options={[
+            { value: "set", label: t("Установлен") },
+            { value: "not_set", label: t("Не установлен") },
+          ]}
+          value={draft.showInvoice}
+          onChange={set("showInvoice")}
+        />
+        <LinkoSingleField
+          label="Валюта"
+          options={options ? [...options.currencies].sort((a, b) => compareCurrencyCodes(a.code, b.code)).map((currency) => ({ value: currency.code, label: currencyLabel(currency.code) })) : null}
+          value={draft.currency}
+          onChange={set("currency")}
+        />
+        <LinkoSingleField
+          label="Тип оплаты"
+          options={[
+            { value: "bank", label: t("Банковский счет") },
+            { value: "cash", label: t("Наличный") },
+          ]}
+          value={draft.paymentType}
+          onChange={set("paymentType")}
+        />
       </div>
     </RefFilterPanel>
   )

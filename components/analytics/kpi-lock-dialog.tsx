@@ -27,6 +27,7 @@ export function KpiLockDialog({ initial, onClose, onSave }: { initial: KpiLockVa
     <KpiDialogFrame
       title={t("Измение блокировки")}
       width={500}
+      centered
       onClose={onClose}
       footer={
         <KpiDialogAction
@@ -39,10 +40,10 @@ export function KpiLockDialog({ initial, onClose, onSave }: { initial: KpiLockVa
         />
       }
     >
-      <div className="px-[30px] py-[20px] text-[13px] text-[#333]">
-        <Check className="mb-0 h-[50px] items-center" checked={value.disableChange} label={t("Заблокировать изменение")} onToggle={() => setValue({ ...value, disableChange: !value.disableChange })} />
-        <Check className="mb-0 h-[50px] items-center" checked={value.onlyForSystem} label={t("Системный КПИ")} onToggle={() => setValue({ ...value, onlyForSystem: !value.onlyForSystem })} />
-        <Check className="mb-0 h-[50px] items-center" checked={value.visibleOnlyOperator} label={t("Может видеть только выбранные операторы")} onToggle={() => setValue({ ...value, visibleOnlyOperator: !value.visibleOnlyOperator })} />
+      <div className="px-[30px] pb-[10px] pt-[20px] text-[13px] text-[#333]">
+        <Check className="mb-0 h-[50px] !items-center" checked={value.disableChange} label={t("Заблокировать изменение")} onToggle={() => setValue({ ...value, disableChange: !value.disableChange })} />
+        <Check className="mb-0 h-[50px] !items-center" checked={value.onlyForSystem} label={t("Системный КПИ")} onToggle={() => setValue({ ...value, onlyForSystem: !value.onlyForSystem })} />
+        <Check className="mb-0 h-[50px] !items-center" checked={value.visibleOnlyOperator} label={t("Может видеть только выбранные операторы")} onToggle={() => setValue({ ...value, visibleOnlyOperator: !value.visibleOnlyOperator })} />
         {value.visibleOnlyOperator && (
           <div className="pt-[10px]">
             <MultiSelect label={t("Операторы")} items={users} selected={value.operators} onChange={(operators) => setValue({ ...value, operators })} />
@@ -53,15 +54,29 @@ export function KpiLockDialog({ initial, onClose, onSave }: { initial: KpiLockVa
   )
 }
 
-/** Confirmation of "Сделать не активный" / "Сделать активный". */
-export function KpiActiveConfirm({ name, active, onConfirm, onClose }: { name: string; active: boolean; onConfirm: () => void; onClose: () => void }) {
+/**
+ * Confirmation of "Сделать не активный" / "Сделать активный": the reference's request dialog (305 px wide, rounded,
+ * 20% from the top) — "ВЫПОЛНИТЬ", "Подтверждение запроса", the action on a grey band and «ДА». It closes only by its X.
+ */
+export function KpiActiveConfirm({ active, onConfirm, onClose }: { active: boolean; onConfirm: () => void; onClose: () => void }) {
   const { t } = useLanguage()
   return (
-    <KpiDialogFrame title={t("Подтверждение")} width={450} onClose={onClose} footer={<KpiDialogAction label={t("Подтвердить")} onClick={onConfirm} />}>
-      <div className="px-[30px] py-[20px] text-[13px] text-[#333]">
-        <p className="pb-[20px]">{t(active ? "Не активировать этот KPI" : "Активировать этот KPI")}</p>
-        <div className="-mx-[30px] bg-[#f1f5f8] px-[30px] py-[20px] font-semibold">{name}</div>
+    <div className="fixed inset-0 z-[110] bg-black/[0.54]">
+      <div role="dialog" aria-modal="true" className="absolute left-1/2 top-[20%] flex w-[305px] -translate-x-1/2 flex-col rounded-[12px] bg-white text-[13px] leading-[16.25px] text-[#333]">
+        <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[10px]">
+          <h2 className="font-bold uppercase">{t("Выполнить")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center rounded-[5px]">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+          </button>
+        </div>
+        <div className="min-h-[184px] px-[30px]">
+          <p className="py-[20px]">{t("Подтверждение запроса")}</p>
+          <div className="-mx-[30px] bg-[#f1f5f8] px-[30px] py-[20px] font-semibold">{t(active ? "Не активировать этот KPI" : "Активировать этот KPI")}</div>
+        </div>
+        <div className="flex justify-end border-t border-[#efefef] p-[10px]">
+          <button type="button" onClick={onConfirm} className="h-[36px] min-w-[88px] rounded-[5px] px-4 text-[13px] font-semibold uppercase leading-[36px] text-[#129fdd] hover:bg-[#f2f5f8]">{t("Да")}</button>
+        </div>
       </div>
-    </KpiDialogFrame>
+    </div>
   )
 }

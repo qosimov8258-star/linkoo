@@ -391,6 +391,8 @@ type PlanRow = {
   status: string
   response: string
   has_photo: boolean
+  /** A photo kept as a link (Linko's image_url of an imported plan), else "". */
+  photo_link: string
   done_at: string
 }
 
@@ -420,7 +422,7 @@ function toPlan(taskId: number, row: PlanRow): TaskPlan {
     comment: row.comment ?? "",
     status: (TASK_PLAN_STATUSES as readonly string[]).includes(row.status) ? (row.status as TaskPlanStatus) : "pending",
     response: row.response ?? "",
-    photoUrl: row.has_photo ? `/api/tasks/${taskId}/plans/${id}/photo?v=${encodeURIComponent(row.done_at || String(id))}` : null,
+    photoUrl: row.photo_link ? row.photo_link : row.has_photo ? `/api/tasks/${taskId}/plans/${id}/photo?v=${encodeURIComponent(row.done_at || String(id))}` : null,
     doneAt: row.done_at ?? "",
   }
 }
@@ -511,7 +513,8 @@ async function readDetail(db: PgDb, taskId: number): Promise<TaskDetail | null> 
   if (!row) return null
   const plans = (await db
     .prepare(
-      `SELECT id, plan_date, comment, status, response, (photo <> '') AS has_photo, done_at
+      `SELECT id, plan_date, comment, status, response, (photo <> '') AS has_photo,
+              CASE WHEN photo ~ '^https://[a-z0-9.-]+\.linko\.uz/media/' THEN photo ELSE '' END AS photo_link, done_at
          FROM task_plans WHERE task_id = @id ORDER BY plan_date, id`,
     )
     .all({ id: taskId })) as PlanRow[]
@@ -663,13 +666,14 @@ async function insertTask(
     })
   const taskId = Number(result.lastInsertRowid)
   const planStatus = firstPlanStatus(input.status)
+  // Linko's plans of a new task carry its description as their comment (the drawer's plan line shows it).
   await tx
     .prepare(
-      `INSERT INTO task_plans (task_id, plan_date, status, done_at, created_by_user_id)
-       SELECT @taskId::int, day, @planStatus::text, CASE WHEN @planStatus::text = 'pending' THEN '' ELSE datetime('now') END, @userId::int
+      `INSERT INTO task_plans (task_id, plan_date, comment, status, done_at, created_by_user_id)
+       SELECT @taskId::int, day, @title::text, @planStatus::text, CASE WHEN @planStatus::text = 'pending' THEN '' ELSE datetime('now') END, @userId::int
          FROM unnest(@days::text[]) AS day`,
     )
-    .run({ taskId, days: input.planDates, planStatus, userId: actor.id })
+    .run({ taskId, days: input.planDates, title: input.title, planStatus, userId: actor.id })
   return taskId
 }
 

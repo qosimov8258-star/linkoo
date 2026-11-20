@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
-import { PlusCircle, Trash2 } from "lucide-react"
+import { ImageOff, PlusCircle } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { MaterialDate } from "@/components/analytics/cash-material"
@@ -41,15 +41,16 @@ import {
 const REQUIRED = "Обязательное поле"
 type Errors = Record<string, string>
 
-/** Client select loaded by search (GET /api/clients?q=). */
+/** Client select loaded by search (GET /api/clients?q=); like Linko's for_select of Market, the options are names only. */
 function ClientPicker({ value, label, onChange, invalid }: { value: string; label: string; onChange: (id: string, name: string) => void; invalid?: boolean }) {
   const { t } = useLanguage()
   const clients = useClientSearch(true)
+  const options = useMemo(() => clients.options.map(({ value: id, label: name }) => ({ value: id, label: name })), [clients.options])
   return (
     <SearchSelect
       value={value}
       selectedLabel={label}
-      options={clients.options}
+      options={options}
       loading={clients.loading}
       onSearch={clients.search}
       placeholder={t("Выберите клиента")}
@@ -110,12 +111,14 @@ async function resizeImage(file: File, max = 1280): Promise<string> {
   }
 }
 
-/** Demo ImageUploadField: 250 px drop zone; `value` undefined = the stored photo. */
-function PhotoField({ value, stored, onChange }: { value: string | undefined; stored: string | null; onChange: (value: string | undefined) => void }) {
+/** Demo ImageUploadField: 250 px drop zone; `value` undefined = the stored photo. `missing`: the item has a photo whose
+ * file is gone (a Linko file), shown as Linko's broken image. Like Linko's, a photo is replaced, not removed. */
+function PhotoField({ value, stored, missing = false, onChange }: { value: string | undefined; stored: string | null; missing?: boolean; onChange: (value: string | undefined) => void }) {
   const { t } = useLanguage()
   const input = useRef<HTMLInputElement>(null)
   const [error, setError] = useState("")
   const shown = value === undefined ? stored : value || null
+  const broken = value === undefined && !stored && missing
   return (
     <div className="flex flex-col items-center gap-2">
       <input
@@ -140,18 +143,13 @@ function PhotoField({ value, stored, onChange }: { value: string | undefined; st
         onClick={() => input.current?.click()}
         className="relative flex h-[250px] w-[250px] flex-col items-center justify-center gap-2 overflow-hidden border border-dashed border-[#c4cbd6] bg-white text-[#9aa3b6] hover:border-[#1E4A9A]"
       >
-        {shown ? <Image src={shown} alt="" fill unoptimized className="object-cover" /> : (
+        {shown ? <Image src={shown} alt="" fill unoptimized className="object-cover" /> : broken ? <ImageOff className="absolute left-1 top-[calc(50%-8px)] h-4 w-4 text-[#9e9e9e]" aria-hidden /> : (
           <>
             <svg viewBox="0 0 24 24" className="h-12 w-12 fill-[#bdbdbd]" aria-hidden><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" /></svg>
             <span className="text-[13px] text-[#555]">{t("Добавьте фото")}</span>
           </>
         )}
       </button>
-      {shown ? (
-        <button type="button" onClick={() => onChange("")} className="inline-flex items-center gap-1 text-[13px] text-[#e57373] hover:underline">
-          <Trash2 className="h-4 w-4" /> {t("Удалить фото")}
-        </button>
-      ) : null}
       {error && <span className="text-[12px] text-[#e57373]">{error}</span>}
     </div>
   )
@@ -190,15 +188,29 @@ export function ItemFormDialog({
   const [errors, setErrors] = useState<Errors>({})
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-  const set = (patch: Partial<typeof draft>) => setDraft((current) => ({ ...current, ...patch }))
+  // Like Linko's form, a required field's message goes as soon as the field is filled.
+  const set = (patch: Partial<typeof draft>) => {
+    setDraft((current) => ({ ...current, ...patch }))
+    setErrors((current) => {
+      const filled = Object.entries(patch).filter(([key, value]) => value && key in current)
+      if (!filled.length) return current
+      const next = { ...current }
+      for (const [key] of filled) delete next[key as keyof Errors]
+      return next
+    })
+  }
   const products = useCashJson<InventoryProductOption[]>(`/api/inventory-items/products?${buildCashQuery({ warehouse: draft.warehouse, includeId: item?.product.id ?? "" })}`)
+  // Linko's options: "<name> (<balance> <unit>)" over "Доступно: <available> <unit>" (stock/all_balances?is_gear=true&stock=),
+  // the stock of every warehouse while none is chosen.
   const productOptions: PickOption[] = (products.data ?? []).map((product) => ({
     value: String(product.id),
-    label: product.name,
-    hint: draft.warehouse ? `(${qtyText(product.balance, product.unit)}) ${t("Доступно")}: ${qtyText(product.available, product.unit)}` : undefined,
+    label: `${product.name} (${qtyText(product.balance, product.unit)})`,
+    hint: `${t("Доступно")}: ${qtyText(product.available, product.unit)}`,
   }))
   const named = (values: string[]) => values.map((value) => ({ value, label: value }))
-  const conditions = (options?.conditions ?? []).concat(item && !options?.conditions.includes(item.condition) ? [item.condition] : [])
+  /** The option list with the item's current value kept when the list no longer has it. */
+  const withCurrent = (values: string[] | undefined, current: string | undefined) => (values ?? []).concat(current && !(values ?? []).includes(current) ? [current] : [])
+  const conditions = withCurrent(options?.conditions, item?.condition)
 
   const submit = async () => {
     const missing: Errors = {}
@@ -235,7 +247,9 @@ export function ItemFormDialog({
       title={item ? t("Изменение инвентаря") : t("Добавление инвентаря")}
       onClose={onClose}
       size="inv"
+      top={150}
       footerButtons="filled"
+      dismissible={false}
       zIndex={item ? 120 : 170}
       footer={
         <>
@@ -246,15 +260,18 @@ export function ItemFormDialog({
         </>
       }
     >
-      <div className="grid min-h-[618px] content-start gap-5 md:grid-cols-[minmax(0,1fr)_250px]">
+      {/* Linko: 650 × 701 at 150 px from the top, the fields 283 px wide, the photo 42 px to their right 40 px under the
+          header, «Текущий Клиент» 10 px below the photo's top, 62 px from one select to the next. */}
+      <div className="mt-[20px] grid min-h-[534px] content-start gap-5 md:grid-cols-[283px_250px] md:gap-x-[42px]">
         <div className="grid content-start gap-3">
           {item && (
-            <div>
-              <ReadonlyField label={t("Текущий Клиент")} value={item.client?.name ?? t("На складе")} />
+            <div className="flex flex-col pt-[10px]">
+              <span className="text-[10px] leading-3 text-[#999]">{t("Текущий Клиент")}:</span>
+              <span className="min-h-4 text-[13px] font-semibold leading-4 text-[#333]">{item.client?.name ?? ""}</span>
             </div>
           )}
           <FormField label={t("Склад")} required showRequired error={errors.warehouse}>
-            <SearchSelect value={draft.warehouse} options={(options?.warehouses ?? []).map((row) => ({ value: row.name, label: row.name, hint: row.branch || undefined }))} invalid={Boolean(errors.warehouse)} onChange={(warehouse) => set({ warehouse })} />
+            <SearchSelect value={draft.warehouse} options={named(withCurrent(options?.stocks, item?.warehouse))} invalid={Boolean(errors.warehouse)} onChange={(warehouse) => set({ warehouse })} />
           </FormField>
           <FormField label={t("Продукт")} required showRequired error={errors.productId}>
             <SearchSelect value={draft.productId} selectedLabel={item?.product.name} options={productOptions} loading={products.loading} invalid={Boolean(errors.productId)} onChange={(productId) => set({ productId })} />
@@ -264,7 +281,7 @@ export function ItemFormDialog({
             <SearchSelect value={draft.condition} options={conditions.map((value) => ({ value, label: t(value) }))} invalid={Boolean(errors.condition)} onChange={(condition) => set({ condition })} />
           </FormField>
           <FormField label={t("Ответственный")} required showRequired error={errors.responsible}>
-            <SearchSelect value={draft.responsible} options={named(options?.responsibles ?? [])} invalid={Boolean(errors.responsible)} onChange={(responsible) => set({ responsible })} />
+            <SearchSelect value={draft.responsible} options={named(withCurrent(options?.staff, item?.responsible))} invalid={Boolean(errors.responsible)} onChange={(responsible) => set({ responsible })} />
           </FormField>
           {!item && !inStock && (
             <FormField label={t("Клиент")} required showRequired error={errors.clientId}>
@@ -274,15 +291,16 @@ export function ItemFormDialog({
           <FormField label={t("Серийный номер")} required showRequired error={errors.serialNumber} className="!min-h-[40px]">
             <input value={draft.serialNumber} maxLength={200} onChange={(event) => set({ serialNumber: event.target.value })} className={inputClass} />
           </FormField>
+          {/* Linko's text fields follow each other every 52 px. */}
           <FormField label={t("Инвентарный номер")} required showRequired error={errors.stockNumber} className="!min-h-[40px]">
             <input value={draft.stockNumber} maxLength={200} onChange={(event) => set({ stockNumber: event.target.value })} className={inputClass} />
           </FormField>
-          <MaterialDate label={t("Дата")} required value={draft.date} onChange={(date) => set({ date })} error={errors.date} />
-          <FormField label={`${t("Комментарий")}...`} className="!min-h-[40px]">
+          <MaterialDate label={t("Дата")} required value={draft.date} onChange={(date) => set({ date })} error={errors.date} className="-mt-px" />
+          <FormField label={`${t("Комментарий")}...`} className="mt-[3px] !min-h-[40px]">
             <input value={draft.comment} maxLength={2000} onChange={(event) => set({ comment: event.target.value })} className={inputClass} />
           </FormField>
         </div>
-        <PhotoField value={photo} stored={item?.hasPhoto ? photoUrl(item) : null} onChange={setPhoto} />
+        <PhotoField value={photo} stored={item?.photoReady ? photoUrl(item) : null} missing={Boolean(item?.hasPhoto)} onChange={setPhoto} />
       </div>
     </CashModal>
   )
@@ -305,8 +323,8 @@ function InfoList({ rows }: { rows: Array<[string, string]> }) {
 export function ChangeDialog({ item, options, onClose, onSaved }: { item: InventoryItemDetail; options: InventoryOptions | null; onClose: () => void; onSaved: (item: InventoryItemDetail) => void }) {
   const { t } = useLanguage()
   const today = todayIso()
-  // Linko leaves «Дата передачи» empty (today when saved) and keeps «Дата изъятия» on today.
-  const [draft, setDraft] = useState({ takeDate: today, giveClientId: "", giveLabel: "", giveDate: "", condition: item.condition, comment: "" })
+  // Linko opens with both dates empty (an empty date is the day of saving).
+  const [draft, setDraft] = useState({ takeDate: "", giveClientId: "", giveLabel: "", giveDate: "", condition: item.condition, comment: "" })
   const [errors, setErrors] = useState<Errors>({})
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -319,7 +337,7 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
     setBusy(true)
     setError("")
     const result = await cashMutate<InventoryItemDetail>("POST", `/api/inventory-items/${item.id}/change`, {
-      takeDate: item.client ? draft.takeDate : undefined,
+      takeDate: item.client ? draft.takeDate || undefined : undefined,
       giveClientId: draft.giveClientId ? Number(draft.giveClientId) : null,
       giveDate: draft.giveClientId ? draft.giveDate || today : undefined,
       condition: draft.condition,
@@ -334,8 +352,10 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
   }
 
   // Linko's «ПЕРЕДАЧА / ИЗЪЯТИЕ» (#/inventory-management/:id?openChangeDialog=true): «ИНФОРМАЦИЯ:» as plain label / value
-  // lines over a rule, «ПЕРЕДАЧА» (Передать клиенту, Дата передачи, Состояние, Комментарий…) and one green «СОХРАНИТЬ».
-  const section = "mb-1 mt-4 text-[13px] font-semibold uppercase text-[#17233b]"
+  // lines over a rule, «ИЗЪЯТИЕ» while the item is at a client, «ПЕРЕДАЧА» (Передать клиенту, Дата передачи,
+  // Состояние with its ×, Комментарий…) and one green «СОХРАНИТЬ». The margins put every line where Linko's is
+  // (500 × 694 with a client, 576 without).
+  const section = "text-[13px] font-semibold uppercase leading-4"
   return (
     <CashModal
       title={t("Передача / Изъятие")}
@@ -343,6 +363,7 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
       size="md"
       zIndex={120}
       footerButtons="filled"
+      dismissible={false}
       footer={
         <>
           {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
@@ -352,9 +373,9 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
         </>
       }
     >
-      <div className="flex flex-col gap-3 text-[13px]">
-        <p className={section}>{t("Информация")}:</p>
-        <ul className="-mt-2 border-b border-[#e0e0e0] pb-2">
+      <div className="pb-[39px] text-[13px] text-[#333]">
+        <p className={`mt-[15px] ${section}`}>{t("Информация")}:</p>
+        <ul className="mt-[10px] border-b border-[#e0e0e0]">
           {[[t("Тип"), item.product.name], [t("Серийный номер"), item.serialNumber], [t("Инвентарный номер"), item.stockNumber]].map(([label, value]) => (
             <li key={label} className="flex justify-between gap-3 leading-[25px]">
               <span>{label}</span>
@@ -364,23 +385,23 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
         </ul>
         {item.client && (
           <>
-            <p className={section}>{t("Изъятие")}</p>
-            <p className="flex justify-between gap-3">
+            <p className={`mt-[20px] ${section}`}>{t("Изъятие")}</p>
+            <p className="mt-[11px] flex justify-between gap-3 leading-4">
               <span>{t("Изъять с клиента")}:</span>
-              <b>{item.client.name}</b>
+              <strong className="font-semibold">{item.client.name}</strong>
             </p>
-            <MaterialDate label={t("Дата изъятия")} value={draft.takeDate} onChange={(takeDate) => set({ takeDate })} />
+            <MaterialDate label={t("Дата изъятия")} value={draft.takeDate} onChange={(takeDate) => set({ takeDate })} className="mt-[8px]" />
           </>
         )}
-        <p className={section}>{t("Передача")}</p>
-        <FormField label={t("Передать клиенту")} required={!item.client} error={errors.giveClient}>
+        <p className={`${item.client ? "mt-[29px]" : "mt-[20px]"} ${section}`}>{t("Передача")}</p>
+        <FormField label={t("Передать клиенту")} error={errors.giveClient} className="mt-[14px]">
           <ClientPicker value={draft.giveClientId} label={draft.giveLabel} invalid={Boolean(errors.giveClient)} onChange={(giveClientId, giveLabel) => set({ giveClientId, giveLabel })} />
         </FormField>
-        <MaterialDate label={t("Дата передачи")} value={draft.giveDate} onChange={(giveDate) => set({ giveDate })} />
-        <FormField label={t("Состояние")} error={errors.condition}>
-          <SearchSelect value={draft.condition} allowClear={false} options={conditions.map((value) => ({ value, label: t(value) }))} onChange={(condition) => set({ condition })} />
+        <MaterialDate label={t("Дата передачи")} value={draft.giveDate} onChange={(giveDate) => set({ giveDate })} className="mt-[6px]" />
+        <FormField label={t("Состояние")} error={errors.condition} className="mt-[32px]">
+          <SearchSelect value={draft.condition} options={conditions.map((value) => ({ value, label: t(value) }))} onChange={(condition) => set({ condition })} />
         </FormField>
-        <FormField label={`${t("Комментарий")}...`} className="!min-h-[40px]">
+        <FormField label={`${t("Комментарий")}...`} className="mt-[12px] !min-h-[40px]">
           <input value={draft.comment} maxLength={2000} onChange={(event) => set({ comment: event.target.value })} className={inputClass} />
         </FormField>
       </div>

@@ -66,8 +66,10 @@ export type StockCatalogItem = {
   barcode?: string
   /** Volume of one unit, m³ (products.volume; 0 when unknown). */
   volume?: number
-  /** Units per block / box (leading number of sub_unit; 0 when unknown). */
+  /** Units per block / box (box_amount, else the leading number of sub_unit; 0 when unknown). */
   boxSize?: number
+  /** Name of the box («блок», «коробка»…; '' when unknown). */
+  boxUnit?: string
 }
 
 /** On-hand state of one item in one warehouse at a moment. */

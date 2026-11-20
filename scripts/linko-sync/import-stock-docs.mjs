@@ -1,13 +1,18 @@
 // Склад documents of the Linko account with their product lines, in the tables the stock ledger reads:
-// - Возврат поставщиков → supplier_returns (items: key, product, qty, series, price, total)
+// - Возврат поставщиков → supplier_returns (items: key, product, qty, series, seriesId, price, total). A line's series is
+//   kept by its id in the shared series catalog (stock_series, import-series.mjs) and its name. Linko keeps the hand-over
+//   («Время передачи» / «Передал») of a return it cancelled later, so it is kept for cancelled returns too.
 // - Списание → write_offs (items: key, product, code, unit, series, block, qty, cost, sum)
-// - Передачи между складами → internal_transfers (items: key, product, article, unit, quantity, price, weight, series)
+// - Передачи между складами → internal_transfers (items: key, product, article, unit, quantity, price, weight, series, seriesId)
 // - Инвентаризация → stock_inventories + stock_inventory_items. Linko books an inventory's differences as separate
 //   documents (a supply from "Инвенторизация" for a surplus, a write-off for a shortage — both imported with the other
 //   supplies / write-offs), so an imported inventory is marked booked_by_documents = 1 and the stock ledger does not
-//   count its differences a second time.
+//   count its differences a second time. A line's series is kept by its id in the shared series catalog
+//   (stock_inventory_items.series_id → stock_series, import-series.mjs) and its name (series).
 //
 //   node scripts/linko-sync/import-stock-docs.mjs
+//   ONLY=supplier_returns node scripts/linko-sync/import-stock-docs.mjs   (only these sections: supplier_returns,
+//   write_offs, internal_transfers, stock_inventories, comma-separated)
 import { connect, currencyCode, ensureRegistry, fullName, raw, register, ruShortDate, runId, sqlDateTime, upsertById } from "./lib.mjs"
 
 const run = runId("stock-docs")
@@ -20,19 +25,28 @@ const time = (v) => {
 }
 const series = (v) => (v && typeof v === "object" ? v.number ?? v.display_name ?? "" : v ?? "")
 
+const only = (process.env.ONLY ?? "").split(",").map((name) => name.trim()).filter(Boolean)
+const want = (section) => !only.length || only.includes(section)
+
 const client = await connect()
 await ensureRegistry(client)
 const out = {}
 try {
   await client.query("BEGIN")
   await client.query("ALTER TABLE stock_inventories ADD COLUMN IF NOT EXISTS booked_by_documents INTEGER NOT NULL DEFAULT 0")
+  await client.query("ALTER TABLE stock_inventory_items ADD COLUMN IF NOT EXISTS series_id INTEGER")
+  // Linko's total_weight / total_weight_netto of an inventory line (also in lib/stock-inventories-schema.ts).
+  await client.query("ALTER TABLE stock_inventory_items ADD COLUMN IF NOT EXISTS total_weight DOUBLE PRECISION NOT NULL DEFAULT 0")
+  await client.query("ALTER TABLE stock_inventory_items ADD COLUMN IF NOT EXISTS total_weight_netto DOUBLE PRECISION NOT NULL DEFAULT 0")
   await client.query("ALTER TABLE supplier_returns ADD COLUMN IF NOT EXISTS supplier_id INTEGER")
+  // As lib/supplier-returns-repo.ts: Linko's return_from_old_base (such a return is never edited).
+  await client.query("ALTER TABLE supplier_returns ADD COLUMN IF NOT EXISTS from_old_base INTEGER NOT NULL DEFAULT 0")
   // The supplier of a return to the supplier by id (the detail names it only; the list row carries the id).
   const providerIds = new Map()
   for (const row of raw("supply_returns")) if (row.provider?.id) providerIds.set(row.id, row.provider.id)
 
   // --- Возврат поставщиков ------------------------------------------------------------------------------------------
-  {
+  if (want("supplier_returns")) {
     const STATUS = { completed: "завершен", cancelled: "отменен", in_progress: "в процессе" }
     const PAYMENT = { cash: "Наличные", bank: "Банковский счет" }
     const docs = raw("supply_returns_detail")
@@ -46,9 +60,11 @@ try {
         product: line.product?.name ?? "",
         qty: num(line.amount),
         series: series(line.series),
+        ...(line.series?.id ? { seriesId: line.series.id } : {}),
         price: round(num(line.cost)),
         total: round(num(line.total_price) || num(line.amount) * num(line.cost)),
       }))
+      const handedOver = status === "завершен" || (status === "отменен" && doc.accepted_time)
       s[
         await upsertById(client, run, "supplier_returns", doc.id, {
           from_whom: name(doc.provider),
@@ -63,20 +79,21 @@ try {
           payment_type: PAYMENT[doc.payment_type] ?? doc.payment_type ?? "",
           price_list: name(doc.price_list),
           branch: name(doc.branch),
-          transfer_time: status === "завершен" ? sqlDateTime(doc.accepted_time ?? doc.created_date) : "",
-          transferred_by: status === "завершен" ? fullName(doc.accepted_by) || fullName(doc.created_by) : "",
+          transfer_time: handedOver ? sqlDateTime(doc.accepted_time ?? doc.created_date) : "",
+          transferred_by: handedOver ? fullName(doc.accepted_by) || fullName(doc.created_by) : "",
           cancelled_at: status === "отменен" ? sqlDateTime(doc.cancelled_time) ?? "" : "",
           cancelled_by: status === "отменен" ? fullName(doc.cancelled_by) : "",
           reason: doc.comment ?? "",
           items: JSON.stringify(items),
           supplier_id: providerIds.get(doc.id) ?? null,
+          from_old_base: doc.return_from_old_base ? 1 : 0,
         })
       ]++
     }
   }
 
   // --- Списание -----------------------------------------------------------------------------------------------------
-  {
+  if (want("write_offs")) {
     const STATUS = { finished: "закрыт", canceled: "отменен", cancelled: "отменен", pending: "ожидает", new: "ожидает" }
     const docs = raw("writeoffs_detail")
     const s = (out.write_offs = { insert: 0, update: 0, same: 0 })
@@ -115,7 +132,7 @@ try {
   }
 
   // --- Передачи между складами ------------------------------------------------------------------------------------
-  {
+  if (want("internal_transfers")) {
     const STATUS = { accepted: "принят", approved: "потвержден", given: "в пути", pending: "ожидает", cancelled: "отменен", canceled: "отменен" }
     const docs = raw("stock_transfers_detail")
     const s = (out.internal_transfers = { insert: 0, update: 0, same: 0 })
@@ -135,6 +152,8 @@ try {
           price: round(num(line.price)),
           weight: num(line.product?.kg_value),
           series: series(line.series),
+          // The series row itself (stock_series keeps Linko's ids, import-series.mjs).
+          ...(line.series && typeof line.series === "object" && Number.isInteger(line.series.id) ? { seriesId: line.series.id } : {}),
           ...(box && box.amount && qty ? { boxLabel: `${round(qty / box.amount)} ${box.measurement?.name ?? ""}`.trim() } : {}),
         }
       })
@@ -162,14 +181,15 @@ try {
           accepted_by: status === "принят" ? fullName(doc.accepted_by) : "",
           cancelled_at: status === "отменен" ? sqlDateTime(doc.cancelled_time) ?? "" : "",
           cancelled_by: status === "отменен" ? fullName(doc.cancelled_by) : "",
-          currency: currencyCode(doc.currency),
+          // A transfer without a currency in Linko (no price list, typed prices) keeps none.
+          currency: doc.currency ? currencyCode(doc.currency) : "",
         })
       ]++
     }
   }
 
   // --- Инвентаризация ---------------------------------------------------------------------------------------------
-  {
+  if (want("stock_inventories")) {
     const STATUS = { confirmed: "confirmed", pending: "pending", canceled: "canceled", cancelled: "canceled" }
     const list = raw("inventories")
     const docs = raw("inventories_detail")
@@ -209,8 +229,9 @@ try {
         const amount = num(line.amount)
         const balance = num(line.balance_amount)
         await client.query(
-          `INSERT INTO stock_inventory_items (inventory_id, item_key, item_name, unit, amount, balance_amount, diff, cost, total_price, series, position)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          `INSERT INTO stock_inventory_items (inventory_id, item_key, item_name, unit, amount, balance_amount, diff, cost, total_price, series, series_id, position,
+                                              total_weight, total_weight_netto)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [
             head.id,
             line.product?.id ? `product:${line.product.id}` : `name:${line.product?.name ?? ""}`,
@@ -222,7 +243,10 @@ try {
             round(num(line.cost)),
             round(num(line.total_price)),
             series(line.series),
+            line.series && typeof line.series === "object" && line.series.id ? Number(line.series.id) : null,
             position++,
+            round(num(line.total_weight)),
+            round(num(line.total_weight_netto)),
           ],
         )
         s.items++

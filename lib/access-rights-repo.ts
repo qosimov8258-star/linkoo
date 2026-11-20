@@ -106,8 +106,8 @@ export async function updateAccessRight(id: number, input: AccessRightInput): Pr
 }
 
 /** Where an access right is used: users (users.access_right_id), employees
- * (employees.access_right_id) and dashboard widgets shown to it
- * (dashboard_widgets.access_right_ids, a JSON array). */
+ * (employees.access_right_id), dashboard widgets shown to it
+ * (dashboard_widgets.access_right_ids, a JSON array) and knowledge base articles published to it. */
 export async function accessRightUsage(db: PgDb, id: number): Promise<AccessRightUsage[]> {
   const usage: AccessRightUsage[] = []
   const users = (await db.prepare("SELECT COUNT(*)::int AS count FROM users WHERE access_right_id = ?").get(id)) as { count: number }
@@ -124,6 +124,13 @@ export async function accessRightUsage(db: PgDb, id: number): Promise<AccessRigh
     }
   }).length
   if (widgets) usage.push({ table: "dashboard_widgets", label: "Виджеты дашборда", count: widgets })
+  // База знания: articles published to this access right (deleting it would publish an article whose only
+  // access right it was to everybody). The link table exists once the knowledge base was opened.
+  const kbTable = (await db.prepare("SELECT to_regclass('knowledge_base_article_access_rights') IS NOT NULL AS ok").get()) as { ok: boolean }
+  if (kbTable.ok) {
+    const articles = (await db.prepare("SELECT COUNT(*)::int AS count FROM knowledge_base_article_access_rights WHERE access_right_id = ?").get(id)) as { count: number }
+    if (articles.count) usage.push({ table: "knowledge_base_article_access_rights", label: "База знания", count: articles.count })
+  }
   return withEmployeeLinks(db, "access_rights", { id }, usage)
 }
 

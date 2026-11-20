@@ -32,6 +32,8 @@ type CatalogRow = {
   weight: string | null
   volume: string | null
   sub_unit: string | null
+  box_amount: number | null
+  box_unit: string | null
 }
 
 /** Leading number of a free-text quantity ("12,5 шт." → 12.5). */
@@ -71,14 +73,15 @@ function catalogSql(t: StockTables): string {
       ${pc("subcategory")}::text AS subcategory, ${pc("brand")}::text AS brand, ${pc("unit")}::text AS unit, ${pc("organization")}::text AS organization,
       ${pc("supplier")}::text AS supplier, ${pc("cost")}::double precision AS cost, ${pc("initial_cost")}::double precision AS initial_cost,
       ${pc("price_lists")}::text AS price_lists, NULL::text AS price_list, NULL::text AS cash_price, ${pc("min_stock")}::text AS min_stock,
-      ${pc("weight")}::text AS weight, ${pc("volume")}::text AS volume, ${pc("sub_unit")}::text AS sub_unit
+      ${pc("weight")}::text AS weight, ${pc("volume")}::text AS volume, ${pc("sub_unit")}::text AS sub_unit,
+      ${pc("box_amount")}::double precision AS box_amount, COALESCE(NULLIF(btrim(${pc("box_unit", "''")}::text), ''), ${pc("product_group")}::text) AS box_unit
       FROM products p ${t.col("products", "deleted") ? "WHERE COALESCE(p.deleted, 0) = 0" : ""}`)
   }
   if (t.has("raw_materials")) {
     parts.push(`SELECT 'raw_material', r.id, r.name, ${rc("article")}::text, ${rc("barcode")}::text, ${rc("type")}::text, ${rc("subcategory")}::text, ${rc("brand")}::text,
       ${rc("unit")}::text, ${rc("organization")}::text, ${rc("supplier")}::text, NULL::double precision, NULL::double precision,
       ${rc("price_lists")}::text, ${rc("price_list")}::text, ${rc("cash_price")}::text, ${rc("min_stock")}::text, ${rc("mass")}::text,
-      ${rc("volume")}::text, ${rc("sub_unit")}::text
+      ${rc("volume")}::text, ${rc("sub_unit")}::text, ${rc("box_amount")}::double precision, ${rc("product_group")}::text
       FROM raw_materials r WHERE ${t.col("raw_materials", "deleted") ? "COALESCE(r.deleted, 0) = 0" : "true"}
       ${t.has("products") ? `AND NOT EXISTS (SELECT 1 FROM products px WHERE fin_key(px.name) = fin_key(r.name)${t.col("products", "deleted") ? " AND COALESCE(px.deleted, 0) = 0" : ""})` : ""}`)
   }
@@ -115,7 +118,9 @@ export async function loadStockCatalog(db: PgDb = getDb(), tables?: StockTables)
       subcategory: placeName(row.subcategory),
       barcode: /^не установлен/i.test(String(row.barcode ?? "").trim()) ? "" : placeName(row.barcode),
       volume: Math.max(0, leadingNumber(row.volume)),
-      boxSize: Math.max(0, leadingNumber(row.sub_unit)),
+      // The box (Linko's boxes[0], import-product-boxes.mjs): box_amount units per box; else the leading number of sub_unit.
+      boxSize: Number(row.box_amount) > 0 ? Number(row.box_amount) : Math.max(0, leadingNumber(row.sub_unit)),
+      boxUnit: String(row.box_unit ?? "").trim(),
     }
   })
   const rank = (item: StockCatalogItem) => (item.kind === "product" ? 0 : 1)

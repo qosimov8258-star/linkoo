@@ -1,6 +1,5 @@
 "use client"
 
-import { Ban } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
@@ -79,29 +78,31 @@ export function RepricingDetailPanel({
   // Reference layout (measured on #/revaluation/88): 65 px title row, 320 px info column,
   // lines Товар | Кол-во | Сумма до | Сумма после | Разница on a 340/169/170/170/170 px grid under a dashed rule.
   const cols = "grid grid-cols-[340px_169px_170px_170px_170px]"
+  // Linko's «Скачать Excel» of the card: the card's own columns as printed (Сумма до / после with the price in brackets).
   const exportLines = () =>
     downloadExcelTable(`${t("Переоценка")} № ${doc.id}`, [
-      [t("Товар"), t("Кол-во"), t("Цена до"), t("Сумма до"), t("Новая цена"), t("Сумма после"), t("Разница")],
-      ...doc.lines.map((line) => [line.name, line.amount, line.oldPrice ?? "", line.totalOld, line.price, line.totalNew, line.diff]),
+      [t("Товар"), t("Кол-во"), t("Сумма до"), t("Сумма после"), t("Разница")],
+      ...doc.lines.map((line) => [
+        line.name,
+        formatQty(line.amount, line.unit),
+        `${formatSum(line.totalOld, doc.currency)} (${line.oldPrice === null ? "—" : formatSum(line.oldPrice, line.oldCurrency)})`,
+        `${formatSum(line.totalNew, doc.currency)} (${formatSum(line.price, doc.currency)})`,
+        formatSum(line.diff, doc.currency),
+      ]),
     ])
-  const iconButton = "relative -top-[2px] z-[3] flex h-12 w-12 items-center justify-center hover:opacity-70"
   return (
     <div className="bg-white text-[13px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <div className="relative flex h-[67px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[6px]">
         <button type="button" onClick={onClose} className="absolute inset-0 cursor-pointer" aria-label={t("Закрыть")} />
-        <h3 className="relative z-[1] text-[18px] font-semibold">
+        {/* Linko's header link covers the title too: a click on «Переоценка № N» closes the card. */}
+        <h3 className="pointer-events-none relative z-[1] text-[18px] font-semibold">
           {t("Переоценка")} № {doc.id}
         </h3>
         {/* Linko (#/revaluation/88/, 2026-11-16): a blue «Перерасчет» and a green «Скачать Excel» button, 9 px apart. */}
         <div className="relative z-[3] flex items-center gap-[9px] pr-[18px]">
           {canEdit && <RefButton icon={RI.sync} label="Перерасчет" onClick={() => setConfirm("recalc")} />}
           <RefButton green icon={RI.download} label="Скачать Excel" onClick={exportLines} />
-          {/* Cancelling restores the old prices (and cancels the linked repricings derived from this one). */}
-          {canEdit && doc.status === "finished" && (
-            <button type="button" onClick={() => setConfirm("cancel")} title={t("Отменить")} aria-label={t("Отменить")} className={`${iconButton} text-[#666] hover:text-[#e57373]`}>
-              <Ban className="h-[22px] w-[22px]" aria-hidden />
-            </button>
-          )}
+          {/* Linko's card has no cancel action (#/revaluation/<id>/: «Перерасчет» and «Скачать Excel» only). */}
         </div>
       </div>
       <div className="flex">

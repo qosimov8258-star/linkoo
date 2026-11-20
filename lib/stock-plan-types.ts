@@ -22,21 +22,23 @@ export const PLAN_TAB_LABELS: Record<PlanTab, string> = {
 }
 
 /** Task kinds (demo income_tasks / outcome_tasks `type`). */
-export type PlanTaskType = "supply" | "transfer" | "order_return" | "order"
+export type PlanTaskType = "supply" | "transfer" | "order_return" | "order" | "supply_return"
 
 export const PLAN_TYPE_LABELS: Record<PlanTaskType, string> = {
   supply: "Поставка",
   transfer: "Передача",
   order_return: "Возврат",
   order: "Заказ",
+  // A return to the supplier leaves its warehouse (Linko's outcome task type supply_return).
+  supply_return: "Возврат с П.",
 }
 
 /** Types offered by the "Тип" filter of each task tab (demo StockReceiveTypeSearchFiled / OrderTransferTypeSearchField). */
 export const PLAN_TAB_TYPES: Record<PlanTaskTab, PlanTaskType[]> = {
   receive: ["supply", "transfer", "order_return"],
   receive_history: ["supply", "transfer", "order_return"],
-  transfer: ["order", "transfer"],
-  transfer_history: ["order", "transfer"],
+  transfer: ["order", "transfer", "supply_return"],
+  transfer_history: ["order", "transfer", "supply_return"],
 }
 
 export const isReceiveTab = (tab: PlanTaskTab) => tab === "receive" || tab === "receive_history"
@@ -123,8 +125,9 @@ export const PLAN_MOVE_TYPES: Array<{ id: string; label: string; kinds: StockMov
   { id: "return", label: "Возврат", kinds: ["return"] },
   { id: "writeoff", label: "Списание", kinds: ["writeoff"] },
   { id: "transfer", label: "Передача", kinds: ["transfer_in", "transfer_out"] },
-  { id: "manufacture_in", label: "Произведено", kinds: ["manufacture_in"] },
-  { id: "manufacture_out", label: "Затрачено на производство", kinds: ["manufacture_out"] },
+  // Linko names both sides of a production batch «Партия» (its manufacture return / writeoff lines).
+  { id: "manufacture_in", label: "Партия", kinds: ["manufacture_in"] },
+  { id: "manufacture_out", label: "Партия", kinds: ["manufacture_out"] },
   { id: "none", label: "Партия", kinds: ["none_in", "none_out"] },
   { id: "inventory", label: "Инвентаризация", kinds: ["inventory_in", "inventory_out"] },
   // Filter-only entries: the reference filter lists the two transfer directions separately.

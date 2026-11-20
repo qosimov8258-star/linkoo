@@ -87,7 +87,7 @@ export function emptyPrice(name = "", currency = "SUM"): PriceDraft {
   return { name, cash: "", currency, nonCash: "", nonCashCurrency: currency, minMax: false, min: "", max: "" }
 }
 
-/** Barcode rows: a 399px field + a round "+" ("−" on all but the last row) and the "Сгенерировать" link. */
+/** Barcode rows: a 432px field + a round "+" ("−" on all but the last row) and the "Сгенерировать" link. */
 export function BarcodesEditor({ value, onChange, error }: { value: string[]; onChange: (value: string[]) => void; error?: string }) {
   const { t } = useLanguage()
   const rows = value.length ? value : [""]
@@ -100,7 +100,7 @@ export function BarcodesEditor({ value, onChange, error }: { value: string[]; on
               label={t("Штрих-код")}
               value={code}
               onChange={(next) => onChange(rows.map((item, i) => (i === index ? next : item)))}
-              className="w-[399px]"
+              className="w-[432px]"
               errorShift={false}
             />
             <div className="mt-[23px]">
@@ -134,7 +134,6 @@ export function PricesEditor({
   priceLists,
   currencies,
   defaultCurrency,
-  savedNames = [],
   error,
 }: {
   value: PriceDraft[]
@@ -143,8 +142,6 @@ export function PricesEditor({
   currencies: string[]
   /** The currency of a price without one: the app currency, else the base currency. */
   defaultCurrency: string
-  /** Price lists the item already has a stored price in ("Удалить цену" instead of "Удалить новую цену"). */
-  savedNames?: string[]
   error?: string
 }) {
   const { t } = useLanguage()
@@ -177,8 +174,9 @@ export function PricesEditor({
                 {last ? (
                   <BlueButton onClick={() => onChange([...value, emptyPrice("", "")])}>{t("Добавить новую цену")}</BlueButton>
                 ) : (
+                  // Linko labels every block but the last «Удалить новую цену», a stored price too.
                   <BlueButton minus onClick={() => onChange(value.filter((_, i) => i !== index))}>
-                    {t(entry.name && savedNames.includes(entry.name) ? "Удалить цену" : "Удалить новую цену")}
+                    {t("Удалить новую цену")}
                   </BlueButton>
                 )}
               </span>
@@ -192,7 +190,7 @@ export function PricesEditor({
                   const currency = priceLists.find((item) => item.name === name)?.currency
                   update(index, { name, ...(currency && !entry.cash && !entry.nonCash ? { currency, nonCashCurrency: currency } : {}) })
                 }}
-                className="w-[406px]"
+                className="w-[439px]"
               />
               <span className="ml-[10px] mt-4">
                 <CreateLink href="/analytics/price-lists?openCreateDialog=true" label={t("Добавить прайс-лист")} />
@@ -205,20 +203,20 @@ export function PricesEditor({
                 value={entry.cash}
                 // The non-cash price is the cash one until it is given its own value.
                 onChange={(cash) => update(index, { cash, ...(entry.nonCash === "" || entry.nonCash === entry.cash ? { nonCash: cash } : {}) })}
-                className="w-[215px]"
+                className="w-[232px]"
               />
               <SelectField
                 label={t("Валюта")}
                 {...currencySelect(cashCurrency, (currency) => update(index, { currency, ...(nonCashCurrency === cashCurrency ? { nonCashCurrency: currency } : {}) }))}
-                className="ml-[10px] mt-4 w-[215px]"
+                className="ml-[9px] mt-4 w-[232px]"
               />
             </div>
             <div className="mt-[15px] flex items-start">
-              <TextField label={t("Цена безналичные")} numeric value={entry.nonCash} onChange={(nonCash) => update(index, { nonCash })} className="w-[215px]" />
+              <TextField label={t("Цена безналичные")} numeric value={entry.nonCash} onChange={(nonCash) => update(index, { nonCash })} className="w-[232px]" />
               <SelectField
                 label={t("Валюта")}
                 {...currencySelect(nonCashCurrency, (next) => update(index, { nonCashCurrency: next }))}
-                className="ml-[10px] mt-4 w-[215px]"
+                className="ml-[9px] mt-4 w-[232px]"
               />
             </div>
             <Toggle className="mt-[9px]" checked={entry.minMax} onChange={(minMax) => update(index, { minMax })} title={t("Установить минимальную и максимальную цену для продажи")} />
@@ -244,7 +242,7 @@ export function BoxSizesEditor({ value, onChange, units }: { value: BoxSizeDraft
   const update = (index: number, patch: Partial<BoxSizeDraft>) => onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
   const last = rows[rows.length - 1]
   const canAdd = Boolean(last.unit.trim() || last.height || last.width || last.length)
-  const button = "h-[34px] w-[215px] rounded-[2px] text-[13px] leading-[34px] text-white"
+  const button = "h-[34px] w-[232px] rounded-[2px] text-[13px] leading-[34px] text-white"
   return (
     <div className="mt-[33px]">
       {rows.map((row, index) => (

@@ -8,7 +8,7 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { RefHeader } from "@/components/ref/list-kit"
 import type { CashFlowResult } from "@/lib/cash/flow-types"
 import { formatRangeLabel, parseISODate } from "@/lib/dashboard-date-range"
-import { currencyLabel } from "@/lib/finance/currency"
+import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { defaultBalancePeriod, isIsoDay } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -23,7 +23,9 @@ const CARD = "bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0
 type Named = { id: number; name: string }
 
 const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
-const money = (value: number) => value.toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+/** Every cell as the reference prints this report (its numberFormat): three decimals, or those of Настройки →
+ * Округление сумм when set. */
+const money = (value: number) => formatMoney(value)
 const tone = (value: number) => (value > 0 ? "text-[#3aa76d]" : value < 0 ? "text-[#e5484d]" : "text-[#333]")
 
 export function CashFlowView() {
@@ -92,13 +94,14 @@ export function CashFlowView() {
         <RefHeader title={t("Движения денежных средств")} />
       </div>
 
+      {/* Field geometry of the reference's filter card: 350 | 300 | 300 | 350 px from 30 px, «Применить» at 1390 px. */}
       <section className={`relative mx-[28px] h-[78px] ${CARD}`}>
-        <div className="absolute left-[30px] top-[4px] w-[327px]"><RefSearchSelect label={t("Организация")} items={items(organizations)} selected={organization} onChange={setOrganization} multi /></div>
-        <div className="absolute left-[372px] top-[4px] w-[281px]"><RefSearchSelect label={t("Филиалы")} items={items(branches)} selected={branch} onChange={setBranch} /></div>
-        <div className="absolute left-[668px] top-[4px] w-[280px]"><RefSearchSelect label={t("Касса")} items={items(cashboxes)} selected={cashbox} onChange={setCashbox} /></div>
-        <div className="absolute left-[963px] top-[26px] h-[36px] w-[327px] border-b border-[#e8e8e8]">
+        <div className="absolute left-[30px] top-[4px] w-[350px]"><RefSearchSelect label={t("Организация")} items={items(organizations)} selected={organization} onChange={setOrganization} multi /></div>
+        <div className="absolute left-[395px] top-[4px] w-[300px]"><RefSearchSelect label={t("Филиалы")} items={items(branches)} selected={branch} onChange={setBranch} /></div>
+        <div className="absolute left-[710px] top-[4px] w-[300px]"><RefSearchSelect label={t("Касса")} items={items(cashboxes)} selected={cashbox} onChange={setCashbox} /></div>
+        <div className="absolute left-[1025px] top-[26px] h-[36px] w-[350px] border-b border-[#e8e8e8]">
           <button type="button" onClick={() => setPickerOpen((open) => !open)} className="absolute left-0 top-[9px] text-[13px] text-black">
-            {formatRangeLabel(parseISODate(range.from), parseISODate(range.to)).toLowerCase()}
+            {formatRangeLabel(parseISODate(range.from), parseISODate(range.to)).toLowerCase().replace(" - ", " – ")}
           </button>
           {pickerOpen && (
             <DateRangePicker
@@ -113,7 +116,7 @@ export function CashFlowView() {
             />
           )}
         </div>
-        <button type="button" onClick={apply} className="absolute left-[1305px] top-[26px] h-[30px] rounded-[4px] bg-[#1E4A9A] px-[16px] text-[13px] font-bold uppercase text-white">
+        <button type="button" onClick={apply} className="absolute left-[1390px] top-[26px] h-[30px] w-[108px] rounded-[4px] bg-[#1E4A9A] text-[13px] font-bold text-white">
           {t("Применить")}
         </button>
       </section>

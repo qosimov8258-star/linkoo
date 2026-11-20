@@ -138,6 +138,8 @@ export const branchBalanceTransactionSchema = z
      * document: year 2000..2100 and never after today (lib/document-dates.ts). */
     date: z.string().trim().optional().superRefine(docDateCheck()),
     comment: z.string().trim().max(2000).optional(),
+    /** Linko's «Организация» of the entry (printed in the branch act). */
+    organization: z.string().trim().max(200).optional(),
   })
   // Only an expense may carry the demo's negative amount; "add" / "payments"
   // with a negative amount would silently flip the sign.
@@ -149,6 +151,7 @@ export const branchBalanceTransactionSchema = z
     amount: Math.abs(value.amount),
     date: value.date || "",
     comment: value.comment ?? "",
+    organization: value.organization ?? "",
   }))
 
 export type BranchBalanceTransactionInput = z.output<typeof branchBalanceTransactionSchema>
@@ -189,8 +192,8 @@ export async function createBranchBalanceTransaction(input: BranchBalanceTransac
   if (!(await loadCurrencyContext(db)).currencies.some((currency) => currency.code === code)) return "currency_not_found"
   const result = await db
     .prepare(
-      `INSERT INTO branch_balance_transactions (branch_id, branch_name, kind, currency, amount, date, comment, created_by)
-       VALUES (@branchId, @branchName, @kind, @currency, @amount, @date, @comment, @createdBy)`,
+      `INSERT INTO branch_balance_transactions (branch_id, branch_name, kind, currency, amount, date, comment, created_by, organization)
+       VALUES (@branchId, @branchName, @kind, @currency, @amount, @date, @comment, @createdBy, @organization)`,
     )
     .run({
       branchId: branch.id,
@@ -201,6 +204,7 @@ export async function createBranchBalanceTransaction(input: BranchBalanceTransac
       date: storedDate(input.date),
       comment: input.comment,
       createdBy,
+      organization: input.organization,
     })
   const row = (await db.prepare("SELECT * FROM branch_balance_transactions WHERE id = ?").get(Number(result.lastInsertRowid))) as Row
   return rowToTransaction(row)

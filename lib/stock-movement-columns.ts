@@ -125,10 +125,10 @@ export const MOVE_KIND_LABELS: Record<StockMoveKind, string> = {
   none_out: "Прочий расход",
 }
 
-/** Source documents of the ledger (doc_type → label, page). */
-export const MOVE_DOC_TYPES: Record<string, { label: string; href: string }> = {
+/** Source documents of the ledger (doc_type → label, page; `byId`: the page opens the document at <href>/<id>). */
+export const MOVE_DOC_TYPES: Record<string, { label: string; href: string; byId?: boolean }> = {
   supplier_incomings: { label: "Приход от поставщиков", href: "/analytics/supplier-incomings" },
-  supplier_returns: { label: "Возврат поставщиков", href: "/analytics/supplier-returns" },
+  supplier_returns: { label: "Возврат поставщиков", href: "/analytics/supplier-returns", byId: true },
   write_offs: { label: "Списание", href: "/analytics/write-offs" },
   internal_transfers: { label: "Передачи между складами", href: "/analytics/internal-transfers" },
   production_movements: { label: "Производство", href: "/analytics/production-batches" },

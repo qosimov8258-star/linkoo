@@ -103,6 +103,9 @@ export type StockLevelList = {
   currency: string
   rows: StockLevelRow[]
   sum: StockLevelSum
+  /** The registered warehouses in scope, in their creation (id) order: a row's arrow lists every one of them, as Linko's
+   * all_balances_by_stock does (zero lines included). */
+  warehouses?: string[]
 }
 
 export type StockReceipt = {

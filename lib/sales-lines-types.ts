@@ -1,3 +1,5 @@
+import { amountDigits, printDigits } from "@/lib/amount-precision"
+
 /** A line of «Прибыль от агентов» / «Прибыль от товаров» (GET /api/sales-lines, lib/sales-lines-repo.ts). */
 export type SalesLine = {
   /** "sale": a line of a not cancelled order; "return": a line of an accepted client return. */
@@ -128,5 +130,6 @@ export function addLine(total: SalesTotals, line: SalesLine, money: (amountBase:
 /** Linko's profit_sum: the actual sales minus the net cost of what stayed sold. */
 export const profitOf = (total: SalesTotals) => total.saleSum - total.returnSum - (total.saleCost - total.returnCost)
 
-/** "372 035,2": quantities and money with at most 3 decimals (never the raw 372035.19999999995). */
-export const reportNumber = (value: number) => (Math.round(value * 1000) / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+/** "372 035,2": quantities and money with at most 3 decimals, or those of Настройки → Округление сумм when set (Linko's
+ * numberFormat; never the raw 372035.19999999995). */
+export const reportNumber = (value: number) => printDigits(value, amountDigits(3))

@@ -36,8 +36,9 @@ import { STOCK_TABLES } from "@/lib/stock/schema"
  * 7: older entries (no entered_at) keep the start-of-day rule they were entered under.
  * 8: up to the day of Linko's copied cost history (linko_history 'net_cost') production output comes in at the
  *    average; Linko's cost records are manual entries.
- * 9: a supply generated from an inventory surplus (supplier_incomings.is_inventory) comes in at the average. */
-export const NET_COST_VERSION = "9"
+ * 9: a supply generated from an inventory surplus (supplier_incomings.is_inventory) comes in at the average.
+ * 10: header totals per cost scope («Общий» + the warehouses with an own cost), as Linko's. */
+export const NET_COST_VERSION = "10"
 const CHUNK = 1000
 const EPS = 1e-6
 
@@ -741,25 +742,32 @@ async function applyBalanceCheck(db: PgDb, results: Map<string, LedgerItemResult
   }
 }
 
+/** One header row per cost scope, as Linko's stock/net_cost/total/ (USE_STOCK_OWN_NET_COST): «Общий» = the stock of
+ * every warehouse that follows the common cost; then each warehouse with a cost of its own (its own records), in the
+ * order its own costs began (first manual entry). A warehouse without an own cost has no row of its own. */
 function computeTotals(results: Map<string, LedgerItemResult>, warehouses: Map<string, string>): NetCostTotalRow[] {
-  type Acc = { name: string; cumulative: number; last: number; revaluation: number; noCost: number }
-  const rows = new Map<string, Acc>()
-  for (const [wk, name] of warehouses) rows.set(wk, { name, cumulative: 0, last: 0, revaluation: 0, noCost: 0 })
-  const all: Acc = { name: "", cumulative: 0, last: 0, revaluation: 0, noCost: 0 }
+  type Acc = { name: string; cumulative: number; last: number; revaluation: number; noCost: number; first: number }
+  const own = new Map<string, Acc>()
+  const all: Acc = { name: "", cumulative: 0, last: 0, revaluation: 0, noCost: 0, first: 0 }
   for (const result of results.values()) {
     let itemNoCost = false
+    const firstEntry = new Map<string, number>()
+    for (const record of result.records) {
+      if (record.scope && record.entryId !== null) firstEntry.set(record.scope, Math.min(firstEntry.get(record.scope) ?? Infinity, record.entryId))
+    }
     for (const wh of result.warehouses) {
-      const acc = rows.get(wh.wk) ?? { name: wh.name, cumulative: 0, last: 0, revaluation: 0, noCost: 0 }
-      rows.set(wh.wk, acc)
-      const noCost = wh.qty > EPS && !wh.hasCost
-      for (const target of [acc, all]) {
-        target.cumulative += wh.value
-        target.last += wh.current
-        target.revaluation += wh.revaluation
+      let acc = all
+      if (wh.scope) {
+        acc = own.get(wh.scope) ?? { name: warehouses.get(wh.scope) ?? wh.name, cumulative: 0, last: 0, revaluation: 0, noCost: 0, first: Infinity }
+        own.set(wh.scope, acc)
+        acc.first = Math.min(acc.first, firstEntry.get(wh.scope) ?? Infinity)
       }
-      if (noCost) {
-        acc.noCost += 1
-        itemNoCost = true
+      acc.cumulative += wh.value
+      acc.last += wh.current
+      acc.revaluation += wh.revaluation
+      if (wh.qty > EPS && !wh.hasCost) {
+        if (acc === all) itemNoCost = true
+        else acc.noCost += 1
       }
     }
     if (itemNoCost) all.noCost += 1
@@ -777,7 +785,7 @@ function computeTotals(results: Map<string, LedgerItemResult>, warehouses: Map<s
       noCostProductCount: acc.noCost,
     }
   }
-  const named = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"))
+  const named = [...own.values()].sort((a, b) => a.first - b.first || a.name.localeCompare(b.name, "ru"))
   return [finish(all, null), ...named.map((acc) => finish(acc, acc.name))]
 }
 

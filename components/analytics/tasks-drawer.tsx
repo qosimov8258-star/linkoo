@@ -53,8 +53,8 @@ export function TaskStatusIcon({ status }: { status: TaskStatus }) {
   const icon = TASK_ICON[status]
   const label = t(TASK_STATUS_LABELS[status])
   return (
-    <span role="img" aria-label={label} title={label} className="inline-flex h-6 w-6 items-center justify-center">
-      <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: icon.color }} aria-hidden>
+    <span role="img" aria-label={label} title={label} className="inline-flex h-[30px] w-[30px] items-center justify-center">
+      <svg viewBox="0 0 24 24" className="h-5 w-5" style={{ fill: icon.color }} aria-hidden>
         <path d={icon.path} />
       </svg>
     </span>
@@ -66,8 +66,8 @@ function PlanStatusIcon({ status }: { status: TaskPlanStatus }) {
   const icon = PLAN_ICON[status]
   const label = t(TASK_PLAN_STATUS_LABELS[status])
   return (
-    <span role="img" aria-label={label} title={label} className="inline-flex h-6 w-6 items-center justify-center">
-      <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: icon.color }} aria-hidden>
+    <span role="img" aria-label={label} title={label} className="inline-flex h-[25px] w-[30px] items-center justify-center">
+      <svg viewBox="0 0 24 24" className="h-5 w-5" style={{ fill: icon.color }} aria-hidden>
         <path d={icon.path} />
       </svg>
     </span>
@@ -77,9 +77,9 @@ function PlanStatusIcon({ status }: { status: TaskPlanStatus }) {
 function DetailRow({ label, children, stacked }: { label: string; children: ReactNode; stacked?: boolean }) {
   const { t } = useLanguage()
   return (
-    <div className={`border-b border-[#efefef] py-[10px] text-[13px] ${stacked ? "" : "flex items-start justify-between gap-4"}`}>
-      <span className="shrink-0 text-[#888]">{t(label)}:</span>
-      <span className={`min-w-0 whitespace-pre-wrap break-words text-[#333] ${stacked ? "mt-[6px] block" : "text-right"}`}>{children}</span>
+    <div className={`flex justify-between border-b border-[#efefef] py-[8px] text-[13px] leading-4 text-[#333] ${stacked ? "flex-col gap-[5px]" : "gap-4"}`}>
+      <span className="shrink-0 font-semibold">{t(label)}:</span>
+      <span className={`min-w-0 whitespace-pre-wrap break-words ${stacked ? "" : "text-right"}`}>{children}</span>
     </div>
   )
 }
@@ -217,28 +217,31 @@ export function TaskDrawer({
     }
   }
 
-  const iconButton = "flex h-9 w-9 items-center justify-center rounded-full text-[#5d6474] hover:bg-black/5"
+  const iconButton = "flex h-12 w-12 items-center justify-center rounded-full text-[#666] hover:bg-black/5"
+  const fieldLine = (error?: string) => `border-b ${error ? "border-[#e57373]" : "border-[#e0e0e0]"}`
 
+  // Linko's task drawer (580px, no dimming of the page): a grey header card «ЗАДАЧА № N», «Детали» rows with bold
+  // labels, «Планы» with their numbers, answers and photo links.
   return (
     <>
-      <div aria-hidden onClick={onClose} className="fixed inset-0 z-[1200] bg-black/[0.54]" />
+      <div aria-hidden onClick={onClose} className="fixed inset-0 z-[1200]" />
       <aside
         role="dialog"
         aria-modal="true"
         aria-label={task ? `${t("Задача")} № ${task.id}` : t("Задача")}
-        className="fixed right-0 top-0 z-[1300] flex h-full w-[580px] max-w-full flex-col overflow-y-auto bg-white font-sans text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"
+        className="fixed right-0 top-0 z-[1300] flex h-full w-[580px] max-w-full flex-col overflow-y-auto rounded-l-[10px] bg-white px-[20px] py-[10px] font-sans text-[13px] text-[#333] shadow-[0_4px_12px_rgba(0,0,0,0.1),-2px_0_10px_rgba(0,0,0,0.12)]"
       >
-        <div className="m-[15px] flex min-h-[50px] items-center justify-between rounded-[6px] bg-[#f2f5f8] pl-[20px] pr-[8px]">
-          <h2 className="text-[15px] font-bold text-[#333]">
+        <div className="flex min-h-[58px] items-center justify-between rounded-[10px] bg-[#f5f5f5] py-[5px] pl-[20px] pr-[10px] shadow-[0_2px_6px_rgba(0,0,0,0.1)]">
+          <h2 className="text-[18px] font-semibold uppercase text-[#333]">
             {t("Задача")} № {task?.id ?? taskId}
           </h2>
-          <div className="flex items-center gap-[4px]">
+          <div className="flex items-center">
             {canManage && task?.status === "done" && (
               <button
                 type="button"
                 onClick={() => void accept()}
                 disabled={accepting}
-                className="mr-[6px] inline-flex h-[30px] items-center gap-2 rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60"
+                className="mr-[25px] inline-flex h-[30px] items-center gap-2 rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60"
               >
                 {accepting && <Loader2 className="h-4 w-4 animate-spin" />}
                 {t("Принять")}
@@ -262,102 +265,125 @@ export function TaskDrawer({
             <Loader2 className="h-6 w-6 animate-spin" aria-label={t("Загрузка...")} />
           </div>
         ) : !task ? (
-          <p className="px-[30px] py-10 text-center text-[#e57373]">{t(error || "Задача не найдена")}</p>
+          <p className="px-[10px] py-10 text-center text-[#e57373]">{t(error || "Задача не найдена")}</p>
         ) : (
-          <div className="px-[30px] pb-[30px]">
-            <h3 className="mb-[6px] mt-[6px] text-[14px] font-semibold text-[#5d6474]">{t("Детали")}</h3>
-            <DetailRow label="Ответственный">{task.responsible || t("Не указано")}</DetailRow>
-            <DetailRow label="Создал">{task.createdBy || t("Не указано")}</DetailRow>
-            <DetailRow label="Клиент">{task.client || t("Не указано")}</DetailRow>
-            <DetailRow label="Статус">{t(TASK_STATUS_LABELS[task.status])}</DetailRow>
-            <DetailRow label="Дата создания">{task.createdAt ? formatDateText(task.createdAt, language, { withTime: true, utc: true }) : t("Не указано")}</DetailRow>
-            <DetailRow label="Дата задачи">{task.taskDate ? formatDateText(task.taskDate, language, { withTime: false }) : t("Не указано")}</DetailRow>
-            <DetailRow label="Описание" stacked={task.title.length > 30}>
-              {task.title}
-            </DetailRow>
+          <div className="pb-[20px]">
+            <section className="mt-[20px]">
+              <h3 className="mb-[10px] text-[16px] font-semibold text-[#333]">{t("Детали")}</h3>
+              <div className="flex flex-col gap-[15px]">
+                <DetailRow label="Ответственный">{task.responsible || t("Не указано")}</DetailRow>
+                <DetailRow label="Создал">{task.createdBy || t("Не указано")}</DetailRow>
+                <DetailRow label="Клиент">{task.client || t("Не указано")}</DetailRow>
+                <DetailRow label="Статус">{t(TASK_STATUS_LABELS[task.status])}</DetailRow>
+                <DetailRow label="Дата создания">{task.createdAt ? formatDateText(task.createdAt, language, { withTime: true, utc: true }) : t("Не указано")}</DetailRow>
+                <DetailRow label="Дата задачи">{task.taskDate ? formatDateText(task.taskDate, language, { withTime: false }) : t("Не указано")}</DetailRow>
+                <DetailRow label="Описание" stacked={task.title.length > 30}>
+                  {task.title}
+                </DetailRow>
+              </div>
+            </section>
 
-            <div className="mt-[24px] flex items-center justify-between">
-              <h3 className="text-[14px] font-semibold text-[#5d6474]">{t("Планы")}</h3>
-              {canManage && task.status !== "finished" && (
-                <button type="button" onClick={toggleAdd} className="h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">
-                  {t(addOpen ? "Закрыть" : "Добавить план")}
-                </button>
-              )}
-            </div>
+            <section className="mt-[20px]">
+              <div className="flex items-center justify-between">
+                <h3 className="mb-[10px] text-[16px] font-semibold text-[#333]">{t("Планы")}</h3>
+                {canManage && task.status !== "finished" && (
+                  <button type="button" onClick={toggleAdd} className="h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+                    {t(addOpen ? "Закрыть" : "Добавить план")}
+                  </button>
+                )}
+              </div>
 
-            {addOpen && canManage && task.status !== "finished" && (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  void addPlan()
-                }}
-                className="mt-[12px] rounded-[8px] bg-white p-[16px] shadow-[0_1px_6px_rgba(0,0,0,0.16)]"
-              >
-                <label className="block text-[11px] font-bold text-[#333]">
-                  {t("Дата выполнения задачи")}
-                  <span className="text-[#e57373]">&nbsp;*</span>
-                  <input
-                    type="date"
-                    value={planDate}
-                    min="2000-01-01"
-                    max="2100-12-31"
-                    onChange={(event) => {
-                      setPlanDate(event.target.value)
-                      setPlanErrors((current) => ({ ...current, date: undefined, form: undefined }))
-                    }}
-                    className={`mt-[4px] block h-[32px] w-full border-b bg-transparent text-[13px] font-normal outline-none ${planErrors.date ? "border-[#e57373]" : "border-[#d5dae1]"}`}
-                  />
-                </label>
-                {planErrors.date && <p className="mt-1 text-[12px] text-[#e57373]">{t(planErrors.date)}</p>}
-                <textarea
-                  value={planComment}
-                  rows={3}
-                  maxLength={TASK_COMMENT_MAX + 100}
-                  placeholder={t("Комментарий...")}
-                  aria-label={t("Комментарий...")}
-                  onChange={(event) => {
-                    setPlanComment(event.target.value)
-                    setPlanErrors((current) => ({ ...current, comment: undefined, form: undefined }))
+              {addOpen && canManage && task.status !== "finished" && (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void addPlan()
                   }}
-                  className={`mt-[14px] block w-full resize-none rounded-[4px] border p-[8px] text-[13px] outline-none focus:border-[#5d6474] ${planErrors.comment ? "border-[#e57373]" : "border-[#d5dae1]"}`}
-                />
-                {planErrors.comment && <p className="mt-1 text-[12px] text-[#e57373]">{t(planErrors.comment)}</p>}
-                {planErrors.form && <p className="mt-2 text-[12px] text-[#e57373]">{t(planErrors.form)}</p>}
-                <button
-                  type="submit"
-                  disabled={planSaving}
-                  className="mt-[14px] inline-flex h-[36px] w-full items-center justify-center gap-2 rounded-[5px] bg-[#1E4A9A] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60"
+                  className="mt-[10px] rounded-[10px] px-[20px] pb-[20px] shadow-[0_1px_4px_rgba(0,0,0,0.16)]"
                 >
-                  {planSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {t("Создать")}
-                </button>
-              </form>
-            )}
+                  <label className={`relative block h-[64px] cursor-pointer ${fieldLine(planErrors.date)}`}>
+                    <span className={`pointer-events-none absolute left-0 text-[#333] ${planDate ? "top-[22px] text-[10px] font-semibold leading-3" : "top-[38px] text-[13px] leading-4"}`}>{t("Дата выполнения задачи")}</span>
+                    {planDate && <span className="pointer-events-none absolute left-0 top-[38px] text-[13px] font-semibold leading-4">{formatDateText(planDate, language, { withTime: false })}</span>}
+                    <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-[10px] h-6 w-6 fill-[#ccc]" aria-hidden>
+                      <path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z" />
+                    </svg>
+                    <input
+                      type="date"
+                      value={planDate}
+                      min="2000-01-01"
+                      max="2100-12-31"
+                      aria-label={t("Дата выполнения задачи")}
+                      onClick={(event) => {
+                        try {
+                          event.currentTarget.showPicker?.()
+                        } catch {
+                          // The picker opens on its own where showPicker is not allowed.
+                        }
+                      }}
+                      onChange={(event) => {
+                        setPlanDate(event.target.value)
+                        setPlanErrors((current) => ({ ...current, date: undefined, form: undefined }))
+                      }}
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    />
+                  </label>
+                  {planErrors.date && <p className="mt-1 text-[12px] text-[#e57373]">{t(planErrors.date)}</p>}
+                  <label className={`relative mt-[4px] block min-h-[48px] pt-[22px] ${fieldLine(planErrors.comment)}`}>
+                    <span className={`pointer-events-none absolute left-0 font-semibold text-black ${planComment ? "top-0 text-[10px] leading-3" : "top-[24px] text-[13px] leading-4"}`}>{t("Комментарий...")}</span>
+                    <textarea
+                      value={planComment}
+                      rows={1}
+                      maxLength={TASK_COMMENT_MAX + 100}
+                      aria-label={t("Комментарий...")}
+                      onChange={(event) => {
+                        setPlanComment(event.target.value)
+                        setPlanErrors((current) => ({ ...current, comment: undefined, form: undefined }))
+                        event.target.style.height = "auto"
+                        event.target.style.height = `${Math.min(event.target.scrollHeight, 60)}px`
+                      }}
+                      className="block h-[22px] w-full resize-none bg-transparent text-[13px] font-semibold leading-5 outline-none"
+                    />
+                  </label>
+                  {planErrors.comment && <p className="mt-1 text-[12px] text-[#e57373]">{t(planErrors.comment)}</p>}
+                  {planErrors.form && <p className="mt-2 text-[12px] text-[#e57373]">{t(planErrors.form)}</p>}
+                  <button
+                    type="submit"
+                    disabled={planSaving}
+                    className="mt-[29px] inline-flex h-[36px] w-full items-center justify-center gap-2 rounded-[5px] bg-[#1E4A9A] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60"
+                  >
+                    {planSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {t("Создать")}
+                  </button>
+                </form>
+              )}
 
-            {task.plans.length === 0 ? (
-              <p className="py-6 text-center text-[#999]">{t("Планов нет")}</p>
-            ) : (
-              <ol className="mt-[10px]">
-                {task.plans.map((plan: TaskPlan, index) => (
-                  <li key={plan.id} className="flex items-start gap-[12px] border-b border-[#efefef] py-[10px]">
-                    <span className="w-[22px] shrink-0 pt-[2px] text-[#888]">{index + 1}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="whitespace-pre-wrap break-words font-semibold text-[#333]">{plan.comment || "—"}</p>
-                      <p className="mt-[2px] text-[12px] text-[#888]">{isTaskDate(plan.date) ? formatDateText(plan.date, language, { withTime: false }) : t("Не указано")}</p>
-                      {plan.photoUrl && (
-                        <button type="button" onClick={() => setPhoto(plan.photoUrl)} className="mt-[4px] text-[12px] text-[#1E4A9A] hover:underline">
-                          {t("Просмотреть")}
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex max-w-[45%] shrink-0 flex-col items-end text-right">
-                      <PlanStatusIcon status={plan.status} />
-                      {plan.response && <p className="mt-[2px] whitespace-pre-wrap break-words text-[12px] text-[#5d6474]">{plan.response}</p>}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
+              {task.plans.length === 0 ? (
+                <p className="py-6 text-center text-[#999]">{t("Планов нет")}</p>
+              ) : (
+                <ol>
+                  {task.plans.map((plan: TaskPlan, index) => (
+                    <li key={plan.id} className="flex items-end justify-between gap-[10px] border-b border-[#efefef] py-[10px]">
+                      <div className="flex min-w-0 items-center gap-[10px]">
+                        <span className="text-[15px] font-semibold text-[#1A1A1A]">{index + 1}</span>
+                        <div className="flex min-w-0 flex-col items-start border-l border-[#efefef] pl-[10px] text-[13px] leading-[1.5] text-[#333]">
+                          <span className="whitespace-pre-wrap break-words text-[14px] font-semibold text-[#1A1A1A]">{plan.comment}</span>
+                          <span>{isTaskDate(plan.date) ? formatDateText(plan.date, language, { withTime: false }) : t("Не указано")}</span>
+                          {plan.photoUrl && (
+                            <button type="button" onClick={() => setPhoto(plan.photoUrl)} className="cursor-pointer text-[#4A90E2]">
+                              {t("Просмотреть")}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex max-w-[45%] shrink-0 flex-col items-end text-right text-[13px] text-[#888]">
+                        <PlanStatusIcon status={plan.status} />
+                        {plan.response && <span className="whitespace-pre-wrap break-words">{plan.response}</span>}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
           </div>
         )}
       </aside>

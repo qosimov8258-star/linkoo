@@ -10,7 +10,7 @@ import type { StockLevelFilters } from "@/lib/stock/level-types"
 import type { StockOptions } from "@/lib/stock/options"
 
 // Filter header and popup of "Остаток" (demo m3869 fields, in its order):
-// Филиалы, Склад, Поставщик, Бренд, Организация, Тип товара, Подкатегория,
+// Филиалы, Склад, Поставщик, Бренд, Организация, Тип товара, Подкатегория (once a type is chosen),
 // "Только продукты в наличии". No date: the page shows the current balance.
 
 /** Blue "Фильтр / N" + the scope text ("Во всей организации" or the chosen
@@ -20,7 +20,7 @@ export function StockFilterButton({ filters, onOpen }: { filters: StockLevelFilt
   const scope = [...filters.organization, ...filters.branch, ...filters.warehouse]
   return (
     <div className="flex h-[34px] items-center">
-      <button type="button" onClick={onOpen} className="flex h-[34px] w-[88px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12.8px] text-[13px] font-semibold text-white hover:brightness-95">
+      <button type="button" onClick={onOpen} className="flex h-[34px] min-w-[104px] items-center rounded-[5px] bg-[#1E4A9A] pl-[12.8px] pr-[14px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden>
           <path d={RI.filter} />
         </svg>
@@ -69,6 +69,10 @@ export function StockFilterDialog({
       <ReportMultiChipField label="Бренд" values={draft.brand} options={options?.brands ?? []} onChange={(value) => set("brand", value)} />
       <ReportMultiChipField label="Организация" values={draft.organization} options={options?.organizations ?? []} onChange={(value) => set("organization", value)} />
       <ReportMultiChipField label="Тип товара" values={draft.type} options={options?.types ?? []} onChange={(value) => set("type", value)} />
+      {/* Linko adds «Подкатегория» once a product type is chosen. */}
+      {(draft.type.length > 0 || draft.subcategory.length > 0) && (
+        <ReportMultiChipField label="Подкатегория" values={draft.subcategory} options={options?.subcategories ?? []} onChange={(value) => set("subcategory", value)} />
+      )}
       <label className="flex h-[54px] cursor-pointer items-center gap-[10px] pt-[8px] text-[13px] font-semibold text-black">
         <input type="checkbox" checked={draft.onlyHas} onChange={(event) => set("onlyHas", event.target.checked)} className="h-4 w-4 accent-[#1E4A9A]" />
         {t("Только продукты в наличии")}

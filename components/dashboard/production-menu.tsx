@@ -6,7 +6,8 @@ import { MENU_BOX, MENU_COLUMN, MENU_HEADING, MENU_ITEM, MENU_LINK } from "./men
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
-type MenuItem = { label: string; href: string }
+// `query` mirrors the reference menu links.
+type MenuItem = { label: string; href: string; query?: string }
 
 type Props = {
   onSelect: (item: string) => void
@@ -15,7 +16,7 @@ type Props = {
 }
 
 const items: MenuItem[] = [
-  { label: "Партии", href: "/analytics/production-batches" },
+  { label: "Партии", href: "/analytics/production-batches", query: "pageSize=25" },
   { label: "Этапы производства", href: "/analytics/production-stages" },
 ]
 
@@ -30,7 +31,7 @@ export function ProductionMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) 
           <ul className="flex flex-col">
             {items.map((item) => (
               <li key={item.label} className={MENU_ITEM}>
-                <Link href={item.href} onClick={() => onSelect(item.label)} className={MENU_LINK}>
+                <Link href={item.query ? `${item.href}?${item.query}` : item.href} onClick={() => onSelect(item.label)} className={MENU_LINK}>
                   {t(item.label)}
                 </Link>
               </li>

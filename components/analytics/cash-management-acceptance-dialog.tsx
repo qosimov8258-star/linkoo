@@ -2,10 +2,9 @@
 
 import { MoneyInput } from "@/components/ui/money-input"
 import { useState } from "react"
-import { Download, Trash2 } from "lucide-react"
+import { BarChart3, Trash2 } from "lucide-react"
 
 import { cashMutate, useAcceptance } from "@/components/analytics/cash/use-cash"
-import { clientHref } from "@/components/analytics/cash-management-details"
 import {
   CashModal,
   ConfirmDialog,
@@ -45,7 +44,7 @@ export function CashAcceptanceInfoDialog({ id, canWrite, onClose, onChanged }: {
     downloadExcelTable(`acceptance-${detail.docNo}`, [
       ["№", t("Клиент"), t("Агент"), t("Дата создания"), t("Принял"), t("Дата принятия"), t("Организация"), t("№ заказа"), t("Сумма"), t("Валюта")],
       ...detail.payments.map((payment) => [
-        payment.docNo,
+        payment.id,
         payment.client.name,
         payment.agent,
         payment.date.replace("T", " ").slice(0, 16),
@@ -70,84 +69,79 @@ export function CashAcceptanceInfoDialog({ id, canWrite, onClose, onChanged }: {
     else reload()
   }
 
+  // The reference's full-screen card: «Транзакция № …» with a green «Скачать Excel» beside it, then the accepted
+  // payments (№ = the payment's own number) on a plain table.
   return (
     <CashModal
-      title={`${t("Транзакция")} № ${data?.docNo ?? ""}`}
-      onClose={onClose}
-      size="xl"
-      headerExtra={
-        data ? (
-          <button type="button" onClick={() => download(data)} className="inline-flex items-center gap-1 text-[13px] font-semibold normal-case text-[#4caf72] hover:underline">
-            <Download className="h-4 w-4" /> {t("Скачать Excel")}
-          </button>
-        ) : null
+      title={
+        <span className="flex items-center gap-[16px]">
+          {`${t("Транзакция")} № ${data?.docNo ?? ""}`}
+          {data && (
+            <button type="button" onClick={() => download(data)} className="inline-flex h-[34px] items-center gap-[6px] rounded-[5px] bg-[#71ce87] px-[14px] text-[13px] font-semibold normal-case text-white hover:brightness-95">
+              <BarChart3 className="h-4 w-4" /> {t("Скачать Excel")}
+            </button>
+          )}
+        </span>
       }
+      onClose={onClose}
+      size="screen"
     >
+      <div className="min-h-0 flex-1 overflow-auto px-[30px]">
       {loading && !data && <LoadingBlock />}
       {error && <ErrorBlock error={error} onRetry={reload} />}
       {data && (
-        <>
-          <p className="mb-3 text-[13px] text-[#586174]">
-            {t("Касса")}: <b className="text-[#17233b]">{data.cashbox.name}</b> · {t("Агент")}: <b className="text-[#17233b]">{data.agent || t("Не указано")}</b> · {t("Дата принятия")}:{" "}
-            <b className="text-[#17233b]">{formatCashDate(data.date, language)}</b> · {t("Сумма")}: <b className="text-[#17233b]">{formatCash(data.amount, data.currency)}</b>
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-[13px]">
-              <thead>
-                <tr className="bg-[#5d6474] text-left text-white">
-                  <th className="px-2 py-2.5 font-semibold">№</th>
-                  <th className="px-2 py-2.5 font-semibold">{t("Клиент")}</th>
-                  <th className="px-2 py-2.5 font-semibold">{t("Агент")}</th>
-                  <th className="px-2 py-2.5 font-semibold">{t("Дата создания")}</th>
-                  <th className="px-2 py-2.5 font-semibold">{t("Принял")}</th>
-                  <th className="px-2 py-2.5 font-semibold">{t("Дата принятия")}</th>
-                  <th className="px-2 py-2.5 font-semibold">{t("Организация")}</th>
-                  <th className="px-2 py-2.5 font-semibold">{t("№ заказа")}</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">{t("Сумма")}</th>
-                  <th className="px-2 py-2.5" />
+          <table className="w-full min-w-[900px] text-[13px] text-[#333]">
+            <thead>
+              <tr className="border-b border-dotted border-[#c9d0da] text-left">
+                <th className="py-[14px] pr-2 font-semibold">№</th>
+                <th className="py-[14px] pr-2 font-semibold">{t("Клиент")}</th>
+                <th className="py-[14px] pr-2 font-semibold">{t("Агент")}</th>
+                <th className="py-[14px] pr-2 font-semibold">{t("Дата создания")}</th>
+                <th className="py-[14px] pr-2 font-semibold">{t("Принял")}</th>
+                <th className="py-[14px] pr-2 font-semibold">{t("Дата принятия")}</th>
+                <th className="py-[14px] pr-2 font-semibold">{t("Организация")}</th>
+                <th className="py-[14px] pr-2 font-semibold">{t("№ заказа")}</th>
+                <th className="py-[14px] pr-2 font-semibold">{t("Сумма")}</th>
+                <th className="py-[14px]" />
+              </tr>
+            </thead>
+            <tbody>
+              {data.payments.map((payment) => (
+                <tr key={payment.id} className="border-b border-dotted border-[#c9d0da] align-middle">
+                  <td className="py-[10px] pr-2">{payment.id}</td>
+                  <td className="py-[10px] pr-2">{payment.client.name}</td>
+                  <td className="py-[10px] pr-2">{payment.agent}</td>
+                  <td className="w-[130px] py-[10px] pr-2">{formatCashDate(payment.date, language)}</td>
+                  <td className="py-[10px] pr-2">{payment.acceptedBy || t("Не указано")}</td>
+                  <td className="w-[130px] py-[10px] pr-2">{formatCashDate(payment.acceptedAt, language)}</td>
+                  <td className="py-[10px] pr-2">{payment.organization || t("Не указано")}</td>
+                  <td className="py-[10px] pr-2">{payment.orderId ?? t("Не указано")}</td>
+                  <td className="whitespace-nowrap py-[10px] pr-2">
+                    {formatCash(payment.amount, payment.currency)}
+                    {payment.cashboxAmount !== null && payment.currency !== data.currency && <span className="block text-[11px] text-[#586174]">{formatCash(payment.cashboxAmount, data.currency)}</span>}
+                  </td>
+                  <td className="py-[10px] text-right">
+                    {canWrite && !data.isDeleted && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDetachError("")
+                          setDetaching(payment.id)
+                        }}
+                        aria-label={t("Удалить")}
+                        title={t("Удалить")}
+                        className="text-[#555] hover:text-[#e57373]"
+                      >
+                        <Trash2 className="h-[18px] w-[18px]" />
+                      </button>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {data.payments.map((payment) => (
-                  <tr key={payment.id} className="border-b border-dashed border-[#d8dee7]">
-                    <td className="px-2 py-2">{payment.docNo}</td>
-                    <td className="px-2 py-2">
-                      <a href={clientHref(payment.client.id, payment.client.name)} target="_blank" rel="noreferrer" className="text-[#1E4A9A] hover:underline">
-                        {payment.client.name}
-                      </a>
-                    </td>
-                    <td className="px-2 py-2">{payment.agent}</td>
-                    <td className="px-2 py-2 whitespace-nowrap">{formatCashDate(payment.date, language)}</td>
-                    <td className="px-2 py-2">{payment.acceptedBy || "—"}</td>
-                    <td className="px-2 py-2 whitespace-nowrap">{formatCashDate(payment.acceptedAt, language)}</td>
-                    <td className="px-2 py-2">{payment.organization || "—"}</td>
-                    <td className="px-2 py-2">{payment.orderId ?? "—"}</td>
-                    <td className="px-2 py-2 text-right whitespace-nowrap">
-                      <b>{formatCash(payment.amount, payment.currency)}</b>
-                      {payment.cashboxAmount !== null && payment.currency !== data.currency && <span className="block text-[11px] text-[#586174]">{formatCash(payment.cashboxAmount, data.currency)}</span>}
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      {canWrite && !data.isDeleted && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDetachError("")
-                            setDetaching(payment.id)
-                          }}
-                          aria-label={t("Удалить")}
-                          className="text-[#e57373]"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+              ))}
+            </tbody>
+          </table>
       )}
+      </div>
       {detaching && (
         <ConfirmDialog title={t("Подтверждаете?")} confirmLabel="Да" busy={busy} error={detachError} onConfirm={detach} onClose={() => setDetaching(null)}>
           <p className="text-[14px] text-[#586174]">{t("Оплата будет возвращена в «Принять деньги»")}</p>

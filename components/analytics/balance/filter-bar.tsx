@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { CalendarDays, Pencil, X, XCircle } from "lucide-react"
+import { CalendarDays, XCircle } from "lucide-react"
 
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { RI } from "@/components/ref/list-kit"
@@ -62,23 +62,48 @@ export function BalanceFilterButton({
   )
 }
 
-export function BalanceFilterChip({ count, onOpen, onClear }: { count: number; onOpen: () => void; onClear: () => void }) {
+export function BalanceFilterChip({
+  count,
+  onOpen,
+  onClear,
+  variant = "link",
+}: {
+  count: number
+  onOpen: () => void
+  onClear: () => void
+  /** No filter yet: "link" = «Показать фильтр ⌄» (van-sell, branches), "button" = Linko's filled button (employees). */
+  variant?: "link" | "button"
+}) {
   const { t } = useLanguage()
   if (!count) {
+    if (variant === "button") {
+      return (
+        <button type="button" onClick={onOpen} className="flex h-[30px] items-center rounded-[2px] bg-[#1E4A9A] pl-[12px] pr-[16px] text-[13px] font-semibold text-white">
+          <svg viewBox="0 0 24 24" className="mb-[4px] h-[18px] w-[18px] fill-white" aria-hidden>
+            <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />
+          </svg>
+          <span className="pl-[8px]">{t("Показать фильтр")}</span>
+        </button>
+      )
+    }
     return (
       <button type="button" onClick={onOpen} className="text-[13px] text-[#1E4A9A]">
         {t("Показать фильтр")} ⌄
       </button>
     )
   }
+  // Linko: a grey block from the page edge — «Фильтр: N элемента», the underlined pencil and ⊗ (48 px icon buttons).
   return (
-    <span className="flex h-[30px] items-center gap-3 rounded-[3px] border border-[#1E4A9A] px-3 text-[13px] font-semibold text-[#1E4A9A]">
+    <span className="-ml-[10px] flex h-[48px] items-center bg-[#efefef] pl-[10px] text-[13px] text-[#666]">
       {t("Фильтр")}: {count} {t("элемента")}
-      <button type="button" onClick={onOpen} aria-label={t("Изменить")}>
-        <Pencil className="h-4 w-4" />
+      <button type="button" onClick={onOpen} aria-label={t("Изменить")} className="ml-[9px] flex h-12 w-12 items-center justify-center">
+        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]" aria-hidden>
+          <path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" />
+          <path fillOpacity=".36" d="M0 20h24v4H0z" />
+        </svg>
       </button>
-      <button type="button" onClick={onClear} aria-label={t("Очистить")}>
-        <X className="h-4 w-4" />
+      <button type="button" onClick={onClear} aria-label={t("Очистить")} className="flex h-12 w-12 items-center justify-center">
+        <XCircle className="h-6 w-6 text-[#8f8f8f]" strokeWidth={1.5} />
       </button>
     </span>
   )
@@ -207,7 +232,7 @@ export function BalanceFilterDialog({
               <div className="relative">
                 <span className="text-[10px] font-semibold text-black">{t(dateLabel)}</span>
                 <button type="button" onClick={() => setPickerOpen((value) => !value)} className="flex h-[34px] w-full items-center justify-between border-b border-[#d5dae1] text-left text-[13px] text-black">
-                  <span>{rangeLabel(draft.from)} - {rangeLabel(draft.to)}</span>
+                  <span>{rangeLabel(draft.from)} – {rangeLabel(draft.to)}</span>
                   <CalendarDays className="h-4 w-4 text-[#bdbdbd]" />
                 </button>
                 {pickerOpen && (
@@ -249,7 +274,7 @@ export function BalanceFilterDialog({
               className={`flex h-9 ${columns === 4 ? "w-full" : "w-[256px]"} items-center justify-between border-b border-[#dbe0e8] text-left text-[13px] text-[#17233b]`}
             >
               <span>
-                {rangeLabel(draft.from)} - {rangeLabel(draft.to)}
+                {rangeLabel(draft.from)} – {rangeLabel(draft.to)}
               </span>
               <CalendarDays className="h-4 w-4 text-[#9aa3b6]" />
             </button>

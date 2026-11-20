@@ -20,10 +20,13 @@ import { CashboxFormModal } from "./cashboxes-form-modal"
 // Id | Наименование | Валюта | Кассир | Тип | Вэнсел | Порядковый номер | hover ✎ / 🗑,
 // ordered by position ("Не указано" last) then newest first. Create / update dialog =
 // cashboxes-form-modal.tsx, delete confirm + the Excel import spec = cashboxes-dialogs.tsx (shared dialog).
-// Like the demo the state lives in the URL (?search, ?page, ?pageSize,
+// Like the demo the state lives in the URL (?search, ?page, ?pageSize, ?ordering=id|-id,
 // ?openCreateDialog=true, ?cashbox=<id>&openUpdateDialog=true | openDeleteDialog=true).
 
-type ViewState = { search: string; page: number; pageSize: number }
+type ViewState = { search: string; ordering: CashboxOrdering; page: number; pageSize: number }
+
+/** The "Id" header (demo ordering=id / -id; none = newest first inside each position). */
+type CashboxOrdering = "" | "id" | "-id"
 
 type DialogState = { kind: "create" } | { kind: "update"; id: number } | { kind: "delete"; id: number; name?: string } | null
 
@@ -35,6 +38,7 @@ function positiveInt(value: string | null, fallback: number): number {
 function stateFromParams(params: URLSearchParams): ViewState {
   return {
     search: params.get("search") ?? "",
+    ordering: params.get("ordering") === "id" || params.get("ordering") === "-id" ? (params.get("ordering") as CashboxOrdering) : "",
     page: positiveInt(params.get("page"), 1),
     pageSize: Math.min(2000, positiveInt(params.get("pageSize"), 25)),
   }
@@ -54,6 +58,7 @@ function urlSearch(state: ViewState, dialog: DialogState): string {
   params.set("pageSize", String(state.pageSize))
   if (state.page > 1) params.set("page", String(state.page))
   if (state.search) params.set("search", state.search)
+  if (state.ordering) params.set("ordering", state.ordering)
   if (dialog?.kind === "create") params.set("openCreateDialog", "true")
   if (dialog && dialog.kind !== "create") {
     params.set("cashbox", String(dialog.id))
@@ -65,6 +70,7 @@ function urlSearch(state: ViewState, dialog: DialogState): string {
 function listUrl(state: ViewState): string {
   const params = new URLSearchParams({ page: String(state.page), pageSize: String(state.pageSize) })
   if (state.search) params.set("search", state.search)
+  if (state.ordering) params.set("ordering", state.ordering)
   return `${CASHBOXES_API}?${params.toString()}`
 }
 
@@ -105,6 +111,13 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
 }
 
 const COLUMNS = "139fr 203fr 202fr 203fr 202fr 101fr 101fr 124fr"
+
+/** Demo "Id" header: none → id ↑ → id ↓ → none. */
+function nextOrdering(current: CashboxOrdering): CashboxOrdering {
+  if (current === "id") return "-id"
+  if (current === "-id") return ""
+  return "id"
+}
 
 function CashboxesGrid() {
   const { t } = useLanguage()
@@ -164,6 +177,9 @@ function CashboxesGrid() {
         }
         query={searchDraft}
         onQuery={setSearchDraft}
+        // The reference's search starts a quarter of the strip in (+16 px) and is 300 px wide at 1600 px.
+        searchClassName="left-[calc(25%_+_16px)] top-[20px]"
+        searchWidth={300}
         pager={{
           pageSize: state.pageSize,
           onPageSize: (pageSize) => update({ pageSize, page: 1 }),
@@ -182,7 +198,17 @@ function CashboxesGrid() {
       />
 
       <div className={`${kitHead} min-h-[50px]`} style={{ gridTemplateColumns: COLUMNS }}>
-        <span className="pl-[30px]">Id</span>
+        <span className="pl-[30px]">
+          <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering), page: 1 })} className="inline-flex items-center gap-[10.5px] text-left font-semibold">
+            Id
+            {state.ordering && (
+              // The reference draws "↓" for the ascending order and "↑" for the descending one.
+              <svg viewBox="0 0 24 24" className="h-[15px] w-[15px] shrink-0 -translate-y-[0.5px] fill-white" aria-hidden>
+                <path d={state.ordering === "-id" ? "M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z" : "M11,4H13V16L18.5,10.5L19.92,11.92L12,19.84L4.08,11.92L5.5,10.5L11,16V4Z"} />
+              </svg>
+            )}
+          </button>
+        </span>
         <span>{t("Наименование")}</span>
         <span>{t("Валюта")}</span>
         <span>{t("Кассир")}</span>

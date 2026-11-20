@@ -114,7 +114,7 @@ export function RefIconButton({ path, label, onClick, color = "#666", active, ti
   )
 }
 
-export function RefTabs({ labels, value, onChange, separate, stacked }: { labels: string[]; value: string; onChange: (value: string) => void; separate?: boolean; /** Own 40px shadowed card with the indicator below it, then a 1px gap (the salary page of the reference). */ stacked?: boolean }) {
+export function RefTabs({ labels, value, onChange, separate, stacked, noMatchHidden }: { labels: string[]; value: string; onChange: (value: string) => void; separate?: boolean; /** Own 40px shadowed card with the indicator below it, then a 1px gap (the salary page of the reference). */ stacked?: boolean; /** No indicator while `value` is none of the labels (a Linko tab value that matches no tab). */ noMatchHidden?: boolean }) {
   const { t } = useLanguage()
   const index = Math.max(0, labels.indexOf(value))
   const height = separate ? "h-[52px]" : "h-10"
@@ -140,7 +140,7 @@ export function RefTabs({ labels, value, onChange, separate, stacked }: { labels
         </button>
       ))}
       <span
-        className={`absolute left-0 z-10 h-[3px] bg-[#1E4A9A] transition-transform duration-300 ${separate ? "bottom-0" : "-bottom-[2px] shadow-[0_-3px_10px_0_#1E4A9A]"}`}
+        className={`absolute left-0 z-10 h-[3px] bg-[#1E4A9A] transition-transform duration-300 ${separate ? "bottom-0" : "-bottom-[2px] shadow-[0_-3px_10px_0_#1E4A9A]"} ${noMatchHidden && !labels.includes(value) ? "hidden" : ""}`}
         style={{ width: `${100 / labels.length}%`, transform: `translateX(${index * 100}%)` }}
       />
     </div>
@@ -184,8 +184,9 @@ export function RefToolbar({
   pageSizeMenu,
   fluid,
 }: {
-  /** The tabbed lists of the reference: the search field drifts right with the viewport (25% of the extra width). */
-  fluid?: boolean
+  /** The tabbed lists of the reference: the search field drifts right with the viewport (25% of the extra width).
+   * "position": it only drifts, keeping its width (KPI задачи). */
+  fluid?: boolean | "position"
   /** Page-size dropdown of the settings lists (10 … 2000) instead of the native select. */
   pageSizeMenu?: boolean
   /** The 24-viewBox thin chevron of the reference's KPI toolbar (default is the older, larger glyph). */
@@ -249,7 +250,7 @@ export function RefToolbar({
         )}
       </div>
       {filterOpen && <div className="absolute left-0 top-0 z-30 w-full">{filterPanel}</div>}
-      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start self-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: fluid ? `calc(${searchWidth}px + max(0px, 100vw - 1296px) * 0.0711)` : searchWidth } : undefined}>
+      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start self-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: fluid === true ? `min(300px, calc(${searchWidth}px + max(0px, 100vw - 1296px) * 0.25))` : searchWidth } : undefined}>
         <input
           value={query}
           onChange={(event) => onQuery(event.target.value)}
@@ -562,10 +563,10 @@ const NOTHING_FOUND = ["Ничего не найдено", "По вашему з
 
 /** Linko's applied filter (its afterFilter bar, Заказы and Клиенты): «Фильтр: N элемента» in place of «Показать
  * фильтр», ✎ opens the filter again, ⊗ clears it. N = the filter fields in use. */
-export function RefAppliedFilter({ count, onEdit, onClear }: { count: number; onEdit: () => void; onClear: () => void }) {
+export function RefAppliedFilter({ count, onEdit, onClear, width = 346.5, shift = 0, pad = 30 }: { count: number; onEdit: () => void; onClear: () => void; /** Bar width in px (Интеграция: 371.5), or a CSS width (Заказы: its column less the gap). */ width?: number | string; /** Moves the bar left by this many px (Интеграция: its afterFilter's margin-left -30px). */ shift?: number; /** Left padding of the text (Сотрудники: 10 px). */ pad?: number }) {
   const { t } = useLanguage()
   return (
-    <div className="relative mt-px flex h-[48.25px] w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
+    <div className="relative mt-px flex h-[48.25px] items-center bg-[#efefef] text-[13px] text-[#666]" style={{ width, marginLeft: -shift, paddingLeft: pad }}>
       <span>{t("Фильтр:")} {count} {t("элемента")}</span>
       <button type="button" onClick={onEdit} aria-label={t("Изменить фильтр")} className="relative ml-auto flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]">
         <svg viewBox="0 0 24 24" aria-hidden className="h-6 w-6 fill-[#8f8f8f]"><path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" /></svg>
@@ -579,14 +580,14 @@ export function RefAppliedFilter({ count, onEdit, onClear }: { count: number; on
 }
 
 /** Linko's empty list (Отказы, Смена, План опроса …): a 276 px white box, the robot and «По вашему запросу ничего не
- * найдено» under it. */
+ * найдено» under it (Linko: the robot a 155 px background centred in the box, the text 230 px from its top). */
 export function RefNothingFound({ text }: { text?: ReactNode } = {}) {
   const { t } = useLanguage()
   return (
     <div className="flex h-[276px] flex-col items-center bg-white pt-[58px] text-[13px] text-[#666]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/robot-empty.png" alt="" className="w-[164px]" />
-      <span className="mt-[2px]">{text === undefined ? t("По вашему запросу ничего не найдено") : typeof text === "string" ? t(text) : text}</span>
+      <img src="/robot-empty.png" alt="" className="w-[155px]" />
+      <span className="mt-[12px] leading-[16.25px]">{text === undefined ? t("По вашему запросу ничего не найдено") : typeof text === "string" ? t(text) : text}</span>
     </div>
   )
 }
@@ -870,6 +871,7 @@ export function FilterDate({
   noIcon,
   pickerClassName,
   roomy,
+  iconEnd,
 }: {
   label: string
   begin: string
@@ -891,12 +893,54 @@ export function FilterDate({
   roomy?: boolean
   /** Anchor classes of the range picker (the reference right-aligns it under the activity filter). */
   pickerClassName?: string
+  /** The reference's DateToDateField (stock count and write-off filters): the 18px calendar at the end of the value
+   * row, a × that clears a chosen period before it, and "begin – end". */
+  iconEnd?: boolean
 }) {
   const { t, language } = useLanguage()
   const [open, setOpen] = useState(false)
   // The local (Asia/Tashkent) day: before 05:00 the UTC date is still yesterday.
   const today = todayIso()
   const wordsLanguage = words ? language : undefined
+  if (iconEnd) {
+    const text = begin ? `${formatFilterDate(begin, wordsLanguage)} – ${formatFilterDate(end || begin, wordsLanguage)}` : t("Укажите дату")
+    return (
+      <div className={`relative h-[62px] ${className}`}>
+        <button type="button" onClick={() => setOpen((current) => !current)} className="absolute inset-x-0 top-[18px] h-[39px] w-full border-b border-[#e0e0e0] text-left text-[13px]">
+          <span className="absolute left-0 top-[-11px] text-[10px] font-semibold leading-3 text-black">{t(label)}</span>
+          <span className="absolute left-0 right-[44px] top-[13px] truncate text-black">{text}</span>
+          {begin && (
+            <span
+              role="button"
+              tabIndex={-1}
+              aria-label={t("Очистить")}
+              onClick={(event) => {
+                event.stopPropagation()
+                onChange("", "")
+              }}
+              className="absolute right-[24px] top-[13px] flex h-[14px] w-[14px] items-center justify-center"
+            >
+              <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#333] opacity-60"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+            </span>
+          )}
+          <svg viewBox="0 0 24 24" className="absolute right-0 top-[11px] h-[18px] w-[18px] fill-[#333] opacity-60"><path d="M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V8h16v13z" /></svg>
+        </button>
+        {open && (
+          <DateRangePicker
+            begin={begin || today}
+            end={end || today}
+            placement={placement}
+            positionClassName={pickerClassName}
+            onClose={() => setOpen(false)}
+            onApply={(b, e) => {
+              onChange(b, e)
+              setOpen(false)
+            }}
+          />
+        )}
+      </div>
+    )
+  }
   return (
     <div className={`relative ${mui ? (tall ? "h-[67px]" : "h-[52px]") : roomy ? "h-[72px]" : "h-[62px]"} ${className}`}>
       <button type="button" onClick={() => setOpen((current) => !current)} className={`absolute inset-x-0 w-full text-left text-[13px] ${mui ? (tall ? "top-[7px] h-[60px]" : "top-[7px] h-[45px]") : `top-[18px] border-b border-[#e8e8e8] ${roomy ? "h-[41px]" : "h-[36px]"}`}`}>

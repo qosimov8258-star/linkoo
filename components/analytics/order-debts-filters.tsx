@@ -6,6 +6,7 @@ import { Filter } from "lucide-react"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { RefMultiField, type RefOption } from "@/components/ref/multi-field"
 import type { CashQuery } from "@/components/analytics/cash/use-cash"
+import { keepShopDrawerParams } from "@/components/clients/shop-drawer-url"
 import {
   DEBT_BUCKETS,
   EMPTY_ORDER_DEBT_FILTERS,
@@ -26,7 +27,8 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // the URL are the demo's: toggle, search, ordering, page, pageSize, division,
 // branch, user, deliveryMan, marketTypeParent, zone, status, paymentType,
 // marketDebtType, minPaymentDays, paymentDays, created/delivery/payment/accepted
-// From/ToDate, withWrongDebt; drill-down detailId, order dialog orderId).
+// From/ToDate, withWrongDebt; drill-down detailId, order dialog orderId; the shop
+// drawer openShop and the order card orderDetails, which the list query leaves out).
 
 export const NO_CLIENT_TYPE = "-"
 
@@ -41,6 +43,10 @@ export type OrderDebtState = {
   detailId: string
   /** Order dialog (demo orderId). */
   orderId: number
+  /** The shop drawer of a ЗАКАЗЫ «Клиент» cell (Linko's openShop=<market id>; 0 = closed). */
+  openShop: number
+  /** The read-only order card the drawer's ЗАДАЧИ «Просмотреть» opens over the page (Linko's orderDetails=<id>). */
+  orderDetails: number
 }
 
 type ParamReader = { get(name: string): string | null; getAll(name: string): string[] }
@@ -68,6 +74,8 @@ export function stateFromParams(params: ParamReader): OrderDebtState {
     filters,
     detailId: params.get("detailId") ?? "",
     orderId: number("orderId", 0),
+    openShop: number("openShop", 0),
+    orderDetails: number("orderDetails", 0),
   }
 }
 
@@ -89,6 +97,11 @@ export function stateToSearch(state: OrderDebtState): string {
   for (const [name, value] of filterEntries(state.filters)) params.append(name, value)
   if (state.detailId) params.set("detailId", state.detailId)
   if (state.orderId) params.set("orderId", String(state.orderId))
+  if (state.openShop) params.set("openShop", String(state.openShop))
+  if (state.orderDetails) params.set("orderDetails", String(state.orderDetails))
+  // The drawer's own parameters (its tab, КЛИЕНТ sub-tab, «Баланс» period …) stay after its X, as in Linko, so the next
+  // drawer opens on the tab the last one was left on.
+  keepShopDrawerParams(params)
   return params.toString()
 }
 

@@ -94,7 +94,7 @@ export const KNOWN_REFS: ReadonlyArray<Omit<CatalogRef, "history">> = [
 
 /** Columns that look like references but are not (see the header). */
 const NOT_REFS = new Set(["invoice_incoming_items.name", "orders.product", "supplier_incoming_logs.details"])
-const OWN_TABLES = new Set(["products", "raw_materials", "product_images", "product_limits"])
+const OWN_TABLES = new Set(["products", "raw_materials", "product_images", "product_limits", "product_attribute_assignments"])
 
 /** Section labels (Russian i18n keys) of the referencing tables. */
 const TABLE_LABELS: Record<string, string> = {

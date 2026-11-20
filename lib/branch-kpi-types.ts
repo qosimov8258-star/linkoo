@@ -135,6 +135,10 @@ export type BranchKpiDetail = {
   currency: string
   balances: BranchKpiBalance[]
   lastDate: string | null
+  /** "Бонусы" / "Итог зарплата" per currency when they are stored (an employee's salary card); else the bonuses add up
+   * the balances and the total is the fixed salary (a branch). */
+  bonusLines?: Array<{ value: number; currency: string }>
+  totalLines?: Array<{ value: number; currency: string }>
 }
 
 export type BranchKpiRecalcResult = { lastDate: string; branches: number }

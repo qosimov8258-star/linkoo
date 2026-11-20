@@ -48,8 +48,10 @@ export type ActivityBoard = {
   employeeId: number | null
   /** "Все" = Σ visits of the strip's agents. */
   totalVisits: number
-  /** Column header totals (same filter as the feed, so a count equals the cards it can load). */
+  /** Column header totals (Linko's sums: every document of the period, without hidden employees). */
   columns: Record<ActivityColumn, KindTotal>
+  /** Cards each column can load (the feed's count); a column shows only when it has cards. */
+  cards: Record<ActivityColumn, number>
   agents: ActivityAgent[]
 }
 
@@ -179,7 +181,8 @@ export function parseActivityState(params: URLSearchParams, today: string): Acti
   const toText = params.get("toDate") ?? ""
   const period = isActivityPeriod(fromText, toText) ? { from: fromText, to: toText } : { from: today, to: today }
   const types = new Set<number>()
-  for (const part of (params.get("marketType") ?? "").split(",")) {
+  // Linko names the client type filter marketTypeParent; marketType is the older Mezon name, still read.
+  for (const part of (params.get("marketTypeParent") ?? params.get("marketType") ?? "").split(",")) {
     const id = idOf(part)
     if (id !== null && types.size < ACTIVITY_MAX_CLIENT_TYPES) types.add(id)
   }
@@ -202,7 +205,7 @@ export function activitySearch(state: ActivityState, today: string): string {
     params.set("toDate", state.to)
   }
   if (state.agentId !== null) params.set("agentId", String(state.agentId))
-  if (state.clientTypes.length) params.set("marketType", state.clientTypes.join(","))
+  if (state.clientTypes.length) params.set("marketTypeParent", state.clientTypes.join(","))
   if (state.withGear !== null) params.set("withGear", state.withGear ? "yes" : "no")
   if (state.orderId !== null) params.set("orderDetails", String(state.orderId))
   if (state.shopId !== null) params.set("openShop", String(state.shopId))

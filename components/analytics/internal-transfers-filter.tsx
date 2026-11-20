@@ -4,7 +4,9 @@ import { useEffect, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
 
 import { FormField, MultiPick, inputClass } from "@/components/analytics/cash-management-shared"
-import { FilterCheck, FilterDate, FilterSelect, RefFilterPanel } from "@/components/ref/list-kit"
+import { SupplyDateField, linkoOrder } from "@/components/analytics/supplier-incomings-filter"
+import { FilterCheck, RefFilterPanel } from "@/components/ref/list-kit"
+import { LinkoSingleField } from "@/components/ref/linko-select-fields"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Demo StockTransfersFilter (c7 module 4340): "Показать фильтр" → popup with
@@ -186,11 +188,14 @@ function TransferFilterPopup({ filters, warehouses, onClose, onApply }: { filter
   )
 }
 
-/** The reference's 300px "Фильтр" drawer of the transfers list (rendered through RefToolbar's `filterPanel`). */
+/** The reference's 300px "Фильтр" drawer of the transfers list (rendered through RefToolbar's `filterPanel`): Linko's
+ * search selects (typing filters the list, × clears; warehouses in Linko's order), its 67 px period fields with the
+ * calendar at the right end, and the checkbox whose label wraps at 200 px. */
 export function TransferFilterPanel({ filters, warehouses, onClose, onApply }: { filters: TransferFilters; warehouses: string[]; onClose: () => void; onApply: (filters: TransferFilters) => void }) {
   const { t } = useLanguage()
   const [draft, setDraft] = useState<TransferFilters>(filters)
   const set = (patch: Partial<TransferFilters>) => setDraft((current) => ({ ...current, ...patch }))
+  const options = [...new Set(warehouses)].sort(linkoOrder).map((name) => ({ value: name, label: name }))
   const submit = () => {
     const [createdFrom, createdTo] = orderedPeriod(draft.createdFrom, draft.createdTo)
     const [deliveryFrom, deliveryTo] = orderedPeriod(draft.deliveryFrom, draft.deliveryTo)
@@ -199,12 +204,12 @@ export function TransferFilterPanel({ filters, warehouses, onClose, onApply }: {
   }
   return (
     <RefFilterPanel className="!w-[300px]" applyClassName="mt-[25px]" onClose={onClose} onApply={submit}>
-      <FilterSelect label={t("Со склада")} value={draft.fromWarehouses[0] ?? ""} onChange={(value) => set({ fromWarehouses: value ? [value] : [] })} options={warehouses} />
-      <FilterSelect label={t("На склад")} value={draft.toWarehouses[0] ?? ""} onChange={(value) => set({ toWarehouses: value ? [value] : [] })} options={warehouses} />
-      <FilterDate mui label={t("Период создания")} begin={draft.createdFrom} end={draft.createdTo} onChange={(createdFrom, createdTo) => set({ createdFrom, createdTo })} />
-      <FilterDate mui label={t("Период доставки")} begin={draft.deliveryFrom} end={draft.deliveryTo} onChange={(deliveryFrom, deliveryTo) => set({ deliveryFrom, deliveryTo })} />
-      <FilterDate mui label={t("Период приемки")} begin={draft.acceptedFrom} end={draft.acceptedTo} onChange={(acceptedFrom, acceptedTo) => set({ acceptedFrom, acceptedTo })} />
-      <FilterCheck compact label="Показать отмененные передачи" checked={draft.withCancelled} onChange={(withCancelled) => set({ withCancelled })} className="mt-[10px]" />
+      <LinkoSingleField label={t("Со склада")} options={options} limit={options.length} value={draft.fromWarehouses[0] ?? ""} onChange={(value) => set({ fromWarehouses: value ? [value] : [] })} />
+      <LinkoSingleField label={t("На склад")} options={options} limit={options.length} value={draft.toWarehouses[0] ?? ""} onChange={(value) => set({ toWarehouses: value ? [value] : [] })} />
+      <SupplyDateField label="Период создания" begin={draft.createdFrom} end={draft.createdTo} onChange={(createdFrom, createdTo) => set({ createdFrom, createdTo })} />
+      <SupplyDateField label="Период доставки" begin={draft.deliveryFrom} end={draft.deliveryTo} onChange={(deliveryFrom, deliveryTo) => set({ deliveryFrom, deliveryTo })} />
+      <SupplyDateField label="Период приемки" begin={draft.acceptedFrom} end={draft.acceptedTo} onChange={(acceptedFrom, acceptedTo) => set({ acceptedFrom, acceptedTo })} />
+      <FilterCheck compact label="Показать отмененные передачи" checked={draft.withCancelled} onChange={(withCancelled) => set({ withCancelled })} className="mt-[10px] w-[226px]" />
     </RefFilterPanel>
   )
 }

@@ -31,6 +31,11 @@ export default async function SettingsPage() {
               href: "/settings/currency",
             },
             {
+              title: "Округление сумм",
+              description: "Сколько знаков после запятой показывают суммы во всём приложении.",
+              href: "/settings/amount-precision",
+            },
+            {
               title: "Интеграции",
               description: "Управляйте подключениями к внешним сервисам и API.",
               href: "/settings/integrations",

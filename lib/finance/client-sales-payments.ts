@@ -2,6 +2,7 @@ import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
 import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
+import { AmountSum } from "@/lib/amount-precision"
 import { roundMoney } from "@/lib/finance/currency"
 import { nameKey } from "@/lib/finance/entities"
 import { listLedgerMovements } from "@/lib/finance/ledger"
@@ -183,14 +184,17 @@ export async function getClientSalesPayments(params: { from: string; to: string 
   })
   const rows: ClientSalesRow[] = []
   const total = EMPTY()
+  // «Итого» adds the shops' figures before they are rounded, as exact decimals (AmountSum): rounded rows or float
+  // additions drift a unit in the last decimal it prints.
+  const totalSums = new Map(CLIENT_SALES_COLUMNS.map((column) => [column, new AmountSum()]))
   for (const entry of entries) {
     const sums = entry.sums
     sums.fact_price = sums.order_price - sums.return_price
     sums.fact_net_cost = sums.order_net_cost - sums.return_net_cost
+    for (const column of CLIENT_SALES_COLUMNS) totalSums.get(column)!.add(sums[column])
     for (const column of CLIENT_SALES_COLUMNS) sums[column] = roundMoney(sums[column])
-    for (const column of CLIENT_SALES_COLUMNS) total[column] += sums[column]
     rows.push({ clientId: entry.clientId, market: entry.market, ...sums })
   }
-  for (const column of CLIENT_SALES_COLUMNS) total[column] = roundMoney(total[column])
+  for (const column of CLIENT_SALES_COLUMNS) total[column] = roundMoney(totalSums.get(column)!.value())
   return { from: params.from, to: params.to, baseCurrency: shown.code, rows, total }
 }

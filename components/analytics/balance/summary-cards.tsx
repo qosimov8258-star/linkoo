@@ -20,6 +20,8 @@ export type SummaryMetric = {
   value?: (balance: CurrencyBalance) => number
   /** Optional element after the label (e.g. an info tooltip). */
   hint?: ReactNode
+  /** Optional element before each currency line (Linko's per-currency info icon). */
+  lineHint?: (code: string) => ReactNode
   /** Clickable metric (cash detail type filter); `active` highlights it. */
   onClick?: () => void
   active?: boolean
@@ -80,6 +82,7 @@ export function BalanceSummaryCards({
                   const value = balance ? (metric.value ? metric.value(balance) : (balance[metric.field] ?? 0)) : 0
                   return (
                     <p key={code} className={compact ? "text-[14px] font-semibold leading-[20px] text-black" : plain ? "text-[14px] font-normal leading-[30px]" : "text-[16px] font-semibold leading-[20px] text-[#333]"} style={{ color: neutral ? "#000" : balanceColor(value, "card") }}>
+                      {metric.lineHint ? metric.lineHint(code) : null}
                       {formatMoney(value, digits)}{hideCurrency ? "" : ` ${currencyLabel(code)}`}
                     </p>
                   )

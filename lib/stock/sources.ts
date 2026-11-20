@@ -393,7 +393,8 @@ export function buildMovementsSql(t: StockTables): string {
 /** Pending quantities, as the reference (Linko stock/reserved_product) counts them: reserved by
  * orders still in the warehouse ("Есть на складе" and the unconfirmed "Не подтвержден") and by
  * confirmed internal transfers waiting to leave ("потвержден", at the source); internal
- * transfers given but not yet accepted ("в пути", towards the target) are in transit. Columns:
+ * transfers given but not yet accepted ("в пути", towards the target) and supplies not yet
+ * accepted ("ожидает", towards their warehouse) are in transit. Columns:
  * warehouse, item_key, reserved, transit. No parameters. */
 export function buildPendingSql(t: StockTables, options: { blocking?: boolean } = {}): string {
   const parts: string[] = []
@@ -422,8 +423,43 @@ export function buildPendingSql(t: StockTables, options: { blocking?: boolean } 
       ${KEY_JOIN("n", "l.j ->> 'product'")}
       WHERE tr.status = 'потвержден' AND fin_key(l.j ->> 'product') <> ''`)
   }
+  if (!options.blocking && t.has("supplier_incomings")) {
+    // Linko's «В пути» (stock/all_balances?in_way=true `given`) is what supplies still waiting to be accepted
+    // ("ожидает") bring to their warehouse (the checks of a new movement need only the reserved part).
+    const lineKey = `CASE WHEN (l.j ->> 'key') ~ '^(product|raw_material):[0-9]+$' THEN l.j ->> 'key' ELSE ${KEY_OF("n", "l.j ->> 'product'")} END`
+    parts.push(`SELECT si.warehouse::text AS warehouse, (${lineKey})::text AS item_key, 0::double precision AS reserved,
+        (${jsonNum("l.j", "qty")})::double precision AS transit
+      FROM supplier_incomings si CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("si.items")}) AS l(j)
+      ${KEY_JOIN("n", "l.j ->> 'product'")}
+      WHERE si.status = 'ожидает' AND fin_key(l.j ->> 'product') <> ''`)
+  }
   const body = parts.length
     ? parts.join("\nUNION ALL\n")
     : "SELECT NULL::text AS warehouse, NULL::text AS item_key, NULL::double precision AS reserved, NULL::double precision AS transit WHERE false"
+  return `WITH ${namesCte(t)}\n${body}`
+}
+
+/** The document lines behind the reserved quantities of buildPendingSql (not blocking), one row per line, as Linko's
+ * stock/reserved_product lists them. Columns: doc_type ('order' | 'transfer'), doc_id, line_no, warehouse, item_key, qty. */
+export function buildReservedDocsSql(t: StockTables): string {
+  const parts: string[] = []
+  if (t.has("orders") && t.has("order_items") && t.col("orders", "warehouse")) {
+    const name = t.col("order_items", "product_name") ? "oi.product_name" : "''"
+    const key = t.col("order_items", "product_id") ? `CASE WHEN oi.product_id IS NOT NULL THEN 'product:' || oi.product_id ELSE ${KEY_OF("n", name)} END` : KEY_OF("n", name)
+    parts.push(`SELECT 'order'::text AS doc_type, o.id::integer AS doc_id, oi.id::bigint AS line_no, o.warehouse::text AS warehouse, (${key})::text AS item_key,
+        COALESCE(oi.quantity, 0)::double precision AS qty
+      FROM orders o JOIN order_items oi ON oi.order_id = o.id ${KEY_JOIN("n", name)}
+      WHERE btrim(o.warehouse) <> '' AND o.status IN ('Есть на складе', 'Не подтвержден')`)
+  }
+  if (t.has("internal_transfers")) {
+    const lineKey = `CASE WHEN (l.j ->> 'key') ~ '^(product|raw_material):[0-9]+$' THEN l.j ->> 'key' ELSE ${KEY_OF("n", "l.j ->> 'product'")} END`
+    parts.push(`SELECT 'transfer'::text, tr.id::integer, l.n::bigint, tr.from_warehouse::text, (${lineKey})::text, (${jsonNum("l.j", "quantity")})::double precision
+      FROM internal_transfers tr CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("tr.items")}) WITH ORDINALITY AS l(j, n)
+      ${KEY_JOIN("n", "l.j ->> 'product'")}
+      WHERE tr.status = 'потвержден' AND fin_key(l.j ->> 'product') <> ''`)
+  }
+  const body = parts.length
+    ? parts.join("\nUNION ALL\n")
+    : "SELECT NULL::text AS doc_type, NULL::integer AS doc_id, NULL::bigint AS line_no, NULL::text AS warehouse, NULL::text AS item_key, NULL::double precision AS qty WHERE false"
   return `WITH ${namesCte(t)}\n${body}`
 }

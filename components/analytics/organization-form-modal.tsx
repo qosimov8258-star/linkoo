@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
-import { CheckBox, LineField, Modal, SaveLink } from "./catalog-ui"
+import { CheckBox, LineField, Modal, SaveButton } from "./catalog-ui"
 import { ORGANIZATIONS_API, type Organization, type OrganizationDetail, type OrganizationErrorBody } from "./organization-data"
 
 // "Добавить организацию" / "Изменить организацию" (demo module 4407, form
@@ -103,11 +103,11 @@ export function OrganizationFormModal({
     <Modal
       title={isEdit ? t("Изменить организацию") : t("Добавить организацию")}
       onClose={onClose}
-      bodyClassName="min-h-[300px] pl-[30px] pr-[52px] pt-[18px]"
-      footer={<SaveLink disabled={busy || !draft.name.trim()} onClick={() => void save()}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveLink>}
+      bodyClassName="min-h-[300px] pl-[30px] pr-[30px] pt-[18px]"
+      // The reference's green "Сохранить" stays active on an empty form; a click marks the empty name instead.
+      footer={<SaveButton disabled={busy} onClick={() => void save()}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
     >
       <LineField
-        autoFocus
         label={t("Наименование")}
         required
         value={draft.name}

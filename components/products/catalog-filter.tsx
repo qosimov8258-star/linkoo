@@ -23,10 +23,13 @@ export function CatalogFilterBar({
   onClose,
   onClear,
   onApply,
+  barWidth,
 }: {
   kind: CatalogKind
   filters: CatalogFilters
   options: CatalogOptions | null
+  /** Width of the applied-filter bar (Linko's: its toolbar's quarter column). */
+  barWidth?: number
   open: boolean
   onOpen: () => void
   onClose: () => void
@@ -38,7 +41,7 @@ export function CatalogFilterBar({
   return (
     <>
       {count > 0 ? (
-        <FilterToggle count={count} open={open} onOpen={onOpen} onClose={onClose} onClear={onClear} />
+        <FilterToggle count={count} open={open} onOpen={onOpen} onClose={onClose} onClear={onClear} barWidth={barWidth} />
       ) : (
         <button type="button" onClick={open ? onClose : onOpen} className="flex items-center text-[13px] text-[#1E4A9A]">
           {t("Показать фильтр")}
@@ -71,32 +74,53 @@ function CatalogFilterPanel({
   const [draft, setDraft] = useState<CatalogFilters>(filters)
   const set = (patch: Partial<CatalogFilters>) => setDraft((current) => ({ ...current, ...patch }))
   const types = options?.types ?? []
-  const children = types.find((type) => type.name === draft.typeParent)?.children ?? []
+  // typeParent / typeChild hold product_types ids (Linko's URL: typeParent=306); an old link may still carry a name.
+  const parent = types.find((type) => String(type.id ?? "") === draft.typeParent || type.name === draft.typeParent)
+  const children = parent?.children ?? []
+  const childName = parent ? (Object.entries(parent.childIds ?? {}).find(([, id]) => String(id) === draft.typeChild)?.[0] ?? (children.includes(draft.typeChild) ? draft.typeChild : "")) : ""
+  const typeValue = (name: string) => {
+    const found = types.find((type) => type.name === name)
+    return found ? String(found.id ?? found.name) : ""
+  }
   const canSell = [t("Можно продать"), t("Нельзя продать")]
-  const supplies = options?.supplies ?? []
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
+  // Мера / Бренд / Поставщик / Организации keep directory ids (measurement=17, like Linko); a value only items carry,
+  // or an older link, stays a name.
+  const byId = (directory: "units" | "brands" | "suppliers" | "organizations", stored: string[], onChange: (value: string[]) => void) => {
+    const ids = options?.filterIds?.[directory] ?? {}
+    const names = Object.fromEntries(Object.entries(ids).map(([name, id]) => [String(id), name]))
+    return {
+      value: stored.map((value) => names[value] ?? value),
+      onChange: (picked: string[]) => onChange(picked.map((name) => (ids[name] !== undefined ? String(ids[name]) : name))),
     }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  }
+  // Linko's «Поставка» option reads «Поставка №353 · Поставщик: … · Номер договора: -».
+  const supplies = (options?.supplies ?? []).map((supply) => ({
+    id: supply.id,
+    label: `${t("Поставка")} №${supply.id} · ${t("Поставщик")}: ${supply.supplier || "-"} · ${t("Номер договора")}: ${supply.contract || "-"}`,
+  }))
 
+  // Escape does not close Linko's «Фильтр» panel (only an open dropdown), so it is not bound here.
   return (
     <RefFilterPanel narrow onClose={onClose} onApply={() => onApply(draft)} applyClassName="mt-[25px]">
       <div className="-mt-px">
-        <FilterSelect label={t("Тип продукта")} value={draft.typeParent} onChange={(value) => set({ typeParent: value, typeChild: "" })} options={types.map((type) => type.name)} />
-        {draft.typeParent && <FilterSelect label={t("Подкатегория")} value={draft.typeChild} onChange={(value) => set({ typeChild: value })} options={children} />}
+        <FilterSelect label={t("Тип продукта")} value={parent?.name ?? ""} onChange={(value) => set({ typeParent: typeValue(value), typeChild: "" })} options={types.map((type) => type.name)} />
+        {draft.typeParent && (
+          <FilterSelect
+            label={t("Подкатегория")}
+            value={childName}
+            onChange={(value) => set({ typeChild: value ? String(parent?.childIds?.[value] ?? value) : "" })}
+            options={children}
+          />
+        )}
         <FilterSelect
           label={t("Показать только")}
           value={draft.canSell === "1" ? canSell[0] : draft.canSell === "2" ? canSell[1] : ""}
           onChange={(value) => set({ canSell: value === canSell[0] ? "1" : value === canSell[1] ? "2" : "" })}
           options={canSell}
         />
-        <FilterMulti label={t("Мера")} value={draft.measurement} onChange={(measurement) => set({ measurement })} options={options?.units ?? []} />
-        <FilterMulti label={t("Бренд")} value={draft.brand} onChange={(brand) => set({ brand })} options={options?.filterValues?.brands ?? options?.brands ?? []} />
-        <FilterMulti label={t("Поставщик")} value={draft.provider} onChange={(provider) => set({ provider })} options={options?.filterValues?.suppliers ?? options?.suppliers ?? []} />
+        <FilterMulti label={t("Мера")} {...byId("units", draft.measurement, (measurement) => set({ measurement }))} options={options?.filterValues?.units ?? options?.units ?? []} />
+        <FilterMulti label={t("Бренд")} {...byId("brands", draft.brand, (brand) => set({ brand }))} options={options?.filterValues?.brands ?? options?.brands ?? []} />
+        <FilterMulti label={t("Поставщик")} {...byId("suppliers", draft.provider, (provider) => set({ provider }))} options={options?.filterValues?.suppliers ?? options?.suppliers ?? []} />
         <FilterMulti label={t("Цвет")} value={draft.color} onChange={(color) => set({ color })} options={options?.colors ?? []} />
         <FilterSelect
           label={t("Поставка")}
@@ -104,7 +128,7 @@ function CatalogFilterPanel({
           onChange={(value) => set({ supply: value ? String(supplies.find((supply) => supply.label === value)?.id ?? "") : "" })}
           options={supplies.map((supply) => supply.label)}
         />
-        <FilterMulti label={t("Организации")} value={draft.division} onChange={(division) => set({ division })} options={options?.filterValues?.organizations ?? options?.organizations ?? []} />
+        <FilterMulti label={t("Организации")} {...byId("organizations", draft.division, (division) => set({ division }))} options={options?.filterValues?.organizations ?? options?.organizations ?? []} />
       </div>
       <div className="mt-[3px] flex flex-col gap-[10px]">
         <FilterCheck compact label={t("Только ММЛ продукты")} checked={draft.isMML} onChange={(isMML) => set({ isMML })} />
@@ -116,7 +140,7 @@ function CatalogFilterPanel({
 }
 
 /** Multi-select styled after the reference's react-select: chips with a leading ×, menu without the chosen ones. */
-function FilterMulti({ label, value, onChange, options }: { label: string; value: string[]; onChange: (value: string[]) => void; options: string[] }) {
+export function FilterMulti({ label, value, onChange, options }: { label: string; value: string[]; onChange: (value: string[]) => void; options: string[] }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")

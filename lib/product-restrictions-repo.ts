@@ -189,6 +189,9 @@ const FULL_NAME = "btrim(coalesce(e.first_name, '') || ' ' || coalesce(e.last_na
 
 /** Display name of a product type: "Parent / Child" for a subcategory (child names repeat across parents). */
 const TYPE_NAME = "CASE WHEN pt.id IS NULL THEN t.name ELSE pt.name || ' / ' || t.name END"
+/** Linko's order of product types (main/product_type/): by name ignoring case, spaces and punctuation, a
+ * lower-case twin first; its picker and the employee's list print the bare name. */
+const TYPE_ORDER = `regexp_replace(lower(t.name), '[^[:alnum:]]', '', 'g'), t.name COLLATE "C" DESC, t.id`
 
 type EmployeeRow = { id: number; name: string; active: number | null; product_count: number | string; product_type_count: number | string }
 
@@ -245,12 +248,11 @@ export async function getRestrictionDetail(employeeId: number): Promise<Restrict
     .all(employeeId)) as Array<{ id: number; name: string; deleted: number }>
   const types = (await db
     .prepare(
-      `SELECT t.id, ${TYPE_NAME} AS name
+      `SELECT t.id, t.name
          FROM product_type_restrictions r
          JOIN product_types t ON t.id = r.product_type_id
-         LEFT JOIN product_types pt ON pt.id = t.parent_id
         WHERE r.employee_id = ?
-        ORDER BY lower(${TYPE_NAME}), t.id`,
+        ORDER BY ${TYPE_ORDER}`,
     )
     .all(employeeId)) as Array<{ id: number; name: string }>
   const row = toListRow(employee)
@@ -268,7 +270,8 @@ async function nameOfId(db: PgDb, table: "product_types" | "brands" | "organizat
   return row ? row.name : null
 }
 
-/** The picker's page: live products (filtered by type / brand / organization) or product types, by name. */
+/** The picker's page: live products (filtered by type / brand / organization), newest first like Linko's
+ * main/product/for_select/, or product types in Linko's name order. */
 export async function listRestrictionOptions(query: RestrictionOptionsQuery): Promise<RestrictionOptionsResponse> {
   await ensureProductRestrictionsSchema()
   const db = getDb()
@@ -301,8 +304,8 @@ export async function listRestrictionOptions(query: RestrictionOptionsQuery): Pr
       params.organization = organization
     }
   } else {
-    from = "product_types t LEFT JOIN product_types pt ON pt.id = t.parent_id"
-    nameSql = TYPE_NAME
+    from = "product_types t"
+    nameSql = "t.name"
   }
   if (query.search) {
     conditions.push(`strpos(${keySql(nameSql)}, ${keySql("@search::text")}) > 0`)
@@ -317,7 +320,7 @@ export async function listRestrictionOptions(query: RestrictionOptionsQuery): Pr
   const pageCount = Math.max(1, Math.ceil(count / query.pageSize))
   const page = Math.min(query.page, pageCount)
   const rows = (await db
-    .prepare(`SELECT ${idSql} AS id, ${nameSql} AS name FROM ${from} ${where} ORDER BY lower(${nameSql}), ${idSql} LIMIT @limit OFFSET @offset`)
+    .prepare(`SELECT ${idSql} AS id, ${nameSql} AS name FROM ${from} ${where} ORDER BY ${query.kind === "product" ? "p.id DESC" : TYPE_ORDER} LIMIT @limit OFFSET @offset`)
     .all({ ...params, limit: query.pageSize, offset: (page - 1) * query.pageSize })) as Array<{ id: number; name: string }>
   return { count, page, pageSize: query.pageSize, results: rows.map((row) => ({ id: Number(row.id), name: row.name })) }
 }

@@ -23,6 +23,8 @@ export type Employee = {
   /** Job (reference "Должность"), e.g. "Супервайзер". */
   job: string
   active: boolean
+  /** False while the employee is blocked («Ограничить доступ сотрудника»): the list shows «Заблокирован» and the
+   * account cannot sign in. The form's «Доступ к системе» is `active`, as in Linko. */
   systemAccess: boolean
   showInTracking: boolean
   twoStepCheck: boolean
@@ -31,6 +33,8 @@ export type Employee = {
   startPoint: boolean
   branchIds: number[]
   organizationIds: number[]
+  /** Zones (Территория) whose agent the employee is: the list's «Зона» filter. */
+  zoneIds: number[]
   supervisorId: number | null
   deliveryManId: number | null
   auditAgentIds: number[]
@@ -56,7 +60,11 @@ export type EmployeeInput = {
   jobId: number
   branchIds: number[]
   organizationIds: number[]
+  /** «Доступ к системе» is on in the form: the login, password and access right are read. */
   systemAccess: boolean
+  /** «Доступ к системе» of an existing employee: false moves them to «Удаленные», true brings them back; left out,
+   * the employee keeps its state (a new employee is always active). */
+  active?: boolean
   showInTracking: boolean
   twoStepCheck: boolean
   sessionLimit: boolean

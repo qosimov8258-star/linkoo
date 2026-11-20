@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 
-import { EmptyRows, ROW_ICONS, RowActions, RowIcon, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
+import { EmptyRows, RowActions, RowIcon, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
@@ -26,6 +26,8 @@ import { SetPriceDialog } from "./price-lists-set-price"
 
 // Reference grid: 12 xs columns inside the 30px gutters (Id 1 | 2 | 2 | 2 | 2 | 2).
 const COLUMNS = "1fr 2fr 2fr 2fr 2fr 2fr 1fr"
+/** Linko's attach_money glyph (a plain «$») of «Добавить цену» and the row's «Установить цену». */
+const MONEY_ICON = "M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"
 
 type ViewState = { search: string; ordering: string; page: number; pageSize: number }
 type DialogState = { kind: "create" } | { kind: "update"; id: number } | { kind: "delete"; id: number; name: string } | { kind: "setPrice" } | null
@@ -154,7 +156,9 @@ function PriceListsGrid() {
   return (
     <section className="min-w-0 flex-1 bg-white pb-6 text-[13px] text-[#333]">
       <SettingsToolbar
-        searchClassName="left-[335px] top-[20px]"
+        // Linko (#/price-list-setting at 1600 px): the search from x = 585, 300 px wide.
+        searchClassName="left-[360px] top-[20px]"
+        searchWidth={300}
         left={
           canEdit ? (
             <button type="button" onClick={() => setDialog({ kind: "create" })} className={`ml-[5px] bg-[#1E4A9A] pr-[15px] ${buttonClass}`}>
@@ -176,8 +180,9 @@ function PriceListsGrid() {
         }}
         right={
           canEdit ? (
-            <button type="button" onClick={() => setDialog({ kind: "setPrice" })} className={`ml-[19px] mr-[9px] bg-[#71ce87] pr-[15px] ${buttonClass}`}>
-              <svg viewBox="0 0 24 24" className="h-[20px] w-[20px] fill-white"><path d={ROW_ICONS.dollar} /></svg>
+            // Linko's «Добавить цену» goes to Формирование цен (hashHistory.push #/price); ?openSetPrice=true still opens the grid.
+            <button type="button" onClick={() => router.push("/analytics/price-formation?pageSize=25")} className={`ml-[19px] mr-[9px] bg-[#71ce87] pr-[15px] ${buttonClass}`}>
+              <svg viewBox="0 0 24 24" className="h-[20px] w-[20px] fill-white"><path d={MONEY_ICON} /></svg>
               {t("Добавить цену")}
             </button>
           ) : undefined
@@ -188,11 +193,12 @@ function PriceListsGrid() {
 
       <div className={`${kitHead} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
         <span>{sortHeader("id", "Id")}</span>
-        <span>{sortHeader("name", "Наименование")}</span>
-        <span>{sortHeader("currency", "Валюта")}</span>
-        <span>{sortHeader("created_date", "Дата создания")}</span>
-        <span>{t("Связанный прайс лист")}</span>
-        <span>{t("Метод расчета")}</span>
+        {/* Linko's columns after the first keep 8 px inside (its col-xs padding). */}
+        <span className="pl-2">{sortHeader("name", "Наименование")}</span>
+        <span className="pl-2">{sortHeader("currency", "Валюта")}</span>
+        <span className="pl-2">{sortHeader("created_date", "Дата создания")}</span>
+        <span className="pl-2">{t("Связанный прайс лист")}</span>
+        <span className="pl-2">{t("Метод расчета")}</span>
         <span />
       </div>
       <div className={list.loading && data ? "opacity-60" : undefined}>
@@ -202,18 +208,18 @@ function PriceListsGrid() {
           rows.map((row) => (
             <div key={row.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
               <span className="pr-4">{row.id}</span>
-              <span className="min-w-0 break-words pr-4">{row.name}</span>
-              <span className="pr-4">{appCurrency ? currencyLabel(appCurrency) : row.currency ? currencyLabel(row.currency) : notSet}</span>
-              <span className="whitespace-nowrap pr-4">{created(row)}</span>
-              <span className="min-w-0 break-words pr-4">{row.connectedPriceList?.name ?? (row.linkedList !== "Не указано" ? row.linkedList : notSet)}</span>
-              <span className="pr-4">{t(row.calcMethod)}</span>
+              <span className="min-w-0 break-words pl-2 pr-4">{row.name}</span>
+              <span className="pl-2 pr-4">{appCurrency ? currencyLabel(appCurrency) : row.currency ? currencyLabel(row.currency) : notSet}</span>
+              <span className="whitespace-nowrap pl-2 pr-4">{created(row)}</span>
+              <span className="min-w-0 break-words pl-2 pr-4">{row.connectedPriceList?.name ?? (row.linkedList !== "Не указано" ? row.linkedList : notSet)}</span>
+              <span className="pl-2 pr-4">{t(row.calcMethod)}</span>
               <span />
               {canEdit && (
                 <RowActions
-                  right={36}
+                  right={46}
                   extra={
                     <RowIcon
-                      path={ROW_ICONS.dollar}
+                      path={MONEY_ICON}
                       label="Установить цену"
                       raw
                       onClick={() => router.push(`/analytics/repricing?openCreateDialog=true&priceListId=${row.id}&currency=${encodeURIComponent(appCurrency || row.currency)}`)}

@@ -103,7 +103,12 @@ export type CatalogItem = {
   imageCount: number
 }
 
-export type CatalogDetail = CatalogItem & { images: CatalogImage[]; limits: CatalogLimit[] }
+/** «Характеристика»: an attribute of Справочник → Атрибуты (Linko's e_commerce/options) the form offers once a type is
+ * chosen — every type's (allTypes) or the listed types'. */
+export type CatalogAttribute = { id: number; name: string; fieldType: "select" | "text" | "number"; values: string[]; allTypes: boolean; types: string[] }
+
+/** `attributes`: the item's attribute values, {attribute id: value} (products only). */
+export type CatalogDetail = CatalogItem & { images: CatalogImage[]; limits: CatalogLimit[]; attributes?: Record<string, string> }
 
 export type CatalogListResult = { results: CatalogItem[]; count: number }
 
@@ -168,16 +173,21 @@ export type CatalogOptions = {
   currencies: string[]
   baseCurrency: string
   units: string[]
-  types: Array<{ name: string; children: string[] }>
+  /** Top-level types and their children (`id` / `childIds`: the product_types ids the list filter puts in the URL). */
+  types: Array<{ name: string; children: string[]; id?: number; childIds?: Record<string, number> }>
   /** Pickers (form, bulk edit): the directories only — the server refuses any other changed value. */
   brands: string[]
   suppliers: string[]
   organizations: string[]
   /** The list filter: the directory values plus the free-text ones older items still carry. */
-  filterValues: { brands: string[]; suppliers: string[]; organizations: string[] }
+  filterValues: { brands: string[]; suppliers: string[]; organizations: string[]; units?: string[] }
+  /** Directory ids of the filter values (name → id): the list filter puts ids in the URL, like Linko. */
+  filterIds?: { units: Record<string, number>; brands: Record<string, number>; suppliers: Record<string, number>; organizations: Record<string, number> }
   colors: string[]
   agents: string[]
-  supplies: Array<{ id: number; label: string }>
+  supplies: Array<{ id: number; label: string; supplier?: string; contract?: string }>
+  /** In Linko's order: the select ones first, then by id. */
+  attributes?: CatalogAttribute[]
 }
 
 export const VAT_OPTIONS = ["Без НДС", "0%", "12%", "15%"]

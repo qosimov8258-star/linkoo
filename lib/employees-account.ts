@@ -117,7 +117,8 @@ export async function planAccount(
   const { current, request, actor } = args
   const account = current ? await linkedAccount(tx, current.id) : null
   const displayName = account && current && args.name !== current.name && account.display_name === current.name ? args.name : undefined
-  const plan: AccountPlan = { login: account ? account.username : "", account, create: false, rename: null, hash: null, accessRightId: undefined, displayName }
+  // Without «Доступ к системе» (the employee goes to «Удаленные») the login is kept: Linko keeps the username.
+  const plan: AccountPlan = { login: account ? account.username : (current?.login ?? "").trim(), account, create: false, rename: null, hash: null, accessRightId: undefined, displayName }
   if (!args.systemAccess) return { plan }
 
   const stored = account ? account.username : (current?.login ?? "").trim()

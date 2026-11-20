@@ -93,8 +93,18 @@ try {
       const status = PLAN_STATUS[plan.status] ?? "pending"
       await client.query(
         `INSERT INTO task_plans (task_id, plan_date, comment, status, response, photo, done_at, created_at)
-         VALUES ($1, $2, $3, $4, $5, '', $6, $7)`,
-        [task.id, String(plan.date ?? "").slice(0, 10), String(plan.comment ?? ""), status, String(plan.response ?? ""), status === "done" || status === "finished" ? values.created_at : "", values.created_at],
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          task.id,
+          String(plan.date ?? "").slice(0, 10),
+          String(plan.comment ?? ""),
+          status,
+          String(plan.response ?? ""),
+          // Linko's picture link of the plan (the drawer's «Просмотреть»), see import-task-photos.mjs.
+          /^https:\/\/[a-z0-9.-]+\.linko\.uz\/media\//.test(String(plan.image_url ?? "")) ? String(plan.image_url) : "",
+          status === "done" || status === "finished" ? values.created_at : "",
+          values.created_at,
+        ],
       )
       stats.plans++
     }

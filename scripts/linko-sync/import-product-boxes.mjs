@@ -6,16 +6,43 @@
 // 2. The box (Linko's boxes[0]: «блок» = 12 шт) — the catalog shows it as Мера «блок / 12 шт»: products.product_group
 //    (the catalog's box name), box_unit (the orders' one) and box_amount; raw_materials.product_group and box_amount.
 // 3. raw_materials.order_number from Linko's stock_number («Порядковый номер»), when empty here.
+// 4. The box of the products Linko has deleted (import-deleted-products.mjs adds them without one): Linko's documents
+//    still carry the product with its boxes (a return card's «Блок» of a deleted product: «0,83333 block (+10 шт)»).
 //
 //   node scripts/linko-sync/import-product-boxes.mjs
-import { connect, ensureRegistry, raw, register, runId } from "./lib.mjs"
+import { connect, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
 
 const run = runId("product-boxes")
 const key = (value) => String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ")
 const products = raw("products")
 const rawItems = raw("products_raw")
 const rawIds = new Set(rawItems.map((item) => Number(item.id)))
-const stats = { isRaw: 0, productBoxes: 0, rawBoxes: 0, rawOrder: 0, rawMissing: [] }
+const stats = { isRaw: 0, productBoxes: 0, deletedBoxes: 0, rawBoxes: 0, rawOrder: 0, rawMissing: [] }
+
+// Deleted products as Linko's documents carry them (the first copy that has a box), by id.
+const liveIds = new Set(products.map((product) => Number(product.id)))
+const deleted = new Map()
+for (const [name, pick] of [
+  ["supplies_detail", (d) => d.products],
+  ["orders_detail", (d) => d.products],
+  ["order_returns_detail", (d) => d.returned_products],
+  ["stock_transfers_detail", (d) => d.products],
+  ["writeoffs_detail", (d) => d.products],
+  ["supply_returns_detail", (d) => d.return_products],
+  ["inventories_detail", (d) => d.inventory_products],
+  ["promotions_detail", (d) => d.products],
+]) {
+  if (!hasRaw(name)) continue
+  const data = raw(name)
+  for (const doc of Array.isArray(data) ? data : Object.values(data)) {
+    if (!doc || doc.__status) continue
+    for (const line of pick(doc) ?? []) {
+      const product = line?.product
+      if (!product?.id || liveIds.has(Number(product.id)) || deleted.has(Number(product.id)) || !(product.boxes ?? []).length) continue
+      deleted.set(Number(product.id), product)
+    }
+  }
+}
 
 const client = await connect()
 await ensureRegistry(client)
@@ -51,6 +78,25 @@ try {
     stats.productBoxes++
   }
 
+  // Deleted products: the same box, filled only where empty (the product rows exist once import-deleted-products ran).
+  for (const product of deleted.values()) {
+    const row = local.get(Number(product.id))
+    if (!row) continue
+    const box = product.boxes[0]
+    const name = String(box?.measurement?.name ?? "").trim()
+    const amount = Number(box?.amount ?? 0)
+    if (!name || !(amount > 0)) continue
+    const next = {
+      product_group: row.product_group || name,
+      box_unit: row.box_unit || name,
+      box_amount: Number(row.box_amount) > 0 ? Number(row.box_amount) : amount,
+    }
+    if (next.product_group === row.product_group && next.box_unit === row.box_unit && next.box_amount === Number(row.box_amount)) continue
+    await client.query("UPDATE products SET product_group = $1, box_unit = $2, box_amount = $3 WHERE id = $4", [next.product_group, next.box_unit, next.box_amount, product.id])
+    await register(client, run, "products", product.id, "update", { product_group: row.product_group, box_unit: row.box_unit, box_amount: Number(row.box_amount) })
+    stats.deletedBoxes++
+  }
+
   // raw_materials: the same items under their own ids, matched by name (and unit when two share a name).
   const rawRows = (await client.query("SELECT id, name, unit, COALESCE(product_group, '') AS product_group, COALESCE(box_amount, 0) AS box_amount, COALESCE(order_number, '') AS order_number FROM raw_materials")).rows
   for (const item of rawItems) {
@@ -82,5 +128,5 @@ try {
   await client.end()
 }
 console.log(
-  `product boxes: ${stats.isRaw} is_raw set, ${stats.productBoxes} products got their box, ${stats.rawBoxes} raw materials their box, ${stats.rawOrder} their «Порядковый номер»; raw materials missing here: ${stats.rawMissing.join(",") || "none"}`,
+  `product boxes: ${stats.isRaw} is_raw set, ${stats.productBoxes} products got their box, ${stats.deletedBoxes} deleted products theirs, ${stats.rawBoxes} raw materials their box, ${stats.rawOrder} their «Порядковый номер»; raw materials missing here: ${stats.rawMissing.join(",") || "none"}`,
 )

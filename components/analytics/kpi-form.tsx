@@ -316,14 +316,14 @@ export function KpiFormDialog({ editing, duplicate, onClose, onSave }: { editing
           <Line label={t("Бонусный фонд")} type="number" value={bonusFund} onChange={setBonusFund} />
         </div>
         <div className="flex">
-          <div className="w-[450px] shrink-0 border-r border-[#eee] pb-[24px] pl-[30px] pr-[10px] pt-[19px]">
+          <div className="w-[30%] shrink-0 border-r border-[#eee] pb-[24px] pl-[30px] pr-[11px] pt-[19px]">
             <div className="flex">
-              <MonthField className="w-[200px]" padLeft={10} popupLeft={0} label={t("Дата начала")} value={startDate} onChange={setStartDate} />
-              <MonthField className="ml-[10px] w-[198.5px]" padLeft={9.5} label={t("Дата окончания")} value={tillDate} onChange={setTillDate} />
+              <MonthField className="min-w-0 flex-1" padLeft={10} popupLeft={0} label={t("Дата начала")} value={startDate} onChange={setStartDate} />
+              <MonthField className="ml-[10px] min-w-0 flex-1" padLeft={10} label={t("Дата окончания")} value={tillDate} onChange={setTillDate} />
             </div>
             <div className="relative mt-[23px]">
-              <RefSelect clearable className="w-[384px]" label={t("Валюта")} value={currency} onChange={setCurrency} options={currencyNames} />
-              <svg viewBox="0 0 24 24" className="absolute left-[385.5px] top-0 h-6 w-6 fill-[#1E4A9A]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
+              <RefSelect clearable className="w-[calc(100%-24px)]" label={t("Валюта")} value={currency} onChange={setCurrency} options={currencyNames} />
+              <svg viewBox="0 0 24 24" className="absolute right-0 top-0 h-6 w-6 fill-[#1E4A9A]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
             </div>
             <RefSelect clearable className="mt-[26px]" label={t("Организация")} value={organization} onChange={setOrganization} options={organizationNames} />
             <p className="mb-[10px] mt-[3px] font-bold leading-[16.3px] text-[#333]">{t("Правила отбора")}</p>
@@ -418,29 +418,32 @@ export function KpiFormDialog({ editing, duplicate, onClose, onSave }: { editing
               </button>
             )}
             <p className="ml-[30px] mt-[15px] font-bold leading-[16.3px] text-[#333]">{t("Уровень вознаграждения")}</p>
-            <div className="relative mt-[29.7px] flex h-[85px] items-start bg-[#f1f5f8] pl-[38px]">
-              <span className="mt-[41.1px] block w-[112.8px] shrink-0 text-[13px] leading-[16.3px]">{t("от")}<b className="ml-[9.8px]">{`${nextFrom} %`}</b>-<span className="ml-[6.5px]">{t("до")}</span></span>
-              <input type="number" value={draftTo} onChange={(event) => setDraftTo(event.target.value.replace(/[^\d.]/g, ""))} className="mt-[31.3px] h-[36px] w-[112.8px] shrink-0 border-b border-[#e0e0e0] bg-transparent text-right text-[13px] font-semibold text-black outline-none focus:border-[#5d6474] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
-              <span className="mt-[23.3px] block w-[26.7px] shrink-0 text-[13px] leading-[52px]">%</span>
-              <label className="relative mt-[31.3px] block h-[45px] w-[152.2px] shrink-0"><span className={`pointer-events-none absolute left-0 font-semibold text-black transition-all ${draftBonus ? "top-[1px] text-[10px]" : "top-[12px] text-[13px]"}`}>{t("Бонус")}</span><input value={draftBonus} onChange={(event) => setDraftBonus(event.target.value.replace(/[^\d.]/g, ""))} className="absolute inset-x-0 top-0 h-[36px] border-b border-[#e0e0e0] bg-transparent pt-[10px] text-[13px] font-semibold text-black outline-none focus:border-[#5d6474]" /></label>
-              <RefSelect clearable className="ml-[15.9px] mt-[31.3px] w-[236.3px] shrink-0" label={t("Тип расчета")} value={draftCalc} onChange={setDraftCalc} options={Object.values(CALC_LABELS).map((label) => t(label))} />
-              <Check className="ml-[16px] mt-[25.3px] w-[236.3px] shrink-0 !items-center" labelClass="w-[176.3px]" checked={draftExclude} label={t("Обнулить предыдущие уровни")} onToggle={() => setDraftExclude((current) => !current)} />
-              <button type="button" onClick={addLevel} aria-label={t("Добавить уровень")} className="absolute right-[19px] top-[27.3px] flex h-[48px] w-[48px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#1E4A9A]"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg></button>
+            {/* The reference's row of col-xs-3/2/3/3/1; it is 19px wider than the panel, so its right padding shows 11px. */}
+            <div className="relative mt-[29.7px] grid h-[85px] grid-cols-[minmax(0,3fr)_minmax(0,2fr)_minmax(0,3fr)_minmax(0,3fr)_minmax(0,1fr)] items-start bg-[#f1f5f8] pl-[30px] pr-[11px]">
+              <div className="flex px-2">
+                <span className="mt-[41.1px] block min-w-0 flex-1 basis-0 whitespace-nowrap text-[13px] leading-[16.3px]">{t("от")}<b className="ml-[9.8px]">{`${nextFrom} %`}</b>{" -"}{t("до")}</span>
+                <input type="number" value={draftTo} onChange={(event) => setDraftTo(event.target.value.replace(/[^\d.]/g, ""))} className="mt-[31.3px] h-[36px] min-w-0 flex-1 basis-0 border-b border-[#e0e0e0] bg-transparent text-right text-[13px] font-semibold text-black outline-none focus:border-[#5d6474] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                <span className="mt-[23.3px] block shrink-0 text-[13px] leading-[52px]">%</span>
+              </div>
+              <div className="px-2"><label className="relative mt-[31.3px] block h-[45px] w-full"><span className={`pointer-events-none absolute left-0 font-semibold text-black transition-all ${draftBonus ? "top-[1px] text-[10px]" : "top-[12px] text-[13px]"}`}>{t("Бонус")}</span><input value={draftBonus} onChange={(event) => setDraftBonus(event.target.value.replace(/[^\d.]/g, ""))} className="absolute inset-x-0 top-0 h-[36px] border-b border-[#e0e0e0] bg-transparent pt-[10px] text-[13px] font-semibold text-black outline-none focus:border-[#5d6474]" /></label></div>
+              <div className="px-2"><RefSelect clearable className="mt-[31.3px] w-full" label={t("Тип расчета")} value={draftCalc} onChange={setDraftCalc} options={Object.values(CALC_LABELS).map((label) => t(label))} /></div>
+              <div className="px-2"><Check className="mt-[25.3px] w-full !items-center" labelClass="w-[calc(100%-60px)]" checked={draftExclude} label={t("Обнулить предыдущие уровни")} onToggle={() => setDraftExclude((current) => !current)} /></div>
+              <div className="flex justify-end px-2"><button type="button" onClick={addLevel} aria-label={t("Добавить уровень")} className="mt-[27.3px] flex h-[48px] w-[48px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#1E4A9A]"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg></button></div>
             </div>
             {error && <p className="ml-[30px] mt-[12px] text-[12px] text-[#e53935]">{error}</p>}
             {levels.length > 0 && (
               <div className="ml-[22px] mr-[18px] mt-[11px]">
-                <div className="grid h-[50px] grid-cols-[168.2px_168.2px_84.1px_168.2px_168.2px_168.2px_1fr] items-center border-b border-dotted border-[#ccc] font-semibold">
+                <div className="grid h-[50px] grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)] items-center border-b border-dotted border-[#ccc] font-semibold">
                   <span>№</span><span>{t("От")}</span><span>{t("До")}</span><span>{t("Бонус")}</span><span>{t("Тип расчета")}</span><span>{t("Обнуление уровней")}</span><span />
                 </div>
                 {levels.map((level, index) => ({ level, index })).reverse().map(({ level, index }) => (
-                  <div key={index} className="grid min-h-[50px] grid-cols-[168.2px_168.2px_84.1px_168.2px_168.2px_168.2px_1fr] items-center border-b border-dotted border-[#ccc] font-semibold">
+                  <div key={index} className="grid min-h-[50px] grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)] items-center border-b border-dotted border-[#ccc] font-semibold">
                     <span>{index + 1}</span>
                     <span>{level.from} %</span>
                     <span>{level.to} %</span>
                     <span>{level.bonus}</span>
                     <span className="pr-[8px] leading-[16.2px]">{calcLabel(level.calc)}</span>
-                    <b className="font-black">{t(level.exclude ? "Включено" : "Отключено")}</b>
+                    <b className="pl-[8px] font-black">{t(level.exclude ? "Включено" : "Отключено")}</b>
                     <button type="button" aria-label={t("Удалить")} onClick={() => setLevels((current) => current.filter((_, i) => i !== index))} className="justify-self-start pl-[18.8px]"><svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zm2.46-7.12l1.41-1.41L12 12.59l2.12-2.12 1.41 1.41L13.41 14l2.12 2.12-1.41 1.41L12 15.41l-2.12 2.12-1.41-1.41L10.59 14l-2.13-2.12zM15.5 4l-1-1h-5l-1 1H5v2h14V4z" /></svg></button>
                   </div>
                 ))}

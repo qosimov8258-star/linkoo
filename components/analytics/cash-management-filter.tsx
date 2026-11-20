@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { CalendarDays } from "lucide-react"
 
 import { useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { useJsonList, type CashCategory, type Named } from "@/components/analytics/cash-management-shared"
@@ -174,7 +175,7 @@ export function CashFilterPanel({ value, cashboxes, onApply, onClose }: { value:
         <span className="text-[16px] font-normal text-[#999]">{t("Фильтр")}</span>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#999] hover:text-[#666]">
           <svg viewBox="0 0 24 24" className="h-[26px] w-[26px] fill-current" aria-hidden>
-            <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z" />
+            <path d="M14.59 8 12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
           </svg>
         </button>
       </div>
@@ -206,8 +207,9 @@ export function CashFilterPanel({ value, cashboxes, onApply, onClose }: { value:
         />
         <div className="relative h-[62px]">
           <span className="absolute left-0 top-[8px] text-[10px] font-bold leading-3 text-black">{t("Диапазон дат")}</span>
-          <button type="button" onClick={() => setPickerOpen((open) => !open)} className="absolute inset-x-0 top-[22px] h-[36px] border-b border-[#e8e8e8] text-left text-[13px] text-black">
+          <button type="button" onClick={() => setPickerOpen((open) => !open)} className="absolute inset-x-0 top-[22px] flex h-[36px] items-center justify-between border-b border-[#e8e8e8] text-left text-[13px] text-black">
             {dateLabel}
+            <CalendarDays className="h-[18px] w-[18px] text-[#8a90a0]" />
           </button>
           {pickerOpen && (
             <DateRangePicker
@@ -222,9 +224,10 @@ export function CashFilterPanel({ value, cashboxes, onApply, onClose }: { value:
             />
           )}
         </div>
-        <div className="flex h-[62px] items-center">{checkbox(draft.withDeleted, (next) => set("withDeleted", next), t("Показать удаленные транзакции"))}</div>
-        <div className="col-span-1 flex h-[62px] items-center">{checkbox(draft.internalTransfer, (next) => set("internalTransfer", next), t("Внутренний расход"))}</div>
-        <div className="col-span-2 flex h-[62px] items-center">{checkbox(draft.onlyNotInternal, (next) => set("onlyNotInternal", next), t("Показать только реальные расходы (отражение в генеральном отчете)"))}</div>
+        {/* The reference's checkboxes sit at the top of their cells; the last one wraps inside one column. */}
+        <div className="flex h-[62px] items-start pt-[2px]">{checkbox(draft.withDeleted, (next) => set("withDeleted", next), t("Показать удаленные транзакции"))}</div>
+        <div className="flex min-h-[40px] items-start">{checkbox(draft.internalTransfer, (next) => set("internalTransfer", next), t("Внутренний расход"))}</div>
+        <div className="flex min-h-[40px] items-start">{checkbox(draft.onlyNotInternal, (next) => set("onlyNotInternal", next), t("Показать только реальные расходы (отражение в генеральном отчете)"))}</div>
       </div>
       <button
         type="button"

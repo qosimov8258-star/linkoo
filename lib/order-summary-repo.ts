@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb } from "@/lib/db"
+import { parseMeasure } from "@/lib/stock-recommended-calc"
 
 export type OrderSummaryRow = { type: string; blocks: number; orders: number; returns: number; volume: number; sum: number }
 export type OrderSummary = { rows: OrderSummaryRow[]; bonus: OrderSummaryRow[] }
@@ -13,6 +14,7 @@ type Line = {
   discount_percent: number
   return_quantity: number
   box_amount: number | null
+  volume: string | null
 }
 
 /**
@@ -27,7 +29,7 @@ export async function summarizeOrders(orderIds: number[]): Promise<OrderSummary>
   const lines = (await getDb()
     .prepare(
       `SELECT p.type AS type, (SELECT MIN(t.id) FROM product_types t WHERE t.name = p.type) AS type_id, i.quantity, i.unit_price, COALESCE(i.discount_percent, 0) AS discount_percent,
-              COALESCE(i.return_quantity, 0) AS return_quantity, p.box_amount
+              COALESCE(i.return_quantity, 0) AS return_quantity, p.box_amount, p.volume
        FROM order_items i
        LEFT JOIN products p ON p.id = i.product_id
        WHERE i.order_id IN (${placeholders}) ORDER BY i.id ASC`,
@@ -45,7 +47,8 @@ export async function summarizeOrders(orderIds: number[]): Promise<OrderSummary>
       row.blocks += box > 0 ? quantity / box : 0
       row.orders += quantity
       row.returns -= Number(line.return_quantity)
-      // Products carry no volume (the reference reports total_capacity 0 too), so Объём stays 0.
+      // Объём = quantity × the product's volume (Linko's total_capacity: amount × capacity); «Не указано» counts 0.
+      row.volume += quantity * parseMeasure(line.volume)
       row.sum += quantity * Number(line.unit_price) * (1 - Number(line.discount_percent) / 100)
       grouped.set(type, row)
       typeIds.set(type, Number(line.type_id ?? Number.MAX_SAFE_INTEGER))

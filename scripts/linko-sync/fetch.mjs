@@ -10,6 +10,7 @@
 // gps (every employee's GPS points), visit-sessions (timed visits),
 // finance-entities (van-sell / branch / employee / supplier acts), cashback-details, price-list-items (every product's
 // prices per price list, read product by product), transfer-logs («Логи» of the transfers between warehouses),
+// order-debt-transactions (each order's «Список оплат по заказу»), return-logs («Логи» of the client returns), return-marks (the marking codes of every client return line),
 // border-agents (the employees bound to each territory), market-users (each shop's «Агенты магазина», and its last
 // order / visit days, which only the shop's detail has).
 // LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
@@ -338,6 +339,67 @@ async function transferLogs() {
   console.log("stock_transfers_logs".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
 }
 
+// Заказы → card → «Список оплат по заказу»: each order's debt transactions (import-order-payment-lines.mjs).
+async function orderDebtTransactions() {
+  const out = {}
+  let failed = 0
+  await Promise.all(
+    load("orders").map(async (row) => {
+      const r = await getAll("sales/debt_transactions/", { order: row.id })
+      if (r.status === 200 && r.rows) out[row.id] = r.rows
+      else {
+        failed++
+        out[row.id] = { __status: r.status }
+      }
+    }),
+  )
+  save("order_debt_transactions", { tpl: "sales/debt_transactions/?order={id}", data: out })
+  console.log("order_debt_transactions".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
+}
+
+// Возвраты → card → «Логи»: each client return's history (import-return-logs.mjs), in the order Linko answers it.
+async function returnLogs() {
+  const out = {}
+  let failed = 0
+  await Promise.all(
+    load("order_returns").map(async (row) => {
+      const r = await getAll("sales/order_return_logs/", { order_return: row.id })
+      if (r.status === 200 && r.rows) out[row.id] = r.rows
+      else {
+        failed++
+        out[row.id] = { __status: r.status }
+      }
+    }),
+  )
+  save("order_return_logs", { tpl: "sales/order_return_logs/?order_return={id}", data: out })
+  console.log("order_return_logs".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
+}
+
+// Возвраты → card → «Список товаров» → green «+»: each returned line's marking codes (import-return-marks.mjs), per
+// return in Linko's line order. Reads order_returns_detail.json, so it runs after details and returns-patch.
+async function returnMarks() {
+  const detail = load("order_returns_detail")
+  const out = {}
+  let failed = 0
+  let withMarks = 0
+  await Promise.all(
+    Object.entries(detail).map(async ([id, doc]) => {
+      if (!Array.isArray(doc?.returned_products)) return
+      out[id] = await Promise.all(
+        doc.returned_products.map(async (p, index) => {
+          const r = await get(`sales/order_return_product/${p.id}/get_marks/`)
+          const marks = Array.isArray(r.json) ? r.json : Array.isArray(r.json?.results) ? r.json.results : null
+          if (r.status !== 200 || !marks) failed++
+          else if (marks.length) withMarks++
+          return { index, returned_product: p.id, product_id: p.product?.id ?? null, amount: p.amount, status: r.status, marks }
+        }),
+      )
+    }),
+  )
+  save("order_return_marks", { tpl: "sales/order_return_product/{id}/get_marks/", data: out })
+  console.log("order_return_marks".padEnd(36), Object.keys(out).length, `lines with codes ${withMarks}`, failed ? `Linko failed ${failed}` : "")
+}
+
 // Территория: the employees bound to each territory («Привязать агента»), only on the border's detail.
 async function borderAgents() {
   const out = {}
@@ -405,6 +467,9 @@ const STEPS = {
   "finance-entities": financeEntities,
   "cashback-details": cashbackDetails,
   "transfer-logs": transferLogs,
+  "return-logs": returnLogs,
+  "order-debt-transactions": orderDebtTransactions,
+  "return-marks": returnMarks,
   "border-agents": borderAgents,
   "market-users": marketUsers,
 }

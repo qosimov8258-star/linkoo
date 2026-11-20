@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { isValidElement, type ReactNode } from "react"
+import { cloneElement, isValidElement, type ReactNode } from "react"
 
 import { useCashOperation } from "@/components/analytics/cash/use-cash"
 import { CashModal, EmptyBlock, ErrorBlock, LoadingBlock, cashCommentText, formatCash, formatCashDate } from "@/components/analytics/cash-management-shared"
@@ -10,10 +10,12 @@ import { formatDotDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Tarkibi" / "Детали" column of the cash list (demo module 3840 rows + 1622
-// TransactionsFormat): Касса (only in "Общий объем"), Поставщик, Описание by
-// operation type, Категория (linked by the category's first option),
-// Филиал, Организация, Деньги за период, период, Комментарий, Клиент.
-// Plus the two category popups: "Расходы на сотрудников" and "Детализация".
+// TransactionsFormat): Касса (only in "Общий объем"), Поставщик, then the
+// comma-separated Описание by operation type, Категория (linked by the
+// category's first option), Филиал, Организация, Деньги за период, период,
+// Комментарий; one cashbox's list adds the Клиент line, the unverified dialog
+// Создал / Клиент / Поставщик. Plus the two category popups: "Расходы на
+// сотрудников" and "Детализация".
 
 export type DetailsPopup = { kind: "staff" | "children"; operation: CashOperation }
 
@@ -35,11 +37,28 @@ function Ext({ href, children, bold }: { href: string; children: ReactNode; bold
   )
 }
 
-function Item({ label, children, raw }: { label: string; children: ReactNode; /** The reference prints this line in Russian whatever the language. */ raw?: boolean }) {
+function Item({
+  label,
+  children,
+  raw,
+  comma,
+}: {
+  label: string
+  children: ReactNode
+  /** The reference prints this line in Russian whatever the language. */
+  raw?: boolean
+  /** Trailing "," kept on the item's own line (the reference's ::after). */
+  comma?: boolean
+}) {
   const { t } = useLanguage()
   return (
-    <span className={["Описание", "Комментарий"].includes(label) ? "inline" : "inline-block whitespace-nowrap align-top"} {...(raw ? { "data-no-translate": "" } : {})}>
+    // Every item is an inline block like the reference's: a long Описание / Комментарий wraps inside its own block.
+    <span
+      className={`${["Описание", "Комментарий"].includes(label) ? "inline-block max-w-full align-top" : "inline-block whitespace-nowrap align-top"} ${comma ? "mr-[7px]" : ""}`}
+      {...(raw ? { "data-no-translate": "" } : {})}
+    >
       <strong className="font-semibold text-[#17233b]">{raw ? label : t(label)}:</strong> {children}
+      {comma ? "," : null}
     </span>
   )
 }
@@ -57,12 +76,8 @@ export function OperationDescription({ operation, onOpenAcceptance }: { operatio
   const clientLink = client ? <Ext href={clientHref(client.id, client.name)}>{client.name}</Ext> : null
   switch (operation.type) {
     case 1:
-      return (
-        <span>
-          {t("Перевод с кассы")}
-          {operation.transfer?.otherCashbox ? <span className="text-[#586174]"> → {operation.transfer.otherCashbox}</span> : null}
-        </span>
-      )
+      // The reference names no receiving cashbox here.
+      return <span>{t("Перевод с кассы")}</span>
     case 2:
       return (
         <span>
@@ -83,6 +98,15 @@ export function OperationDescription({ operation, onOpenAcceptance }: { operatio
       )
     case 8: {
       const label = `Принято денег с ${operation.employee?.name ?? ""}`.trim()
+      // Only an acceptance with its accepted payments has an info card; elsewhere (Баланс кассы) the reference links to
+      // the cash page with that card open.
+      if (operation.source !== "acceptance") return <strong data-no-translate>{label}</strong>
+      if (!onOpenAcceptance)
+        return (
+          <Ext href={`/analytics/cash-management?openTransactionInfo=${operation.id}`}>
+            <span data-no-translate>{label}</span>
+          </Ext>
+        )
       return onOpenAcceptance ? (
         <button type="button" data-no-translate onClick={() => onOpenAcceptance(operation)} className={`${linkClass} text-left`}>
           {label}
@@ -129,9 +153,10 @@ function CategoryValue({ operation, onPopup }: { operation: CashOperation; onPop
       return operation.client ? <Ext href={clientHref(operation.client.id, operation.client.name)}>{name}</Ext> : <span>{name}</span>
     case "provider":
       return operation.supplier ? <Ext href={supplierHref(operation.supplier.id, operation.supplier.name)}>{name}</Ext> : <span>{name}</span>
+    // The reference links these categories whether or not the operation has lines (the popup then lists none).
     case "staff_expense":
     case "staff_income":
-      return operation.hasStaff && onPopup ? (
+      return onPopup ? (
         <button type="button" onClick={() => onPopup({ kind: "staff", operation })} className={linkClass}>
           {name}
         </button>
@@ -139,7 +164,7 @@ function CategoryValue({ operation, onPopup }: { operation: CashOperation; onPop
         <span>{name}</span>
       )
     case "transaction_child":
-      return operation.hasChildren && onPopup ? (
+      return onPopup ? (
         <button type="button" onClick={() => onPopup({ kind: "children", operation })} className={linkClass}>
           {name}
         </button>
@@ -151,32 +176,33 @@ function CategoryValue({ operation, onPopup }: { operation: CashOperation; onPop
   }
 }
 
-/** The "Детали" cell. `showCashbox` = "Общий объем" view; `extended` adds Создал (unverified dialog). */
+/** The "Детали" cell. `showCashbox` = "Общий объем" view; `extended` = the unverified dialog (Создал, Клиент, Поставщик
+ * lines); `cashbox` = the Баланс кассы detail (no Касса / Организация, Клиент and Поставщик lines below). Block lines
+ * (Касса, Поставщик / Создал, Клиент, Поставщик) frame the comma-separated description as in the reference's row. */
 export function OperationDetails({
   operation,
   showCashbox,
   extended = false,
+  cashbox = false,
   onOpenAcceptance,
   onPopup,
 }: {
   operation: CashOperation
   showCashbox: boolean
   extended?: boolean
+  cashbox?: boolean
   onOpenAcceptance?: (operation: CashOperation) => void
   onPopup?: (popup: DetailsPopup) => void
 }) {
   const { t, language } = useLanguage()
-  // Type 7 ("Снято со счета клиента") prints no client at all in the reference.
-  const clientInDescription = [3, 6, 7, 22].includes(operation.type)
   const transfer = operation.transfer
+  // The reference's payment for a supply (type 10) names no supplier.
+  const supplier = operation.type !== 10 && operation.supplier?.name ? operation.supplier.name : ""
+  const before: ReactNode[] = []
   const parts: ReactNode[] = []
-  if (showCashbox || extended) parts.push(<Item key="cashbox" label="Касса">{operation.cashbox.name}</Item>)
-  if (operation.supplier?.name)
-    parts.push(
-      <Item key="supplier" label="Поставщик">
-        <Ext href={supplierHref(operation.supplier.id, operation.supplier.name)}>{operation.supplier.name}</Ext>
-      </Item>,
-    )
+  const after: ReactNode[] = []
+  if ((showCashbox || extended) && !cashbox) before.push(<Item key="cashbox" label="Касса">{operation.cashbox.name}</Item>)
+  if (supplier && !extended && !cashbox) before.push(<Item key="supplier" label="Поставщик">{supplier}</Item>)
   // Type 11 (supplier income) has no "Описание" in the reference.
   if (operation.type !== 11)
     parts.push(
@@ -191,7 +217,7 @@ export function OperationDetails({
       </Item>,
     )
   if (operation.branch) parts.push(<Item key="branch" label="Филиал">{operation.branch}</Item>)
-  if (operation.organization) parts.push(<Item key="organization" label="Организация">{operation.organization}</Item>)
+  if (operation.organization && !cashbox) parts.push(<Item key="organization" label="Организация">{operation.organization}</Item>)
   if (transfer?.accumulatedFrom || transfer?.accumulatedTo)
     parts.push(
       <Item key="accumulated" label="Деньги за период" raw>
@@ -204,36 +230,32 @@ export function OperationDetails({
         {formatDotDate(operation.amortization.from)} — {formatDotDate(operation.amortization.to)}
       </Item>,
     )
-  if (operation.contract) parts.push(<Item key="contract" label="Контракт">{operation.contract}</Item>)
   if (operation.comment) parts.push(<Item key="comment" label="Комментарий">{cashCommentText(operation.comment, t)}</Item>)
-  if (operation.client && !clientInDescription)
-    parts.push(
-      <Item key="client" label="Клиент">
-        <Ext href={clientHref(operation.client.id, operation.client.name)}>{operation.client.name}</Ext>
-      </Item>,
-    )
-  if (operation.employee && operation.type !== 8) parts.push(<Item key="employee" label="Ответственный персонал">{operation.employee.name}</Item>)
-  if (extended && operation.createdBy) parts.push(<Item key="created" label="Создал">{operation.createdBy}</Item>)
+  if (extended && operation.createdBy) after.push(<Item key="created" label="Создал">{operation.createdBy}</Item>)
+  // One cashbox's list and the unverified dialog print the client on a line of its own (plain text).
+  if ((extended || cashbox || !showCashbox) && operation.client?.name) after.push(<Item key="client" label="Клиент">{operation.client.name}</Item>)
+  if ((extended || cashbox) && supplier) after.push(<Item key="supplier-after" label="Поставщик">{supplier}</Item>)
   return (
     <div className="text-[13px] leading-[16px] text-[#17233b]">
-      {parts.map((part, index) => {
-        // The reference prints the cashbox on a line of its own, the rest follows comma separated.
-        const isCashbox = isValidElement(part) && part.key === "cashbox"
-        return isCashbox ? (
-          <span key={index} className="block">
-            {part}
-          </span>
-        ) : (
-          <span key={index}>
-            {part}
-            {index < parts.length - 1 && ","}
-            {index < parts.length - 1 && <span className="inline-block w-[7px]" />}
-          </span>
-        )
-      })}
-      {!operation.isVerified && !operation.isDeleted && (
-        <span className="ml-2 inline-block rounded bg-[#fff4e5] px-2 text-[11px] font-semibold uppercase text-[#d48a1c]">{t("Не подтверждено")}</span>
+      {before.map((line, index) => (
+        <span key={`b${index}`} className="block">
+          {line}
+        </span>
+      ))}
+      {parts.length > 0 && (
+        <div>
+          {parts.map((part, index) => (
+            <span key={index}>
+              {isValidElement<{ comma?: boolean }>(part) && index < parts.length - 1 ? cloneElement(part, { comma: true }) : part}
+            </span>
+          ))}
+        </div>
       )}
+      {after.map((line, index) => (
+        <span key={`a${index}`} className="block">
+          {line}
+        </span>
+      ))}
       {operation.isDeleted && (
         <span className="ml-2 inline-block rounded bg-[#fdecec] px-2 text-[11px] font-semibold uppercase text-[#e57373]">
           {t("Удалено")}

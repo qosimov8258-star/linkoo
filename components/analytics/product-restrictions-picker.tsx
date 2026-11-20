@@ -1,11 +1,13 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Loader2, Search, X } from "lucide-react"
+import { Loader2, Search, X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 
+import { RefEmpty } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
+  RESTRICTION_PAGE_SIZES,
   RESTRICTION_PICKER_PAGE_SIZE,
   type RestrictionFilters,
   type RestrictionItem,
@@ -19,6 +21,9 @@ import { apiErrorText, DemoCheckbox, rangeOf, TAB_COPY, useEscapeLayer, type Api
 // live products (filters by type / brand / organization and a search) or product types (search
 // only). Checked items persist across pages and searches; "Сохранить" hands them back to the
 // dialog (no request is sent).
+
+const ARROW_PREV = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z"
+const ARROW_NEXT = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z"
 
 const EMPTY_FILTERS: RestrictionFilters = { types: [], brands: [], organizations: [] }
 
@@ -39,6 +44,8 @@ export function RestrictionPicker({
   const [searchText, setSearchText] = useState("")
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
+  // Linko opens the picker with pdPageSize=50 and lets the pager change it.
+  const [pageSize, setPageSize] = useState<number>(RESTRICTION_PICKER_PAGE_SIZE)
   const [typeId, setTypeId] = useState("")
   const [brandId, setBrandId] = useState("")
   const [organizationId, setOrganizationId] = useState("")
@@ -73,7 +80,7 @@ export function RestrictionPicker({
   }, [tab])
 
   const query = useMemo(() => {
-    const params = new URLSearchParams({ kind: tab, page: String(page), pageSize: String(RESTRICTION_PICKER_PAGE_SIZE) })
+    const params = new URLSearchParams({ kind: tab, page: String(page), pageSize: String(pageSize) })
     if (search) params.set("search", search)
     if (tab === "product") {
       if (typeId) params.set("type", typeId)
@@ -81,7 +88,7 @@ export function RestrictionPicker({
       if (organizationId) params.set("organization", organizationId)
     }
     return params.toString()
-  }, [tab, page, search, typeId, brandId, organizationId])
+  }, [tab, page, pageSize, search, typeId, brandId, organizationId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -108,8 +115,8 @@ export function RestrictionPicker({
 
   const rows = data?.results ?? []
   const count = data?.count ?? 0
-  const pageCount = Math.max(1, Math.ceil(count / RESTRICTION_PICKER_PAGE_SIZE))
-  const range = rangeOf(page, RESTRICTION_PICKER_PAGE_SIZE, count)
+  const pageCount = Math.max(1, Math.ceil(count / pageSize))
+  const range = rangeOf(page, pageSize, count)
   const allOnPage = rows.length > 0 && rows.every((row) => selected.has(row.id))
   const someOnPage = rows.some((row) => selected.has(row.id))
 
@@ -133,47 +140,50 @@ export function RestrictionPicker({
     })
   }
 
+  // Linko's search fields: 240 x 36 with the label as the placeholder (13 px semibold) and a grey caret.
   function filterSelect(label: string, value: string, onChange: (value: string) => void, options: RestrictionItem[]) {
     return (
-      <label className="flex w-full flex-col sm:w-[240px]">
-        <span className="text-[10px] font-bold leading-3 text-[#333]">{t(label)}</span>
+      <label className="relative flex h-[36px] w-full items-center border-b border-[#e8e8e8] focus-within:border-[#5d6474] sm:w-[240px]">
         <select
           value={value}
           onChange={(event) => {
             onChange(event.target.value)
             setPage(1)
           }}
-          className="h-[30px] w-full border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none focus:border-[#5d6474]"
+          aria-label={t(label)}
+          className={`h-full w-full appearance-none bg-transparent pr-6 text-[13px] outline-none ${value ? "text-[#333]" : "font-semibold text-black"}`}
         >
-          <option value="">{t("Все")}</option>
+          <option value="">{t(label)}</option>
           {options.map((option) => (
             <option key={option.id} value={String(option.id)}>
               {option.name}
             </option>
           ))}
         </select>
+        <span aria-hidden="true" className="pointer-events-none absolute right-[10px] top-[21px] h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[#999]" />
       </label>
     )
   }
 
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label={t(copy.picker)} className="fixed inset-0 z-[120] flex flex-col bg-white text-[13px] text-[#333]">
-      <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-4 pr-3 sm:pl-[30px] sm:pr-[22px]">
+      <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] pl-4 pr-[10px] sm:pl-[30px]">
         <h2 className="truncate text-[13px] font-bold uppercase">{t(copy.picker)}</h2>
-        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800">
+        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center rounded-full text-[#666] hover:bg-slate-100">
           <X className="h-6 w-6" />
         </button>
       </header>
 
-      <div className="flex shrink-0 flex-wrap items-end gap-x-[20px] gap-y-3 border-b border-[#e8ebf0] px-4 py-3 sm:px-[30px]">
+      {/* Linko: the three filters (product tab), the grey search box and the pager spread across a 56 px bar. */}
+      <div className="flex min-h-[56px] shrink-0 flex-wrap items-center justify-between gap-x-[25px] gap-y-3 border-b border-[#efefef] px-4 py-[6px] sm:px-[30px] lg:py-0">
         {tab === "product" && (
-          <div className="grid w-full grid-cols-1 gap-x-[20px] gap-y-3 sm:flex sm:w-auto">
+          <div className="grid w-full grid-cols-1 gap-x-[25px] gap-y-3 sm:flex sm:w-auto lg:mt-[10px]">
             {filterSelect("Фильтр по типу", typeId, setTypeId, filters.types)}
             {filterSelect("Фильтр по бренду", brandId, setBrandId, filters.brands)}
-            {filterSelect("Фильтр по организации", organizationId, setOrganizationId, filters.organizations)}
+            {filterSelect("Фильтр по организацию", organizationId, setOrganizationId, filters.organizations)}
           </div>
         )}
-        <label className="relative flex h-[36px] w-full items-center rounded-[3px] bg-[#f2f5f8] pl-3 pr-9 sm:w-[280px]">
+        <label className="relative flex h-[42px] w-full items-center rounded-[2px] border border-[#d9e0e5] bg-[#f2f5f8] pl-[10px] pr-[35px] sm:w-[280px]">
           <input
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
@@ -186,39 +196,45 @@ export function RestrictionPicker({
             maxLength={200}
             placeholder={t(copy.search)}
             aria-label={t(copy.search)}
-            className="h-full w-full bg-transparent text-[13px] outline-none placeholder:text-[#9aa1ad]"
+            className="h-full w-full bg-transparent text-[13px] outline-none placeholder:text-black/30"
           />
-          <Search className="absolute right-2 h-[18px] w-[18px] text-[#9aa1ad]" />
+          <Search className="absolute right-[9px] h-[22px] w-[22px] text-[#bac6ce]" />
         </label>
-        <div className="ml-auto flex items-center gap-2 whitespace-nowrap">
-          <span>
+        <div className="flex items-center whitespace-nowrap text-[#5d6474]">
+          <div className="relative mr-[27px]">
+            <select
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value))
+                setPage(1)
+              }}
+              aria-label={t("Количество строк")}
+              className="h-12 w-[40px] appearance-none bg-transparent text-[13px] text-[#333] outline-none"
+            >
+              {RESTRICTION_PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30" aria-hidden="true"><path d="M7 10l5 5 5-5z" /></svg>
+          </div>
+          <span className="mr-[5px]">
             {range.from} - {range.to} {t("из")} {count}
           </span>
-          <button
-            type="button"
-            onClick={() => setPage(Math.max(1, page - 1))}
-            disabled={page <= 1}
-            aria-label={t("Назад")}
-            className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-400 text-slate-600 disabled:border-slate-200 disabled:text-slate-300"
-          >
-            <ChevronLeft className="h-4 w-4" />
+          <button type="button" onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1} aria-label={t("Назад")} className="px-[5px]">
+            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`} aria-hidden="true"><path d={ARROW_PREV} /></svg>
           </button>
-          <button
-            type="button"
-            onClick={() => setPage(Math.min(pageCount, page + 1))}
-            disabled={page >= pageCount}
-            aria-label={t("Вперед")}
-            className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-400 text-slate-600 disabled:border-slate-200 disabled:text-slate-300"
-          >
-            <ChevronRight className="h-4 w-4" />
+          <button type="button" onClick={() => setPage(Math.min(pageCount, page + 1))} disabled={page >= pageCount} aria-label={t("Вперед")}>
+            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`} aria-hidden="true"><path d={ARROW_NEXT} /></svg>
           </button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-[30px]">
-        <div className="grid h-[50px] grid-cols-[minmax(0,8fr)_minmax(0,4fr)] items-center border-b border-[#e8ebf0] font-bold">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid h-[50px] grid-cols-[minmax(0,8fr)_minmax(0,4fr)] items-center border-b border-[#efefef] px-4 font-semibold sm:px-[30px]">
           <span>{t("Наименование")}</span>
-          <span className="flex items-center gap-[10px]">
+          <span className="flex items-center gap-[10px] pl-2">
             <DemoCheckbox checked={allOnPage} partial={!allOnPage && someOnPage} onChange={togglePage} label={t("Выбрать все")} disabled={!rows.length} />
             {t("Статус")}
           </span>
@@ -230,18 +246,18 @@ export function RestrictionPicker({
         ) : error ? (
           <p className="py-10 text-center text-[#e53935]">{error}</p>
         ) : rows.length === 0 ? (
-          <p className="py-16 text-center text-[#666]">{t("По вашему запросу ничего не найдено")}</p>
+          <RefEmpty text="По вашему запросу ничего не найдено..." />
         ) : (
           rows.map((row) => (
             <div
               key={row.id}
               onClick={() => toggle(row, !selected.has(row.id))}
-              className={`grid h-[50px] cursor-pointer grid-cols-[minmax(0,8fr)_minmax(0,4fr)] items-center border-b border-dashed border-[#dfe3ea] hover:bg-[#f2f5f8] ${loading ? "opacity-60" : ""}`}
+              className={`grid h-[40px] cursor-pointer grid-cols-[minmax(0,8fr)_minmax(0,4fr)] items-center px-4 transition-colors hover:bg-[#f2f5f8] sm:px-[30px] ${loading ? "opacity-60" : ""}`}
             >
               <span className="truncate pr-3" title={row.name}>
                 {row.name}
               </span>
-              <span>
+              <span className="pl-2">
                 <DemoCheckbox checked={selected.has(row.id)} onChange={(checked) => toggle(row, checked)} label={row.name} />
               </span>
             </div>
@@ -249,14 +265,11 @@ export function RestrictionPicker({
         )}
       </div>
 
-      <footer className="flex h-[57px] shrink-0 items-center justify-between border-t border-[#e8ebf0] px-4 sm:px-[30px]">
-        <span className="text-[#586174]">
-          {t("Выбрано")}: {selected.size}
-        </span>
+      <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#efefef] px-[10px]">
         <button
           type="button"
           onClick={() => onSave([...selected.values()])}
-          className="rounded-[3px] px-[16px] py-[8px] text-[13px] font-bold uppercase text-[#0a9bd9] hover:bg-[#ececec]"
+          className="rounded-[2px] px-[16px] py-[8px] text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#ececec]"
         >
           {t("Сохранить")}
         </button>

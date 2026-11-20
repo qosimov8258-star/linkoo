@@ -10,13 +10,17 @@ type ExcelOptions = {
   merges?: string[]
   /** Column widths in characters, one entry per column from the first (shorter lists leave the rest at the default). */
   widths?: number[]
+  /** Name of the sheet (default "Sheet1"). */
+  sheetName?: string
+  /** null cells stay empty instead of holding "" (a blank cell, as Linko's files have). */
+  blankNulls?: boolean
 }
 
 /** Downloads a genuine .xlsx workbook (no server round-trip required). Texts print currencies
  * by their shown names (SOM, USD, ЕВРО), like the screen, and their amounts in the app currency
  * when one is chosen (Настройки → Валюта приложения, lib/app-currency-text.ts). */
 export function downloadExcelTable(fileName: string, rows: ExcelCell[][], options: ExcelOptions = {}) {
-  const data = rows.map((row) => row.map((cell) => (cell !== null && typeof cell === "object" ? cell.value : typeof cell === "string" ? appCurrencyText(showCurrencyNames(cell)) : (cell ?? ""))))
+  const data = rows.map((row) => row.map((cell) => (cell !== null && typeof cell === "object" ? cell.value : typeof cell === "string" ? appCurrencyText(showCurrencyNames(cell)) : (cell ?? (options.blankNulls ? null : "")))))
   const worksheet = XLSX.utils.aoa_to_sheet(data)
   rows.forEach((row, r) =>
     row.forEach((cell, c) => {
@@ -26,7 +30,7 @@ export function downloadExcelTable(fileName: string, rows: ExcelCell[][], option
   worksheet["!cols"] = options.widths ? options.widths.map((wch) => ({ wch })) : columnWidths(data)
   if (options.merges) worksheet["!merges"] = options.merges.map((range) => XLSX.utils.decode_range(range))
   const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1")
+  XLSX.utils.book_append_sheet(workbook, worksheet, options.sheetName?.slice(0, 31) || "Sheet1")
   const baseName = fileName.replace(/\.(xlsx|xls)$/i, "")
   XLSX.writeFile(workbook, `${baseName}.xlsx`, { bookType: "xlsx" })
 }

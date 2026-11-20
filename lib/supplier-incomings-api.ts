@@ -18,6 +18,8 @@ export const incomingItemSchema = z
     key: text(200),
     product: z.string({ error: "Выберите товар" }).trim().min(1, "Выберите товар").max(500, "Не более 500 символов"),
     expiry: text(100),
+    /** The line's series number (products with «Серия»). */
+    series: text(100),
     qty: quantitySchema,
     block: optionalAmount,
     kg: optionalAmount,
@@ -42,6 +44,9 @@ export const supplierIncomingSchema = z
     invoiceNumber: text(200),
     /** The supplier's invoice date: any parseable date of a year 2000..2100, stored as YYYY-MM-DD. */
     invoiceDate: text(60),
+    /** «Ожидаемый выход с завода» / «Ожидаемое прибытие в таможню»: any parseable day of a year 2000..2100. */
+    expectedFactoryExit: text(60),
+    expectedCustomsArrival: text(60),
     comment: text(2000),
     items: z.array(incomingItemSchema, { error: "Добавьте товары" }).min(1, "Добавьте товары").max(1000, "Не более 1000 строк"),
     /** "Создать приход" from an accepted incoming e-invoice (create only). */
@@ -63,6 +68,22 @@ export const incomingExpenseSchema = z.object({
 })
 
 export type IncomingExpenseBody = z.infer<typeof incomingExpenseSchema>
+
+/** POST /api/supplier-incomings/[id]/invoice — «Изменить детали счет фактуры». The day is required (checked by the repo,
+ * a field error). */
+export const incomingInvoiceSchema = z.object({
+  invoiceNumber: text(200),
+  invoiceDate: text(60),
+  invoiceComment: text(2000),
+})
+
+/** POST /api/supplier-incomings/[id]/logs — «Добавить лог»: «Вышел с завода» / «Прибыл в таможню» on a day (default
+ * today) with a comment. */
+export const incomingEventLogSchema = z.object({
+  action: z.enum(["sent_out", "come_to_post"], { error: "Выберите статус" }),
+  date: text(60),
+  comment: text(2000),
+})
 
 export function incomingChangeResponse(result: IncomingChange, lockedMessage: string) {
   if (result === "not_found") return NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })

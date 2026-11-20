@@ -1,6 +1,7 @@
 "use client"
 
-import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { formatFixed } from "@/lib/amount-precision"
+import { currencyLabel } from "@/lib/finance/currency"
 import { formatUnitTotals } from "@/components/analytics/internal-transfers-shared"
 import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -71,10 +72,11 @@ export function StockMoveCards({ sum, loading, showOthers }: { sum: MoveSumResul
   const currency = sum && appCurrency ? currencyLabel(sum.currency) : ""
   const quantity = (card: Card) => {
     const byUnit = sum?.qtyByUnit ?? []
-    if (!byUnit.length) return `${formatMoney(shown(sum?.qty, card), 3)} ${unit}`
+    // Linko's cards floor to two decimals whatever ROUND_AMOUNT_FOR_CURRENCY is (its own formatter there).
+    if (!byUnit.length) return `${formatFixed(shown(sum?.qty, card), 2, { floor: true })} ${unit}`
     return formatUnitTotals(byUnit.map((total) => ({ qty: shown(total.qty, card), unit: total.unit })), t)
   }
-  const amount = (card: Card) => `${formatMoney(shown(sum?.value, card), 2)}${currency ? ` ${currency}` : ""}`
+  const amount = (card: Card) => `${formatFixed(shown(sum?.value, card), 2, { floor: true })}${currency ? ` ${currency}` : ""}`
   return (
     <section className={`pb-[34.5px] pt-[25px] ${loading ? "opacity-60" : ""}`}>
       <div className="grid grid-cols-1 gap-y-4 sm:grid-cols-2 lg:grid-cols-5">

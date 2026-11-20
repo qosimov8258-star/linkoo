@@ -17,13 +17,13 @@ import {
 
 // "База знания" articles (demo main/knowledge/). Names are unique (case- and space-insensitive,
 // NFC: the routes clean every text first); creates and renames are serialised by an advisory
-// lock and backed by the unique index. "Права доступа" are job positions linked by id (FK, so a
-// deleted position can never stay linked); the attached PDF is a knowledge_base_files row that
+// lock and backed by the unique index. "Права доступа" are access rights (Linko main/position/)
+// linked by id (FK, so a deleted access right can never stay linked); the attached PDF is a knowledge_base_files row that
 // the same user uploaded and no other article holds. Lock order of the writes: names lock →
 // article row → positions (KEY SHARE) → file row.
 
-/** What a reader may see: every article, or only the active ones published to a position
- * (null = the caller has no position: only the articles meant for every position). */
+/** What a reader may see: every article, or only the active ones published to an access right
+ * (`positionId`; null = the caller has none: only the articles meant for everyone). */
 export type KnowledgeBaseScope = { all: true } | { all: false; positionId: number | null }
 
 export type KnowledgeBaseInput = {
@@ -65,9 +65,9 @@ function fileOf(row: { file_id: number | null; file_name: string | null; file_si
 function visibleSql(scope: KnowledgeBaseScope, alias = "a"): string {
   if (scope.all) return "TRUE"
   const own = scope.positionId
-    ? `OR EXISTS (SELECT 1 FROM knowledge_base_article_positions l WHERE l.article_id = ${alias}.id AND l.position_id = @positionId)`
+    ? `OR EXISTS (SELECT 1 FROM knowledge_base_article_access_rights l WHERE l.article_id = ${alias}.id AND l.access_right_id = @positionId)`
     : ""
-  return `(${alias}.active = 1 AND (NOT EXISTS (SELECT 1 FROM knowledge_base_article_positions l WHERE l.article_id = ${alias}.id) ${own}))`
+  return `(${alias}.active = 1 AND (NOT EXISTS (SELECT 1 FROM knowledge_base_article_access_rights l WHERE l.article_id = ${alias}.id) ${own}))`
 }
 
 function scopeParams(scope: KnowledgeBaseScope): Record<string, unknown> {
@@ -91,10 +91,10 @@ async function positionsOf(db: PgDb, ids: number[]): Promise<Map<number, Knowled
   const rows = (await db
     .prepare(
       `SELECT l.article_id, p.id, p.name
-         FROM knowledge_base_article_positions l
-         JOIN job_positions p ON p.id = l.position_id
+         FROM knowledge_base_article_access_rights l
+         JOIN access_rights p ON p.id = l.access_right_id
         WHERE l.article_id = ANY(@ids::int[])
-        ORDER BY p.name, p.id`,
+        ORDER BY p.id`,
     )
     .all({ ids })) as Array<{ article_id: number; id: number; name: string }>
   for (const row of rows) {
@@ -122,9 +122,8 @@ function toArticle(row: ArticleRow, positions: KnowledgeBasePosition[]): Knowled
 // Reads
 // ---------------------------------------------------------------------------
 
-/** Job position of an employee, or null: the Должность picked in the form (employees.job_id); a legacy
- * row without one is matched by its position text. job_id is read through to_jsonb so a database whose
- * employees table predates the column still answers. */
+/** Access right (Права доступа) of an employee, or null: the employee's own, else the one of
+ * their oldest user account (the way the zone-agent lists read it). */
 export async function positionOfEmployee(employeeId: number | null): Promise<KnowledgeBasePosition | null> {
   if (!employeeId) return null
   await ensureKnowledgeBaseSchema()
@@ -132,11 +131,9 @@ export async function positionOfEmployee(employeeId: number | null): Promise<Kno
     .prepare(
       `SELECT p.id, p.name
          FROM employees e
-         JOIN job_positions p
-           ON p.id = NULLIF(to_jsonb(e) ->> 'job_id', '')::bigint
-           OR (NULLIF(to_jsonb(e) ->> 'job_id', '') IS NULL AND ${keySql("e.position")} <> '' AND ${keySql("p.name")} = ${keySql("e.position")})
+         JOIN access_rights p
+           ON p.id = COALESCE(e.access_right_id, (SELECT u.access_right_id FROM users u WHERE u.employee_id = e.id AND u.access_right_id IS NOT NULL ORDER BY u.id LIMIT 1))
         WHERE e.id = ?
-        ORDER BY p.id
         LIMIT 1`,
     )
     .get(employeeId)) as { id: number; name: string } | undefined
@@ -162,7 +159,7 @@ export async function listKnowledgeBase(
   const rows = (await db
     .prepare(
       `SELECT a.id, a.name, a.active, a.file_id, a.updated_at,
-              (SELECT COUNT(*)::int FROM knowledge_base_article_positions l WHERE l.article_id = a.id) AS position_count
+              (SELECT COUNT(*)::int FROM knowledge_base_article_access_rights l WHERE l.article_id = a.id) AS position_count
          FROM knowledge_base_articles a
         WHERE ${condition}
         ORDER BY a.id DESC
@@ -226,11 +223,11 @@ async function assertNameFree(tx: PgDb, name: string, exceptId: number) {
   if (twin) throw new DictionaryError(KB_MESSAGES.nameTaken, 409, { name: KB_MESSAGES.nameTaken })
 }
 
-/** The positions by id, KEY SHARE locked (a delete waits for this transaction); 400 for an unknown one. */
+/** The access rights by id, KEY SHARE locked (a delete waits for this transaction); 400 for an unknown one. */
 async function lockPositions(tx: PgDb, ids: number[]): Promise<number[]> {
   const unique = [...new Set(ids)]
   if (!unique.length) return []
-  const rows = (await tx.prepare("SELECT id FROM job_positions WHERE id = ANY(@ids::int[]) ORDER BY id FOR KEY SHARE").all({ ids: unique })) as Array<{ id: number }>
+  const rows = (await tx.prepare("SELECT id FROM access_rights WHERE id = ANY(@ids::int[]) ORDER BY id FOR KEY SHARE").all({ ids: unique })) as Array<{ id: number }>
   if (rows.length !== unique.length) throw fieldError("positions", KB_MESSAGES.positionNotFound)
   return rows.map((row) => Number(row.id))
 }
@@ -247,11 +244,11 @@ async function claimFile(tx: PgDb, fileId: number, articleId: number, currentFil
 }
 
 async function writePositions(tx: PgDb, articleId: number, positionIds: number[]) {
-  await tx.prepare("DELETE FROM knowledge_base_article_positions WHERE article_id = ?").run(articleId)
+  await tx.prepare("DELETE FROM knowledge_base_article_access_rights WHERE article_id = ?").run(articleId)
   if (!positionIds.length) return
   await tx
     .prepare(
-      `INSERT INTO knowledge_base_article_positions (article_id, position_id)
+      `INSERT INTO knowledge_base_article_access_rights (article_id, access_right_id)
        SELECT @articleId::int, unnest(@ids::int[]) ON CONFLICT DO NOTHING RETURNING article_id`,
     )
     .run({ articleId, ids: positionIds })
@@ -338,7 +335,7 @@ export async function updateKnowledgeBaseArticle(id: number, input: KnowledgeBas
   return found ? await getKnowledgeBaseArticle(id) : null
 }
 
-/** Deletes an article with its position links and its file. Nothing references articles. */
+/** Deletes an article with its access-right links and its file. Nothing references articles. */
 export async function deleteKnowledgeBaseArticle(id: number): Promise<boolean> {
   await ensureKnowledgeBaseSchema()
   return withTransaction(async (tx) => {

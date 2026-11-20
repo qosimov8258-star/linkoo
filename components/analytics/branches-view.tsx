@@ -5,11 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
+import { queryInt, useLinkoUrlState } from "@/components/orders/linko-url-state"
 import { RefButton } from "@/components/ref/list-kit"
 import { Check as StaffCheck } from "@/components/staff/staff-kit"
-import { PageSizeSelect, PagerArrow } from "@/components/analytics/settings-list-kit"
+import { PageSizeSelect, PagerArrow, ROW_ICONS, RowIcon } from "@/components/analytics/settings-list-kit"
 import { importKey, parseYesNo, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
-import { formatMoney, normCurrency } from "@/lib/finance/currency"
+import { compareCurrencyCodes, formatMoney, normCurrency } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -50,8 +51,11 @@ async function listJson<T>(url: string): Promise<T[]> {
 const emptyDraft: Draft = { name: "", priceList: "", currency: "", debtTracking: false, isMain: false, lat: null, lng: null }
 
 const PLAN_ICON = "M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z"
-const ROW = "group relative grid min-h-[50px] items-center pl-[30px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8]"
-const GRID = "grid-cols-[109.3px_506.2px_202.5px_202.5px_1fr]"
+const ROW = "group relative grid min-h-[50px] items-center after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8]"
+// Linko's row: 30px side padding and a 12-column grid of 1 / 5 / 2 / 2 / 2; every column but № indents its text by 8px.
+const GRID = "grid-cols-[minmax(0,1fr)_minmax(0,5fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)] px-[30px] [&>span:not(:first-child)]:pl-[8px]"
+/** The opened branch (Linko #/branch/7 → /analytics/branches/7); the list state and the dialogs are query parameters. */
+const BASE = "/analytics/branches"
 
 const BRANCH_PIN_PATHS = [
   "M-243.3,395.8c1.5,0,2.7-1.2,2.7-2.7c0-1.5-1.2-2.7-2.7-2.7c-1.5,0-2.7,1.2-2.7,2.7C-246,394.6-244.8,395.8-243.3,395.8z M-243.3,391.1c1.1,0,2,0.9,2,2c0,1.1-0.9,2-2,2s-2-0.9-2-2C-245.2,392-244.4,391.1-243.3,391.1z",
@@ -114,20 +118,18 @@ function BranchPick({ label, value, options, onChange, clearable }: { label: str
   )
 }
 
-export function BranchesView() {
+const draftOf = (branch: Branch): Draft => ({ name: branch.name, priceList: branch.priceList, currency: branch.currency, debtTracking: branch.debtTracking, isMain: branch.isMain, lat: branch.locationLat, lng: branch.locationLng })
+
+export function BranchesView({ initialId = null }: { initialId?: number | null }) {
   const { t, language } = useLanguage()
-  const [branches, setBranches] = useState<Branch[]>([])
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(25)
-  const [openId, setOpenId] = useState<number | null>(null)
+  // Linko keeps the list (page, pageSize, search), the opened branch and every dialog in its address; a closed dialog
+  // stays as "=false" there.
+  const { state: url, update: updateUrl } = useLinkoUrlState(BASE, { id: initialId ? String(initialId) : null, query: {} })
+  const [branches, setBranches] = useState<Branch[] | null>(null)
   const [plans, setPlans] = useState<BranchPlan[]>([])
-  const [editing, setEditing] = useState<Branch | { id: 0 } | null>(null)
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [mapOpen, setMapOpen] = useState(false)
-  const [planOpen, setPlanOpen] = useState(false)
   const [planDraft, setPlanDraft] = useState({ weight: "", amount: "", price: "" })
-  const [deleting, setDeleting] = useState<Branch | null>(null)
   const [alertMessage, setAlertMessage] = useState("")
   const [saving, setSaving] = useState(false)
   const [priceLists, setPriceLists] = useState<string[]>([])
@@ -136,6 +138,32 @@ export function BranchesView() {
   const [baseCurrency, setBaseCurrency] = useState("")
   const [importOpen, setImportOpen] = useState(false)
   const canImport = useCanManage(["settings.manage"])
+
+  const query = url.query.search ?? ""
+  const pageSize = queryInt(url.query.pageSize, 25)
+  const page = queryInt(url.query.page, 1, 1_000_000)
+  const openId = url.id && /^[1-9]\d{0,9}$/.test(url.id) ? Number(url.id) : null
+  const openBranch = openId === null ? undefined : branches?.find((branch) => branch.id === openId)
+  const createOpen = url.query.openCreateDialog === "true"
+  const updateOpen = !createOpen && url.query.openUpdateDialog === "true" && Boolean(openBranch)
+  const planOpen = url.query.openAddPlanDialog === "true" && Boolean(openBranch)
+  const deleting = url.query.openConfirmDialog === "true" ? openBranch : undefined
+  const editing: Branch | { id: 0 } | null = createOpen ? { id: 0 } : updateOpen && openBranch ? openBranch : null
+
+  // A dialog opened from the address (or a button) starts from the record it edits, once per opening.
+  const draftFor = useRef<string | null>(null)
+  const editKey = createOpen ? "0" : updateOpen && openBranch ? String(openBranch.id) : null
+  useEffect(() => {
+    if (draftFor.current === editKey) return
+    draftFor.current = editKey
+    if (editKey === "0") setDraft(emptyDraft)
+    else if (editKey && openBranch) setDraft(draftOf(openBranch))
+  }, [editKey, openBranch])
+  const planFor = useRef(false)
+  useEffect(() => {
+    if (planOpen && !planFor.current) setPlanDraft({ weight: "", amount: "", price: "" })
+    planFor.current = planOpen
+  }, [planOpen])
 
   const load = useCallback(() => {
     fetch("/api/branches")
@@ -151,11 +179,12 @@ export function BranchesView() {
       .then((response) => (response.ok ? (response.json() as Promise<{ name: string; isActive?: boolean }[]>) : []))
       .then((data) => setPriceLists(data.filter((item) => item.isActive !== false).map((item) => item.name).filter(Boolean)))
       .catch(() => undefined)
-    // Currencies come from "Валюты" (base first); the server accepts any of them (code or alias), "" = the base currency.
+    // Currencies come from "Валюты" in Linko's order (Euro, SUM, USD); the server accepts any of them (code or alias),
+    // "" = none (the branch works in the base currency).
     fetch("/api/currencies")
       .then((response) => (response.ok ? (response.json() as Promise<{ code: string; isBase?: boolean }[]>) : []))
       .then((data) => {
-        setCurrencies([...new Set(data.filter((item) => item.code?.trim()).map((item) => normCurrency(item.code)))])
+        setCurrencies([...new Set(data.filter((item) => item.code?.trim()).map((item) => normCurrency(item.code)))].sort(compareCurrencyCodes))
         const base = data.find((item) => item.isBase && item.code?.trim())
         setBaseCurrency(base ? normCurrency(base.code) : "")
       })
@@ -177,21 +206,22 @@ export function BranchesView() {
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    return needle ? branches.filter((branch) => branch.name.toLowerCase().includes(needle)) : branches
+    const list = branches ?? []
+    return needle ? list.filter((branch) => branch.name.toLowerCase().includes(needle)) : list
   }, [branches, query])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pageCount)
   const start = (safePage - 1) * pageSize
   const visible = filtered.slice(start, start + pageSize)
+  const goPage = (next: number) => updateUrl({ query: { page: next > 1 ? next : null } })
 
   function openForm(branch?: Branch) {
-    setEditing(branch ?? { id: 0 })
-    setDraft(
-      branch
-        ? { name: branch.name, priceList: branch.priceList, currency: branch.currency, debtTracking: branch.debtTracking, isMain: branch.isMain, lat: branch.locationLat, lng: branch.locationLng }
-        : emptyDraft,
-    )
+    setDraft(branch ? draftOf(branch) : emptyDraft)
+    draftFor.current = branch ? String(branch.id) : "0"
+    updateUrl({ query: branch ? { openUpdateDialog: "true" } : { openCreateDialog: "true" } })
   }
+
+  const closeForm = () => updateUrl({ query: editing && editing.id ? { openUpdateDialog: "false" } : { openCreateDialog: "false" } })
 
   async function save() {
     if (!editing || saving) return
@@ -219,10 +249,8 @@ export function BranchesView() {
         setAlertMessage(t(data.error || "Не удалось сохранить филиал"))
         return
       }
-      const saved = (await response.json()) as Branch
-      setEditing(null)
+      closeForm()
       load()
-      if (editing.id) setOpenId(saved.id)
     } catch {
       setAlertMessage(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
@@ -241,8 +269,7 @@ export function BranchesView() {
         setAlertMessage(`${t(data.error || "Не удалось удалить филиал")}${usage ? ` (${usage})` : ""}`)
         return
       }
-      setDeleting(null)
-      setOpenId(null)
+      updateUrl({ id: null, query: { openConfirmDialog: "false" } })
       load()
     } catch {
       setAlertMessage(t("Сервер недоступен, попробуйте ещё раз"))
@@ -264,7 +291,7 @@ export function BranchesView() {
       }
       const saved = (await response.json()) as BranchPlan
       setPlans((list) => [...list, saved])
-      setPlanOpen(false)
+      updateUrl({ query: { openAddPlanDialog: "false" } })
     } catch {
       setAlertMessage(t("Сервер недоступен, попробуйте ещё раз"))
     }
@@ -308,30 +335,31 @@ export function BranchesView() {
     fallbackError: "Не удалось сохранить филиал",
   }
 
-  const flag = (on: boolean, yes: string, no: string) => <b className={on ? "text-[#8acb8d]" : "text-[#e57373]"}>{on ? yes : no}</b>
+  const flag = (on: boolean, yes: string, no: string) => <span className={`font-semibold ${on ? "text-[#8acb8d]" : "text-[#e57373]"}`}>{on ? yes : no}</span>
 
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <div className="relative flex h-[50px] items-center pr-[5px] text-[13px]">
         <div className="absolute left-[5px] top-[7px] flex items-center">
           <button type="button" onClick={() => openForm()} className="flex h-[36px] items-center rounded-[5px] bg-white pl-[12px] pr-[16px] leading-[36px] text-[#1E4A9A]">
-            <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[2px] h-[14px] w-[14px] shrink-0 fill-[#1E4A9A]"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+            <svg viewBox="0 0 24 24" className="relative top-[1.5px] h-[14px] w-[14px] shrink-0 fill-[#1E4A9A]"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
             <span className="relative top-[1.5px]">{t("Добавить филиал")}</span>
           </button>
           {canImport && <ExcelImportLink className="h-[36px] pl-0 pt-[3px] leading-[36px]" onClick={() => setImportOpen(true)} />}
         </div>
-        <label className="group/search absolute left-[335px] top-0 block h-[48px] w-[294.3px]">
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="relative h-full w-full bg-transparent pr-[34px] text-[13px] leading-[24px] outline-none placeholder:text-black/30" />
+        {/* Linko's search sits at a quarter of the toolbar (17px side padding, 8px column padding), at most 300px wide. */}
+        <label className="group/search absolute left-[calc(25px_+_(100%_-_34px)_/_4)] top-0 block h-[48px] w-[min(300px,calc((100%_-_34px)_/_4_-_16px))]">
+          <input value={query} onChange={(event) => updateUrl({ query: { search: event.target.value, page: null } })} placeholder={t("Поиск")} className="relative h-full w-full bg-transparent pr-[35px] text-[13px] leading-[24px] outline-none placeholder:text-black/30" />
           <span className="pointer-events-none absolute inset-x-0 bottom-[8px] h-px bg-[#e0e0e0]" />
           <span className="pointer-events-none absolute inset-x-0 bottom-[8px] h-[2px] origin-center scale-x-0 bg-[#5d6474] transition-transform duration-[450ms] group-focus-within/search:scale-x-100" />
-          <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[268.2px] top-[12px] h-[24px] w-[24px] fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+          <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-[2px] top-[12px] h-[24px] w-[24px] fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
         </label>
         <div className="ml-auto flex items-center">
-          <PageSizeSelect numberClassName="text-[#333]" value={pageSize} onChange={(size) => { setPageSize(size); setPage(1) }} />
+          <PageSizeSelect numberClassName="text-[#333]" value={pageSize} onChange={(size) => updateUrl({ query: { pageSize: size, page: null } })} />
           <span className="ml-[27px] mr-[10px] leading-[16.25px] text-[#5d6474]">{filtered.length ? start + 1 : 1} - {Math.min(start + pageSize, filtered.length)} {t("из")} {filtered.length}</span>
           <span className="flex gap-[5px]">
-            <PagerArrow dir="prev" onClick={safePage > 1 ? () => setPage(safePage - 1) : undefined} />
-            <PagerArrow dir="next" onClick={safePage < pageCount ? () => setPage(safePage + 1) : undefined} />
+            <PagerArrow dir="prev" onClick={safePage > 1 ? () => goPage(safePage - 1) : undefined} />
+            <PagerArrow dir="next" onClick={safePage < pageCount ? () => goPage(safePage + 1) : undefined} />
           </span>
         </div>
       </div>
@@ -340,21 +368,24 @@ export function BranchesView() {
       </div>
       {visible.map((branch, index) =>
         openId === branch.id ? (
-          <div key={branch.id} className="my-[20px] shadow-[0_2px_10px_rgba(0,0,0,0.22)]">
-            <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[15px] pr-[20px]">
-              <h3 onClick={() => setOpenId(null)} className="cursor-pointer text-[18px] font-normal">{branch.name}</h3>
+          <div key={branch.id} className="my-[20px] border-b border-dotted border-[#eee] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+            <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[15px] pr-[15px]">
+              <h3 onClick={() => updateUrl({ id: null })} className="cursor-pointer text-[18px] font-semibold leading-[22.5px]">{branch.name}</h3>
               <div className="flex items-center">
-                <span className="mr-[13px] flex"><RefButton icon={PLAN_ICON} label={t("Добавить план")} onClick={() => { setPlanDraft({ weight: "", amount: "", price: "" }); setPlanOpen(true) }} /></span>
-                <button type="button" onClick={() => openForm(branch)} aria-label={t("Изменить")} className="mr-[10px] text-[#555] hover:text-black"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg></button>
-                <button type="button" onClick={() => setDeleting(branch)} aria-label={t("Удалить")} className="text-[#555] hover:text-black"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg></button>
+                <span className="mr-[8px] flex"><RefButton icon={PLAN_ICON} label={t("Добавить план")} onClick={() => updateUrl({ query: { openAddPlanDialog: "true" } })} /></span>
+                <span className="flex gap-[6px] px-[3px]">
+                  <RowIcon path={ROW_ICONS.pencil} label={t("Изменить")} onClick={() => openForm(branch)} />
+                  <RowIcon path={ROW_ICONS.trash} label={t("Удалить")} onClick={() => updateUrl({ query: { openConfirmDialog: "true" } })} />
+                </span>
               </div>
             </div>
-            <div className="flex min-h-[166px]">
-              <dl className="w-[442px] shrink-0 border-r border-[#efefef] pl-[15px] pr-[30px] py-[20px] leading-[25px]">
+            <div className="flex">
+              {/* Linko's left column: 35% of a card that reaches 15px under the side menu, 20px / 30px padding. */}
+              <dl className="w-[calc((100%_+_30px)_*_0.35_-_15px)] shrink-0 border-r border-[#efefef] py-[20px] pl-[15px] pr-[30px] leading-[25px]">
                 {[
-                  [t("Дата создания:"), <b key="d">{formatDateText(branch.date, language)}</b>],
-                  ...(branch.priceList ? [[t("Прайс лист:"), <b key="p">{branch.priceList}</b>]] : []),
-                  ...(branch.currency ? [[t("Валюта:"), <b key="c">{branch.currency}</b>]] : []),
+                  [t("Дата создания:"), <span key="d" className="font-semibold">{formatDateText(branch.date, language)}</span>],
+                  ...(branch.priceList ? [[t("Прайс лист:"), <span key="p" className="font-semibold">{branch.priceList}</span>]] : []),
+                  ...(branch.currency ? [[t("Валюта:"), <span key="c" className="font-semibold">{branch.currency}</span>]] : []),
                   [t("Основной филиал:"), flag(branch.isMain, t("Включено"), t("Выключено"))],
                   [t("Учет долга:"), flag(branch.debtTracking, t("Включено"), t("Выключено"))],
                 ].map(([label, value], row) => (
@@ -371,7 +402,7 @@ export function BranchesView() {
             </div>
           </div>
         ) : (
-          <div key={branch.id} onClick={() => setOpenId(branch.id)} className={`${ROW} ${GRID} cursor-pointer leading-[16.25px]`}>
+          <div key={branch.id} onClick={() => updateUrl({ id: String(branch.id) })} className={`${ROW} ${GRID} cursor-pointer leading-[16.25px]`}>
             <span>{start + index + 1}</span>
             <span>{branch.name}</span>
             <span>{formatDateText(branch.date, language)}</span>
@@ -380,12 +411,12 @@ export function BranchesView() {
           </div>
         ),
       )}
-      {visible.length === 0 && <EmptyState />}
+      {branches && visible.length === 0 && <EmptyState />}
 
       {editing && (
         <Modal
           title={editing.id ? t("Изменить Филиал") : t("Добавить филиал")}
-          onClose={() => setEditing(null)}
+          onClose={closeForm}
           width={450}
           bodyClassName="px-[30px] pt-[43.8px] pb-[35.8px]"
           footer={<SaveLink disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveLink>}
@@ -403,7 +434,8 @@ export function BranchesView() {
             <button type="button" onClick={() => setMapOpen(true)} className="flex items-center text-[#129fdd]">
               <svg viewBox="-255.4 385.6 24 23.5" className="h-6 w-4 shrink-0 fill-[#999]">{BRANCH_PIN_PATHS.map((d) => <path key={d} d={d} />)}</svg>
               {editing.id ? (
-                <span className="ml-[5px] flex gap-[5px] text-[12px] text-[#333]"><span>{draft.lat ?? 0}</span><span>{draft.lng ?? 0}</span></span>
+                // Linko prints the stored point (0 0 included) and nothing for a branch without one.
+                draft.lat !== null && draft.lng !== null ? <span className="ml-[5px] flex gap-[5px] text-[12px] text-[#333]"><span>{draft.lat}</span><span>{draft.lng}</span></span> : null
               ) : (
                 <span className="relative top-[0.7px] ml-[5px]">{t("отметить местоположение на карте")}</span>
               )}
@@ -423,7 +455,7 @@ export function BranchesView() {
       )}
 
       {planOpen && (
-        <Modal title={t("Добавить план")} onClose={() => setPlanOpen(false)} width={450} bodyClassName="min-h-[300px] px-[30px] pt-[43px]" footer={<SaveLink onClick={() => void savePlan()}>{t("Сохранить")}</SaveLink>}>
+        <Modal title={t("Добавить план")} onClose={() => updateUrl({ query: { openAddPlanDialog: "false" } })} width={450} bodyClassName="min-h-[300px] px-[30px] pt-[43px]" footer={<SaveLink onClick={() => void savePlan()}>{t("Сохранить")}</SaveLink>}>
           <div className="space-y-[32px]">
             <LineField label={t("Вес")} value={planDraft.weight} onChange={(weight) => setPlanDraft({ ...planDraft, weight })} />
             <LineField label={t("Количество")} value={planDraft.amount} onChange={(amount) => setPlanDraft({ ...planDraft, amount })} />
@@ -432,7 +464,7 @@ export function BranchesView() {
         </Modal>
       )}
 
-      {deleting && <ConfirmDelete name={deleting.name} onConfirm={() => void remove()} onClose={() => setDeleting(null)} />}
+      {deleting && <ConfirmDelete name={deleting.name} onConfirm={() => void remove()} onClose={() => updateUrl({ query: { openConfirmDialog: "false" } })} />}
       {importOpen && (
         <ExcelRowImportDialog
           spec={importSpec}

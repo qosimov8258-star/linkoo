@@ -42,12 +42,30 @@ CREATE TABLE IF NOT EXISTS stock_inventory_items (
 -- 1 = an inventory imported from Linko, whose differences Linko booked as separate supply / write-off documents
 -- (imported with them): the stock ledger does not count its differences again (lib/stock/sources.ts).
 ALTER TABLE stock_inventories ADD COLUMN IF NOT EXISTS booked_by_documents INTEGER NOT NULL DEFAULT 0;
+-- The line's series (stock_series.id, the shared series catalog of lib/client-returns-series-repo.ts); the series column keeps
+-- its display name. NULL = no series.
+ALTER TABLE stock_inventory_items ADD COLUMN IF NOT EXISTS series_id INTEGER;
+-- Linko's inventory_products[].total_weight / total_weight_netto: the line's difference × the unit's weight / net weight,
+-- written when the line is saved (the edit form's «Вес» / «Вес нетто» of a stored line).
+ALTER TABLE stock_inventory_items ADD COLUMN IF NOT EXISTS total_weight DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE stock_inventory_items ADD COLUMN IF NOT EXISTS total_weight_netto DOUBLE PRECISION NOT NULL DEFAULT 0;
+-- «Удаление» (Linko's DELETE stock/inventory/:id/ {comment}): who deleted which inventory and why, with a copy of it.
+CREATE TABLE IF NOT EXISTS stock_inventory_deletions (
+  id SERIAL PRIMARY KEY,
+  inventory_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT '',
+  comment TEXT NOT NULL DEFAULT '',
+  deleted_by TEXT NOT NULL DEFAULT '',
+  deleted_at TEXT NOT NULL DEFAULT (datetime('now')),
+  document JSONB
+);
 CREATE INDEX IF NOT EXISTS stock_inventory_items_inventory_idx ON stock_inventory_items (inventory_id);
 CREATE INDEX IF NOT EXISTS stock_inventories_status_idx ON stock_inventories (status, warehouse);
 `
 
 declare global {
-  var __linkoStockInventoriesSchema: Promise<void> | undefined
+  // Versioned name: a running dev server applies the DDL again after it changes.
+  var __linkoStockInventoriesSchemaV3: Promise<void> | undefined
 }
 
 async function tablesExist(db: PgDb): Promise<boolean> {
@@ -70,9 +88,9 @@ async function createSchema(): Promise<void> {
 
 /** Creates stock_inventories / stock_inventory_items if missing (idempotent, once per process). */
 export function ensureStockInventoriesSchema(): Promise<void> {
-  globalThis.__linkoStockInventoriesSchema ??= outsideTransaction(createSchema).catch((error: unknown) => {
-    globalThis.__linkoStockInventoriesSchema = undefined
+  globalThis.__linkoStockInventoriesSchemaV3 ??= outsideTransaction(createSchema).catch((error: unknown) => {
+    globalThis.__linkoStockInventoriesSchemaV3 = undefined
     throw error
   })
-  return globalThis.__linkoStockInventoriesSchema
+  return globalThis.__linkoStockInventoriesSchemaV3
 }

@@ -41,7 +41,8 @@ export type RestrictionListResponse = {
   results: RestrictionListRow[]
 }
 
-/** A product or product type of a list / the picker. `name` of a child type is "Parent / Child". */
+/** A product or product type of a list / the picker (the bare name, as Linko prints it; the picker's
+ * «Фильтр по типу» list alone says "Parent / Child"). */
 export type RestrictionItem = { id: number; name: string; deleted?: boolean }
 
 /** GET /api/product-restrictions/:employeeId */

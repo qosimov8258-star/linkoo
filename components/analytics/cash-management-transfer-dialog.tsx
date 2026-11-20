@@ -69,7 +69,8 @@ export function CashTransferDialog({
   const [amount, setAmount] = useState("")
   const [percentage, setPercentage] = useState("100")
   const [rate, setRate] = useState("")
-  const [date, setDate] = useState(() => todayIso())
+  // Empty like the reference's field: the server books the transfer now.
+  const [date, setDate] = useState("")
   const [comment, setComment] = useState("")
   const [accumulated, setAccumulated] = useState({ from: "", to: "" })
   const [periodOpen, setPeriodOpen] = useState(false)
@@ -151,6 +152,7 @@ export function CashTransferDialog({
       title={t("Перевод")}
       onClose={onClose}
       size="xs"
+      top={64}
       footerButtons="filled"
       footer={
         <>
@@ -182,81 +184,84 @@ export function CashTransferDialog({
         <FormField label={t("С организации")}>
           <SearchSelect value={fromOrganization} onChange={setFromOrganization} options={organizationOptions} placeholder={t("С организации")} />
         </FormField>
-        <FormField label={t("Касса получатель")} required error={errors.to}>
-          <SearchSelect
-            value={toId}
-            invalid={Boolean(errors.to)}
-            onChange={(value) => {
-              setToId(value)
-              setRate("")
-              setErrors({})
-            }}
-            options={cashboxes.filter((item) => String(item.id) !== fromId).map(cashboxOption)}
-            placeholder={t("Касса получатель")}
-          />
-        </FormField>
-        <FormField label={t("На организацию")}>
-          <SearchSelect value={toOrganization} onChange={setToOrganization} options={organizationOptions} placeholder={t("На организацию")} />
-        </FormField>
-        <div className={percentMode || rateMode ? "grid grid-cols-2 gap-3" : ""}>
-          <FormField label={<>{t("Сумма с кассы")}{fromCurrency ? <span className="ml-3 font-normal text-[#555]">{currencyLabel(fromCurrency)}</span> : null}</>} required error={errors.amount}>
-            <MoneyInput value={amount} onValueChange={setAmount} className={`${inputClass} ${errors.amount ? "border-[#e57373]" : ""}`} />
-          </FormField>
-          {percentMode && (
-            <FormField label={`${t("Процент")} (%)`} required error={errors.percentage}>
-              <input
-                type="number"
-                min={TRANSFER_MIN_PERCENTAGE}
-                max={TRANSFER_MAX_PERCENTAGE}
-                step="any"
-                value={percentage}
-                onChange={(event) => {
-                  setPercentage(event.target.value)
-                  setErrors((current) => ({ ...current, percentage: undefined }))
+        {/* The reference asks for the receiving side and the amount once the source cashbox is chosen. */}
+        {source && (
+          <>
+            <FormField label={t("Касса получатель")} required error={errors.to}>
+              <SearchSelect
+                value={toId}
+                invalid={Boolean(errors.to)}
+                onChange={(value) => {
+                  setToId(value)
+                  setRate("")
+                  setErrors({})
                 }}
-                className={`${inputClass} ${errors.percentage ? "border-[#e57373]" : ""}`}
+                options={cashboxes.filter((item) => String(item.id) !== fromId).map(cashboxOption)}
+                placeholder={t("Касса получатель")}
               />
             </FormField>
-          )}
-          {rateMode && (
-            <FormField label={t("Курс")} required error={errors.rate}>
-              <MoneyInput
-                value={rate}
-                decimals={6}
-                placeholder={defaultRate ? formatMoney(defaultRate, 5) : ""}
-                onValueChange={(value) => {
-                  setRate(value)
-                  setErrors((current) => ({ ...current, rate: undefined }))
-                }}
-                className={`${inputClass} ${errors.rate ? "border-[#e57373]" : ""}`}
-              />
+            <FormField label={t("На организацию")}>
+              <SearchSelect value={toOrganization} onChange={setToOrganization} options={organizationOptions} placeholder={t("На организацию")} />
             </FormField>
-          )}
-        </div>
-        {rateMode && <span className="-mt-2 text-[12px] text-[#9aa3b6]">{rateHint}</span>}
-        {source && target && (
-          <p className="text-[13px] text-[#586174]">
-            {percentMode ? `${t("Касса")} ${target.name} ${t("получает")}` : t("Сумма перевода")}:{" "}
-            <b className="text-[#17233b]">{preview ? `${formatMoney(preview.amountTo, 5)} ${currencyLabel(toCurrency)}` : "—"}</b>
-          </p>
+            <div className={percentMode || rateMode ? "grid grid-cols-2 gap-3" : ""}>
+              <FormField label={<>{t("Сумма с кассы")}{fromCurrency ? <span className="ml-3 font-normal text-[#555]">{currencyLabel(fromCurrency)}</span> : null}</>} required error={errors.amount}>
+                <MoneyInput value={amount} onValueChange={setAmount} className={`${inputClass} ${errors.amount ? "border-[#e57373]" : ""}`} />
+              </FormField>
+              {percentMode && (
+                <FormField label={`${t("Процент")} (%)`} required error={errors.percentage}>
+                  <input
+                    type="number"
+                    min={TRANSFER_MIN_PERCENTAGE}
+                    max={TRANSFER_MAX_PERCENTAGE}
+                    step="any"
+                    value={percentage}
+                    onChange={(event) => {
+                      setPercentage(event.target.value)
+                      setErrors((current) => ({ ...current, percentage: undefined }))
+                    }}
+                    className={`${inputClass} ${errors.percentage ? "border-[#e57373]" : ""}`}
+                  />
+                </FormField>
+              )}
+              {rateMode && (
+                <FormField label={t("Курс")} required error={errors.rate}>
+                  <MoneyInput
+                    value={rate}
+                    decimals={6}
+                    placeholder={defaultRate ? formatMoney(defaultRate, 5) : ""}
+                    onValueChange={(value) => {
+                      setRate(value)
+                      setErrors((current) => ({ ...current, rate: undefined }))
+                    }}
+                    className={`${inputClass} ${errors.rate ? "border-[#e57373]" : ""}`}
+                  />
+                </FormField>
+              )}
+            </div>
+            {rateMode && <span className="-mt-2 text-[12px] text-[#9aa3b6]">{rateHint}</span>}
+            {source && target && (
+              <p className="text-[13px] text-[#586174]">
+                {percentMode ? `${t("Касса")} ${target.name} ${t("получает")}` : t("Сумма перевода")}:{" "}
+                <b className="text-[#17233b]">{preview ? `${formatMoney(preview.amountTo, 5)} ${currencyLabel(toCurrency)}` : "—"}</b>
+              </p>
+            )}
+            {resolved && !resolved.ok && !errors.percentage && !errors.rate && !errors.amount && (
+              <span className="-mt-2 text-[12px] text-[#e57373]">{t(resolved.error)}</span>
+            )}
+            {percentMode && <span className="-mt-2 text-[12px] text-[#9aa3b6]">{t("Процент от 50 до 100: касса-получатель получает не больше, чем ушло из кассы")}</span>}
+          </>
         )}
-        {resolved && !resolved.ok && !errors.percentage && !errors.rate && !errors.amount && (
-          <span className="-mt-2 text-[12px] text-[#e57373]">{t(resolved.error)}</span>
-        )}
-        {percentMode && <span className="-mt-2 text-[12px] text-[#9aa3b6]">{t("Процент от 50 до 100: касса-получатель получает не больше, чем ушло из кассы")}</span>}
         <MaterialDate label={t("Дата создания")} value={date} max={todayIso()} onChange={setDate} />
         <FormField label={t("Комментарий...")} error={errors.comment}>
           <input value={comment} onChange={(event) => setComment(event.target.value)} className={inputClass} />
         </FormField>
         <div className="flex min-h-[44px] flex-col justify-end">
-          <span className="mb-[2px] flex items-center gap-1 text-[10px] font-bold leading-3 text-black">
-            {t("Деньги накопленные за период")}
-            <svg viewBox="0 0 24 24" className="h-3 w-3 fill-[#bdbdbd]" aria-hidden>
+          <span className="mb-[2px] text-[10px] font-bold leading-3 text-black">{t("Деньги накопленные за период")}</span>
+          <button type="button" onClick={() => setPeriodOpen((current) => !current)} className="flex h-[26px] w-full items-center justify-between border-b border-[#e8e8e8] text-left text-[13px] text-black">
+            {accumulated.from || accumulated.to ? `${formatDateText(accumulated.from, language) || "…"} — ${formatDateText(accumulated.to, language) || "…"}` : t("Укажите дату")}
+            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-[#8a90a0]" aria-hidden>
               <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z" />
             </svg>
-          </span>
-          <button type="button" onClick={() => setPeriodOpen((current) => !current)} className="h-[26px] w-[256px] border-b border-[#e8e8e8] text-left text-[13px] text-black">
-            {accumulated.from || accumulated.to ? `${formatDateText(accumulated.from, language) || "…"} — ${formatDateText(accumulated.to, language) || "…"}` : t("Укажите дату")}
           </button>
           {periodOpen && (
             <span className="mt-2 flex items-center gap-2">

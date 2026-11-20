@@ -10,15 +10,12 @@ import { normCurrency } from "@/lib/finance/currency"
 import { ensureJobPositionsSchema } from "@/lib/job-positions-repo"
 import { getLicenseGroups } from "@/lib/subscriptions-repo"
 
-const byName = (a: NamedId, b: NamedId) => {
-  const x = a.name.toLowerCase()
-  const y = b.name.toLowerCase()
-  return x < y ? -1 : x > y ? 1 : a.id - b.id
-}
-
 /** The reference lists organizations in the server's collation order: case-insensitive, spaces and punctuation ignored. */
 const orgCollator = new Intl.Collator("en", { ignorePunctuation: true })
 const byOrgName = (a: NamedId, b: NamedId) => orgCollator.compare(a.name, b.name) || a.id - b.id
+/** Branches, warehouses and zones in Linko's (Postgres) name order: that collation, a name without the ignored
+ * spaces first ("candycold" before "candy cold"), then the id. */
+const byName = (a: NamedId, b: NamedId) => orgCollator.compare(a.name, b.name) || a.name.length - b.name.length || a.id - b.id
 
 const TABLES = [
   "job_positions",
@@ -96,16 +93,17 @@ export async function getEmployeeOptions(): Promise<EmployeeOptions> {
     organizations: organizations.sort(byOrgName),
     warehouses: warehouses.sort(byName),
     priceLists,
-    // With an app currency (Настройки → Валюта приложения) only that one is offered.
+    // With an app currency (Настройки → Валюта приложения) only that one is offered. Linko orders them by its own
+    // names (Euro, SUM, USD), which are the codes here: the display names (SOM, ЕВРО) would reorder them.
     currencies: currencies
       .filter((currency) => !appCurrency || normCurrency(currency.code) === appCurrency)
-      .map(({ id, name }) => ({ id, name }))
-      .sort(byName),
+      .sort((a, b) => orgCollator.compare(normCurrency(a.code), normCurrency(b.code)) || a.id - b.id)
+      .map(({ id, name }) => ({ id, name })),
     startLocations,
     employees,
     cashboxes,
     restrictions,
-    zones,
+    zones: zones.sort(byName),
     licenses: licenses.map((group) => ({ key: group.key, name: group.name, available: group.available })),
   }
 }

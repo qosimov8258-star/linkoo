@@ -230,7 +230,7 @@ export function BranchKpiBulkDialog({
   )
 }
 
-/** Step 2 grid: branches × KPI columns (250px each); the reference scrolls the columns while the pointer rests on the "»" / "«" discs. */
+/** Step 2 grid: branches × KPI columns (a sixth of the width each, like the reference: the branch and five KPIs show); the reference scrolls the columns while the pointer rests on the "»" / "«" discs. */
 function BranchKpiPlanGrid({
   branches,
   kpis,
@@ -263,27 +263,28 @@ function BranchKpiPlanGrid({
   useEffect(() => stop, [])
   const disc = "fixed top-[265px] z-[12] h-[60px] w-[40px] cursor-pointer bg-black/[0.31] opacity-80 transition-all duration-300"
   const chevron = "M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"
-  const cell = "flex h-[50px] w-[250px] shrink-0 items-center border-b border-[#f2f5f8]"
+  const cell = "flex h-[50px] shrink-0 items-center border-b border-[#f2f5f8]"
+  const colStyle = { width: `${100 / (1 + kpis.length)}%` }
   return (
     <div className="relative min-h-0 flex-1 text-[13px] text-[#333]">
       <div ref={scroller} onScroll={(event) => setScrolled(event.currentTarget.scrollLeft > 0)} className="h-full overflow-x-hidden overflow-y-auto">
-        <div className="w-max min-w-full">
+        <div className="min-w-full" style={{ width: `${((1 + kpis.length) * 100) / 6}%` }}>
           <div className="flex font-semibold leading-[16.3px]">
-            <div className={`${cell} pl-[10px]`}>{t("Филиал")}</div>
+            <div className={`${cell} pl-[10px]`} style={colStyle}>{t("Филиал")}</div>
             {kpis.map((item) => (
-              <div key={item.id} className={`${cell} px-[8px]`}>
+              <div key={item.id} className={`${cell} px-[8px]`} style={colStyle}>
                 <span className="line-clamp-2">{item.name}</span>
               </div>
             ))}
           </div>
           {branches.map((row) => (
             <div key={row.id} className="flex hover:bg-[#f2f5f8]">
-              <div className={`${cell} pl-[10px] font-semibold`}>{row.name}</div>
+              <div className={`${cell} pl-[10px] font-semibold`} style={colStyle}>{row.name}</div>
               {kpis.map((item) => {
                 const value = values[row.id]?.[item.id] ?? ""
                 return (
-                  <div key={item.id} className={`${cell} px-[8px]`}>
-                    <div className="group relative h-[45px] w-[234px] translate-y-[3px]">
+                  <div key={item.id} className={`${cell} px-[8px]`} style={colStyle}>
+                    <div className="group relative h-[45px] w-full translate-y-[3px]">
                       {value !== "" && <span className="pointer-events-none absolute -top-[6px] left-0 origin-top-left scale-75 text-[13px] font-semibold leading-[18px] text-black">{t("Количество")}</span>}
                       <input
                         value={value}

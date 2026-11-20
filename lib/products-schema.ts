@@ -2,7 +2,6 @@ import "server-only"
 
 import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
-import { loadPriceCurrencyContext, parseItemPrices, priceBounds } from "@/lib/item-prices"
 import type { CatalogKind } from "@/lib/products-types"
 
 // Lazy, idempotent schema of the catalog pages (Продукты / Сырье).
@@ -78,26 +77,9 @@ function doubleColumnsSql(): string {
   ).join("\n")
 }
 
-/**
- * price_min / price_max of rows written before they were kept in the base currency (a USD list next
- * to a SUM list gave "0.87 – 11 500"): recomputed once per process start, only rows that differ.
- */
-async function refreshPriceBounds(db: PgDb): Promise<void> {
-  const context = await loadPriceCurrencyContext(db)
-  for (const table of ["products", "raw_materials"] as const) {
-    const rows = (await db.prepare(`SELECT id, price_lists, price_min, price_max FROM ${table} WHERE COALESCE(price_lists, '') NOT IN ('', '[]')`).all()) as Array<{
-      id: number
-      price_lists: string | null
-      price_min: number | string | null
-      price_max: number | string | null
-    }>
-    for (const row of rows) {
-      const { priceMin, priceMax } = priceBounds(parseItemPrices(row.price_lists), context)
-      if (Number(row.price_min) === priceMin && Number(row.price_max) === priceMax) continue
-      await db.prepare(`UPDATE ${table} SET price_min = @priceMin, price_max = @priceMax WHERE id = @id`).run({ id: row.id, priceMin, priceMax })
-    }
-  }
-}
+// price_min / price_max are not recomputed here: like Linko's product min_price / max_price they follow every price
+// written (lib/item-prices.ts setItemPrices) and keep the lowest / highest one, so the current price lists alone do
+// not give them back (scripts/linko-sync/import-price-bounds.mjs copies Linko's values).
 
 async function createSchema(db: PgDb): Promise<void> {
   await ensureFinanceSchema(db)
@@ -127,12 +109,6 @@ async function createSchema(db: PgDb): Promise<void> {
     CREATE INDEX IF NOT EXISTS product_limits_item_idx ON product_limits (item_kind, item_id);
   `)
   await db.exec(doubleColumnsSql())
-  try {
-    await refreshPriceBounds(db)
-  } catch (error) {
-    // Derived display values only: never block the catalog over them.
-    console.warn("[catalog] could not refresh price_min / price_max:", (error as Error).message)
-  }
 }
 
 /** Ensures the catalog columns / tables (once per process) and returns the db. */

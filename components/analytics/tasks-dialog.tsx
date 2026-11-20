@@ -13,7 +13,6 @@ import {
   TASK_TITLE_MAX,
   isTaskDate,
   repeatPlanDates,
-  todayTaskDate,
   type TaskDetail,
   type TaskInputBody,
   type TaskOptions,
@@ -33,7 +32,8 @@ function draftOf(task: TaskDetail | null): Draft {
     title: task?.title ?? "",
     clientId: task?.clientId ? String(task.clientId) : "",
     employeeId: task?.responsibleId ? String(task.responsibleId) : "",
-    taskDate: task?.taskDate || (task ? "" : todayTaskDate()),
+    // Linko opens «Добавить задачу» with an empty «Дата задачи».
+    taskDate: task?.taskDate || "",
     repeat: false,
     frequency: "7",
     count: "",
@@ -87,8 +87,8 @@ function Info({ text }: { text: string }) {
 function DialogField({ label, required, error, children, info }: { label: string; required?: boolean; error?: string; children: ReactNode; info?: string }) {
   const { t } = useLanguage()
   return (
-    <div className="mt-[16px] first:mt-0">
-      <div className="mb-[4px] flex items-center text-[11px] font-bold text-[#333]">
+    <div className="mt-[24px] first:mt-[6px]">
+      <div className="mb-[4px] flex items-center text-[13px] font-semibold text-black">
         {t(label)}
         {required && <span className="text-[#e57373]">&nbsp;*</span>}
         {info && <Info text={info} />}
@@ -202,9 +202,9 @@ export function TaskDialog({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[1400] flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-10" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-[1400] flex items-center justify-center overflow-y-auto bg-black/50 px-4 py-10" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" aria-label={t(editing ? "Изменить задачу" : "Добавить задачу")} className="w-[400px] max-w-full bg-white text-[13px] text-[#333] shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
-        <header className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[24px] pr-[18px]">
+        <header className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[18px]">
           <h3 className="text-[13px] font-bold uppercase">{t(editing ? "Изменить задачу" : "Добавить задачу")}</h3>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#5d6474] hover:text-[#333]">
             <X className="h-6 w-6" />
@@ -216,7 +216,7 @@ export function TaskDialog({
             void save()
           }}
         >
-          <div className="px-[24px] pb-[20px] pt-[20px]">
+          <div className="px-[30px] pb-[20px] pt-[30px]">
             <DialogField label="Описание" required error={errorOf("title")}>
               <textarea
                 ref={titleRef}

@@ -7,6 +7,7 @@ import { costsInWarehouse, getWarehouseItemCosts, loadCostLedger, type CostLedge
 import { getStockBalances } from "@/lib/stock/ledger"
 import { nowLocalMoment } from "@/lib/stock/moments"
 import { ensureStockSchema } from "@/lib/stock/schema"
+import { resolveLineSeries, storedSeries } from "@/lib/internal-transfers-series"
 import {
   catalogIndex,
   countedByInventory,
@@ -49,8 +50,9 @@ import {
 // core balances), and so is undoing an acceptance the target no longer covers.
 // Both warehouses must be registered (Склады) and active for new movements;
 // action dates cannot be in the future; a give / accept whose items a
-// confirmed inventory already counted cannot be undone. Without a price list the lines are valued at the
-// cost of goods (lib/stock/costs.ts) when the goods leave, so transfers between
+// confirmed inventory already counted cannot be undone. Line prices are saved as typed (Linko's custom_price);
+// without a price list the lines are valued at the cost of goods (lib/stock/costs.ts) when the goods leave in
+// the app (transfers copied from Linko keep Linko's prices), so transfers between
 // branches reach the branch balances; once given, those values follow the cost
 // ledger (syncTransferValues): a back-dated document that changes the average at
 // the moment the goods left re-values the transfer as the ledger re-books it.
@@ -58,6 +60,9 @@ import {
 /** Contract 3 bounds. */
 export const MAX_TRANSFER_QTY = 1e9
 export const MAX_TRANSFER_PRICE = 1e13
+
+/** Statuses whose goods left the source (the stock ledger books them). */
+const MOVED_STATUSES: TransferStatus[] = ["в пути", "принят"]
 
 declare global {
   var __linkoTransfersSchemaV3: Promise<void> | undefined
@@ -203,8 +208,8 @@ function withLinePrices(text: string, items: TransferItem[]): string {
   )
 }
 
-/** Writes the ledger's values onto the given / accepted transfers without a price list whose
- * stored values differ (returns how many changed). Only transfers the ledger moved: one it
+/** Writes the ledger's values onto the given / accepted transfers without a price list that Mezon
+ * valued at cost and whose stored values differ (returns how many changed). Only transfers the ledger moved: one it
  * does not know (no lines, an unparseable document) keeps what it has. The changes are
  * autocommitted UPDATEs that lock only the transfer rows they change and skip a row a
  * transaction holds (an action on it re-reads it under its own locks): they never wait inside
@@ -225,7 +230,9 @@ async function syncTransferValuesWith(db: PgDb): Promise<number> {
     const moved = out.get(Number(row.id))
     if (!moved) continue
     const stored = parseItems(row.items)
-    if (!stored.length) continue
+    // Only transfers Mezon valued at the cost of goods (given in the app: lines `priced: "cost"`); one copied from
+    // Linko keeps the prices Linko has (often 0 without a price list).
+    if (!stored.some((item) => item.priced === "cost")) continue
     index ??= await catalogIndex(db)
     const { items, amount } = priceAtLedger(stored, index, moved)
     const same = Math.abs(amount - (Number(row.amount) || 0)) <= 1e-6 && items.every((item, position) => Math.abs(item.price - stored[position].price) <= 1e-6)
@@ -313,9 +320,13 @@ export function parseItems(text: string): TransferItem[] {
       unit: String(line.unit ?? ""),
       quantity: Number(String(line.quantity ?? 0).replace(",", ".")) || 0,
       price: Number(line.price) || 0,
-      // Lines saved before kg goods had a weight: the unit implies it.
-      weight: unitWeightKg(String(line.unit ?? ""), Number(line.weight) || 0),
+      // The unit weight the line was saved with, like the transfer's stored total weight: lines copied from Linko keep
+      // its kg_value (0 for a kg product without one, as Linko's card prints it); a save in the app weighs the line
+      // from the product (normalize).
+      weight: Number(line.weight) || 0,
       series: String(line.series ?? ""),
+      ...storedSeries(line),
+      ...(typeof line.boxLabel === "string" && line.boxLabel ? { boxLabel: line.boxLabel } : {}),
       ...(line.defect === true ? { defect: true } : {}),
       ...(line.priced === "cost" ? { priced: "cost" as const } : {}),
     }))
@@ -372,7 +383,20 @@ export async function getTransfer(id: number, db?: PgDb): Promise<Transfer | nul
 // Input
 // ---------------------------------------------------------------------------
 
-export type TransferLineInput = { key?: string; product?: string; quantity: number; price?: number; series?: string; defect?: boolean }
+export type TransferLineInput = {
+  key?: string
+  product?: string
+  quantity: number
+  price?: number
+  series?: string
+  /** stock_series id of the line's product (Серия); null / absent = none (or the legacy `series` text). */
+  seriesId?: number | null
+  /** Keeps the mark of a series «Авто распределение по сериям» set, when the line still has that series. */
+  seriesAuto?: boolean
+  /** With seriesAuto: the series the distribution replaced (put back by «Отменить автораспределение»). */
+  seriesPrev?: { id?: number | null; series?: string } | null
+  defect?: boolean
+}
 
 export type TransferInput = {
   fromWarehouse: string
@@ -492,16 +516,28 @@ async function normalize(db: PgDb, input: TransferInput, index: CatalogIndex, cu
       ...(line.defect ? { defect: true } : {}),
     })
   }
+  // Серия: a chosen series must be one of the line's product.
+  const series = await resolveLineSeries(
+    db,
+    items.map((item, position) => ({ key: item.key, input: input.items[position] })),
+  )
+  for (const [position, entry] of series.entries()) {
+    if ("error" in entry) return { error: entry.error, status: 400, field: `items.${entry.position}.seriesId` }
+    items[position] = { ...items[position], ...entry }
+  }
   const createdAt = createdMoment(input.createdAt, current?.createdAt)
   if (isTransferError(createdAt)) return createdAt
   // Delivery day: as typed, else the document's day (a transfer entered for an earlier day was delivered then).
   const deliveredAt = input.deliveredAt.trim() ? (parseDocInput(input.deliveredAt)?.slice(0, 10) ?? null) : createdAt.slice(0, 10)
   // A planned delivery day may be in the future, but its year must be within 2000..2100.
   if (!deliveredAt || !docYearOk(deliveredAt)) return { error: "Неверная дата доставки", status: 400 }
-  // Without a price list the lines are valued at the cost of goods (re-valued when given).
-  const priced = input.priceList.trim()
-    ? items
-    : priceAtCost(items, index, costsInWarehouse(await getWarehouseItemCosts({ date: createdAt.slice(0, 10) }, db), fromWarehouse))
+  // Prices as typed, with or without a price list (Linko's custom_price): a save never re-prices the lines. The goods
+  // of a transfer without a price list are valued at the cost of goods when they leave (applyAction «give»); a
+  // transfer Mezon valued so (its lines are `priced: "cost"`), or one whose price list is removed after its goods left,
+  // stays valued by the cost ledger (syncTransferValues). A transfer copied from Linko keeps Linko's prices.
+  const costValued =
+    !input.priceList.trim() && current !== undefined && MOVED_STATUSES.includes(current.status) && (Boolean(current.priceList.trim()) || current.items.some((item) => item.priced === "cost"))
+  const priced = costValued ? priceAtCost(items, index, costsInWarehouse(await getWarehouseItemCosts({ date: createdAt.slice(0, 10) }, db), fromWarehouse)) : items
   return {
     ...input,
     fromWarehouse,
@@ -746,10 +782,13 @@ function values(input: NormalizedInput) {
 /** The stock locks of the document's warehouses, as validated by normalize (lockDocumentWarehouses:
  * a rename committed meanwhile shows its new name, one still to come waits for this transaction).
  * Taken first in the transaction, before any row lock. */
-async function lockTransferWarehouses(tx: PgDb, data: NormalizedInput) {
+async function lockTransferWarehouses(tx: PgDb, data: NormalizedInput, also: string[] = []) {
+  // `also`: the warehouses the edited transfer had (an edit may move its goods away from them), locked
+  // together with the new ones in one sorted step.
   const [from, to] = await lockDocumentWarehouses(tx, [
     { id: data.fromWarehouseId, name: data.fromWarehouse },
     { id: data.toWarehouseId, name: data.toWarehouse },
+    ...also.map((name) => ({ id: null, name })),
   ])
   if (!from) throw new TransferAbort({ error: "Склад не найден", status: 400, field: "fromWarehouse" })
   if (!to) throw new TransferAbort({ error: "Склад не найден", status: 400, field: "toWarehouse" })
@@ -801,6 +840,114 @@ export async function createTransfer(input: TransferInput, userName: string): Pr
   return pathTo(input.status).length ? revalued(change) : change
 }
 
+// ---------------------------------------------------------------------------
+// Editing a transfer whose goods already moved
+// ---------------------------------------------------------------------------
+//
+// Like Linko, «Изменить» edits a transfer of any status. 'ожидает' / 'потвержден' have no stock
+// effect («Подтвержденный» switches between them). 'в пути' / 'принят' keep their status and
+// movement dates: the stock ledger reads the document, so the saved lines are what left the source
+// on the give day (and reached the target on the accept day). An edit that changes what moved is
+// checked like the movements themselves: the source must have the extra goods from the give day
+// on, the target must still hold what it no longer receives (as «Отменить приемку» checks), the
+// warehouses whose stock changes must be active, and a confirmed inventory that counted a changed
+// item after the movement blocks it. Header fields, prices and series never touch the stock.
+// 'отменен' stays cancelled (no stock effect).
+
+type MovedQty = Map<string, { key: string; defect: boolean; product: string; unit: string; qty: number }>
+
+/** Quantities of the lines per ledger item and Брак flag. */
+function movedQuantities(index: CatalogIndex, items: TransferItem[]): MovedQty {
+  const out: MovedQty = new Map()
+  for (const item of items) {
+    if (!(item.quantity > 0)) continue
+    const key = ledgerKey(index, item.product, item.key)
+    const id = `${key}\u0000${item.defect ? 1 : 0}`
+    const entry = out.get(id)
+    if (entry) entry.qty = round6(entry.qty + item.quantity)
+    else out.set(id, { key, defect: Boolean(item.defect), product: item.product, unit: item.unit, qty: item.quantity })
+  }
+  return out
+}
+
+/** Lines of what `after` holds beyond `before`, per item and Брак flag. */
+function extraLines(before: MovedQty, after: MovedQty) {
+  const lines: Array<{ key: string; product: string; unit: string; quantity: number; defect?: boolean }> = []
+  for (const [id, entry] of after) {
+    const extra = round6(entry.qty - (before.get(id)?.qty ?? 0))
+    if (extra > 1e-9) lines.push({ key: entry.key, product: entry.product, unit: entry.unit, quantity: extra, ...(entry.defect ? { defect: true } : {}) })
+  }
+  return lines
+}
+
+/** Ledger keys whose quantity differs between the two. */
+function changedKeys(before: MovedQty, after: MovedQty): string[] {
+  const keys = new Set<string>()
+  for (const id of new Set([...before.keys(), ...after.keys()])) {
+    if (Math.abs((before.get(id)?.qty ?? 0) - (after.get(id)?.qty ?? 0)) > 1e-9) keys.add((before.get(id) ?? after.get(id))!.key)
+  }
+  return [...keys]
+}
+
+async function checkMovedEdit(tx: PgDb, current: Transfer, next: NormalizedInput, index: CatalogIndex): Promise<void> {
+  const accepted = current.status === "принят"
+  const before = movedQuantities(index, current.items)
+  const after = movedQuantities(index, next.items)
+  const sameFrom = textKey(current.fromWarehouse) === textKey(next.fromWarehouse)
+  const sameTo = textKey(current.toWarehouse) === textKey(next.toWarehouse)
+  const changed = changedKeys(before, after)
+  if (sameFrom && (sameTo || !accepted) && !changed.length) return
+  const counted = new TransferAbort({ error: "Изменение невозможно из-за связи с другими данными", status: 409 })
+  const requireActive = async (name: string, field: string) => {
+    const found = await findWarehouse(tx, name)
+    if (!found) throw new TransferAbort({ error: "Склад не найден", status: 400, field })
+    if (!found.active) throw new TransferAbort({ error: "Склад неактивен", status: 400, field })
+  }
+  const shortage = (warehouse: string, shortages: StockShortage[], prefix = "") => new TransferAbort({ error: `${prefix}${shortageMessage(warehouse, shortages)}`, status: 409, shortages })
+
+  // The source: the goods left it on the give day.
+  const givenDay = current.givenAt.slice(0, 10)
+  if (sameFrom) {
+    if (changed.length) {
+      await requireActive(next.fromWarehouse, "fromWarehouse")
+      if (await countedByInventory(tx, next.fromWarehouse, givenDay, current.givenAt, changed)) throw counted
+      const extra = extraLines(before, after)
+      if (extra.length) {
+        const shortages = findShortages(extra, index, await warehouseStock(next.fromWarehouse, givenDay, tx))
+        if (shortages.length) throw shortage(next.fromWarehouse, shortages)
+      }
+    }
+  } else {
+    await requireActive(current.fromWarehouse, "fromWarehouse")
+    await requireActive(next.fromWarehouse, "fromWarehouse")
+    if (await countedByInventory(tx, current.fromWarehouse, givenDay, current.givenAt, documentKeys(index, current.items))) throw counted
+    if (await countedByInventory(tx, next.fromWarehouse, givenDay, current.givenAt, documentKeys(index, next.items))) throw counted
+    const shortages = findShortages(next.items, index, await warehouseStock(next.fromWarehouse, givenDay, tx))
+    if (shortages.length) throw shortage(next.fromWarehouse, shortages)
+  }
+  if (!accepted) return
+
+  // The target: the goods reached it on the accept day; it must still hold what it no longer receives.
+  const acceptedDay = current.acceptedAt.slice(0, 10)
+  if (sameTo) {
+    if (!changed.length) return
+    await requireActive(next.toWarehouse, "toWarehouse")
+    if (await countedByInventory(tx, next.toWarehouse, acceptedDay, current.acceptedAt, changed)) throw counted
+    const fewer = extraLines(after, before)
+    if (fewer.length) {
+      const shortages = findShortages(fewer, index, await warehouseStock(next.toWarehouse, acceptedDay, tx))
+      if (shortages.length) throw shortage(next.toWarehouse, shortages, "Не возможно изменить. ")
+    }
+  } else {
+    await requireActive(current.toWarehouse, "toWarehouse")
+    await requireActive(next.toWarehouse, "toWarehouse")
+    if (await countedByInventory(tx, current.toWarehouse, acceptedDay, current.acceptedAt, documentKeys(index, current.items))) throw counted
+    if (await countedByInventory(tx, next.toWarehouse, acceptedDay, current.acceptedAt, documentKeys(index, next.items))) throw counted
+    const shortages = findShortages(current.items, index, await warehouseStock(current.toWarehouse, acceptedDay, tx))
+    if (shortages.length) throw shortage(current.toWarehouse, shortages, "Не возможно изменить. ")
+  }
+}
+
 export async function updateTransfer(id: number, input: TransferInput, userName: string): Promise<TransferChange> {
   await ensureTransfersSchema()
   const db = getDb()
@@ -809,16 +956,19 @@ export async function updateTransfer(id: number, input: TransferInput, userName:
   const index = await catalogIndex(db)
   const checked = await normalize(db, input, index, before)
   if (isTransferError(checked)) return checked
-  return inTransaction(async (tx) => {
-    // Lock order (C1): the warehouses' stock locks (rename race, see createTransfer) before the row lock.
-    const locked = await lockTransferWarehouses(tx, checked)
+  let moved = false
+  const change = await inTransaction(async (tx) => {
+    // Lock order (C1): the stock locks of the old and the new warehouses (rename race, see createTransfer) before the row lock.
+    const locked = await lockTransferWarehouses(tx, checked, [before.fromWarehouse, before.toWarehouse])
     const current = await lockTransfer(tx, id)
     if (!current) return { error: "Передача не найдена", status: 404 }
-    if (!TRANSFER_EDITABLE.includes(current.status)) {
-      return { error: "Изменять можно только передачу в статусе «ожидает» или «подтвержден»", status: 409 }
-    }
+    // Changed by someone else in between: its warehouses may not be among the locked ones.
+    if (textKey(current.fromWarehouse) !== textKey(before.fromWarehouse) || textKey(current.toWarehouse) !== textKey(before.toWarehouse)) throw new WarehouseRenamedError()
     const data = await lockedInput(tx, checked, locked, input, index, current)
-    const status: TransferStatus = input.status === "ожидает" ? "ожидает" : input.status === "потвержден" ? "потвержден" : current.status
+    moved = MOVED_STATUSES.includes(current.status)
+    if (moved) await checkMovedEdit(tx, current, data, index)
+    // «Подтвержденный» only switches a transfer that has not moved yet.
+    const status: TransferStatus = TRANSFER_EDITABLE.includes(current.status) ? (input.status === "ожидает" ? "ожидает" : input.status === "потвержден" ? "потвержден" : current.status) : current.status
     const row = values(data)
     const columns = [...Object.keys(row), "status"]
     await tx.prepare(`UPDATE internal_transfers SET ${columns.map((column) => `${column} = @${column}`).join(", ")}, updated_at = datetime('now') WHERE id = @id`).run({ ...row, status, id })
@@ -826,6 +976,8 @@ export async function updateTransfer(id: number, input: TransferInput, userName:
     await addLog(tx, updated, "updated", userName)
     return updated
   })
+  // Goods that moved are valued by the ledger (as after a movement).
+  return moved ? revalued(change) : change
 }
 
 /** Hard delete of a transfer without stock effect (the UI cancels instead). */

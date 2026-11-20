@@ -796,9 +796,9 @@ function supplierSources(ctx: SourceContext): string[] {
         ek: ek("i.supplier", incomingId),
         nm: "i.supplier",
         cur: `COALESCE(fin_cur(${col(ctx, "i", "supplier_incomings", "currency", "NULL")}), @base)`,
-        // The earlier of the document date and the acceptance (LEAST skips NULL), as
-        // lib/stock/sources.ts books it, so the supplier act and stock-by-date agree.
-        ts: ts("LEAST(fin_ts(i.date), fin_ts(" + col(ctx, "i", "supplier_incomings", "accepted_at", "''") + "))", utcTs("i.created_at")),
+        // The acceptance moment, else the document date: Linko books a supply on the supplier when it is accepted
+        // (its balance periods and act rows follow accepted_at, e.g. a June supply accepted in January counts in January).
+        ts: ts("fin_ts(" + col(ctx, "i", "supplier_incomings", "accepted_at", "''") + ")", "fin_ts(i.date)", utcTs("i.created_at")),
         col: "'supply'",
         amt: "-i.amount",
         org: "fin_place(i.organization)",
@@ -838,7 +838,7 @@ function supplierSources(ctx: SourceContext): string[] {
         cp: "r.from_whom",
         br: "fin_place(r.branch)",
         cby: "r.added_by",
-        href: "'/analytics/supplier-returns'",
+        href: "'/analytics/supplier-returns/' || r.id",
       },
       `FROM supplier_returns r ${join("r.from_whom")} WHERE r.status = 'завершен' AND fin_key(r.from_whom) <> ''`,
     ),
@@ -856,7 +856,8 @@ function supplierSources(ctx: SourceContext): string[] {
         nm: "sp.supplier",
         cur: "COALESCE(fin_cur(sp.currency), @base)",
         ts: ts("fin_ts(sp.paid_at)", utcTs("sp.created_at")),
-        col: "'payment'",
+        // «Приход от поставщика» (op 4) is not a payment in Linko: it counts as «Прочие приходы / расходы» by its sign.
+        col: `CASE WHEN ${spOp} = 4 THEN (CASE WHEN sp.amount < 0 THEN 'none_type_minus' ELSE 'none_type_plus' END) ELSE 'payment' END`,
         amt: "sp.amount",
         org: "fin_place(sp.organization)",
         pt: "fin_pt(sp.icon)",
@@ -917,6 +918,7 @@ function vansellSources(ctx: SourceContext): string[] {
   if (ctx.s.has("vansell_transactions")) {
     const t = "vansell_transactions"
     const type = col(ctx, "v", t, "type", "'none_type'")
+    const docRef = col(ctx, "v", t, "doc_ref", "NULL::int")
     const columns = MOVEMENT_COLUMNS.vansell.map((name) => `'${name}'`).join(", ")
     out.push(
       select(
@@ -931,7 +933,12 @@ function vansellSources(ctx: SourceContext): string[] {
           src_id: "v.id",
           // Movements copied from Linko carry their own column (stock transfer, money handed in, return); only the
           // manual ones ("Нет типа") can be edited.
-          title: `CASE ${type} WHEN 'stock_transfer_minus' THEN 'Передача склада' WHEN 'stock_transfer_plus' THEN 'Передача склада' WHEN 'cash_transfer_plus' THEN 'Оплата на кассу' WHEN 'bank_transfer_plus' THEN 'Оплата на кассу' WHEN 'order_return_plus' THEN 'Возврат' ELSE 'Нет типа' END`,
+          title: `CASE ${type} WHEN 'stock_transfer_minus' THEN 'Передача склада' WHEN 'stock_transfer_plus' THEN 'Передача склада' WHEN 'cash_transfer_plus' THEN 'Оплата на кассу' WHEN 'bank_transfer_plus' THEN 'Оплата на кассу' WHEN 'order_return_plus' THEN 'Передача' ELSE 'Нет типа' END`,
+          // Linko's document of a copied movement (scripts/linko-sync/import-vansell-docs.mjs): its number, the word Linko
+          // prints before it («Передача № 635», «Отход № 181») and the page that shows it.
+          doc: `COALESCE(${docRef}::text, '')`,
+          descr: `CASE WHEN ${docRef} IS NULL THEN '' WHEN ${type} = 'order_return_plus' THEN 'Отход' ELSE 'Передача' END`,
+          href: `CASE WHEN ${docRef} IS NULL THEN '' WHEN ${type} IN ('cash_transfer_plus', 'bank_transfer_plus') THEN '/analytics/cash-management?pageSize=25&search=' || ${docRef} WHEN ${type} = 'order_return_plus' THEN '/analytics/returns/' || ${docRef} WHEN ${type} IN ('stock_transfer_minus', 'stock_transfer_plus') THEN '/analytics/internal-transfers?id=' || ${docRef} ELSE '' END`,
           cmt: col(ctx, "v", t, "comment", "''"),
           cby: col(ctx, "v", t, "created_by", "''"),
           editable: `${type} IN ('none_type', 'none_type_plus', 'none_type_minus')`,
@@ -1026,6 +1033,10 @@ function branchSources(ctx: SourceContext): string[] {
           src: "'branch_manual'",
           src_id: "t.id",
           title: "CASE WHEN t.kind IN ('payments', 'transfer_payments') THEN 'Оплата' WHEN t.kind IN ('stock_transfer_minus', 'stock_transfer_plus') THEN 'Передача склада' ELSE 'Нет типа' END",
+          // Linko's cash transaction / stock transfer № of a copied movement and its organization
+          // (scripts/linko-sync/import-branch-docs.mjs), printed in the branch act.
+          doc: `COALESCE(${col(ctx, "t", t, "doc_ref", "NULL::int")}::text, '')`,
+          org: col(ctx, "t", t, "organization", "''"),
           cmt: "t.comment",
           cby: col(ctx, "t", t, "created_by", "''"),
           editable: "t.kind IN ('add', 'expense', 'payments')",

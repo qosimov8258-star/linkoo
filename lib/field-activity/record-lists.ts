@@ -58,7 +58,15 @@ export type FieldRecordListFilter = {
   inns?: string[]
   categories?: string[]
   withEquipment?: boolean
-  /** Free text: client, employee, comment, reason or the record number. */
+  /** Photo reports only: Бренд of the reference's card. A report records no products here, so a chosen brand matches
+   * no report (the reference answers 0 for every brand of this account too). */
+  brandIds?: number[]
+  /** Photo reports only: these reports (the photo viewer opened from a link). */
+  ids?: number[]
+  /** Photo reports only: the shop's branch by branches.id (the reference's filter keeps branch ids in its link). */
+  branchIds?: number[]
+  /** Free text: client, employee, comment, reason or the record number; photo reports: the store and employee names
+   * only (the reference's merch_report search). */
   search?: string
 }
 
@@ -146,6 +154,12 @@ export function recordListQueryOf(kind: FieldRecordKind, params: URLSearchParams
   if (!equipment.ok) return equipment
   const texts = textsParam(params, ["branch", "channel", "inn", "category"])
   if (!texts.ok) return texts
+  const brands = idsParam(params, "brandId")
+  if (!brands.ok) return brands
+  const reportIds = idsParam(params, "id")
+  if (!reportIds.ok) return reportIds
+  const branchIds = idsParam(params, "branchId")
+  if (!branchIds.ok) return branchIds
   const photo = kind === "photo_report"
   return {
     ok: true,
@@ -164,6 +178,9 @@ export function recordListQueryOf(kind: FieldRecordKind, params: URLSearchParams
         inns: photo && texts.value.inn.length ? texts.value.inn : undefined,
         categories: photo && texts.value.category.length ? texts.value.category : undefined,
         withEquipment: photo ? equipment.value : undefined,
+        brandIds: photo && brands.value.length ? brands.value : undefined,
+        ids: photo && reportIds.value.length ? reportIds.value : undefined,
+        branchIds: photo && branchIds.value.length ? branchIds.value : undefined,
         search: search || undefined,
       },
       page: paging.value.page,
@@ -265,12 +282,26 @@ function whereOf(kind: FieldRecordKind, filter: FieldRecordListFilter, types: bo
         : "false"
       where.push(filter.withEquipment ? equipment : `NOT ${equipment}`)
     }
+    // No photo report records products here, so none is of a chosen brand.
+    if (filter.brandIds) where.push("false")
+    if (filter.ids) {
+      where.push("f.id = ANY(@reportIds::int[])")
+      params.reportIds = filter.ids
+    }
+    if (filter.branchIds) {
+      where.push(columns.branches ? "fin_key(c.branch) IN (SELECT fin_key(b.name) FROM branches b WHERE b.id = ANY(@branchIds::int[]))" : "false")
+      params.branchIds = filter.branchIds
+    }
   }
   const search = (filter.search ?? "").trim()
-  if (search) {
+  if (search && kind === "photo_report") {
+    // The reference's photo report search: the store or the employee who sent it (not the comment, not the number).
+    where.push(`(COALESCE(c.name, '') ILIKE @pattern OR COALESCE(${EMPLOYEE_NAME}, '') ILIKE @pattern)`)
+    params.pattern = likePattern(search)
+  } else if (search) {
     const reason = kind === "refusal" ? (types ? "COALESCE(rt.name, f.reason, '')" : "COALESCE(f.reason, '')") : "''"
     where.push(
-      `(COALESCE(c.name, '') ILIKE @pattern OR COALESCE(${EMPLOYEE_NAME}, '') ILIKE @pattern OR COALESCE(f.comment, '') ILIKE @pattern
+      `(COALESCE(${clientNameSql(kind)}, '') ILIKE @pattern OR COALESCE(${EMPLOYEE_NAME}, '') ILIKE @pattern OR COALESCE(f.comment, '') ILIKE @pattern
         OR ${reason} ILIKE @pattern OR f.id::text = @search)`,
     )
     params.pattern = likePattern(search)
@@ -280,12 +311,13 @@ function whereOf(kind: FieldRecordKind, filter: FieldRecordListFilter, types: bo
 }
 
 /** Optional tables / columns the photo report filters read (clients.sales_channel, client_types, inventory_items). */
-type PhotoFilterColumns = { channel: boolean; clientTypes: boolean; equipment: boolean; equipmentDeleted: boolean; supervisedIds?: number[] }
-const NO_PHOTO_COLUMNS: PhotoFilterColumns = { channel: false, clientTypes: false, equipment: false, equipmentDeleted: false }
+type PhotoFilterColumns = { channel: boolean; clientTypes: boolean; equipment: boolean; equipmentDeleted: boolean; branches: boolean; supervisedIds?: number[] }
+const NO_PHOTO_COLUMNS: PhotoFilterColumns = { channel: false, clientTypes: false, equipment: false, equipmentDeleted: false, branches: false }
 
 async function photoFilterColumns(supervisorIds: number[] | undefined): Promise<PhotoFilterColumns> {
-  const columns = await columnsOf(["clients", "client_types", "inventory_items"])
+  const columns = await columnsOf(["clients", "client_types", "inventory_items", "branches"])
   return {
+    branches: Boolean(columns.get("branches")?.has("name")),
     channel: Boolean(columns.get("clients")?.has("sales_channel")),
     clientTypes: Boolean(columns.get("client_types")?.has("name")),
     equipment: Boolean(columns.get("inventory_items")?.has("client_id")),
@@ -346,6 +378,26 @@ function photoTypesOf(text: string | null): PhotoTypeGroup[] {
 
 type RecordPage = { count: number; hasMore: boolean; nextCursor: string | null; rows: FieldRecordRow[] }
 
+/** A header sort of the Отказы table, by Linko's ?ordering= keys: id, createdDate, name (the agent), market (the
+ * client), comment (the reason). Numbered pages only: a `before` cursor always follows the default order. */
+export type FieldRecordOrder = { key: "id" | "createdDate" | "name" | "market" | "comment"; desc: boolean }
+
+/** The client's name of a record: a refusal of a client deleted in Linko keeps the name Linko still shows
+ * (field_refusals.client_name, written by scripts/linko-sync/import-field-records.mjs). */
+const clientNameSql = (kind: FieldRecordKind) => (kind === "refusal" ? "COALESCE(c.name, NULLIF(f.client_name, ''))" : "c.name")
+
+/** ORDER BY of a list: newest first, or the header sort (ties keep the newest first, so pages never overlap). */
+function orderSql(kind: FieldRecordKind, types: boolean, order?: FieldRecordOrder): string {
+  const newest = "f.happened_at DESC, f.id DESC"
+  if (!order) return newest
+  const dir = order.desc ? "DESC" : "ASC"
+  if (order.key === "id") return `f.id ${dir}`
+  if (order.key === "createdDate") return `f.happened_at ${dir}, f.id ${dir}`
+  const reason = kind === "refusal" ? (types ? "COALESCE(rt.name, f.reason)" : "f.reason") : "f.comment"
+  const column = order.key === "name" ? EMPLOYEE_NAME : order.key === "market" ? clientNameSql(kind) : reason
+  return `${column} ${dir}, ${newest}`
+}
+
 const EMPTY_PAGE: RecordPage = { count: 0, hasMore: false, nextCursor: null, rows: [] }
 
 /**
@@ -356,7 +408,7 @@ const EMPTY_PAGE: RecordPage = { count: 0, hasMore: false, nextCursor: null, row
 export async function listFieldRecords(
   kind: FieldRecordKind,
   filter: FieldRecordListFilter,
-  { limit, offset, before }: { limit: number; offset: number; before?: RecordCursor },
+  { limit, offset, before, order }: { limit: number; offset: number; before?: RecordCursor; order?: FieldRecordOrder },
 ): Promise<RecordPage> {
   await ensureFieldSchema()
   if ((filter.employeeIds && !filter.employeeIds.length) || (filter.clientIds && !filter.clientIds.length)) return EMPTY_PAGE
@@ -379,11 +431,11 @@ export async function listFieldRecords(
       : "f.comment, NULL AS reason, NULL AS refusal_type_id, f.status, f.photo_types"
   const rows = (await db
     .prepare(
-      `SELECT f.id, f.visit_id, f.employee_id, ${EMPLOYEE_NAME} AS employee_name, f.client_id, c.name AS client_name,
+      `SELECT f.id, f.visit_id, f.employee_id, ${EMPLOYEE_NAME} AS employee_name, f.client_id, ${clientNameSql(kind)} AS client_name,
               to_char(${localTs("f.happened_at")}, ${LOCAL_TEXT}) AS at_text, ${columns}, ${cursorSql("f.happened_at", "f.id")} AS cursor
          ${joins}
          ${after}
-        ORDER BY f.happened_at DESC, f.id DESC
+        ORDER BY ${orderSql(kind, types, before ? undefined : order)}
         LIMIT @limit OFFSET @offset`,
     )
     // One more row than asked tells whether older records follow.
@@ -426,7 +478,7 @@ export async function fieldRecordFacets(kind: FieldRecordKind, employeeIds?: num
   const employeeSql = `SELECT DISTINCT f.employee_id AS id, COALESCE(${EMPLOYEE_NAME}, '#' || f.employee_id::text) AS name
          FROM ${TABLE[kind]} f LEFT JOIN employees e ON e.id = f.employee_id ${only}`
   const employees = (await db.prepare(employeeSql).all(...args(employeeSql, params))) as FieldOption[]
-  const clientSql = `SELECT DISTINCT f.client_id AS id, COALESCE(NULLIF(btrim(c.name), ''), '#' || f.client_id::text) AS name
+  const clientSql = `SELECT DISTINCT f.client_id AS id, COALESCE(NULLIF(btrim(${clientNameSql(kind)}), ''), '#' || f.client_id::text) AS name
          FROM ${TABLE[kind]} f LEFT JOIN clients c ON c.id = f.client_id ${only}`
   const clients = (await db.prepare(clientSql).all(...args(clientSql, params))) as FieldOption[]
   let refusalTypes: FieldOption[] = []
@@ -449,39 +501,69 @@ export async function fieldRecordFacets(kind: FieldRecordKind, employeeIds?: num
       .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.id - b.id)
   const base = { employees: byName(employees), clients: byName(clients), refusalTypes: byName(refusalTypes) }
   if (kind !== "photo_report") return base
-  return { ...base, ...(await photoReportFacets(byName, employeeIds)) }
+  return { ...base, ...(await photoReportFacets(employeeIds)) }
 }
 
-/** The extra lists of the photo report filter card (the reference's: Супервайзер, Бренд, Категория фотоотчета,
- * Филиалы, Категория канала, Тип клиента, ИНН магазина). */
-async function photoReportFacets(byName: (list: FieldOption[]) => FieldOption[], employeeIds?: number[]): Promise<Partial<FieldRecordFacets>> {
+/** Optional numeric id → number (the option lists drop rows without one). */
+const optionsOf = (rows: Array<{ id: unknown; name: unknown }>): FieldOption[] =>
+  rows.flatMap((row) => {
+    const id = Number(row.id)
+    const name = String(row.name ?? "").trim()
+    return Number.isInteger(id) && id > 0 ? [{ id, name: name || `#${id}` }] : []
+  })
+
+// The reference's selects list names in its database's en_US order: letters before Cyrillic, case and punctuation
+// ignored at first (lower case first on a tie), so "Baby Still" comes before "b-fresh" and "pepsi" before "Pepsi".
+const NAME_ORDER = new Intl.Collator("en", { ignorePunctuation: true })
+const byCollation = (list: FieldOption[]) => [...list].sort((a, b) => NAME_ORDER.compare(a.name, b.name) || a.id - b.id)
+
+/**
+ * The lists of the photo report filter card, as the reference's selects offer them: Создал every active user by id
+ * (its users select), Супервайзер by id, Бренд / Филиалы / Тип клиента (top level) by name in the reference's collation
+ * (the reference orders them the same way: Latin before Cyrillic, case-insensitive), Магазин every store newest first,
+ * ИНН магазина every store's ИНН. A reader limited to some employees keeps the lists of their own data: those employees,
+ * their supervisors, and the stores / ИНН / photo groups of their reports.
+ */
+async function photoReportFacets(employeeIds?: number[]): Promise<Partial<FieldRecordFacets>> {
   const db = getDb()
-  // A reader limited to some employees sees the supervisors of those employees, and the ИНН and photo groups of
-  // their reports only.
   const only = employeeIds ? "AND f.employee_id = ANY(@employeeIds::int[])" : ""
   const scoped = { employeeIds: employeeIds ?? [] }
   const inScope = employeeIds ? new Set(employeeIds) : null
-  const columns = await columnsOf(["clients", "client_types", "branches", "brands"])
+  const columns = await columnsOf(["clients", "client_types", "branches", "brands", "employees"])
   const texts = (values: unknown[]) => [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"))
-  const employees = (await db.prepare(`SELECT e.id, ${EMPLOYEE_NAME} AS name, e.details FROM employees e`).all()) as Array<FieldOption & { details: string | null }>
+  const activeOnly = columns.get("employees")?.has("active") ? "WHERE e.active = 1" : ""
+  const staff = (await db.prepare(`SELECT e.id, ${EMPLOYEE_NAME} AS name, e.details FROM employees e ORDER BY e.id`).all()) as Array<FieldOption & { details: string | null }>
+  const active = (await db.prepare(`SELECT e.id, ${EMPLOYEE_NAME} AS name FROM employees e ${activeOnly} ORDER BY e.id`).all()) as FieldOption[]
+  const employees = optionsOf(active).filter((row) => !inScope || inScope.has(row.id))
   const supervisorIds = new Set(
-    employees
+    staff
       .filter((row) => !inScope || inScope.has(Number(row.id)))
       .map((row) => supervisorOf(row.details))
       .filter((id): id is number => id !== null),
   )
-  const supervisors = byName(employees.filter((row) => supervisorIds.has(Number(row.id))).map((row) => ({ id: Number(row.id), name: row.name })))
-  const branches = columns.get("branches")?.has("name") ? ((await db.prepare("SELECT name FROM branches").all()) as Array<{ name: string }>).map((row) => row.name) : []
-  const clientTypes = columns.get("client_types")?.has("name") ? byName((await db.prepare("SELECT id, name FROM client_types").all()) as FieldOption[]) : []
+  const supervisors = optionsOf(staff.filter((row) => supervisorIds.has(Number(row.id))))
+  const branches = columns.get("branches")?.has("name") ? byCollation(optionsOf((await db.prepare("SELECT id, name FROM branches WHERE btrim(COALESCE(name, '')) <> ''").all()) as FieldOption[])) : []
+  const types = columns.get("client_types")
+  const clientTypes = types?.has("name")
+    ? byCollation(optionsOf((await db.prepare(`SELECT id, name FROM client_types ${types.has("parent_id") ? "WHERE parent_id IS NULL" : ""}`).all()) as FieldOption[]))
+    : []
   const channels = columns.get("clients")?.has("sales_channel") ? ((await db.prepare("SELECT DISTINCT sales_channel AS v FROM clients").all()) as Array<{ v: string }>).map((row) => row.v) : []
-  const innSql = `SELECT DISTINCT c.inn AS v FROM field_photo_reports f JOIN clients c ON c.id = f.client_id WHERE true ${only}`
-  const inns = columns.get("clients")?.has("inn") ? ((await db.prepare(innSql).all(...args(innSql, scoped))) as Array<{ v: string }>).map((row) => row.v) : []
+  const clientSql = employeeIds
+    ? `SELECT DISTINCT c.id, c.name FROM field_photo_reports f JOIN clients c ON c.id = f.client_id WHERE true ${only} ORDER BY c.id DESC`
+    : "SELECT c.id, c.name FROM clients c ORDER BY c.id DESC"
+  const clients = optionsOf((await db.prepare(clientSql).all(...args(clientSql, scoped))) as FieldOption[])
+  const innSql = employeeIds
+    ? `SELECT DISTINCT btrim(c.inn) AS v FROM field_photo_reports f JOIN clients c ON c.id = f.client_id WHERE btrim(COALESCE(c.inn, '')) <> '' ${only}`
+    : "SELECT DISTINCT btrim(c.inn) AS v FROM clients c WHERE btrim(COALESCE(c.inn, '')) <> ''"
+  const inns = columns.get("clients")?.has("inn")
+    ? [...new Set(((await db.prepare(innSql).all(...args(innSql, scoped))) as Array<{ v: string }>).map((row) => row.v))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    : []
   const groupSql = `SELECT f.photo_types FROM field_photo_reports f WHERE COALESCE(f.photo_types, '') NOT IN ('', '[]') ${only}`
   const groups = ((await db.prepare(groupSql).all(...args(groupSql, scoped))) as Array<{ photo_types: string | null }>).flatMap((row) =>
     photoTypesOf(row.photo_types).map((group) => group.name),
   )
-  const brands = columns.get("brands")?.has("name") ? ((await db.prepare("SELECT name FROM brands").all()) as Array<{ name: string }>).map((row) => row.name) : []
-  return { supervisors, branches: texts(branches), clientTypes, channels: texts(channels), inns: texts(inns), categories: texts(groups), brands: texts(brands) }
+  const brands = columns.get("brands")?.has("name") ? byCollation(optionsOf((await db.prepare("SELECT id, name FROM brands WHERE btrim(COALESCE(name, '')) <> ''").all()) as FieldOption[])) : []
+  return { employees, clients, supervisors, branches, clientTypes, channels: texts(channels), inns, categories: texts(groups), brands }
 }
 
 /**

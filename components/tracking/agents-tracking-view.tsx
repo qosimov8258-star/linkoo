@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation"
 import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react"
 
 import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { AGENT_DRAWER, SHOP_DRAWER, writeShopParam } from "@/components/clients/shop-open-address"
+import { keepShopDrawerParams } from "@/components/clients/shop-drawer-url"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import type { GpsPoint } from "@/lib/field-activity/types"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -14,8 +16,9 @@ import type { TrackingAgentRow, TrackingClient, TrackingDay } from "@/lib/tracki
 import { AgentDayPanel, eventSummary, matchesStatus } from "./agent-day-panel"
 import { AgentsSidebar } from "./agents-sidebar"
 import type { LatLng, MapAgentPin, MapDayClient, MapLabels, MapPoint, MapZoneShape } from "./agents-map"
-import { ClientDrawer, FieldRecordDialog, LocationLockDialog, OptimizeDialog, OrderSummaryDialog } from "./agents-tracking-dialogs"
-import { MAP_COLORS, agentColor, minuteOfDay, timeOf, trackingSearch, type DetailStatus, type TrackingGroup, type TrackingUrlState } from "./agents-tracking-data"
+import { FieldRecordDialog, LocationLockDialog, OptimizeDialog, OrderSummaryDialog } from "./agents-tracking-dialogs"
+import { MAP_COLORS, agentColor, agentColors, minuteOfDay, parseTrackingParams, timeOf, trackingSearch, type DetailStatus, type TrackingGroup, type TrackingUrlState } from "./agents-tracking-data"
+import { EmbeddedShopCard } from "./shop-drawer-swap"
 
 // Отслеживание (Personal → Контроль): the map of the field employees with their live position,
 // the sidebar of online / offline agents of a day, and the agent detail ("Показать путь") with
@@ -115,7 +118,6 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
     | { kind: "lock" }
     | { kind: "record"; record: "refusal" | "photo_report"; id: number }
     | { kind: "order"; id: number }
-    | { kind: "client"; id: number }
   >(null)
   const [notice, setNotice] = useState<{ tone: "info" | "error"; text: string } | null>(null)
   const [tick, setTick] = useState(0)
@@ -129,8 +131,17 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
       firstRender.current = false
       return
     }
-    window.history.replaceState(window.history.state, "", `/tracking${trackingSearch(state)}`)
+    // The open shop card's own parameters (its tab, КЛИЕНТ sub-tab, ЛОГИ page …) stay in the address.
+    const params = keepShopDrawerParams(new URLSearchParams(trackingSearch(state)))
+    window.history.replaceState(window.history.state, "", `/tracking?${params.toString()}`)
   }, [state])
+
+  // Back / Forward (the shop card's open and close are history entries, as Linko's): the page follows the address.
+  useEffect(() => {
+    const onPop = () => setState(parseTrackingParams(Object.fromEntries(new URLSearchParams(window.location.search)), today))
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [today])
 
   // Live data of today: refresh every minute.
   useEffect(() => {
@@ -253,6 +264,9 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
     }
   }, [agents.rows, state.search])
   const ordered = useMemo(() => [...online, ...offline], [online, offline])
+  // Colours follow the place in the whole list (login order), not the search or the sort of the sidebar.
+  const colors = useMemo(() => agentColors(agents.rows.map((row) => row.employeeId)), [agents.rows])
+  const colorOf = useCallback((employeeId: number) => colors.get(employeeId) ?? agentColor(employeeId), [colors])
 
   const current = day.data && state.agent !== null && day.data.employee.employeeId === state.agent && day.data.date === state.date ? day.data : null
   const index = state.agent === null ? -1 : ordered.findIndex((row) => row.employeeId === state.agent)
@@ -265,14 +279,14 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
     if (state.agent !== null) {
       const point = current?.location?.point
       return point && current
-        ? [{ employeeId: current.employee.employeeId, name: current.employee.name, color: agentColor(current.employee.employeeId), lat: point.lat, lng: point.lng, time: timeOf(current.location?.lastActivityAt ?? point.at) }]
+        ? [{ employeeId: current.employee.employeeId, name: current.employee.name, color: colorOf(current.employee.employeeId), lat: point.lat, lng: point.lng, time: timeOf(current.location?.lastActivityAt ?? point.at) }]
         : []
     }
     return ordered.flatMap((row) => {
       const point = row.location?.point
-      return point ? [{ employeeId: row.employeeId, name: row.name, color: agentColor(row.employeeId), lat: point.lat, lng: point.lng, time: timeOf(row.location?.lastActivityAt ?? point.at) }] : []
+      return point ? [{ employeeId: row.employeeId, name: row.name, color: colorOf(row.employeeId), lat: point.lat, lng: point.lng, time: timeOf(row.location?.lastActivityAt ?? point.at) }] : []
     })
-  }, [state.agent, current, ordered])
+  }, [state.agent, current, ordered, colorOf])
 
   const shownClients: TrackingClient[] = useMemo(() => (current ? current.clients.filter((client) => matchesStatus(client, state.staticStatus)) : []), [current, state.staticStatus])
 
@@ -289,10 +303,12 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
           clientId: client.clientId,
           name: client.clientName,
           address: client.address,
+          landmark: client.landmark,
           lat: client.lat,
           lng: client.lng,
           state,
           syncedAt: timeOf(client.firstAt),
+          distanceM: client.distanceM,
           distance: client.distanceM !== null ? `${Math.round(client.distanceM)} ${t("м.")}` : "",
           actualLat: client.actualLat,
           actualLng: client.actualLng,
@@ -351,7 +367,7 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
     () => ({
       synced: t("Синхронизировано:"),
       client: t("Клиент:"),
-      distance: t("Расстояние:"),
+      difference: t("Разница:"),
       actual: t("Фактический:"),
       address: t("Адрес:"),
       showOnMap: t("Показать на карте"),
@@ -361,7 +377,34 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
   )
 
   const fitKey = state.agent === null ? `list|${state.date}|${state.group}` : `agent|${state.agent}|${state.date}`
-  const openClient = useCallback((clientId: number) => setDialog({ kind: "client", id: clientId }), [])
+  // Linko: a client of the agent's day (a link) opens the full shop card in the panel's place (drawer=shop&openShop=<id>),
+  // «Показать клиента» of a map pin only sets openShop; the card's X writes openShop=0&drawer=drawer_agent_visit. Each is
+  // a history entry, so Back closes the card again. Like Linko's handleOpenShopDetails, a collapsed panel opens to show
+  // the card.
+  const openClient = useCallback(
+    (clientId: number) => {
+      setDialog(null)
+      setSidebarOpen(true)
+      writeShopParam("openShop", clientId, { drawer: SHOP_DRAWER })
+      update({ openShop: clientId, drawer: SHOP_DRAWER })
+    },
+    [update],
+  )
+  // The link of a client of the day: this page's state with the client's card open (Ctrl / middle click: a new tab).
+  const clientHref = useCallback((clientId: number) => `/tracking${trackingSearch({ ...state, openShop: clientId, drawer: SHOP_DRAWER })}`, [state])
+  const openPinClient = useCallback(
+    (clientId: number) => {
+      setSidebarOpen(true)
+      writeShopParam("openShop", clientId)
+      update({ openShop: clientId })
+    },
+    [update],
+  )
+  const closeShop = useCallback(() => {
+    writeShopParam("openShop", null)
+    update({ openShop: 0, drawer: AGENT_DRAWER })
+  }, [update])
+  const shop = state.openShop !== null && state.openShop > 0 ? state.openShop : null
 
   const plannedOptions = useMemo(
     () => (current?.clients ?? []).filter((client) => client.planned && client.clientId !== null).map((client) => ({ id: client.clientId as number, label: client.clientName })),
@@ -371,6 +414,8 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
   const reloadDay = () => setTick((value) => value + 1)
 
   const detail = state.agent !== null
+  // Linko's right drawer is 530 px for an agent's day, 334 px for the agents list; the shop card takes the width of the
+  // panel it replaces (Linko: `0 === openDetail ? 334 : 530`).
   const sidebarWidth = detail ? 530 : 330
 
   return (
@@ -388,7 +433,7 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
           layers={{ markets: state.showMarkets, zones: state.showZones, visitTrack: state.showVisitTrack, actualVisits: state.showActualVisitTrack, polyline: state.showPolylineTrack }}
           fitKey={fitKey}
           labels={labels}
-          onClientOpen={openClient}
+          onClientOpen={openPinClient}
         />
 
         <div className="pointer-events-none absolute left-[60px] right-[16px] top-[14px] z-[500] flex flex-wrap items-center gap-x-[16px] gap-y-[8px]">
@@ -457,7 +502,9 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
         )}
       </div>
 
-      <div className="relative shrink-0 bg-white shadow-[-2px_0_6px_rgba(0,0,0,0.15)] transition-[width] duration-200" style={{ width: sidebarOpen ? sidebarWidth : 0 }}>
+      {/* While the shop card is shown (no other dialog of the page is open then), z-[700] puts the card's own dialogs
+          (Отказ, Создать задачу …) over the map's controls too. */}
+      <div className={`relative ${shop !== null ? "z-[700]" : ""} shrink-0 bg-white shadow-[-2px_0_6px_rgba(0,0,0,0.15)] transition-[width] duration-200`} style={{ width: sidebarOpen ? sidebarWidth : 0 }}>
         <button
           type="button"
           onClick={() => setSidebarOpen((open) => !open)}
@@ -468,7 +515,9 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
         </button>
         {sidebarOpen && (
           <div className="h-full overflow-hidden" style={{ width: sidebarWidth }}>
-            {detail ? (
+            {shop !== null ? (
+              <EmbeddedShopCard clientId={shop} onClose={closeShop} />
+            ) : detail ? (
               <AgentDayPanel
                 employeeId={state.agent as number}
                 name={agentName}
@@ -496,6 +545,7 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
                 onEditLock={() => setDialog({ kind: "lock" })}
                 actions={{
                   onOpenClient: openClient,
+                  clientHref,
                   onOpenOrder: (id) => setDialog({ kind: "order", id }),
                   onOpenRecord: (record, id) => setDialog({ kind: "record", record, id }),
                 }}
@@ -514,6 +564,7 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
                 error={agents.error}
                 selectedId={highlight}
                 onSelect={openAgent}
+                colorOf={colorOf}
               />
             )}
           </div>
@@ -548,7 +599,6 @@ export function AgentsTrackingView({ initial, today }: { initial: TrackingUrlSta
       )}
       {dialog?.kind === "record" && <FieldRecordDialog kind={dialog.record} id={dialog.id} onClose={() => setDialog(null)} onOpenClient={openClient} />}
       {dialog?.kind === "order" && <OrderSummaryDialog orderId={dialog.id} onClose={() => setDialog(null)} onNavigate={(href) => router.push(href)} />}
-      {dialog?.kind === "client" && <ClientDrawer clientId={dialog.id} onClose={() => setDialog(null)} onNavigate={(href) => router.push(href)} />}
     </div>
   )
 }

@@ -6,8 +6,8 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import type { AgentRouteSummary } from "@/lib/agent-visits-repo"
 import { nextMatrixSort } from "@/components/ref/sort-arrows"
 import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
-import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-drawer"
 import { DashboardDialog } from "./dashboard-dialog"
+import { periodInAddress, writePeriodToAddress } from "./report-period-address"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
 
 type AgentRow = {
@@ -52,6 +52,15 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
   const [collapsed, setCollapsed] = useState<string[]>([])
   const [summary, setSummary] = useState<AgentRouteSummary | null>(null)
   const overlayOpen = dashboardOpen
+
+  // Like Linko's report, a link or a reload opens the period of the address (?beginDate=…&endDate=…).
+  useEffect(() => {
+    const period = periodInAddress()
+    if (!period) return
+    setDraftFrom(period.from)
+    setDraftTo(period.to)
+    setRange(period)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -145,7 +154,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
     if (!supervisorMode) {
       const ordered = rows.map((row) => ({ key: row.employeeId, name: row.name, values: flat(row) })).sort(compare)
       return [
-        ...ordered.map((row) => ({ key: String(row.key), cells: [<AgentLink key="name" employeeId={row.key} name={row.name} />, ...fmt(row.values)] })),
+        ...ordered.map((row) => ({ key: String(row.key), cells: [row.name, ...fmt(row.values)] })),
         { key: "total", tone: "total" as const, cells: [t("Итого"), ...fmt(sum(ordered.map((row) => row.values)))] },
       ]
     }
@@ -173,13 +182,13 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
             <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white">
               <path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} />
             </svg>
-            <AgentLink employeeId={group.id} name={group.name} className="!text-white" />
+            {group.name}
           </span>,
           ...fmt(group.values),
         ],
       })
       if (open) {
-        for (const agent of [...group.agents].sort(compare)) out.push({ key: `a-${agent.key}`, tone: "sub", cells: [<AgentLink key="name" employeeId={agent.key} name={agent.name} />, ...fmt(agent.values)] })
+        for (const agent of [...group.agents].sort(compare)) out.push({ key: `a-${agent.key}`, tone: "sub", cells: [agent.name, ...fmt(agent.values)] })
       }
     }
     out.push({ key: "total", tone: "dark", cells: [t("Итого"), ...fmt(sum(orderedGroups.map((group) => group.values)))] })
@@ -195,11 +204,12 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
         inDashboard={inDashboard}
       />
 
-      <AgentDrawerScope date={range.to}>
       <ReportBand>
         <ReportFilters
           onApply={() => {
-            if (draftFrom <= draftTo) setRange({ from: draftFrom, to: draftTo })
+            if (draftFrom > draftTo) return
+            setRange({ from: draftFrom, to: draftTo })
+            writePeriodToAddress(draftFrom, draftTo)
           }}
           applyDisabled={draftFrom > draftTo}
         >
@@ -220,7 +230,6 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
           />
         )}
       </ReportBand>
-      </AgentDrawerScope>
 
       {overlayOpen && (
         <button

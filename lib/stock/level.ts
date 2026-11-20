@@ -1,7 +1,6 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
-import { unitWeightKg } from "@/lib/internal-transfers-types"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { nameKey, placeName } from "@/lib/finance/entities"
@@ -42,6 +41,8 @@ type Context = {
   pending: StockPending[]
   /** fin_key(warehouse) → branch. */
   branchOf: Map<string, string>
+  /** Registered warehouse names by id. */
+  warehouseNames: string[]
   baseCurrency: string
   priceListCurrency: Map<string, string>
   tables: StockTables
@@ -59,9 +60,14 @@ async function loadContext(db: PgDb): Promise<Context> {
   const { costs, byWarehouse, costOf: costIn } = itemCosts
   const [balances, pending, cc] = await Promise.all([computeStockBalances({}, db, catalog, costs, byWarehouse), computeStockPending({}, db), loadCurrencyContext(db)])
   const branchOf = new Map<string, string>()
+  const warehouseNames: string[] = []
   if (tables.has("warehouses")) {
     const rows = (await db.prepare("SELECT name, branch FROM warehouses ORDER BY id").all()) as Array<{ name: string; branch: string | null }>
-    for (const row of rows) if (!branchOf.has(nameKey(row.name))) branchOf.set(nameKey(row.name), placeName(row.branch))
+    for (const row of rows) {
+      if (branchOf.has(nameKey(row.name))) continue
+      branchOf.set(nameKey(row.name), placeName(row.branch))
+      warehouseNames.push(String(row.name ?? "").trim())
+    }
   }
   const priceListCurrency = new Map<string, string>()
   const priceLists = (await db.prepare("SELECT to_regclass('price_lists') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
@@ -69,7 +75,7 @@ async function loadContext(db: PgDb): Promise<Context> {
     const rows = (await db.prepare("SELECT name, currency FROM price_lists ORDER BY id").all()) as Array<{ name: string; currency: string | null }>
     for (const row of rows) if (row.name && !priceListCurrency.has(nameKey(row.name)) && row.currency) priceListCurrency.set(nameKey(row.name), normCurrency(row.currency, cc.base))
   }
-  return { catalog, costs, costIn, balances, pending, branchOf, baseCurrency: cc.base, priceListCurrency, tables }
+  return { catalog, costs, costIn, balances, pending, branchOf, warehouseNames, baseCurrency: cc.base, priceListCurrency, tables }
 }
 
 /** Original spelling (and unit) of item keys that are not in the catalog, for
@@ -136,11 +142,11 @@ export type StockLevelUnitTotal = { unit: string; total: number; reserved: numbe
 export type StockLevelSumWithUnits = StockLevelSum & { byUnit: StockLevelUnitTotal[] }
 
 function conversion(item: StockCatalogItem | undefined, unit: StockLevelQuery["unit"], fallbackUnit: string): Conversion {
-  // Weight of one unit: the item's own weight, else what a weight unit implies
-  // (a kg item weighs 1 kg per unit) — the same rule as the transfer documents.
-  if (unit === "weight") return { factor: unitWeightKg(item?.unit ?? fallbackUnit, item?.weight ?? 0), unit: "кг" }
-  if (unit === "capacity") return { factor: item?.volume ?? 0, unit: "м³" }
-  if (unit === "box") return { factor: item?.boxSize ? 1 / item.boxSize : 0, unit: "блок" }
+  // Linko's show_in: weight = quantity × the product's «Вес» (kg_value, 0 when not set) in «КГ»; capacity = quantity ×
+  // its «Объем» in «куб.метр»; box = quantity / the units of its box, in the box's own name (only items with a box).
+  if (unit === "weight") return { factor: item?.weight ?? 0, unit: "КГ" }
+  if (unit === "capacity") return { factor: item?.volume ?? 0, unit: "куб.метр" }
+  if (unit === "box") return { factor: item?.boxSize ? 1 / item.boxSize : 0, unit: item?.boxUnit || "блок" }
   return { factor: 1, unit: item?.unit || fallbackUnit }
 }
 
@@ -152,7 +158,7 @@ function qty(base: { total: number; reserved: number; transit: number; defects: 
   return { total, reserved, transit, defects, available: round((base.total - base.reserved - base.defects) * factor) }
 }
 
-type Built = { rows: StockLevelRow[]; sum: StockLevelSumWithUnits; currency: string; baseCurrency: string }
+type Built = { rows: StockLevelRow[]; sum: StockLevelSumWithUnits; currency: string; baseCurrency: string; warehouses: string[] }
 
 function matches(values: string[], value: string): boolean {
   if (!values.length) return true
@@ -236,20 +242,18 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
   const units = new Set<string>()
   const byUnit = new Map<string, StockLevelUnitTotal>()
   const rows: StockLevelRow[] = []
-  // Inventory items (products.is_inventory, shown on their own pages) are not stock until they hold some; the reference's list leaves them out.
-  const inventoryKeys = ctx.tables.col("products", "is_inventory")
-    ? new Set(((await db.prepare("SELECT id FROM products WHERE COALESCE(is_inventory, 0) = 1").all()) as Array<{ id: number }>).map((row) => `product:${row.id}`))
-    : new Set<string>()
-  const keys = [...ctx.catalog.map((item) => item.key), ...orphanKeys].filter((key) => {
-    if (!inventoryKeys.has(key)) return true
-    const held = acc.get(key)
-    return Boolean(held && (held.total || held.reserved || held.transit))
-  })
+  // Every live catalog item is listed, inventory products (products.is_inventory, Linko's gear products) included, as
+  // Linko's all_balances does; in boxes only the items that have a box.
+  // The cards are the filter's totals whatever the search, as Linko's balances_sum (its request carries no search).
+  // Linko's cards also count the stock of deleted products; this copy's deleted-product balances do not match Linko's
+  // (the totals differ), so the cards keep to the listed products.
+  const keys = [...ctx.catalog.map((item) => item.key), ...orphanKeys]
   for (const key of keys) {
     const item = byKey.get(key)
+    if (query.unit === "box" && !item?.boxSize) continue
     const orphan = orphans.get(key)
     const name = item?.name ?? orphan?.name ?? key
-    if (needle && ![name, item?.article ?? "", item?.barcode ?? ""].some((value) => nameKey(value).includes(needle))) continue
+    const listed = !needle || [name, item?.article ?? "", item?.barcode ?? ""].some((value) => nameKey(value).includes(needle))
     if (!matches(query.type, item?.type ?? "") || !matches(query.subcategory, item?.subcategory ?? "") || !matches(query.brand, item?.brand ?? "")) continue
     if (!matches(query.supplier, item?.supplier ?? "") || !matches(query.organization, item?.organization ?? "")) continue
     const data = acc.get(key)
@@ -268,10 +272,10 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
         warehouse: line.warehouse,
         branch: ctx.branchOf.get(nameKey(line.warehouse)) ?? "",
         ...qty(line, factor),
-        value: round((line.total - line.reserved - line.defects) * rateIn(line.warehouse), 4),
+        value: round((line.total - line.reserved - line.defects) * rateIn(line.warehouse)),
       }))
       .sort((a, b) => a.warehouse.localeCompare(b.warehouse, "ru"))
-    rows.push({
+    const row: StockLevelRow = {
       key,
       kind: item?.kind ?? (key.startsWith("product:") ? "product" : key.startsWith("raw_material:") ? "raw_material" : null),
       id: item?.id ?? null,
@@ -287,10 +291,10 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
       ...qty(base, factor),
       cost: round(cost, 6),
       price,
-      value: round(lines.reduce((total, line) => total + (line.total - line.reserved - line.defects) * rateIn(line.warehouse), 0), 4),
+      value: round(lines.reduce((total, line) => total + (line.total - line.reserved - line.defects) * rateIn(line.warehouse), 0)),
       stocks,
-    })
-    const row = rows[rows.length - 1]
+    }
+    if (listed) rows.push(row)
     sum.total.count += row.total
     sum.reserved.count += row.reserved
     sum.defected.count += row.defects
@@ -315,7 +319,7 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
       byUnit.set(unitKey, line)
     }
   }
-  if (units.size === 1) sum.unit = rows.find((row) => row.total || row.reserved || row.defects || row.transit)?.unit.trim() ?? ""
+  if (units.size === 1) sum.unit = [...byUnit.values()][0]?.unit ?? ""
   sum.byUnit = [...byUnit.values()]
     .map((line) => ({ unit: line.unit, total: round(line.total), reserved: round(line.reserved), defects: round(line.defects), available: round(line.available), transit: round(line.transit) }))
     .sort((a, b) => a.unit.localeCompare(b.unit, "ru"))
@@ -323,10 +327,12 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
   sortRows(rows, query.ordering)
   for (const part of [sum.total, sum.reserved, sum.defected, sum.available]) {
     part.count = round(part.count)
-    part.price = round(part.price, 2)
+    // Six decimals: the page prints them with «Округление сумм» (Linko: 5), not a fixed two.
+    part.price = round(part.price)
   }
   sum.given = round(sum.given)
-  return { rows, sum, currency, baseCurrency: ctx.baseCurrency }
+  const warehouses = ctx.warehouseNames.filter((name) => name && inScope(nameKey(name)))
+  return { rows, sum, currency, baseCurrency: ctx.baseCurrency, warehouses }
 }
 
 function sortRows(rows: StockLevelRow[], ordering: string) {
@@ -361,7 +367,7 @@ export async function getStockLevelList(query: StockLevelQuery, db: PgDb = getDb
   const lastPage = Math.max(1, Math.ceil(built.rows.length / pageSize))
   const page = query.pageSize > 0 ? Math.min(Math.max(1, query.page), lastPage) : 1
   const rows = query.pageSize > 0 ? built.rows.slice((page - 1) * pageSize, page * pageSize) : built.rows
-  return { count: built.rows.length, page, pageSize: query.pageSize, baseCurrency: built.baseCurrency, currency: built.currency, rows, sum: built.sum }
+  return { count: built.rows.length, page, pageSize: query.pageSize, baseCurrency: built.baseCurrency, currency: built.currency, rows, sum: built.sum, warehouses: built.warehouses }
 }
 
 export async function getStockLevelSum(query: StockLevelQuery, db: PgDb = getDb()): Promise<StockLevelSumWithUnits> {
@@ -406,7 +412,7 @@ export async function getStockItemDetail(key: string, query: Pick<StockLevelQuer
       warehouse: value.warehouse,
       branch: ctx.branchOf.get(nameKey(value.warehouse)) ?? "",
       ...qty(value, 1),
-      value: round((value.total - value.reserved - value.defects) * (ctx.costIn(key, value.warehouse) ?? cost), 4),
+      value: round((value.total - value.reserved - value.defects) * (ctx.costIn(key, value.warehouse) ?? cost)),
     }))
     .sort((a, b) => a.warehouse.localeCompare(b.warehouse, "ru"))
   const total = qty(

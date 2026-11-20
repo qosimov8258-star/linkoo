@@ -2,6 +2,8 @@
 
 import { Fragment, useRef, type ReactNode } from "react"
 
+import { amountDigits } from "@/lib/amount-precision"
+
 import { ScrollButtons } from "./scroll-buttons"
 import { SortArrows } from "./sort-arrows"
 
@@ -147,9 +149,10 @@ export function ReportMatrix({
   )
 }
 
-/** Small helper: the reference prints plain numbers with a no-break thin space as the thousands separator. */
+/** Small helper: the reference prints plain numbers with a no-break thin space as the thousands separator, with its
+ * numberFormat's decimals (three, or those of Настройки → Округление сумм when set). */
 export function matrixNumber(value: number) {
-  return new Intl.NumberFormat("ru-RU").format(value)
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: amountDigits(3) }).format(value)
 }
 
 export { Fragment as MatrixFragment }

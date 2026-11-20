@@ -299,19 +299,11 @@ export function AccountDebtsView() {
         raw: true,
         width: 220,
         sortKey: "name",
+        // Linko shows the account name only (no INN / shop-count line).
         render: (row: BalanceRow) => (
-          <div className="min-w-0">
-            <button type="button" onClick={() => openAct(row)} className="text-left text-[#333] hover:text-[#1E4A9A]">
-              {row.name || "No"}
-            </button>
-            {(row.info.inn || Number(row.info.clients) > 1) && (
-              <div className="text-[12px] text-[#586174]">
-                {row.info.inn ? `${t("ИНН")}: ${row.info.inn}` : ""}
-                {row.info.inn && Number(row.info.clients) > 1 ? " · " : ""}
-                {Number(row.info.clients) > 1 ? `${t("Клиенты")}: ${row.info.clients}` : ""}
-              </div>
-            )}
-          </div>
+          <button type="button" onClick={() => openAct(row)} className="text-left text-[#333] hover:font-semibold hover:text-[#1E4A9A]">
+            {row.name || "No"}
+          </button>
         ),
       }
 

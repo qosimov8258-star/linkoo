@@ -7,20 +7,21 @@ import { linkedWarehouseNames } from "@/lib/user-warehouses"
 import { getDb, type PgDb } from "@/lib/db"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { stockOrphanNames } from "@/lib/stock/level"
-import { getStockBalances, getStockCatalog, getStockPending, stockMovementsSql } from "@/lib/stock/ledger"
+import { getStockBalances, getStockCatalog, getStockPending } from "@/lib/stock/ledger"
 import type { StockCatalogItem } from "@/lib/stock/types"
-import { convertRecommended, defaultRecommendedPeriod, parseMeasure, recommendedNumbers, type RecommendedNumbers } from "@/lib/stock-recommended-calc"
+import { convertRecommended, defaultRecommendedPeriod, recommendedNumbers, type RecommendedNumbers } from "@/lib/stock-recommended-calc"
 import { parsePageParam } from "@/lib/stock/paging"
 import { notSignedInResponse, invalidFieldResponse } from "@/lib/validation"
 
 // "Рекомендованный запас" (demo #/recommended-stock, API stock/recommended_balances):
 // per item with sales in the period —
-//   sold        = −Σ `order` movements of the stock ledger within [from, to]
+//   sold        = Σ order lines of every order that is not «Отменен» (whatever its status: Не подтвержден, Есть на
+//                 складе, В пути, Доставлено…), on the order's creation day (Tashkent), from the chosen warehouses —
+//                 Linko's rule, equal to its API for 2025, 2026, 2026-03 and the default period
+//   days        = distinct creation days of those orders
 //   available   = on hand now − defects − reserved (getStockBalances / getStockPending)
 //   by_day, remain_days, 6- / 30-day recommendations, share of sales: see
-//   lib/stock-recommended-calc.ts.
-// Sales come from orders shipped from a warehouse; until the orders module
-// records a warehouse the list is empty (`sales` explains why).
+//   lib/stock-recommended-calc.ts. Default order: Запас дней ascending, then the product id (Linko's).
 
 export type RecommendedUnit = "measurement" | "weight" | "capacity" | "box"
 
@@ -101,6 +102,19 @@ export function parseRecommendedFilters(params: URLSearchParams): { filters: Rec
   }
 }
 
+/** Order lines of the period (not cancelled) per item: sold, distinct creation days, lines. */
+function salesSql(withWarehouses: boolean): string {
+  return `SELECT s.item_key, SUM(s.qty) AS sold, COUNT(DISTINCT s.day) AS days, COUNT(*) AS lines FROM (
+      SELECT CASE WHEN oi.product_id IS NOT NULL THEN 'product:' || oi.product_id ELSE 'name:' || fin_key(COALESCE(oi.product_name, '')) END AS item_key,
+             COALESCE(oi.quantity, 0)::double precision AS qty, to_char(fin_ts(o.created_at, true), 'YYYY-MM-DD') AS day, o.warehouse
+        FROM orders o JOIN order_items oi ON oi.order_id = o.id
+       WHERE o.status <> 'Отменен'
+    ) s
+    WHERE s.day >= @rec_from AND s.day <= @rec_to
+      ${withWarehouses ? "AND fin_key(s.warehouse) IN (SELECT fin_key(x) FROM unnest(@rec_wh::text[]) AS x)" : ""}
+    GROUP BY s.item_key`
+}
+
 async function salesSource(orderMovements: number, db: PgDb): Promise<RecommendedSalesSource> {
   const column = await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'orders' AND column_name = 'warehouse'").get()
   let ordersWithWarehouse = 0
@@ -113,34 +127,11 @@ async function salesSource(orderMovements: number, db: PgDb): Promise<Recommende
 
 /** Every listed row (items with sales), unsorted and unpaged. */
 export async function recommendedRows(filters: RecommendedFilters, db: PgDb = getDb()): Promise<{ rows: RecommendedRow[]; totalSold: number; sales: RecommendedSalesSource }> {
-  const ledger = await stockMovementsSql({}, db)
-  const where = ["m.kind = 'order'", "m.day >= @rec_from", "m.day <= @rec_to"]
-  const params: Record<string, unknown> = { ...ledger.params, rec_from: filters.from, rec_to: filters.to }
-  if (filters.warehouses.length) {
-    where.push("fin_key(m.warehouse) IN (SELECT fin_key(x) FROM unnest(@rec_wh::text[]) AS x)")
-    params.rec_wh = filters.warehouses
-  }
-  const [saleRows, items, measureRows] = await Promise.all([
-    db
-      .prepare(
-        `SELECT m.item_key, -SUM(m.qty) AS sold, COUNT(DISTINCT m.day) AS days, COUNT(*) AS lines
-           FROM (${ledger.sql}) m
-          WHERE ${where.join(" AND ")}
-          GROUP BY m.item_key`,
-      )
-      .all(params),
-    getStockCatalog(db),
-    db
-      .prepare(
-        `SELECT 'product:' || id AS key, COALESCE(volume, '') AS volume FROM products
-         UNION ALL
-         SELECT 'raw_material:' || id, COALESCE(volume, '') FROM raw_materials`,
-      )
-      .all(),
-  ])
+  const params: Record<string, unknown> = { rec_from: filters.from, rec_to: filters.to }
+  if (filters.warehouses.length) params.rec_wh = filters.warehouses
+  const [saleRows, items] = await Promise.all([db.prepare(salesSql(filters.warehouses.length > 0)).all(params), getStockCatalog(db)])
   const sales = await salesSource(saleRows.reduce((sum, row) => sum + (Number(row.lines) || 0), 0), db)
   const catalog = new Map(items.map((item) => [item.key, item]))
-  const volumes = new Map(measureRows.map((row) => [String(row.key), parseMeasure(row.volume)]))
 
   const needle = filters.search.toLowerCase()
   const matches = (key: string, item: StockCatalogItem | undefined) => {
@@ -167,31 +158,47 @@ export async function recommendedRows(filters: RecommendedFilters, db: PgDb = ge
   )
   const totalSold = selling.reduce((sum, row) => sum + (Number(row.sold) || 0), 0)
   const orphans = await stockOrphanNames([...numbers.keys()].filter((key) => !catalog.has(key)), db)
+  // Показать по типу ед.: Вес = × kg of a unit, Объем = × its «Объем», Блок = ÷ the units of its box (×1 without one).
+  const factorOf = (item: StockCatalogItem | undefined) =>
+    filters.unit === "weight" ? (item?.weight ?? 0) : filters.unit === "capacity" ? (item?.volume ?? 0) : filters.unit === "box" ? (item?.boxSize ? 1 / item.boxSize : 1) : 1
+  const days = new Map(selling.map((row) => [String(row.item_key), Number(row.days) || 0]))
+  const totalConverted = filters.unit === "measurement" ? 0 : [...numbers].reduce((sum, [key, values]) => sum + values.sold * factorOf(catalog.get(key)), 0)
   const rows: RecommendedRow[] = []
   for (const [key, values] of numbers) {
     const item = catalog.get(key)
     const name = item?.name ?? orphans.get(key)?.name ?? (key.startsWith("name:") ? key.slice(5) : key)
     if (needle && !name.toLowerCase().includes(needle) && !(item?.article ?? "").toLowerCase().includes(needle)) continue
     const weight = item?.weight ?? 0
-    const factor = filters.unit === "weight" ? weight : filters.unit === "capacity" ? (volumes.get(key) ?? 0) : 1
-    const unit = filters.unit === "weight" ? "кг" : filters.unit === "capacity" ? "м³" : (item?.unit ?? "")
-    rows.push({ ...convertRecommended(values, factor), key, name, article: item?.article ?? "", unit, type: item?.type ?? "", brand: item?.brand ?? "", weight })
+    const unit = filters.unit === "weight" ? "кг" : filters.unit === "capacity" ? "м³" : filters.unit === "box" && item?.boxSize ? item.boxUnit || "блок" : (item?.unit ?? "")
+    const converted = filters.unit === "measurement" ? values : convertRecommended(values, factorOf(item), days.get(key) ?? 0, totalConverted)
+    rows.push({ ...converted, key, name, article: item?.article ?? "", unit, type: item?.type ?? "", brand: item?.brand ?? "", weight })
   }
   return { rows, totalSold, sales }
 }
 
+/** Linko's server order (Запас дней ascending, then the product id), which its page re-sorts stably by a header. */
+function linkoOrder(a: RecommendedRow, b: RecommendedRow): number {
+  const id = (row: RecommendedRow) => Number(/^(?:product|raw_material):(\d+)$/.exec(row.key)?.[1] ?? Number.MAX_SAFE_INTEGER)
+  return a.remainDays - b.remainDays || id(a) - id(b) || a.name.localeCompare(b.name, "ru")
+}
+
+/** Linko's ordering names (its page writes ?ordering=totalAmount …) → the row fields. */
+const LINKO_SORT_KEYS: Record<string, string> = { kgValue: "weight", totalAmount: "sold", totalBalance: "available", weekRecommendations: "week", monthRecommendations: "month" }
+
 function compare(ordering: string) {
   const desc = ordering.startsWith("-")
-  const field = desc ? ordering.slice(1) : ordering
+  const raw = desc ? ordering.slice(1) : ordering
+  const field = LINKO_SORT_KEYS[raw] ?? raw
+  if (!field) return linkoOrder
   const byName = (a: RecommendedRow, b: RecommendedRow) => a.name.localeCompare(b.name, "ru") || a.key.localeCompare(b.key)
   if (field === "name" || !SORT_KEYS.has(field)) return (a: RecommendedRow, b: RecommendedRow) => (desc ? -byName(a, b) : byName(a, b))
   const pick = (row: RecommendedRow) => Number(row[field as keyof RecommendedRow]) || 0
-  return (a: RecommendedRow, b: RecommendedRow) => (desc ? pick(b) - pick(a) : pick(a) - pick(b)) || byName(a, b)
+  return (a: RecommendedRow, b: RecommendedRow) => (desc ? pick(b) - pick(a) : pick(a) - pick(b)) || linkoOrder(a, b)
 }
 
 export async function recommendedList(filters: RecommendedFilters, paging: { page: number; pageSize: number; ordering: string }, db: PgDb = getDb()): Promise<RecommendedListResult> {
   const { rows, totalSold, sales } = await recommendedRows(filters, db)
-  rows.sort(compare(paging.ordering || "-sold"))
+  rows.sort(compare(paging.ordering))
   const pageSize = paging.pageSize
   const lastPage = pageSize ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1
   const page = Math.min(paging.page, lastPage)

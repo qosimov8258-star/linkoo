@@ -2,6 +2,7 @@
 // Money rows spell currencies inconsistently (SUM/sum/UZS, USD/usd,
 // EUR/eur/euro/Euro), so everything is normalised to one canonical code.
 
+import { amountDigits, printDigits, roundToDigits } from "@/lib/amount-precision"
 import type { CurrencyBalance, FinanceCurrency } from "@/lib/finance/types"
 
 const ALIASES: Record<string, string> = {
@@ -190,17 +191,21 @@ export function currenciesWithAmounts(
   return currencies.length ? [currencies[0].code] : []
 }
 
-/** Rounds away float noise. Three decimals by default, like the reference's amounts (7 079 026,149). */
-export function roundMoney(value: number, digits = 3): number {
-  if (!Number.isFinite(value)) return 0
-  const factor = 10 ** digits
-  const rounded = Math.round(value * factor) / factor
-  return Object.is(rounded, -0) ? 0 : rounded
+/** Rounds away float noise, halves away from zero (lib/amount-precision.ts roundToDigits): as the reference prints an
+ * amount (Intl) and its server rounds a numeric (-0.370925 → -0.37093). Without `digits`: to the decimals of
+ * Настройки → Округление сумм (the reference's ROUND_AMOUNT_FOR_CURRENCY), else three (1 234 567,891). An explicit
+ * `digits` is kept whatever the setting is (stored math with a precision of its own: cash to 5 decimals, rates to 10).
+ * The reference's client-side round() takes a negative half toward +∞ instead: roundAmount. */
+export function roundMoney(value: number, digits?: number): number {
+  return roundToDigits(value, digits ?? amountDigits(3))
 }
 
-/** "1 234 567,5" (ru-RU grouping, up to `maxDigits` decimals, no currency). The reference shows up to three decimals. */
+/** "1 234 567,5" (ru-RU grouping, no currency): the reference's numberFormat(amount, suffix, precision = 3). Its
+ * decimals are those of Настройки → Округление сумм when set (ROUND_AMOUNT_FOR_CURRENCY, lib/amount-precision.ts),
+ * else `maxDigits`: a set value wins over the precision of the call, as in the reference ("1 234,56789" with 5).
+ * Screens the reference prints with a fixed precision use formatFixed (lib/amount-precision.ts). */
 export function formatMoney(value: number, maxDigits = 3): string {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: maxDigits }).format(roundMoney(value, maxDigits))
+  return printDigits(value, amountDigits(maxDigits))
 }
 
 /** Converts `amount` of `from` into `to` with current rates (units of base per unit). null when a rate is unknown. */

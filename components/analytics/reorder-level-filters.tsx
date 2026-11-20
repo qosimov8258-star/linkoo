@@ -69,7 +69,8 @@ export function reorderStateFromParams(params: URLSearchParams): ReorderState {
     brands: values(params, "brand"),
     unit,
     search: (params.get("search") ?? "").trim(),
-    ordering: (params.get("ordering") ?? "").trim() || "-sold",
+    // No ordering = Linko's own: Запас дней ascending (the API's default).
+    ordering: (params.get("ordering") ?? "").trim(),
     page: Number.isFinite(page) && page > 0 ? page : 1,
     pageSize: (REORDER_PAGE_SIZES as readonly number[]).includes(size) ? size : 25,
   }
@@ -87,7 +88,7 @@ export function reorderApiQuery(state: ReorderState, extra: Record<string, strin
   state.brands.forEach((value) => params.append("brand", value))
   if (state.search) params.set("search", state.search)
   if (state.unit !== "measurement") params.set("unit", state.unit)
-  params.set("ordering", state.ordering)
+  if (state.ordering) params.set("ordering", state.ordering)
   for (const [name, value] of Object.entries(extra)) if (value !== undefined && value !== "") params.set(name, String(value))
   return params.toString()
 }

@@ -232,10 +232,17 @@ async function computeMonth(db: PgDb, ctx: MonthContext, employees: AttendanceEm
 
 const EMPLOYEE_COLUMNS = "id, first_name, last_name, login, position, branch, created_at, active"
 
-/** Active employees in Linko's login order (staff/attendance lists them so), by name search and branch ids;
- * `employeeIds` (the reader's field scope, lib/field-activity/actor.ts) keeps only those employees
- * (undefined = every employee). */
-async function shownEmployees(db: PgDb, search: string, branchIds: number[], employeeIds?: number[]): Promise<AttendanceEmployee[]> {
+/** «Агент» header sort of the page (Linko's ?ordering=first_name / -first_name). */
+export type AttendanceOrdering = "first_name" | "-first_name" | ""
+
+// Linko sorts by first name in its database collation: case and punctuation do not count first,
+// then lower case before upper; equal names keep the id order in both directions.
+const FIRST_NAME_ORDER = new Intl.Collator("en", { sensitivity: "variant", ignorePunctuation: true })
+
+/** Active employees in Linko's login order (staff/attendance lists them so), by name search and branch ids
+ * (an employee belongs to every branch of his branch list, as Linko's filter); `employeeIds` (the reader's
+ * field scope, lib/field-activity/actor.ts) keeps only those employees (undefined = every employee). */
+async function shownEmployees(db: PgDb, search: string, branchIds: number[], employeeIds?: number[], ordering: AttendanceOrdering = ""): Promise<AttendanceEmployee[]> {
   if (employeeIds && !employeeIds.length) return []
   const where = ["active = 1"]
   const params: Record<string, unknown> = {}
@@ -250,8 +257,11 @@ async function shownEmployees(db: PgDb, search: string, branchIds: number[], emp
       ? ((await db.prepare("SELECT id, name FROM branches WHERE id = ANY(@ids::int[])").all({ ids: branchIds })) as { id: number; name: string }[])
       : []
     if (branches.length !== new Set(branchIds).size) throw new AttendanceError("Филиал не найден", 400, "branch")
-    params.branches = branches.map((branch) => nameKey(String(branch.name ?? "")))
-    where.push(`${keySql("branch")} = ANY(@branches::text[])`)
+    params.branchIds = branchIds
+    where.push(
+      `EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN branch_ids ~ '^\\[[0-9, ]*\\]$' THEN branch_ids::jsonb ELSE '[]'::jsonb END) AS b(id)
+                WHERE b.id::int = ANY(@branchIds::int[]))`,
+    )
   }
   const needle = nameKey(search)
   if (needle) {
@@ -261,17 +271,22 @@ async function shownEmployees(db: PgDb, search: string, branchIds: number[], emp
     )
   }
   const rows = (await db.prepare(`SELECT ${EMPLOYEE_COLUMNS} FROM employees WHERE ${where.join(" AND ")} ORDER BY id`).all(...(Object.keys(params).length ? [params] : []))) as EmployeeRow[]
-  rows.sort((a, b) => LOGIN_ORDER.compare(a.login ?? "", b.login ?? "") || Number(a.id) - Number(b.id))
+  if (ordering) {
+    const sign = ordering === "-first_name" ? -1 : 1
+    rows.sort((a, b) => sign * FIRST_NAME_ORDER.compare(String(a.first_name ?? ""), String(b.first_name ?? "")) || Number(a.id) - Number(b.id))
+  } else {
+    rows.sort((a, b) => LOGIN_ORDER.compare(a.login ?? "", b.login ?? "") || Number(a.id) - Number(b.id))
+  }
   return rows.map(toEmployee)
 }
 
 /** GET /api/work-attendance: the month matrix (month 1..12); `employeeIds` = the reader's field
- * scope (undefined = every employee). */
-export async function listAttendance(params: { year: number; month: number; search: string; branchIds: number[]; employeeIds?: number[] }): Promise<AttendanceMonth> {
+ * scope (undefined = every employee); `ordering` = the «Агент» header sort (default: Linko's login order). */
+export async function listAttendance(params: { year: number; month: number; search: string; branchIds: number[]; employeeIds?: number[]; ordering?: AttendanceOrdering }): Promise<AttendanceMonth> {
   await ensureAttendanceSchema()
   const db = getDb()
   const ctx = await monthContext(db, params.year, params.month)
-  const employees = await shownEmployees(db, params.search, params.branchIds, params.employeeIds)
+  const employees = await shownEmployees(db, params.search, params.branchIds, params.employeeIds, params.ordering ?? "")
   const days = await computeMonth(db, ctx, employees)
   const users: AttendanceUser[] = employees.map((employee) => {
     const dates = [...(days.get(employee.id)?.values() ?? [])].sort((a, b) => a.date.localeCompare(b.date))

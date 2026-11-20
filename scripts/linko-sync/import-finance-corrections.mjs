@@ -49,13 +49,12 @@ try {
   }
   console.log(`client opening balances cleared: ${openings.length}`)
 
-  // "Срок долга" of Сверка счетов (sales/client_balances payment_deadline): the local account key is "inn:<INN>" of the
-  // account's client, else the client id (lib/finance-store-reconciliation.ts).
+  // "Срок долга" of Сверка счетов (sales/client_balances payment_deadline): the local account key is the account row
+  // key "acc:<account id>" (lib/finance-store-reconciliation.ts; rows written earlier with the account's first shop id
+  // or "inn:<INN>" are still read and mapped onto that shop's account).
   let deadlines = 0
   for (const account of raw("client_balances").filter((a) => a.payment_deadline)) {
-    const market = (await client.query("SELECT c.id, c.inn FROM financial_account_markets m JOIN clients c ON c.id = m.client_id WHERE m.financial_account_id = $1 ORDER BY c.id LIMIT 1", [account.id])).rows[0]
-    const inn = String(market?.inn ?? "").replace(/\s+/g, "")
-    const key = inn ? `inn:${inn}` : String(market?.id ?? account.id)
+    const key = `acc:${account.id}`
     const latest = (await client.query("SELECT payment_deadline FROM account_payment_deadlines WHERE account_key = $1 ORDER BY id DESC LIMIT 1", [key])).rows[0]
     if (latest?.payment_deadline === account.payment_deadline) continue
     const row = (await client.query("INSERT INTO account_payment_deadlines (account_key, payment_deadline, created_by) VALUES ($1, $2, '') RETURNING id", [key, account.payment_deadline])).rows[0]

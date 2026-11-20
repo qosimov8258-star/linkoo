@@ -72,10 +72,11 @@ export function CashAmount({ operation, align = "right" }: { operation: CashOper
       <span className="font-bold" style={{ color: operation.amount < 0 ? CASH_RED : CASH_GREEN }}>
         {formatCash(operation.amount, operation.currency)}
       </span>
+      {/* The reference's second line keeps the amount's colour; only the rate is dark and small. */}
       {foreign && operation.baseAmount !== null && (
-        <span className="text-[12px] text-[#586174]">
+        <span className="font-bold" style={{ color: operation.amount < 0 ? CASH_RED : CASH_GREEN }}>
           {formatCash(operation.baseAmount, operation.baseCurrency)}
-          {operation.baseAmount !== 0 && operation.rate ? <span className="text-[11px] text-[#9aa3b6]"> ({formatMoney(operation.rate, 3)})</span> : null}
+          {operation.baseAmount !== 0 && operation.rate ? <span className="text-[11px] font-semibold text-[#333]"> ({formatMoney(operation.rate, 3)})</span> : null}
         </span>
       )}
     </div>
@@ -187,6 +188,7 @@ export function CashModal({
   top,
   footerButtons = "text",
   closeInset = 10,
+  dismissible = true,
 }: {
   title: ReactNode
   onClose: () => void
@@ -203,15 +205,18 @@ export function CashModal({
   footerButtons?: "text" | "filled" | "danger"
   /** Right padding of the header in px (the reference settings dialogs keep the close button 15 px from the edge). */
   closeInset?: number
+  /** false: only the X closes it, not Escape or a click outside (the reference's modal forms). */
+  dismissible?: boolean
 }) {
   const { t } = useLanguage()
   useEffect(() => {
+    if (!dismissible) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose()
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  }, [onClose, dismissible])
   if (size === "screen") {
     return (
       <div className="fixed inset-0 flex flex-col bg-white font-sans text-[13px] text-black" style={{ zIndex: Math.max(zIndex, 110) }}>
@@ -231,7 +236,7 @@ export function CashModal({
     <div
       className={`fixed inset-0 flex justify-center overflow-y-auto bg-black/45 font-sans text-[13px] text-black ${top === undefined ? "items-center" : "items-start"}`}
       style={{ zIndex, paddingTop: top }}
-      onMouseDown={onClose}
+      onMouseDown={dismissible ? onClose : undefined}
     >
       <div
         role="dialog"
@@ -576,8 +581,11 @@ export function ConfirmDialog({
   onConfirm,
   onClose,
   children,
+  dismissible = true,
 }: {
   title: string
+  /** false: only the X closes it, not Escape or a click outside (the reference's modal confirmations). */
+  dismissible?: boolean
   /** "cancel": the reference's "ПОДТВЕРЖДЕНИЕ ОТМЕНЫ" (question + the item on a grey band + «ДА»). "request": its "ВЫПОЛНИТЬ" (title + «Подтверждение запроса» + the question on a grey band). */
   kind?: "cancel" | "request"
   /** Text of the grey band under the question (delete: the title; cancel: this). */
@@ -609,6 +617,7 @@ export function ConfirmDialog({
       onClose={onClose}
       size="md"
       zIndex={160}
+      dismissible={dismissible}
       footerButtons={warning ? "danger" : "text"}
       footer={
         <>

@@ -115,8 +115,9 @@ export function UnitFormDialog({ unitId, onClose, onSaved }: { unitId: number | 
               loading={units.loading}
               invalid={Boolean(fieldError("parent"))}
             />
-            {hasChildren && <span className="text-[12px] text-[#9aa3b6]">{t("Единица с дочерними единицами не может быть дочерней")}</span>}
           </Field>
+          {/* Under the field (inside its fixed-height box it ran over the next label), as on Типы продуктов. */}
+          {hasChildren && <p className="mb-[12px] mt-[6px] text-[12px] leading-[15px] text-[#7a8499]">{t("Единица с дочерними единицами не может быть дочерней")}</p>}
           <Field label={t("Наименование")} filled={Boolean(draft.name)} required error={fieldError("name")}>
             <input
               autoFocus

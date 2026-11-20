@@ -111,7 +111,27 @@
     "йцукенгш",
     "на",
     "пароль123",
-    "№;Наименование;Адрес;Дата добавления"
+    "№;Наименование;Адрес;Дата добавления",
+    "а",
+    "б",
+    "г",
+    "д",
+    "е",
+    "ж",
+    "з",
+    "й",
+    "к",
+    "кс",
+    "л",
+    "н",
+    "о",
+    "п",
+    "р",
+    "т",
+    "у",
+    "ф",
+    "х",
+    "ц"
   ],
   "files": [
     "*-data.ts",
@@ -122,6 +142,9 @@
     "components/analytics/suppliers-data.ts",
     "components/orders/marketing-data.ts",
     "lib/db.ts",
-    "lib/app-currency-text.ts"
+    "lib/app-currency-text.ts",
+    "lib/client-returns-onec.ts",
+    "components/orders/returns-list-excel.ts",
+    "lib/doc-template-render.ts"
   ]
 }

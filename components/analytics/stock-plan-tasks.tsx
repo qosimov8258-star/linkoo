@@ -7,7 +7,7 @@ import type { StockOptions } from "@/components/analytics/stock-move-filters"
 import { formatCategoryDate } from "@/components/analytics/categories-grid"
 import { ListBTable } from "@/components/analytics/list-b-table"
 import { StockPlanDetail } from "@/components/analytics/stock-plan-detail"
-import { RI, RefCard, RefIconButton, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefAppliedFilter, RefCard, RefIconButton, RefToolbar } from "@/components/ref/list-kit"
 import { PlanTaskFilterDialog, type PlanFilterChanges } from "@/components/analytics/stock-plan-filters"
 import { CLEAR_PLAN_FILTERS, countPlanFilters, planDate, taskApiQuery, type PlanState } from "@/components/analytics/stock-plan-state"
 import { downloadExcelTable } from "@/lib/excel-export"
@@ -35,13 +35,14 @@ function useColumns(tab: PlanTaskTab): Column[] {
   const warehouse: Column = { label: "Склад", sort: "warehouse", cell: (row) => name(row.warehouse), excel: (row) => row.warehouse }
   const party = (label: string): Column => ({ label, sort: "party", cell: (row) => name(row.party), excel: (row) => row.party })
   const when = (label: string, field: "date" | "requestDate" | "doneAt", sort: string): Column => ({ label, sort, cell: (row) => <span className="whitespace-nowrap">{date(row[field])}</span>, excel: (row) => planDate(row[field], language) })
-  const who = (label: string): Column => ({ label, sort: "doneBy", cell: (row) => name(row.doneBy), excel: (row) => row.doneBy })
+  // Linko's «Передал» without a user reads «Не указана» (its «Дата передачи» word).
+  const who = (label: string, empty = "Не указано"): Column => ({ label, sort: "doneBy", cell: (row) => row.doneBy || t(empty), excel: (row) => row.doneBy })
   const deliverer: Column = { label: "Доставщик", sort: "deliverer", cell: (row) => name(row.deliverer), excel: (row) => row.deliverer }
   if (tab === "receive") return [no, party("От кого"), type, when("Дата приемки", "date", "date"), warehouse]
   if (tab === "receive_history") return [{ ...no, label: "№ заказа" }, party("От кого"), type, when("Дата приемки", "doneAt", "date"), who("Принял"), warehouse]
-  if (tab === "transfer") return [no, when("Дата запроса", "requestDate", "requestDate"), warehouse, type, party("Кому"), who("Передал"), when("Дата передачи", "date", "date")]
+  if (tab === "transfer") return [no, when("Дата запроса", "requestDate", "requestDate"), warehouse, type, party("Кому"), who("Передал", "Не указана"), when("Дата передачи", "doneAt", "date")]
   void deliverer
-  return [no, when("Дата запроса", "requestDate", "requestDate"), warehouse, type, party("Кому"), who("Передал"), when("Дата передачи", "doneAt", "date")]
+  return [no, when("Дата запроса", "requestDate", "requestDate"), warehouse, type, party("Кому"), who("Передал", "Не указана"), when("Дата передачи", "doneAt", "date")]
 }
 
 const EMPTY_TEXT: Record<PlanTaskTab, string> = {
@@ -123,25 +124,25 @@ export function StockPlanTasks({
   const from = total > 0 ? (page - 1) * pageSize + 1 : 0
   const to = Math.min(total, page * pageSize)
   const filterCount = countPlanFilters(state)
-  const gridCols = tab === "receive" ? "239px 461px 231px 230px 1fr" : tab === "receive_history" ? "239px 230px 231px 231px 230px 1fr" : "123px 231px 231px 115px 231px 230px 1fr"
+  // Linko's grid: 12 equal units inside the 30 px sides; a column's text starts 8 px in, the first one's at its edge.
+  const units = tab === "receive" ? [2, 4, 2, 2, 2] : tab === "receive_history" ? [2, 2, 2, 2, 2, 2] : [1, 2, 2, 1, 2, 2, 2]
+  const gridCols = units.map((unit) => `minmax(0,${unit}fr)`).join(" ")
+  const inset = (index: number, node: ReactNode) => (index ? <span className="block pl-[8px]">{node}</span> : node)
 
   return (
     <RefCard className="mt-5 bg-white">
       <RefToolbar
         filterOpen={filterOpen}
         filterPanel={<PlanTaskFilterDialog tab={tab} state={state} options={options} doneByOptions={data?.doneByOptions ?? []} onClose={() => setFilterOpen(false)} onApply={applyFilter} />}
+        // Linko's toolbar: «Показать фильтр» with its small chevron, the 300 px search 430 px from the window edge; an
+        // applied filter turns into the grey «Фильтр: N элемента» bar.
+        linkFilter="flush"
+        thinChevron
+        filterWidth={379.5}
+        searchWidth={300}
+        onToggleFilter={() => (filterOpen ? setFilterOpen(false) : openFilter())}
         leftSlot={
-          filterCount === 0 ? (
-            <button type="button" onClick={openFilter} className="text-[13px] text-[#1E4A9A]">
-              {t("Показать фильтр")} ⌄
-            </button>
-          ) : (
-            <span className="ml-[5px] inline-flex h-[30px] items-center gap-2 rounded-md bg-[#efefef] px-4 text-[#666]">
-              {t("Фильтр")}: {filterCount} {t("элемента")}
-              <button type="button" onClick={openFilter} aria-label={t("Изменить")} className="border-l border-white pl-2 text-[#8f8f8f]">✎</button>
-              <button type="button" onClick={() => update({ ...CLEAR_PLAN_FILTERS })} aria-label={t("Очистить")} className="border-l border-white pl-2 text-[#8f8f8f]">×</button>
-            </span>
-          )
+          filterCount > 0 && <RefAppliedFilter count={filterCount} width={371.5} shift={4} onEdit={openFilter} onClear={() => update({ ...CLEAR_PLAN_FILTERS })} />
         }
         query={searchDraft}
         onQuery={setSearchDraft}
@@ -172,15 +173,15 @@ export function StockPlanTasks({
           cols={gridCols}
           minWidth={900}
           cellPad={0}
-          heads={columns.map((column) =>
-            column.sort ? (
+          heads={columns.map((column, index) =>
+            inset(index, column.sort ? (
               <button key={column.label} type="button" onClick={() => sort(column.sort!)} className="text-left font-semibold hover:opacity-80">
                 {t(column.label)}
                 {state.ordering === column.sort ? <span className="ml-1 text-[10px]">▲</span> : state.ordering === `-${column.sort}` ? <span className="ml-1 text-[10px]">▼</span> : null}
               </button>
             ) : (
               t(column.label)
-            ),
+            )),
           )}
           rows={rows}
           rowKey={(row) => `${row.type}-${row.id}`}
@@ -195,7 +196,7 @@ export function StockPlanTasks({
               <span>{t(filterCount || state.search ? "По вашему запросу ничего не найдено" : EMPTY_TEXT[tab])}</span>
             )
           }
-          render={(row) => columns.map((column) => column.cell(row))}
+          render={(row) => columns.map((column, index) => inset(index, column.cell(row)))}
           expanded={(row) =>
             state.detail === `${row.type}-${row.id}` ? (
               <div className="bg-[#f2f5f8] px-2 py-3 md:px-4">

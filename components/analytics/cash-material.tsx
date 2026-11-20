@@ -141,6 +141,7 @@ export function MaterialDialog({
   children,
   maxHeight,
   closeInset = 10,
+  modal = false,
 }: {
   title: ReactNode
   onClose: () => void
@@ -154,6 +155,8 @@ export function MaterialDialog({
   maxHeight?: number
   /** Right padding of the title row in px (the reference's "Добавить склад" close button sits 15 px in, most dialogs 10). */
   closeInset?: number
+  /** A click on the backdrop leaves the dialog open (Material's `modal`); the close mark still closes it. */
+  modal?: boolean
   /** Renders the box as a form (the footer submit button then submits it). */
   onSubmit?: () => void
   children: ReactNode
@@ -171,7 +174,7 @@ export function MaterialDialog({
     <div
       className={`fixed inset-0 flex justify-center overflow-y-auto bg-black/45 font-sans text-[13px] text-black ${top === undefined ? "items-center" : "items-start"}`}
       style={{ zIndex, paddingTop: top }}
-      onMouseDown={onClose}
+      onMouseDown={modal ? undefined : onClose}
     >
       <Box
         role="dialog"

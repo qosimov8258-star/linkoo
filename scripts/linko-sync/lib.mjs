@@ -9,11 +9,12 @@ import pg from "pg"
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const ROOT = path.resolve(here, "../..")
 
-/** Folder with the downloaded raw files: RAW env, else the newest backups/linko-raw/<date>. */
+/** Folder with the downloaded raw files: RAW env, else the newest backups/linko-raw/<date> of a full download (its lists
+ * step wrote orders.json; a folder of a few screens' captures or of single steps is skipped). */
 export function rawDir() {
   if (process.env.RAW) return process.env.RAW
   const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort() : []
+  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name) && fs.existsSync(path.join(base, name, "orders.json"))).sort() : []
   if (!days.length) throw new Error("No raw data: run scripts/linko-sync/fetch.mjs first")
   return path.join(base, days[days.length - 1])
 }

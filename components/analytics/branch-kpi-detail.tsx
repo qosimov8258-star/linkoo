@@ -16,18 +16,19 @@ type SortKey = "discounts" | "levels" | "plan" | "totalSales" | "orderReturnFact
 
 type Line = BranchKpiBalance & { levelText: string; factPercent: number; forecastPercent: number }
 
+// The reference: 10% per column and 5% for the two "%" (155 / 77.5 px at 1600 px), widened by long values (auto layout).
 const COLUMNS: Array<{ key: SortKey; label: string; width: string }> = [
-  { key: "discounts", label: "KPI", width: "9.85%" },
-  { key: "levels", label: "Уровень", width: "9.85%" },
-  { key: "plan", label: "План", width: "9.85%" },
-  { key: "totalSales", label: "Продажи", width: "9.85%" },
-  { key: "orderReturnFact", label: "Возврат", width: "9.85%" },
-  { key: "fact", label: "Факт", width: "9.85%" },
-  { key: "factPercent", label: "%", width: "5.75%" },
-  { key: "planFact", label: "Дневной план", width: "9.85%" },
-  { key: "forecast", label: "Прогноз", width: "9.85%" },
-  { key: "forecastPercent", label: "%", width: "5.75%" },
-  { key: "bonus", label: "Бонус", width: "9.85%" },
+  { key: "discounts", label: "KPI", width: "10%" },
+  { key: "levels", label: "Уровень", width: "10%" },
+  { key: "plan", label: "План", width: "10%" },
+  { key: "totalSales", label: "Продажи", width: "10%" },
+  { key: "orderReturnFact", label: "Возврат", width: "10%" },
+  { key: "fact", label: "Факт", width: "10%" },
+  { key: "factPercent", label: "%", width: "5%" },
+  { key: "planFact", label: "Дневной план", width: "10%" },
+  { key: "forecast", label: "Прогноз", width: "10%" },
+  { key: "forecastPercent", label: "%", width: "5%" },
+  { key: "bonus", label: "Бонус", width: "10%" },
 ]
 
 function sortValue(line: Line, key: SortKey): number | string {
@@ -77,7 +78,11 @@ export function BranchKpiDetailPanel({
   version,
   onClose,
   onOpenIndicator,
+  url,
 }: {
+  /** Where the card comes from when it is not a branch (an employee's salary card: /api/salary-records/<id>, whose
+   * three totals the reference prints in 14 px semibold). */
+  url?: string
   branchId: number
   month: number
   year: number
@@ -98,7 +103,7 @@ export function BranchKpiDetailPanel({
     const controller = new AbortController()
     setLoading(true)
     setError("")
-    fetchJson<BranchKpiDetail>(`${BRANCH_KPI_API}/${branchId}?month=${month}&year=${year}`, { signal: controller.signal })
+    fetchJson<BranchKpiDetail>(url ?? `${BRANCH_KPI_API}/${branchId}?month=${month}&year=${year}`, { signal: controller.signal })
       .then(setData)
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
@@ -107,7 +112,7 @@ export function BranchKpiDetailPanel({
         if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
-  }, [branchId, month, year, version])
+  }, [branchId, month, year, version, url])
 
   const lines = useMemo<Line[]>(() => {
     const list = (data?.balances ?? []).map((balance) => {
@@ -131,8 +136,11 @@ export function BranchKpiDetailPanel({
   const currency = data?.currency ?? "SUM"
   const salary = data?.salary ?? 0
   const bonuses = lines.reduce((sum, line) => sum + (Number(line.bonusAmount) || 0), 0)
-  // the reference's "Итог зарплата" is the fixed salary only (bonuses are listed separately)
+  // the reference's "Итог зарплата" is the fixed salary only (bonuses are listed separately); an employee's card shows
+  // its stored totals per currency
   const total = salary
+  const linesText = (items: Array<{ value: number; currency: string }> | undefined, fallback: string) =>
+    items?.length ? items.map((item) => kpiNumber(item.value, item.currency, 5)).join(", ") : fallback
 
   const downloadExcel = () => {
     if (!data) return
@@ -178,8 +186,10 @@ export function BranchKpiDetailPanel({
   if (!data) return null
 
   const dash = <span className="text-[#999]">—</span>
-  const head = "h-[30px] bg-[#1E4A9A] px-1 font-bold text-white"
-  const cell = "h-[30px] bg-[#d7e0ff] px-1 font-bold text-[#666]"
+  // The reference's cells: 1px padding, amounts with the «Округление сумм» precision (5 digits).
+  const valueClass = url ? "text-[14px] font-semibold leading-[17.5px]" : "text-[16px] font-semibold leading-[20px]"
+  const head = "h-[30px] bg-[#1E4A9A] p-px font-bold text-white"
+  const cell = "h-[30px] bg-[#d7e0ff] p-px font-bold text-[#666]"
   return (
     <div className="bg-[#f1f5f8] py-[20px]">
     <div className={`-mx-[15px] bg-white text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)] ${loading ? "opacity-60" : ""}`}>
@@ -193,19 +203,19 @@ export function BranchKpiDetailPanel({
       <div className="flex h-[60px] items-center justify-between px-[30px] text-[#666]">
         <div>
           <span className="block leading-[16.3px]">{t("Фикс. зарплата")}</span>
-          <div className="text-[16px] font-semibold leading-[20px] text-[#333]">{kpiNumber(salary, currency)}</div>
+          <div className={`${valueClass} text-[#333]`}>{kpiNumber(salary, currency, 5)}</div>
         </div>
         <div>
           <span className="block leading-[16.3px]">{t("Бонусы")}</span>
-          <div className="text-[16px] font-semibold leading-[20px] text-[#333]">{kpiNumber(bonuses, currency)}</div>
+          <div className={`${valueClass} text-[#333]`}>{linesText(data.bonusLines, kpiNumber(bonuses, currency, 5))}</div>
         </div>
         <div className="text-right">
           <span className="block leading-[16.3px]">{t("Итог зарплата")}</span>
-          <div className="text-[16px] leading-[22px] text-black">{kpiNumber(total, currency)}</div>
+          <div className={url ? `${valueClass} text-[#333]` : "text-[16px] leading-[22px] text-black"}>{linesText(data.totalLines, kpiNumber(total, currency, 5))}</div>
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1000px] table-fixed border-separate border-spacing-[2px] text-center text-[13px]">
+        <table className="w-full min-w-[1000px] border-separate border-spacing-[2px] text-center text-[13px] leading-[16.25px]">
           <thead>
             <tr>
               {COLUMNS.map((column) => (
@@ -233,23 +243,23 @@ export function BranchKpiDetailPanel({
                     {!supported && <span className="block text-[11px] font-normal text-[#999]">{t("нет данных в системе")}</span>}
                   </td>
                   <td className={cell}>{line.levelText}</td>
-                  <td className={cell}>{kpiNumber(line.planAmount)}</td>
-                  <td className={cell}>{supported ? kpiNumber(line.salesAmount) : dash}</td>
-                  <td className={cell}>{supported ? kpiNumber(line.returnAmount) : dash}</td>
+                  <td className={cell}>{kpiNumber(line.planAmount, undefined, 5)}</td>
+                  <td className={cell}>{supported ? kpiNumber(line.salesAmount, undefined, 5) : dash}</td>
+                  <td className={cell}>{supported ? kpiNumber(line.returnAmount, undefined, 5) : dash}</td>
                   <td className={`${cell} whitespace-nowrap`} style={factStyle}>
-                    {supported ? kpiNumber(line.factAmount) : dash}
+                    {supported ? kpiNumber(line.factAmount, undefined, 5) : dash}
                   </td>
                   <td className={`${cell} whitespace-nowrap`} style={factStyle}>
-                    {supported ? kpiNumber(line.factPercent, "%", 1) : dash}
+                    {supported ? kpiNumber(line.factPercent, "%", 5) : dash}
                   </td>
-                  <td className={cell}>{supported ? kpiNumber(line.dailyPlan, undefined, 0) : dash}</td>
+                  <td className={cell}>{supported ? kpiNumber(line.dailyPlan, undefined, 5) : dash}</td>
                   <td className={`${cell} whitespace-nowrap`} style={forecastStyle}>
-                    {supported ? kpiNumber(line.planForecast, undefined, 0) : dash}
+                    {supported ? kpiNumber(line.planForecast, undefined, 5) : dash}
                   </td>
                   <td className={`${cell} whitespace-nowrap`} style={forecastStyle}>
-                    {supported ? kpiNumber(line.forecastPercent, "%", 0) : dash}
+                    {supported ? kpiNumber(line.forecastPercent, "%", 5) : dash}
                   </td>
-                  <td className={cell}>{kpiNumber(line.bonusAmount, undefined, 0)}</td>
+                  <td className={cell}>{kpiNumber(line.bonusAmount, undefined, 5)}</td>
                 </tr>
               )
             })}

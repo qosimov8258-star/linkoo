@@ -1,5 +1,6 @@
 import "server-only"
 
+import { amountDigits, roundToDigits } from "@/lib/amount-precision"
 import { getAppCurrency } from "@/lib/app-currency"
 import { CashError, currencyContext, resolveOrganization } from "@/lib/cash/common"
 import { allocatedOrderDues, type AllocatedOrderDue } from "@/lib/cash/orders"
@@ -100,6 +101,9 @@ const ORDER_COLUMNS: Array<[string, string]> = [
   ["payment_date", "TEXT NOT NULL DEFAULT ''"],
   ["payment_type", "TEXT NOT NULL DEFAULT ''"],
   ["organization", "TEXT NOT NULL DEFAULT ''"],
+  // The organization's id when the order names one of several organizations of the same name (Linko's division id of
+  // a copied order, scripts/linko-sync/import-order-divisions.mjs); NULL: resolved by the name.
+  ["organization_id", "INTEGER"],
   ["warehouse", "TEXT NOT NULL DEFAULT ''"],
   ["delivery_man", "TEXT NOT NULL DEFAULT ''"],
   ["client_id", "INTEGER"],
@@ -137,6 +141,16 @@ const ORDER_COLUMNS: Array<[string, string]> = [
   ["invoice_contract", "TEXT NOT NULL DEFAULT ''"],
   ["operative_expand", "TEXT NOT NULL DEFAULT ''"],
   ["actual_expand", "TEXT NOT NULL DEFAULT ''"],
+  // Linko's order filter facts (scripts/linko-sync/import-order-filter-facts.mjs): a manual discount, «Только новые»
+  // and the «Сборщик» employee id.
+  ["with_discount", "INTEGER NOT NULL DEFAULT 0"],
+  ["is_new", "INTEGER NOT NULL DEFAULT 0"],
+  ["collector_id", "INTEGER"],
+  // Linko's service_shipment_status (EDO shipment: disabled / failed / pending / filled / success), the list's icon.
+  ["service_shipment_status", "TEXT NOT NULL DEFAULT ''"],
+  // Linko's «Список оплат по заказу» of a copied order (its debt transactions, JSON in Linko's order;
+  // scripts/linko-sync/import-order-payment-lines.mjs). NULL: the app lists its own payments.
+  ["linko_payment_lines", "TEXT"],
 ]
 
 const DDL = `
@@ -347,7 +361,7 @@ EXCEPTION WHEN others THEN
 END $$;
 `
 
-const SCHEMA_VERSION = 5
+const SCHEMA_VERSION = 6
 
 declare global {
   var __linkoOrdersSchema: { version: number; ready: Promise<void> } | undefined
@@ -424,6 +438,8 @@ type OrderRow = {
   c_deliverer?: string | null
   market_name: string | null
   expeditor: string | null
+  collector_id?: number | null
+  service_shipment_status?: string | null
   accepted_date: string | null
   total_price: number | null
   return_price: number | null
@@ -511,6 +527,7 @@ function rowToOrder(row: OrderRow): Order {
     marketName: row.market_name ?? "",
     expeditor: row.expeditor ?? "",
     acceptedDate: row.accepted_date ?? "",
+    shipmentStatus: row.service_shipment_status ?? "",
     totalPrice: row.total_price ?? undefined,
     returnPrice: Number(row.return_price ?? 0),
     factPrice: row.fact_price ?? undefined,
@@ -556,9 +573,11 @@ export function parseMoneyText(text: string): { value: number; currency: string 
   return { value, currency: match[2] ? match[2].toUpperCase() : null }
 }
 
+/** "60 000 SUM": two decimals, or those of Настройки → Округление сумм when set (the reference's numberFormat). */
 export function formatMoney(amount: number, currency: string): string {
-  const rounded = Math.round(amount * 100) / 100
-  const grouped = rounded.toLocaleString("ru-RU", { maximumFractionDigits: 2 }).replace(/[  ]/g, " ")
+  const digits = amountDigits(2)
+  const rounded = roundToDigits(amount, digits)
+  const grouped = rounded.toLocaleString("ru-RU", { maximumFractionDigits: digits }).replace(/[  ]/g, " ")
   return `${grouped} ${currency}`
 }
 
@@ -1084,12 +1103,15 @@ const LOG_STATUS_CODE: Record<string, string> = { "В процессе": "0", "�
 
 /** An entry of the order card's Логи (read by lib/order-logs-repo.ts): created / updated with the order's
  * status, total and currency at that moment. */
-async function addLog(db: PgDb, orderId: number, entry: { action: "created" | "updated"; status: string; comment?: string; amount: string; user: string }) {
+async function addLog(db: PgDb, orderId: number, entry: { action: "created" | "updated"; status: string; comment?: string; amount: string; user: string; login?: string }) {
   const money = parseMoneyText(entry.amount)
+  // «Кем» is the person's name, like Linko and the card's own entries (app/api/orders/[id]/logs): the employee that owns
+  // the login, else the account's display name.
   await db
     .prepare(
       `INSERT INTO order_logs (order_id, action, status, comment, total_price, currency, pay_type_name, created_by, created_at, market_name)
-       SELECT @orderId, @action, @status, @comment, @total, @currency, COALESCE(o.pay_type_name, ''), @user,
+       SELECT @orderId, @action, @status, @comment, @total, @currency, COALESCE(o.pay_type_name, ''),
+              COALESCE((SELECT NULLIF(btrim(e.first_name || ' ' || e.last_name), '') FROM employees e WHERE @login::text <> '' AND e.login = @login::text ORDER BY e.id LIMIT 1), @user),
               to_char((now() AT TIME ZONE 'Asia/Tashkent'), 'YYYY-MM-DD"T"HH24:MI:SS'), COALESCE(NULLIF(o.market_name, ''), o.client, '')
          FROM orders o WHERE o.id = @orderId`,
     )
@@ -1101,6 +1123,7 @@ async function addLog(db: PgDb, orderId: number, entry: { action: "created" | "u
       total: money?.value ?? 0,
       currency: money?.currency ?? "SUM",
       user: entry.user,
+      login: entry.login ?? "",
     })
 }
 
@@ -1128,10 +1151,12 @@ async function accountOfShops(clientIds?: number[]): Promise<Map<number, number>
   return new Map(rows.map((row) => [Number(row.client_id), Number(row.account_id)]))
 }
 
-/** A balance line of the client list: up to 3 decimals, as the reference shows them ("34,711 USD"). */
+/** A balance line of the client list: up to 3 decimals, or those of Настройки → Округление сумм when set, as the
+ * reference shows them ("34,711 USD"). */
 function formatListMoney(amount: number, currency: string): string {
-  const rounded = Math.round(amount * 1000) / 1000
-  return `${rounded.toLocaleString("ru-RU", { maximumFractionDigits: 3 }).replace(/[\u00a0\u202f]/g, " ")} ${currency}`
+  const digits = amountDigits(3)
+  const rounded = roundToDigits(amount, digits)
+  return `${rounded.toLocaleString("ru-RU", { maximumFractionDigits: digits }).replace(/[\u00a0\u202f]/g, " ")} ${currency}`
 }
 
 /**
@@ -1159,7 +1184,8 @@ export async function clientLedgerBalances(
       }
     }
     const currencies = options.byAccount ? [...result.currencies].sort((a, b) => a.code.localeCompare(b.code)) : result.currencies
-    const digits = options.byAccount ? 1000 : 100
+    // Two decimals (three on the client list), or those of Настройки → Округление сумм when set (Linko's numberFormat).
+    const places = amountDigits(options.byAccount ? 3 : 2)
     for (const row of result.rows) {
       if (row.id === null) continue
       const account = accountOf.get(row.id)
@@ -1167,8 +1193,8 @@ export async function clientLedgerBalances(
       const byCurrency: Record<string, number> = {}
       const lines: string[] = []
       for (const currency of currencies) {
-        const value = Math.round((totals ? (totals[currency.code] ?? 0) : (row.currencies[currency.code]?.end_balance ?? 0)) * digits) / digits
-        if (Math.abs(value) < 0.5 / digits) continue
+        const value = roundToDigits(totals ? (totals[currency.code] ?? 0) : (row.currencies[currency.code]?.end_balance ?? 0), places)
+        if (value === 0) continue
         byCurrency[currency.code] = value
         lines.push(options.byAccount ? formatListMoney(value, currency.code) : formatMoney(value, currency.code))
       }
@@ -1210,8 +1236,8 @@ async function attachBalances<T extends Order>(orders: T[]): Promise<T[]> {
         order.negative = false
         continue
       }
-      const value = Math.round((balances.byAccount.get(account) ?? 0) * 100) / 100
-      order.balance = formatMoney(Object.is(value, -0) ? 0 : value, balances.currency)
+      const value = roundToDigits(balances.byAccount.get(account) ?? 0, amountDigits(2))
+      order.balance = formatMoney(value, balances.currency)
       order.negative = value < 0
     }
   } catch (error) {
@@ -1329,7 +1355,8 @@ async function withLedgerDebt<T extends Order>(order: T): Promise<T> {
  * customer_payments, accepted or not) plus its FIFO share of the client's other credits, in the
  * order's own currency (never summed across currencies). An order the ledger does not count
  * as debt (Отменен, Не подтвержден, unknown client) owes nothing: no orderBalance, paidAmount =
- * its linked payments. The stored paid_amount / order_balance columns are never shown.
+ * its linked payments. An order copied from Linko shows Linko's own paid / remaining (lib/cash/orders.ts
+ * linkoFixedDues: paid_amount / linko_remaining less what was paid here since the copy), as Linko's card and list do.
  * `payableRest` is what the cash desk still accepts for the order (POST /api/cash/orders/[id]/pay,
  * lib/cash/write.ts: "Сумма больше остатка заказа"): the ledger remaining in the order's currency —
  * orderBalance for a counted order, total − linked payments for an unconfirmed one, 0 for a
@@ -1358,7 +1385,7 @@ async function withLedgerDues(orders: Order[], dues = true): Promise<OrderWithDu
     const code = normCurrency(order.currency || parseMoneyText(order.amount)?.currency || base, base)
     const part = due.currencies.find((entry) => normCurrency(entry.currency, base) === code)
     if (!part) return due.counted ? { ...order, paidAmount: 0, orderBalance: 0, payableRest: 0 } : { ...order, payableRest: 0 }
-    const paidAmount = roundMoney(due.counted ? part.paid : part.linked)
+    const paidAmount = roundMoney(due.counted || part.fixed ? part.paid : part.linked)
     const remaining = roundMoney(Math.max(0, part.remaining))
     // The cash desk refuses a cancelled order ("Заказ отменен") and an order whose client is unknown.
     const payableRest = due.status === "Отменен" || due.clientId === null ? 0 : remaining
@@ -1368,11 +1395,47 @@ async function withLedgerDues(orders: Order[], dues = true): Promise<OrderWithDu
   })
 }
 
+/** Linko's fields of a copied debt transaction: its type (1 payment, 3 client return, 9 other…), the cash transaction
+ * number, the return / order it came from, its amount in the base currency and the rate it was booked at. */
+export type LinkoPaymentLine = { type: number; transaction: number | null; orderReturn: number | null; order: number | null; internal: number; rate: number | null; baseCurrency: string }
+
+/** A debt transaction as scripts/linko-sync/import-order-payment-lines.mjs stores it (orders.linko_payment_lines). */
+type StoredLinkoPaymentLine = {
+  id: number
+  type: number
+  transaction: number | null
+  orderReturn: number | null
+  order: number | null
+  date: string
+  client: string
+  user: string
+  comment: string
+  amount: number
+  currency: string
+  internal: number
+  rate: number | null
+  fromAmount: number
+  toAmount: number
+  toCurrency: string
+}
+
+function parseLinkoPaymentLines(raw: string | null | undefined): StoredLinkoPaymentLine[] | null {
+  if (raw === null || raw === undefined || raw === "") return null
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as StoredLinkoPaymentLine[]) : null
+  } catch {
+    return null
+  }
+}
+
 /** A line of "Список оплат по заказу" (the order card's "Оплачено" link). */
 export type OrderPaymentLine = {
   /** "payment": a customer payment linked to the order (cash ledger, customer_payments.order_id);
-   * "allocated": the FIFO share of the client's other credits the ledger counts towards this order. */
-  kind: "payment" | "allocated"
+   * "allocated": the FIFO share of the client's other credits the ledger counts towards this order;
+   * "linko": a debt transaction of the order copied from Linko (`linko` holds its fields). */
+  kind: "payment" | "allocated" | "linko"
+  linko?: LinkoPaymentLine
   /** customer_payments.id (0 for the allocated share). */
   id: number
   /** The cash document number ("№" of the cash pages; 0 when none). */
@@ -1395,6 +1458,7 @@ export type OrderPaymentLine = {
 type OrderPaymentSqlRow = {
   id: number
   doc_no: string | number | null
+  created_at: string
   day: string
   client: string
   user_name: string
@@ -1414,13 +1478,15 @@ export async function listOrderPayments(orderId: number): Promise<OrderPaymentLi
   if (!Number.isSafeInteger(orderId) || orderId <= 0 || orderId > 2_147_483_647) return null
   await ensureOrdersSchema()
   const db = getDb()
-  const order = (await db.prepare("SELECT id, client FROM orders WHERE id = ?").get(orderId)) as { id: number; client: string } | undefined
+  const order = (await db.prepare("SELECT id, client, linko_payment_lines FROM orders WHERE id = ?").get(orderId)) as
+    | { id: number; client: string; linko_payment_lines: string | null }
+    | undefined
   if (!order) return null
   await ensureCashSchema(db)
   const cc = await currencyContext(db)
   const rows = (await db
     .prepare(
-      `SELECT p.id, p.doc_no,
+      `SELECT p.id, p.doc_no, COALESCE(p.created_at, '') AS created_at,
               COALESCE(to_char(COALESCE(fin_ts(NULLIF(p.payment_date, '')), fin_ts(p.created_at, true)), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS day,
               COALESCE(NULLIF(btrim(p.client), ''), @client::text) AS client, COALESCE(p.created_by, '') AS user_name,
               COALESCE(p.comment, '') AS comment, COALESCE(p.accepted, 0) AS accepted,
@@ -1432,7 +1498,7 @@ export async function listOrderPayments(orderId: number): Promise<OrderPaymentLi
         ORDER BY 3, p.id`,
     )
     .all({ id: orderId, client: order.client ?? "", base: cc.base })) as OrderPaymentSqlRow[]
-  const lines: OrderPaymentLine[] = rows.map((row) => ({
+  const toLine = (row: OrderPaymentSqlRow): OrderPaymentLine => ({
     kind: "payment",
     id: Number(row.id),
     docNo: Number(row.doc_no ?? 0) || 0,
@@ -1445,7 +1511,32 @@ export async function listOrderPayments(orderId: number): Promise<OrderPaymentLi
     currency: row.cash_cur,
     orderAmount: roundMoney(Number(row.amount) || 0),
     orderCurrency: row.cur,
-  }))
+  })
+  // A copied order: Linko's own list (its debt transactions, [] when Linko has none), then the payments made on the
+  // order here since the copy — the two parts of the card's «Оплачено» (lib/cash/orders.ts linkoFixedDues).
+  const linko = parseLinkoPaymentLines(order.linko_payment_lines)
+  if (linko) {
+    const history = ((await db.prepare("SELECT to_regclass('linko_history') IS NOT NULL AS ok").get()) as { ok: boolean }).ok
+    const until = history ? String(((await db.prepare("SELECT until FROM linko_history WHERE ledger = 'order_debts'").get()) as { until: string } | undefined)?.until ?? "") : ""
+    const copied: OrderPaymentLine[] = linko.map((entry) => ({
+      kind: "linko",
+      id: Number(entry.id),
+      docNo: Number(entry.transaction ?? 0) || 0,
+      date: entry.date ?? "",
+      client: entry.client ?? "",
+      user: entry.user ?? "",
+      comment: entry.comment ?? "",
+      accepted: true,
+      amount: Number(entry.amount) || 0,
+      currency: normCurrency(entry.currency, cc.base),
+      // Linko: the share in the transaction's currency when it differs from the order's, else in the order's.
+      orderAmount: entry.currency !== entry.toCurrency ? Number(entry.fromAmount) || 0 : Number(entry.toAmount) || 0,
+      orderCurrency: normCurrency(entry.currency !== entry.toCurrency ? entry.currency : entry.toCurrency, cc.base),
+      linko: { type: Number(entry.type) || 0, transaction: entry.transaction ?? null, orderReturn: entry.orderReturn ?? null, order: entry.order ?? null, internal: Number(entry.internal) || 0, rate: entry.rate ?? null, baseCurrency: cc.base },
+    }))
+    return [...copied, ...rows.filter((row) => until && String(row.created_at) > until).map(toLine)]
+  }
+  const lines: OrderPaymentLine[] = rows.map(toLine)
   const [due] = await allocatedOrderDues(db, [orderId], cc)
   for (const part of due?.counted ? due.currencies : []) {
     if (part.allocated <= 0.005) continue
@@ -1467,19 +1558,62 @@ export async function listOrderPayments(orderId: number): Promise<OrderPaymentLi
   return lines
 }
 
-/** The client's operative (by creation) and actual (by realization) debt, for the order card. */
+/** The realization balance per currency of the financial account an order is booked on (orders.financial_account_id,
+ * else its shop's account), as Linko's market_accepted_balance; null when the shop has no account. */
+async function orderAccountRealization(order: Order): Promise<Record<string, number> | null> {
+  if (!order.clientId) return null
+  const db = getDb()
+  const booked = (await db
+    .prepare("SELECT financial_account_id AS id FROM orders WHERE id = @id AND financial_account_id IS NOT NULL")
+    .get({ id: order.id })
+    .catch(() => undefined)) as { id: number } | undefined
+  const account = booked ? Number(booked.id) : (await accountOfShops([order.clientId])).get(order.clientId)
+  if (account === undefined) return null
+  const today = todayIso()
+  const list = await getBalanceList("account", { from: today, to: today, pageSize: 0, keys: [`acc:${account}`], mode: "realization", withDeletedAccounts: true })
+  const row = list.rows.find((entry) => entry.key === `acc:${account}`)
+  const out: Record<string, number> = {}
+  for (const currency of list.currencies) {
+    const value = roundToDigits(row?.currencies[currency.code]?.end_balance ?? 0, amountDigits(2))
+    if (value !== 0) out[currency.code] = value
+  }
+  return out
+}
+
+/**
+ * The order card's «Оперативный» / «Фактический долг клиента», as Linko's total_balance_expand / market_accepted_balance:
+ * the shop's balance by creation, and the balance by realization of the financial account the order is booked on (the
+ * whole client, all its shops; the shop's own when it has no account). One line per currency, in the order Linko lists
+ * them for an order copied from it (its snapshot's order), then the ledger's.
+ */
 export async function getOrderClientDebt(order: Order): Promise<{ operative: string; actual: string; operativeNegative: boolean; actualNegative: boolean } | null> {
   if (!order.clientId) return null
   const key = [String(order.clientId)]
-  const [operative, actual] = await Promise.all([clientLedgerBalances({ keys: key, mode: "created" }), clientLedgerBalances({ keys: key, mode: "realization" })])
-  const op = operative.get(order.clientId)
-  const ac = actual.get(order.clientId)
-  return {
-    operative: op?.lines.join(", ") ?? "",
-    actual: ac?.lines.join(", ") ?? "",
-    operativeNegative: op?.negative ?? false,
-    actualNegative: ac?.negative ?? false,
+  const [operative, account, shopActual, base] = await Promise.all([
+    clientLedgerBalances({ keys: key, mode: "created" }),
+    orderAccountRealization(order).catch((error) => (console.error("order account balance unavailable", error), null)),
+    clientLedgerBalances({ keys: key, mode: "realization" }),
+    baseCurrency(getDb()),
+  ])
+  const ordered = (byCurrency: Record<string, number>, snapshot: { currency: string }[] | undefined) => {
+    const rank = (code: string) => {
+      const at = (snapshot ?? []).findIndex((entry) => normCurrency(entry.currency, base) === normCurrency(code, base))
+      return at < 0 ? Number.MAX_SAFE_INTEGER : at
+    }
+    const codes = Object.keys(byCurrency)
+    return codes.map((code, index) => ({ code, index })).sort((a, b) => rank(a.code) - rank(b.code) || a.index - b.index).map(({ code }) => code)
   }
+  const describe = (byCurrency: Record<string, number> | undefined, snapshot: { currency: string }[] | undefined) => {
+    const values = byCurrency ?? {}
+    const codes = ordered(values, snapshot)
+    return {
+      text: codes.length ? codes.map((code) => formatMoney(values[code], code)).join(", ") : formatMoney(0, base),
+      negative: codes.some((code) => values[code] < 0),
+    }
+  }
+  const op = describe(operative.get(order.clientId)?.byCurrency, order.operativeExpand)
+  const ac = describe(account ?? shopActual.get(order.clientId)?.byCurrency, order.actualExpand)
+  return { operative: op.text, actual: ac.text, operativeNegative: op.negative, actualNegative: ac.negative }
 }
 
 const RU_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
@@ -1524,6 +1658,8 @@ export type OrderCreateInput = {
 
 export type OrderUpdateInput = Omit<OrderCreateInput, "items"> & {
   expeditor?: string
+  /** «Сборщик» by the employee's name (orders.collector_id; "" clears it). */
+  collector?: string
   payMethod?: string
   payTypeName?: string
   stockName?: string
@@ -1592,7 +1728,7 @@ async function prepareWrites() {
   await ensureUserNotificationsSchema()
 }
 
-export async function createOrder(input: OrderCreateInput, user: { displayName: string }): Promise<Order> {
+export async function createOrder(input: OrderCreateInput, user: { displayName: string; username?: string }): Promise<Order> {
   await prepareWrites()
   // The branch picked in the account menu (cookie): read before the transaction holds any lock.
   const branch = await selectedBranchName()
@@ -1695,7 +1831,7 @@ export async function createOrder(input: OrderCreateInput, user: { displayName: 
       .run({ id: orderId, branch: branch || (await clientBranch(tx, client.id)), payMethod: input.paymentType === "bank" ? "bank" : "cash" })
     for (const line of resolved) await insertLine(tx, orderId, line, currency)
     await syncOrderWeight(tx, orderId)
-    await addLog(tx, orderId, { action: "created", status, amount, user: user.displayName })
+    await addLog(tx, orderId, { action: "created", status, amount, user: user.displayName, login: user.username })
     return orderId
   })
   return (await getOrder(id))!
@@ -1726,6 +1862,7 @@ const FINAL_EDITABLE = new Set([
   "acceptedDate",
   "transportNumber",
   "expeditor",
+  "collector",
   "payMethod",
   "payTypeName",
 ])
@@ -1784,7 +1921,7 @@ function snapshotDay(value: string, field: string): string {
   return parsed.date
 }
 
-export async function updateOrder(id: number, request: OrderUpdateInput, user: { displayName: string }): Promise<Order | null> {
+export async function updateOrder(id: number, request: OrderUpdateInput, user: { displayName: string; username?: string }): Promise<Order | null> {
   if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
   // "Склад" of the order card (stockName, the reference's name for it) is the order's
   // warehouse: it goes through the warehouse checks below (known warehouse, stock lock,
@@ -1893,6 +2030,12 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
     if (patch.expeditor !== undefined && nameKey(patch.expeditor) !== nameKey(current.expeditor ?? "")) {
       sets("expeditor", await resolveEmployee(tx, patch.expeditor, "expeditor", "Экспедитор"))
     }
+    if (patch.collector !== undefined) {
+      const name = await resolveEmployee(tx, patch.collector, "collector", "Сборщик")
+      const found = name ? ((await tx.prepare("SELECT id FROM employees WHERE btrim(first_name || ' ' || last_name) = ? ORDER BY id LIMIT 1").get(name)) as { id: number } | undefined) : undefined
+      const collectorId = found ? Number(found.id) : null
+      if (collectorId !== (current.collector_id ?? null)) sets("collector_id", collectorId)
+    }
     if (patch.branchName !== undefined && nameKey(patch.branchName) !== nameKey(current.branch_name ?? "")) {
       sets("branch_name", await resolveBranch(tx, patch.branchName))
     }
@@ -1998,7 +2141,11 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
         if (after) organization = after
       }
     }
-    if (organization !== undefined && organization !== storedOrganization && (organization || patch.organization !== undefined)) sets("organization", organization)
+    if (organization !== undefined && organization !== storedOrganization && (organization || patch.organization !== undefined)) {
+      sets("organization", organization)
+      // Another organization: its id follows the new name.
+      if (nameKey(organization) !== nameKey(storedOrganization)) sets("organization_id", null)
+    }
     // The order's payments (and returns, once they carry an organization) took the
     // order's organization when they were made: they move with it, so the order's
     // debt and its payments stay under the same organization. A payment of another
@@ -2027,7 +2174,7 @@ export async function updateOrder(id: number, request: OrderUpdateInput, user: {
           ? `Изменен статус: ${from} - ${target}`
           : `Изменено: ${changedColumns.join(", ")}`
       const amountRow = (await tx.prepare("SELECT amount FROM orders WHERE id = ?").get(id)) as { amount: string }
-      await addLog(tx, id, { action: "updated", status: target, comment, amount: amountRow.amount, user: user.displayName })
+      await addLog(tx, id, { action: "updated", status: target, comment, amount: amountRow.amount, user: user.displayName, login: user.username })
       if (target === "Доставлено" && from !== "Доставлено") {
         // Настройки → Уведомления "order_delivered": the administrators, the subscribers and the order's agent
         // (in this transaction: a rolled-back change notifies nobody; a failed notification never undoes it).
@@ -2101,7 +2248,7 @@ type LineOp = { kind: "create"; line: OrderLineInput } | { kind: "update"; itemI
  * and be editable (409); the line is validated against the catalog; a
  * reserved order re-checks stock; the order total follows. Returns the line
  * id, or null when the line does not exist. */
-export async function writeOrderLine(orderId: number, op: LineOp, user: { displayName: string }): Promise<number | null> {
+export async function writeOrderLine(orderId: number, op: LineOp, user: { displayName: string; username?: string }): Promise<number | null> {
   if (!Number.isSafeInteger(orderId) || orderId <= 0 || orderId > 2_147_483_647) throw new OrderError("Заказ не найден", 404)
   await prepareWrites()
   return withTransaction(async (tx) => {
@@ -2178,7 +2325,7 @@ export async function writeOrderLine(orderId: number, op: LineOp, user: { displa
     if (!order.currency) await tx.prepare("UPDATE orders SET currency = @currency WHERE id = @id").run({ id: orderId, currency })
     await syncSummary(tx, { ...order, currency })
     const amountRow = (await tx.prepare("SELECT amount FROM orders WHERE id = ?").get(orderId)) as { amount: string }
-    await addLog(tx, orderId, { action: "updated", status: order.status, comment, amount: amountRow.amount, user: user.displayName })
+    await addLog(tx, orderId, { action: "updated", status: order.status, comment, amount: amountRow.amount, user: user.displayName, login: user.username })
     return lineId
   })
 }

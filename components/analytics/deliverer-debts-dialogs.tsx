@@ -13,6 +13,7 @@ import { formatStatementDate, nowLocalIso } from "@/lib/finance/dates"
 import type { FinanceCurrency, OrganizationBalance } from "@/lib/finance/types"
 import type { DelivererDebtsOptions } from "@/lib/finance-deliverer-debts-types"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { amountDigits } from "@/lib/amount-precision"
 
 // Dialogs of "Долги доставщиков":
 // - DelivererCorrectionDialog — demo "КОРРЕКТИРОВКА" (module 5064): the
@@ -66,7 +67,7 @@ function formatAmountInput(raw: string): string {
   const negative = text.startsWith("-")
   text = text.replace(/[^\d.]/g, "")
   const [integer, ...rest] = text.split(".")
-  const fraction = rest.length ? `.${rest.join("").slice(0, 3)}` : ""
+  const fraction = rest.length ? `.${rest.join("").slice(0, amountDigits(3))}` : ""
   return `${negative ? "-" : ""}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}${fraction}`
 }
 

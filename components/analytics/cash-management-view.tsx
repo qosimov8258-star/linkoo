@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
-import { ArrowDown, ArrowLeftRight, ArrowUp, Banknote, Clock, CreditCard, FileSpreadsheet, Filter, HandCoins, Loader2, Pencil, Search, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Banknote, Clock, CreditCard, Loader2, Pencil, Search, XCircle } from "lucide-react"
 
 import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, cashMutate, useCashboxes, useCashOperations, useCashTotals, useUnverifiedCount } from "@/components/analytics/cash/use-cash"
@@ -140,6 +140,11 @@ function CashManagementContent() {
   useEffect(() => {
     if (groupFromUrl) setDialog({ kind: "group", client: initialClientId ? { id: initialClientId, name: initialClientName } : undefined })
   }, [groupFromUrl, initialClientId, initialClientName])
+  // Баланс кассы links an agent acceptance here with its card open (Linko's ?openTransactionInfo=<id>).
+  const infoFromUrl = Math.floor(Number(get("openTransactionInfo"))) || 0
+  useEffect(() => {
+    if (infoFromUrl > 0) setDialog({ kind: "acceptanceInfo", id: infoFromUrl })
+  }, [infoFromUrl])
   const [popup, setPopup] = useState<DetailsPopup | null>(null)
   const [printing, setPrinting] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<CashOperation | null>(null)
@@ -345,30 +350,32 @@ function CashManagementContent() {
           </div>
 
           <section className="relative rounded-[2px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            {/* The reference's band: one line, each figure listing its currencies with " , ". */}
             {filterCount > 0 && totals.data && totals.data.totals.length > 0 && (
-              <div className="flex flex-col gap-1 rounded-t-md bg-[#1E4A9A] px-4 py-2.5 text-[13px] text-white md:px-5">
-                {totals.data.totals.map((row) => (
-                  <div key={row.currency} className="flex flex-wrap gap-x-6 gap-y-0.5">
-                    <span>
-                      {t("Общая сумма")}: <b>{formatCash(row.total, row.currency)}</b>
-                    </span>
-                    <span>
-                      {t("Приход")}: <b>{formatCash(row.income, row.currency)}</b>
-                    </span>
-                    <span>
-                      {t("Расход")}: <b>{formatCash(row.outcome, row.currency)}</b>
-                    </span>
-                  </div>
+              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 bg-[#1E4A9A] px-[5px] py-[8px] text-[13px] font-semibold text-white">
+                {(
+                  [
+                    ["Общая сумма", "total"],
+                    ["Приход", "income"],
+                    ["Расход", "outcome"],
+                  ] as const
+                ).map(([label, field]) => (
+                  <span key={field}>
+                    {t(label)}: {totals.data!.totals.map((row) => formatCash(row[field], row.currency)).join(" , ")}
+                  </span>
                 ))}
               </div>
             )}
 
             <div className="flex h-[50px] flex-wrap items-center gap-3 px-[5px]">
               {filterCount ? (
-                <span className="inline-flex h-9 items-center gap-3 rounded-md bg-[#eef1f5] px-3 text-[14px] font-semibold text-[#586174]">
-                  {t("Фильтр")}: {filterCount} {t("элемента")}
-                  <button type="button" onClick={() => setFilterOpen((value) => !value)} aria-label={t("Изменить")} className="text-[#1E4A9A]">
-                    <Pencil className="h-4 w-4" />
+                // The reference's grey block: the count, then ✎ and ⊗ in cells split by white lines.
+                <span className="-ml-[5px] inline-flex h-[50px] items-stretch bg-[#efefef] text-[13px] font-semibold text-[#666]">
+                  <span className="flex items-center px-[30px]">
+                    {t("Фильтр")}: {filterCount} {t("элемента")}
+                  </span>
+                  <button type="button" onClick={() => setFilterOpen((value) => !value)} aria-label={t("Изменить")} title={t("Изменить")} className="flex w-[48px] items-center justify-center border-l border-white text-[#8f8f8f] hover:text-[#555]">
+                    <Pencil className="h-5 w-5" />
                   </button>
                   <button
                     type="button"
@@ -377,9 +384,10 @@ function CashManagementContent() {
                       update({ ...filtersToUrl(EMPTY_FILTERS), page: null })
                     }}
                     aria-label={t("Очистить")}
-                    className="text-[#e57373]"
+                    title={t("Очистить")}
+                    className="flex w-[48px] items-center justify-center border-l border-white text-[#8f8f8f] hover:text-[#555]"
                   >
-                    <X className="h-4 w-4" />
+                    <XCircle className="h-5 w-5" strokeWidth={1.6} />
                   </button>
                 </span>
               ) : (
@@ -422,10 +430,10 @@ function CashManagementContent() {
                   {rows.map((operation) => (
                     <tr
                       key={operation.key}
-                      className={`h-[50px] border-b border-dashed border-[#d8dee7] align-middle ${operation.isDeleted ? "bg-[#fffafa]" : "hover:bg-[#f2f5f8]"}`}
+                      className={`h-[50px] border-b border-dotted border-[#c9d0da] align-middle ${operation.isDeleted ? "bg-[#fffafa]" : "hover:bg-[#f2f5f8]"}`}
                       style={operation.isDeleted ? { boxShadow: `inset 3px 0 0 ${CASH_RED}` } : undefined}
                     >
-                      <td className={`py-[4.5px] pl-[38px] pr-3 font-semibold ${operation.isDeleted ? "opacity-60" : ""}`}>{operation.docNo}</td>
+                      <td className={`py-[4.5px] pl-[38px] pr-3 ${operation.isDeleted ? "opacity-60" : ""}`}>{operation.docNo}</td>
                       <td className={`px-3 py-[4.5px] ${operation.isDeleted ? "opacity-60" : ""}`}>
                         <OperationDetails operation={operation} showCashbox={showCashbox} onOpenAcceptance={(row) => setDialog({ kind: "acceptanceInfo", id: row.id })} onPopup={setPopup} />
                       </td>
@@ -528,7 +536,10 @@ function CashManagementContent() {
           }}
         />
       )}
-      {dialog?.kind === "acceptanceInfo" && <CashAcceptanceInfoDialog id={dialog.id} canWrite={canWrite} onClose={() => setDialog(null)} onChanged={(message) => {
+      {dialog?.kind === "acceptanceInfo" && <CashAcceptanceInfoDialog id={dialog.id} canWrite={canWrite} onClose={() => {
+            setDialog(null)
+            if (infoFromUrl) update({ openTransactionInfo: null })
+          }} onChanged={(message) => {
             reloadAll()
             notify(message)
           }} />}

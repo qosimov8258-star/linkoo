@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEven
 
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { RefButton, RefHeader, RI } from "./list-kit"
+import { amountDigits } from "@/lib/amount-precision"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { LanguageCode } from "@/lib/i18n/types"
@@ -1165,7 +1166,8 @@ export function ReportBalanceBoxes({ columns, className = "mx-[10px]" }: { colum
 
 /** Signed money text: green when positive, red when negative, plain 0. */
 export function ReportAmount({ value, unit }: { value: number; unit?: string }) {
-  const text = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+  // Linko's numberFormat: three decimals, or those of Настройки → Округление сумм when set.
+  const text = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: amountDigits(3) }).format(value)
   if (value > 0) return <span className="text-[#71ce87]">{text}{unit ? ` ${unit}` : ""}</span>
   if (value < 0) return <span className="text-[#e57373]">{text}{unit ? ` ${unit}` : ""}</span>
   return <span>0</span>

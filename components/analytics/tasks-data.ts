@@ -148,14 +148,6 @@ export function repeatPlanDates(taskDate: string, frequency: number, count: numb
   return Array.from({ length: count }, (_, index) => addDays(taskDate, index * frequency))
 }
 
-/** Russian i18n key of the "элемент" word after a count (1 элемент, 2 элемента, 5 элементов). */
-export function elementWord(count: number): string {
-  const mod100 = count % 100
-  const mod10 = count % 10
-  if (mod10 === 1 && mod100 !== 11) return "элемент"
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "элемента"
-  return "элементов"
-}
 
 /** Comparable form of a typed name: NBSP / narrow NBSP as spaces, whitespace collapsed, trimmed, lower case. */
 export function textKey(value: string): string {

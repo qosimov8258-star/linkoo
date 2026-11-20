@@ -232,6 +232,8 @@ export type StatementRow = {
   currency: string
   /** Running balance of `currency` after this row (begin_balance + rows up to here). */
   balance: number
+  /** Client / account acts only: the delivery man written on the transaction ("" = none; lib/finance-client-act.ts). */
+  deliverer?: string
 }
 
 export type StatementSummary = CurrencyBalance & {

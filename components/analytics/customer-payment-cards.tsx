@@ -21,7 +21,8 @@ function Section({ title, color, totals, field }: { title: string; color: string
     .flatMap((total) => [...total[field]].sort((a, b) => Number(a.id) - Number(b.id)).map((cashbox) => ({ currency: total.currency, cashbox })))
   if (!cards.length) return null
   return (
-    <div className="mb-4">
+    // Linko's line height (1.25 of the font) keeps a card 102.5 px tall.
+    <div className="mb-4 leading-[1.25]">
       <div className="mb-[10px] flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.4px] text-[#333]">
         <span className="h-2 w-2 rounded-full" style={{ background: color }} />
         {title}

@@ -152,6 +152,7 @@ export function DictionaryToolbar({
   hidePagination = false,
   plus = "thin",
   hideTotal = false,
+  addClassName,
 }: {
   addLabel: string | null
   onAdd: () => void
@@ -166,6 +167,8 @@ export function DictionaryToolbar({
   plus?: "thin" | "icon"
   /** The reference prints "1 - 25 из" without the total on some lists (units of measure). */
   hideTotal?: boolean
+  /** Replaces the add button's default top offset (the knowledge base's sits 6 px higher). */
+  addClassName?: string
 }) {
   const { t } = useLanguage()
   const [draft, setDraft] = useState(state.search)
@@ -187,14 +190,14 @@ export function DictionaryToolbar({
   return (
     <div className="relative flex h-[60px] items-center">
       {addLabel && (
-        <button type="button" onClick={onAdd} className={`absolute left-[17px] flex items-center text-[13px] text-[#1E4A9A] hover:underline ${plus === "icon" ? "top-[25px]" : "top-[27px]"}`}>
+        <button type="button" onClick={onAdd} className={`absolute left-[17px] flex items-center text-[13px] text-[#1E4A9A] hover:underline ${addClassName ?? (plus === "icon" ? "top-[25px]" : "top-[27px]")}`}>
           <svg viewBox="0 0 24 24" className={`fill-[#1E4A9A] ${plus === "icon" ? "h-6 w-6" : "h-[14px] w-[14px]"}`}><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
           <span className={plus === "icon" ? "ml-px" : "ml-[2px]"}>{addLabel}</span>
         </button>
       )}
       {!bare && (
         <>
-          <form onSubmit={submit} className="absolute left-[335px] top-[21px] flex h-7 w-[295px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
+          <form onSubmit={submit} className="absolute left-[calc(25%+16px)] top-[21px] flex h-7 w-[300px] max-w-[calc(75%-32px)] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
             <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t("Поиск")} className="h-7 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-black/30" />
             <button type="submit" aria-label={t("Поиск")} className="mr-[2px] shrink-0">
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>

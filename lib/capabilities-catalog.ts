@@ -122,6 +122,8 @@ export const ROUTE_PERMISSIONS: ReadonlyArray<{ prefix: string; code: string }> 
     "activity",
     // Отслеживание: route optimisation (route order) and the clients' location lock.
     "tracking",
+    // Бонусы клиентов: «Добавить балл» and the Excel import of balls (lib/client-bonuses-repo.ts).
+    "client-bonuses",
   ].map((r) => ({ prefix: `/api/${r}`, code: "clients.manage" })),
   // The "Продажи" list pages kept in the generic record store (/api/ref-records/<kind>, lib/ref-records-repo.ts): each
   // kind needs the permission of the page that uses it. The API serves only the kinds and methods a page uses (others
@@ -175,8 +177,8 @@ export const ROUTE_PERMISSIONS: ReadonlyArray<{ prefix: string; code: string }> 
   // reference's frontend_settings_permissions), not orders.manage: an agent who may create orders
   // must not be able to lift the restriction that applies to them.
   { prefix: "/api/order-time-restrictions", code: "settings.manage" },
-  // База знания: articles + their PDF uploads (/api/knowledge-base/files) published to job
-  // positions; a staff setting like the reference's (frontend_settings_notifications).
+  // База знания: articles + their PDF uploads (/api/knowledge-base/files) published to access
+  // rights; a staff setting like the reference's (frontend_settings_notifications).
   { prefix: "/api/knowledge-base", code: "settings.manage" },
   // Сессия (the sign-in journal, Settings → Персонал): ending another account's sign-in
   // (PATCH /api/auth-logs/[id]) is staff management; restoring one is an administrator's action only.

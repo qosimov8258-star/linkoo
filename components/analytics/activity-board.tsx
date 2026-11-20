@@ -74,10 +74,10 @@ function CardShell({ card, onClick, marker, children }: { card: ActivityCard; on
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 break-words font-semibold leading-[18px]">{card.employeeName || t("Не указано")}</p>
-        {marker && <span className="mt-[6px] h-[4px] w-[30px] shrink-0 bg-[rgb(146,206,149)]" aria-hidden="true" />}
+        <p className="min-w-0 break-words font-semibold">{card.employeeName || t("Не указано")}</p>
+        {marker && <span className="mt-[6px] h-[4px] w-[30px] shrink-0 rounded-[2px] bg-[rgb(146,206,149)]" aria-hidden="true" />}
       </div>
-      <p className="mb-[6px] text-[10px] leading-[14px] text-[#999]">{formatDateText(card.at, language, { withTime: card.kind !== "delivery" })}</p>
+      <p className="text-[10px] text-[#999]">{formatDateText(card.at, language, { withTime: card.kind !== "delivery" })}</p>
       {children}
     </article>
   )
@@ -85,7 +85,7 @@ function CardShell({ card, onClick, marker, children }: { card: ActivityCard; on
 
 function ClientLink({ card, actions }: { card: ActivityCard; actions: ActivityActions }) {
   const { t } = useLanguage()
-  if (!card.clientName) return <p className="leading-[18px] text-[#999]">{t("Клиент не указан")}</p>
+  if (!card.clientName) return <p className="mt-[10px] leading-[15px] text-[#999]">{t("Клиент не указан")}</p>
   return (
     <button
       type="button"
@@ -93,7 +93,7 @@ function ClientLink({ card, actions }: { card: ActivityCard; actions: ActivityAc
         event.stopPropagation()
         actions.openClient(card)
       }}
-      className="block max-w-full break-words text-left leading-[18px] text-[#1E4A9A] hover:underline"
+      className="mt-[10px] block max-w-full break-words text-left leading-[15px] text-[#1E4A9A] hover:underline"
     >
       {card.clientName}
     </button>
@@ -102,7 +102,7 @@ function ClientLink({ card, actions }: { card: ActivityCard; actions: ActivityAc
 
 function CardView({ card, actions }: { card: ActivityCard; actions: ActivityActions }) {
   const { t } = useLanguage()
-  const text = (template: string, values: Record<string, string>) => <p className="mt-[4px] break-words leading-[18px]">{fill(t(template), values)}</p>
+  const text = (template: string, values: Record<string, string>) => <p className="mt-[10px] break-words leading-[15px]">{fill(t(template), values)}</p>
 
   switch (card.kind) {
     case "order":
@@ -112,21 +112,22 @@ function CardView({ card, actions }: { card: ActivityCard; actions: ActivityActi
           {text("Сделка №{no} с магазина {client} на сумму {amount}", { no: String(card.orderId ?? card.sourceId), client: card.clientName || t("Не указано"), amount: amountText(card) })}
         </CardShell>
       )
-    case "refusal": {
-      const photo = card.photos[0]
+    case "refusal":
+      // Linko: the photos in a grid (columns of at least 100px), the client, then the refusal text.
       return (
         <CardShell card={card}>
-          {photo && (
-            <div className="mb-[8px] h-[180px] w-[270px]">
-              <Thumb photo={photo} onOpen={() => actions.openPhotos(card.photos, 0)} />
+          {card.photos.length > 0 && (
+            <div className="mt-[10px] grid gap-[10px] [grid-template-columns:repeat(auto-fit,minmax(100px,1fr))]">
+              {card.photos.map((photo, index) => (
+                <Thumb key={photo.id} photo={photo} onOpen={() => actions.openPhotos(card.photos, index)} />
+              ))}
             </div>
           )}
           <ClientLink card={card} actions={actions} />
-          {card.reason && <p className="mt-[4px] break-words font-semibold leading-[18px]">{card.reason}</p>}
-          {card.comment && <p className="mt-[2px] break-words leading-[18px]">{card.comment}</p>}
+          {card.reason && <p className="mt-[10px] break-words leading-[15px]">{card.reason}</p>}
+          {card.comment && <p className="mt-[10px] break-words leading-[15px]">{card.comment}</p>}
         </CardShell>
       )
-    }
     case "photo_report": {
       const beforeIndex = card.photos.findIndex((photo) => photo.slot === "before")
       const afterIndex = card.photos.findIndex((photo) => photo.slot === "after")
@@ -184,13 +185,14 @@ function ColumnHeader({ column, total, baseCurrency }: { column: ActivityColumn;
   const { t } = useLanguage()
   const header = HEADERS[column]
   return (
-    <div className="mb-[10px] flex w-[300px] items-start justify-between gap-3 text-[13px] leading-[18px] text-[#333]">
+    // Linko: the whole header line is bold, 15px above and below.
+    <div className="flex w-[295px] items-center justify-between gap-3 py-[15px] text-[13px] font-bold leading-[16px] text-[#333]">
       <span className="whitespace-nowrap">
-        {t(header.label)}: <b className="font-semibold">{total.count}</b>
+        {t(header.label)}: {total.count}
         {header.pieces && ` ${t("шт.")}`}
       </span>
       {header.sum && (
-        <b className="flex flex-col items-end text-right font-semibold">
+        <b className="flex flex-col items-end text-right font-bold">
           {moneyLines(total.byCurrency, baseCurrency).map((line) => (
             <span key={line}>{line}</span>
           ))}
@@ -286,7 +288,7 @@ function ActivityColumnView({
         )}
         {!loading && !error && hasMore && (
           <div className="w-[300px] py-2 text-center">
-            <button type="button" onClick={() => void loadPage(page + 1)} className="text-[13px] text-[#129fdd] hover:underline">
+            <button type="button" onClick={() => void loadPage(page + 1)} className="text-[13px] font-semibold text-[#129fdd] hover:underline">
               {t("Загрузить еще...")}
             </button>
           </div>
@@ -298,21 +300,24 @@ function ActivityColumnView({
 
 export function ActivityColumns({
   columns,
+  cards,
   order,
   baseCurrency,
   queryKey,
   actions,
 }: {
   columns: Record<ActivityColumn, KindTotal>
+  /** Cards per column: like Linko, a column shows only when its list has cards (its header may count more). */
+  cards: Record<ActivityColumn, number>
   order: readonly ActivityColumn[]
   baseCurrency: string
   queryKey: string
   actions: ActivityActions
 }) {
   return (
-    <div className="flex gap-[15px] overflow-x-auto px-[30px] pb-3 pt-5 [scrollbar-color:#1E4A9A_transparent] [scrollbar-width:thin]">
+    <div className="flex gap-[15px] overflow-x-auto px-[23px] pb-3 [scrollbar-color:#1E4A9A_transparent] [scrollbar-width:thin]">
       {order
-        .filter((column) => columns[column].count > 0)
+        .filter((column) => (cards[column] ?? 0) > 0)
         .map((column) => (
           <ActivityColumnView key={column} column={column} total={columns[column]} baseCurrency={baseCurrency} queryKey={queryKey} actions={actions} />
         ))}

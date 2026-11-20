@@ -14,6 +14,7 @@ import { formatStatementDate, monthEndIso, monthStartIso, nowLocalIso } from "@/
 import type { StatementResult, StatementRow } from "@/lib/finance/types"
 import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { amountDigits } from "@/lib/amount-precision"
 
 // Dialogs of the "Баланс филиалов" page (demo van-sell clones 3904 / 3905 / 3906):
 // - BranchTransactionDialog: "Добавить" / "Добавить расход" (POST /api/branch-balance-transactions);
@@ -78,7 +79,7 @@ function normalizeAmount(value: string): string {
   const cleaned = value.replace(/,/g, ".").replace(/[^\d.]/g, "")
   const [whole, ...rest] = cleaned.split(".")
   const grouped = whole.replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, " ")
-  return rest.length ? `${grouped}.${rest.join("").slice(0, 3)}` : grouped
+  return rest.length ? `${grouped}.${rest.join("").slice(0, amountDigits(3))}` : grouped
 }
 
 function parseAmount(value: string): number {
@@ -90,6 +91,7 @@ export function BranchTransactionDialog({
   kind,
   branchId,
   branches,
+  organizations = [],
   onClose,
   onSaved,
 }: {
@@ -97,10 +99,13 @@ export function BranchTransactionDialog({
   kind: "add" | "expense"
   branchId: number
   branches: BranchOption[]
+  /** Organization names for Linko's «Организация» field. */
+  organizations?: string[]
   onClose: () => void
   onSaved: () => void
 }) {
   const { t } = useLanguage()
+  const [organization, setOrganization] = useState("")
   const { data: currencyInfo } = useFinanceCurrencies()
   const appCurrency = useAppCurrency()
   const currencies = currencyInfo?.currencies ?? []
@@ -127,7 +132,7 @@ export function BranchTransactionDialog({
       const response = await fetch("/api/branch-balance-transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branchId: Number(branch), kind, currency: selectedCurrency, amount: value, date, comment }),
+        body: JSON.stringify({ branchId: Number(branch), kind, currency: selectedCurrency, amount: value, date, comment, organization }),
       })
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string; details?: { fieldErrors?: Record<string, string[]> } } | null
@@ -160,7 +165,7 @@ export function BranchTransactionDialog({
       >
         <div className="flex min-h-[400px] flex-col gap-4 px-6 py-5">
           <label className={fieldLabel}>
-            {t("Филиал")}
+            {t("Филиалы")}
             <select value={branch} onChange={(event) => setBranch(event.target.value)} className={fieldInput}>
               <option value="">{t("Выберите филиал")}</option>
               {branches.map((item) => (
@@ -170,6 +175,18 @@ export function BranchTransactionDialog({
               ))}
             </select>
             {error("branch")}
+          </label>
+          {/* Linko's «Организация» (optional; printed in the branch act). */}
+          <label className={fieldLabel}>
+            {t("Организация")}
+            <select value={organization} onChange={(event) => setOrganization(event.target.value)} className={fieldInput}>
+              <option value="">{t("Не указано")}</option>
+              {[...new Set(organizations)].map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className={fieldLabel}>
             {t("Валюта")}

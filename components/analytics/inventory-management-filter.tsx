@@ -1,13 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { ChevronDown, Pencil, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 
-import { buildCashQuery, useCashJson } from "@/components/analytics/cash/use-cash"
-import { FormField, MultiPick, SearchSelect, inputClass, useJsonList, type PickOption } from "@/components/analytics/cash-management-shared"
 import { filterCount, filterGroup, type InventoryFilters } from "@/components/analytics/inventory-management-shared"
+import { FilterCheck, FilterDate, RefAppliedFilter, RefFilterPanel } from "@/components/ref/list-kit"
+import { LinkoMultiField, LinkoSingleField, type LinkoOption } from "@/components/ref/linko-select-fields"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
+  INVENTORY_REQUEST_STATUSES,
+  INVENTORY_REQUEST_STATUS_LABELS,
   INVENTORY_REQUEST_TYPES,
   INVENTORY_REQUEST_TYPE_LABELS,
   type InventoryItemListResult,
@@ -15,62 +16,91 @@ import {
   type InventoryStatusParam,
 } from "@/lib/inventory-items-types"
 
-// Demo InventoryManagementFilterForm (module 4398): "Показать фильтр" → 310 px
-// popup whose fields depend on the tab; once applied "Фильтр: N элемента" with
-// edit and clear. Items: Дата прикрепления, Тип клиента, Клиент, Организация,
-// Филиалы, Тип инвентаря, Склад, Пользователи, Статус одобрено, Показать
-// удаленные (+ Агент and Зона of the client). History: Дата создания, Дата
-// движения, Инвентарь, Тип (Передача / Изъятие), Создал. Requests: Дата запроса,
-// Дата обработки, Тип, Запросил, Обработал, Тип инвентаря, Клиент.
+// Linko's InventoryManagementFilterForm (#/inventory-management?openFilterDialog=true): «Показать фильтр ⌄» opens the
+// 310 px «Фильтр» panel over the list's top-left corner; once applied the toolbar shows «Фильтр: N элемента» with edit
+// and clear. Its fields depend on the tab, in Linko's order:
+// - items: Тип клиента, (Подкатегория once a type is picked), Клиент, Организация, Филиалы, Тип инвентаря, Склад,
+//   Пользователи, Статус одобрено, Показать удаленные (Linko's «Дата прикрепления» needs its API 160, the server
+//   runs 147, so it is not shown);
+// - История движений: Дата создания, Дата движения, Тип клиента, (Подкатегория), Клиент, Организация, Инвентарь,
+//   Тип инвентаря, Тип (Передача / Изъятие), Склад, Создал, Показать удаленные;
+// - История проверки: Дата создания, Клиент, Организация, Инвентарь, Тип инвентаря, Создал, Показать удаленные;
+// - Запросы: Дата запроса, Дата обработки, Статус, Тип, Запросил, Обработал, Тип инвентаря, Клиент.
+// Every select but Статус одобрено and Тип (single) takes several entries; the values are Linko's ids.
 
-type Range = { from: keyof InventoryFilters; to: keyof InventoryFilters }
+type Row = Record<string, unknown>
 
-export function InventoryFilterBar({
-  status,
-  filters,
-  options,
-  open,
-  onOpen,
-  onClose,
-  onClear,
-  onApply,
-}: {
-  status: InventoryStatusParam
-  filters: InventoryFilters
-  options: InventoryOptions | null
-  open: boolean
-  onOpen: () => void
-  onClose: () => void
-  onClear: () => void
-  onApply: (filters: InventoryFilters) => void
-}) {
+async function getRows(url: string): Promise<Row[]> {
+  try {
+    const response = await fetch(url, { cache: "no-store" })
+    const body = (await response.json().catch(() => null)) as unknown
+    return response.ok && Array.isArray(body) ? (body as Row[]) : []
+  } catch {
+    return []
+  }
+}
+
+const toOptions = (rows: Row[], name: (row: Row) => string = (row) => String(row.name ?? "")) =>
+  rows.filter((row) => row.id !== undefined && row.id !== null && name(row)).map((row) => ({ value: String(row.id), label: name(row) }))
+
+type Directories = { clients: LinkoOption[]; organizations: LinkoOption[]; branches: LinkoOption[]; warehouses: LinkoOption[]; employees: LinkoOption[]; clientTypes: Array<LinkoOption & { parentId: number | null }> }
+
+let directories: Promise<Directories> | null = null
+
+/** The selects' lists, loaded the first time the panel opens and kept for the page. */
+function useDirectories(): Directories | null {
+  const [loaded, setLoaded] = useState<Directories | null>(null)
+  useEffect(() => {
+    let alive = true
+    directories ??= Promise.all([
+      getRows("/api/clients?balances=0"),
+      getRows("/api/organizations"),
+      getRows("/api/branches"),
+      getRows("/api/warehouses"),
+      getRows("/api/employees"),
+      getRows("/api/client-types"),
+    ]).then(([clients, organizations, branches, warehouses, employees, clientTypes]) => {
+      // A failed load is tried again on the next opening.
+      if (!clients.length || !employees.length) directories = null
+      return {
+        clients: toOptions(clients),
+        organizations: toOptions(organizations),
+        branches: toOptions(branches),
+        // Linko's Склад select lists the warehouses newest first (saas/for_select m=Stock), as /api/warehouses does.
+        warehouses: toOptions(warehouses),
+        employees: toOptions(employees, (row) => `${String(row.firstName ?? "")} ${String(row.lastName ?? "")}`.trim() || String(row.name ?? "")),
+        clientTypes: clientTypes
+          .filter((row) => row.id !== undefined && row.name)
+          .map((row) => ({ value: String(row.id), label: String(row.name), parentId: typeof row.parentId === "number" ? row.parentId : null })),
+      }
+    })
+    void directories.then((value) => alive && setLoaded(value))
+    return () => {
+      alive = false
+    }
+  }, [])
+  return loaded
+}
+
+/** The toolbar's left slot: «Показать фильтр ⌄», or Linko's applied-filter bar. */
+export function InventoryFilterBar({ filters, open, onOpen, onClose, onClear }: { filters: InventoryFilters; open: boolean; onOpen: () => void; onClose: () => void; onClear: () => void }) {
   const { t } = useLanguage()
   const count = filterCount(filters)
+  // Linko's afterFilter: 5 px left of the toolbar's content, as wide as the space before the search field.
+  if (count > 0) return <RefAppliedFilter count={count} onEdit={onOpen} onClear={onClear} width={372} shift={5} />
   return (
-    <div className="relative">
-      {count > 0 ? (
-        <div className="flex items-center gap-2 rounded-md bg-[#efefef] px-4 py-1.5 text-[#666]">
-          <span className="whitespace-nowrap">
-            {t("Фильтр")}: {count} {t("элемента")}
-          </span>
-          <button type="button" onClick={onOpen} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
-            <Pencil className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={onClear} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ) : (
-        <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-1 whitespace-nowrap font-medium text-[rgb(79,113,220)]">
-          {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
-        </button>
-      )}
-      {open && <FilterPopup status={status} filters={filters} options={options} onClose={onClose} onApply={onApply} />}
-    </div>
+    <button type="button" onClick={open ? onClose : onOpen} className="flex items-center whitespace-nowrap text-[13px] text-[rgb(79,113,220)]">
+      {t("Показать фильтр")}&nbsp;
+      {/* Linko's expand-more icon squeezed into 13 × 20 px after a space. */}
+      <svg viewBox="0 0 24 24" className="-ml-[2px] h-5 w-[13px] translate-y-px fill-[rgb(79,113,220)]" aria-hidden>
+        <path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z" />
+      </svg>
+    </button>
   )
 }
 
-function FilterPopup({
+/** The «Фильтр» panel (mounted only while open: the draft starts from the applied filters). */
+export function InventoryFilterPanel({
   status,
   filters,
   options,
@@ -88,122 +118,115 @@ function FilterPopup({
   const group = filterGroup(status)
   const history = group === "history"
   const checks = group === "history_check"
-  const requests = group === "request"
-  const items = group === "items"
-  const clients = useJsonList<{ id: number; name: string }>("/api/clients")
-  const gear = useCashJson<InventoryItemListResult>(history || checks ? `/api/inventory-items?${buildCashQuery({ status: "all", showDeleted: "1", pageSize: 1000 })}` : null)
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
-
-  const set = (patch: Partial<InventoryFilters>) => setDraft((current) => ({ ...current, ...patch }))
-  const named = (values: string[]): PickOption[] => values.map((value) => ({ value, label: value }))
-  const multi = (label: string, key: keyof InventoryFilters, list: PickOption[]) => (
-    <MultiPick label={label} options={list} value={draft[key] as string[]} onChange={(value) => set({ [key]: value } as Partial<InventoryFilters>)} />
-  )
-  const range = (label: string, { from, to }: Range) => (
-    <FormField label={label}>
-      <span className="flex items-center gap-2">
-        <input type="date" value={draft[from] as string} onChange={(event) => set({ [from]: event.target.value } as Partial<InventoryFilters>)} aria-label={t("С")} className={`${inputClass} px-2`} />
-        <span>—</span>
-        <input type="date" value={draft[to] as string} onChange={(event) => set({ [to]: event.target.value } as Partial<InventoryFilters>)} aria-label={t("По")} className={`${inputClass} px-2`} />
-      </span>
-    </FormField>
-  )
-  const clientOptions = clients.items.map((client) => ({ value: String(client.id), label: client.name }))
-  const productOptions = (options?.products ?? []).map((product) => ({ value: String(product.id), label: product.name }))
-  const gearOptions = (gear.data?.results ?? []).map((item) => ({ value: String(item.id), label: `${item.product.name} (№${item.stockNumber || item.id})` }))
-  const users = named(options?.users ?? [])
+  const dirs = useDirectories()
+  const gear = useGearOptions(history || checks)
+  const set =
+    <K extends keyof InventoryFilters>(key: K) =>
+    (value: InventoryFilters[K]) =>
+      setDraft((current) => ({ ...current, [key]: value }))
+  const parents = useMemo(() => dirs?.clientTypes.filter((type) => type.parentId === null) ?? null, [dirs])
+  const children = useMemo(() => {
+    const chosen = new Set(draft.marketTypeParent.map(Number))
+    return dirs?.clientTypes.filter((type) => type.parentId !== null && chosen.has(type.parentId)) ?? null
+  }, [dirs, draft.marketTypeParent])
+  const products = options ? options.products.map((product) => ({ value: String(product.id), label: product.name })) : null
+  const yesNo = [
+    { value: "true", label: t("Да") },
+    { value: "false", label: t("Нет") },
+  ]
 
   const apply = () => {
     const next = { ...draft }
-    for (const [from, to] of [["attachFrom", "attachTo"], ["createdFrom", "createdTo"], ["moveFrom", "moveTo"], ["updatedFrom", "updatedTo"]] as const) {
+    for (const [from, to] of [["fromDate", "toDate"], ["fromDateSecond", "toDateSecond"], ["fromDateThird", "toDateThird"], ["fromDateFourth", "toDateFourth"]] as const) {
       if (next[from] && next[to] && next[from] > next[to]) [next[from], next[to]] = [next[to], next[from]]
     }
     onApply(next)
   }
-
-  return (
+  const period = (label: string, from: keyof InventoryFilters, to: keyof InventoryFilters) => (
+    <FilterDate iconEnd className="!h-[67px]" label={label} begin={draft[from] as string} end={draft[to] as string} onChange={(begin, end) => setDraft((current) => ({ ...current, [from]: begin, [to]: end }))} />
+  )
+  const clientType = (
     <>
-      <div className="fixed inset-0 z-[55]" onMouseDown={onClose} aria-hidden />
-      <form
-        className="absolute left-0 top-0 z-[60] max-h-[80vh] w-[min(310px,calc(100vw-2rem))] overflow-y-auto bg-white px-5 py-3 shadow-[0_2px_10px_rgba(0,0,0,0.2)]"
-        onSubmit={(event) => {
-          event.preventDefault()
-          apply()
-        }}
-      >
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-[15px] text-[#5d6474]">{t("Фильтр")}</span>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#8f8f8f] hover:text-[#17233b]">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        {requests ? (
-          <div className="flex flex-col gap-3">
-            {range(t("Дата запроса"), { from: "createdFrom", to: "createdTo" })}
-            {range(t("Дата обработки"), { from: "updatedFrom", to: "updatedTo" })}
-            {multi(t("Тип"), "requestTypes", INVENTORY_REQUEST_TYPES.map((type) => ({ value: type, label: t(INVENTORY_REQUEST_TYPE_LABELS[type]) })))}
-            {multi(t("Запросил"), "requestedBy", users)}
-            {multi(t("Обработал"), "processedBy", users)}
-            {multi(t("Тип инвентаря"), "products", productOptions)}
-            {multi(t("Клиент"), "clients", clientOptions)}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {items && range(t("Дата прикрепления"), { from: "attachFrom", to: "attachTo" })}
-            {(history || checks) && range(t("Дата создания"), { from: "createdFrom", to: "createdTo" })}
-            {history && range(t("Дата движения"), { from: "moveFrom", to: "moveTo" })}
-            {!checks && multi(t("Тип клиента"), "clientTypes", named(options?.clientTypes ?? []))}
-            {multi(t("Клиент"), "clients", clientOptions)}
-            {items && multi(t("Агент"), "agents", named(options?.agents ?? []))}
-            {items && multi(t("Зона"), "zones", named(options?.zones ?? []))}
-            {multi(t("Организация"), "organizations", named(options?.organizations ?? []))}
-            {items && multi(t("Филиалы"), "branches", named(options?.branches ?? []))}
-            {(history || checks) && multi(t("Инвентарь"), "gear", gearOptions)}
-            {multi(t("Тип инвентаря"), "products", productOptions)}
-            {history && (
-              <FormField label={t("Тип")}>
-                <SearchSelect
-                  value={draft.logType}
-                  options={[
-                    { value: "give", label: t("Передача") },
-                    { value: "take", label: t("Изъятие") },
-                  ]}
-                  placeholder={t("Все")}
-                  onChange={(value) => set({ logType: value as InventoryFilters["logType"] })}
-                />
-              </FormField>
-            )}
-            {!checks && multi(t("Склад"), "warehouses", (options?.warehouses ?? []).map((row) => ({ value: row.name, label: row.name })))}
-            {multi(history || checks ? t("Создал") : t("Пользователи"), "users", users)}
-            {items && (
-              <FormField label={t("Статус одобрено")}>
-                <SearchSelect
-                  value={draft.isReviewed}
-                  options={[
-                    { value: "true", label: t("Да") },
-                    { value: "false", label: t("Нет") },
-                  ]}
-                  placeholder={t("Все")}
-                  onChange={(value) => set({ isReviewed: value as InventoryFilters["isReviewed"] })}
-                />
-              </FormField>
-            )}
-            <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-              <input type="checkbox" checked={draft.showDeleted} onChange={(event) => set({ showDeleted: event.target.checked })} className="h-4 w-4 accent-[#1E4A9A]" />
-              {t("Показать удаленные")}
-            </label>
-          </div>
-        )}
-        <button type="submit" className="mt-4 h-9 rounded-sm bg-[rgb(79,113,220)] px-5 text-[13px] font-semibold uppercase text-white shadow hover:brightness-95">
-          {t("Применить")}
-        </button>
-      </form>
+      <LinkoMultiField
+        label="Тип клиента"
+        options={parents}
+        value={draft.marketTypeParent}
+        // Linko's Подкатегория belongs to the picked types: it empties with them.
+        onChange={(next) => setDraft((current) => ({ ...current, marketTypeParent: next, marketType: next.length ? current.marketType : [] }))}
+      />
+      {draft.marketTypeParent.length > 0 && <LinkoMultiField label="Подкатегория" options={children} value={draft.marketType} onChange={set("marketType")} />}
     </>
   )
+  const clients = <LinkoMultiField label="Клиент" options={dirs?.clients ?? null} value={draft.market} onChange={set("market")} />
+  const organizations = <LinkoMultiField label="Организация" options={dirs?.organizations ?? null} value={draft.division} onChange={set("division")} />
+  const inventoryTypes = <LinkoMultiField label="Тип инвентаря" options={products} value={draft.product} onChange={set("product")} limit={25} />
+  const gearField = <LinkoMultiField label="Инвентарь" options={gear} value={draft.gear} onChange={set("gear")} />
+  const deleted = <FilterCheck compact label="Показать удаленные" checked={draft.showDeleted} onChange={set("showDeleted")} className="mt-[2px] pb-[11px]" />
+
+  return (
+    <RefFilterPanel narrow onClose={onClose} onApply={apply} applyClassName="mt-[15px]">
+      {group === "request" ? (
+        <>
+          {period("Дата запроса", "fromDate", "toDate")}
+          {period("Дата обработки", "fromDateThird", "toDateThird")}
+          <LinkoMultiField
+            label="Статус"
+            options={INVENTORY_REQUEST_STATUSES.map((value) => ({ value, label: t(INVENTORY_REQUEST_STATUS_LABELS[value]) }))}
+            value={draft.statusRequest}
+            onChange={set("statusRequest")}
+          />
+          <LinkoMultiField label="Тип" options={INVENTORY_REQUEST_TYPES.map((value) => ({ value, label: t(INVENTORY_REQUEST_TYPE_LABELS[value]) }))} value={draft.type} onChange={set("type")} />
+          <LinkoMultiField label="Запросил" options={dirs?.employees ?? null} value={draft.requestedBy} onChange={set("requestedBy")} />
+          <LinkoMultiField label="Обработал" options={dirs?.employees ?? null} value={draft.userBy} onChange={set("userBy")} />
+          {inventoryTypes}
+          {clients}
+        </>
+      ) : (
+        <>
+          {(history || checks) && period("Дата создания", "fromDate", "toDate")}
+          {history && period("Дата движения", "fromDateSecond", "toDateSecond")}
+          {!checks && clientType}
+          {clients}
+          {organizations}
+          {!history && !checks && <LinkoMultiField label="Филиалы" options={dirs?.branches ?? null} value={draft.branch} onChange={set("branch")} />}
+          {(history || checks) && gearField}
+          {inventoryTypes}
+          {history && (
+            <LinkoSingleField
+              label="Тип"
+              options={[
+                { value: "give", label: t("Передача") },
+                { value: "take", label: t("Изъятие") },
+              ]}
+              value={draft.statusHistory}
+              onChange={(value) => set("statusHistory")(value as InventoryFilters["statusHistory"])}
+            />
+          )}
+          {!checks && <LinkoMultiField label="Склад" options={dirs?.warehouses ?? null} value={draft.stock} onChange={set("stock")} />}
+          <LinkoMultiField label={history || checks ? "Создал" : "Пользователи"} options={dirs?.employees ?? null} value={draft.user} onChange={set("user")} />
+          {!history && !checks && <LinkoSingleField label="Статус одобрено" options={yesNo} value={draft.isReviewed} onChange={(value) => set("isReviewed")(value as InventoryFilters["isReviewed"])} />}
+          {deleted}
+        </>
+      )}
+    </RefFilterPanel>
+  )
+}
+
+/** Инвентарь of the history filters: every item, «product  (№stock number)» like Linko's list. */
+function useGearOptions(enabled: boolean): LinkoOption[] | null {
+  const [items, setItems] = useState<LinkoOption[] | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    let alive = true
+    fetch("/api/inventory-items?status=all&showDeleted=1&pageSize=1000", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<InventoryItemListResult>) : null))
+      .catch(() => null)
+      .then((body) => {
+        if (alive) setItems((body?.results ?? []).map((item) => ({ value: String(item.id), label: `${item.product.name}  (№${item.stockNumber})` })))
+      })
+    return () => {
+      alive = false
+    }
+  }, [enabled])
+  return enabled ? items : null
 }

@@ -48,12 +48,12 @@ export type FieldRecordFacets = {
   clients: FieldOption[]
   refusalTypes: FieldOption[]
   supervisors?: FieldOption[]
-  branches?: string[]
+  branches?: FieldOption[]
   clientTypes?: FieldOption[]
   channels?: string[]
   inns?: string[]
   categories?: string[]
-  brands?: string[]
+  brands?: FieldOption[]
 }
 
 export type FieldRecordPage = {

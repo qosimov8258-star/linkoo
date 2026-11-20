@@ -36,7 +36,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   if (parsed.error) return parsed.error
 
   return procurementWrite(async () =>
-    incomingChangeResponse(await updateIncoming(id, parseIncomingInput(parsed.data), auth.user.displayName), "Изменять можно только поставку в ожидании"),
+    incomingChangeResponse(await updateIncoming(id, parseIncomingInput(parsed.data), auth.user.displayName), "Отмененную поставку изменить нельзя"),
   )
 }
 

@@ -84,9 +84,7 @@ export type JobPositionInput = { name: string }
 const REFERENCES = [
   { table: "employees", column: "position", kind: "name" as const },
   { table: "production_staff", column: "position", kind: "name" as const },
-  // База знания: the articles published to the position (deleting it would publish an article
-  // whose only position it was to everybody).
-  { table: "knowledge_base_article_positions", column: "position_id", kind: "id" as const },
+  // База знания publishes to access rights (lib/access-rights-repo.ts counts those links), not to positions.
 ]
 
 export async function listJobPositions(): Promise<JobPosition[]> {

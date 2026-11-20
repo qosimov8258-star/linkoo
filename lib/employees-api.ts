@@ -29,6 +29,8 @@ export const employeeSchema = z
     branchIds: idListField().min(1, REQUIRED),
     organizationIds: idListField().min(1, REQUIRED),
     systemAccess: z.boolean().default(false),
+    // «Доступ к системе» of an existing employee (Linko's is_active); left out, the employee keeps its state.
+    active: z.boolean().optional(),
     showInTracking: z.boolean().default(false),
     twoStepCheck: z.boolean().default(false),
     sessionLimit: z.boolean().default(false),

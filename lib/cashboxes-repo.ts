@@ -151,8 +151,9 @@ export async function listCashboxesPage(query: CashboxListQuery): Promise<Cashbo
   const page = query.page ?? 1
   const branch = await selectedBranchName()
   const countRow = (await db.prepare(`SELECT COUNT(*) AS n FROM cashboxes WHERE ${SEARCH}`).get({ needle, branch })) as { n: string | number } | undefined
+  // The reference's "Id" header only flips the id order inside each position (ordering=id: oldest first).
   const rows = (await db
-    .prepare(`SELECT ${COLUMNS} FROM cashboxes WHERE ${SEARCH} ${ORDER_BY} LIMIT @limit OFFSET @offset`)
+    .prepare(`SELECT ${COLUMNS} FROM cashboxes WHERE ${SEARCH} ${query.ordering === "id" ? ORDER_BY_CREATED : ORDER_BY} LIMIT @limit OFFSET @offset`)
     .all({ needle, branch, limit: pageSize, offset: (page - 1) * pageSize })) as CashboxRow[]
   return { count: Number(countRow?.n ?? 0), results: rows.map(rowToCashbox) }
 }
@@ -208,14 +209,33 @@ async function findBranch(db: PgDb, by: { id: number } | { name: string }): Prom
   return row ? { id: Number(row.id), name: row.name } : null
 }
 
-export async function getCashboxOptions(): Promise<CashboxOptions> {
+/** Branch ids of the signed-in login's employee (linked employee, else the one with that login), as /api/auth/me reads them. */
+async function userBranchIds(db: PgDb, user: { employeeId: number | null; username: string }): Promise<number[]> {
+  if (!(await tableExists(db, "employees"))) return []
+  const row = (await (user.employeeId
+    ? db.prepare("SELECT branch_ids FROM employees WHERE id = ?").get(user.employeeId)
+    : db.prepare("SELECT branch_ids FROM employees WHERE login = ? ORDER BY id LIMIT 1").get(user.username))) as { branch_ids: string | null } | undefined
+  try {
+    const parsed = JSON.parse(row?.branch_ids ?? "[]") as unknown
+    return Array.isArray(parsed) ? parsed.filter((id): id is number => Number.isInteger(id)) : []
+  } catch {
+    return []
+  }
+}
+
+/** `user`: the «Филиал» select lists that login's branches in id order (the reference's `user.branch`, like the
+ * account menu); every branch, also in id order, when the login has none. */
+export async function getCashboxOptions(user?: { employeeId: number | null; username: string } | null): Promise<CashboxOptions> {
   const db = getDb()
   const context = await loadCurrencyContext(db)
   const employees = (await tableExists(db, "employees"))
     ? ((await db.prepare("SELECT id, first_name, last_name, position, active FROM employees ORDER BY lower(first_name), lower(last_name), id").all()) as EmployeeRow[])
     : []
+  const own = user ? await userBranchIds(db, user) : []
   const branches = (await tableExists(db, "branches"))
-    ? ((await db.prepare("SELECT id, name FROM branches ORDER BY lower(name), id").all()) as Array<{ id: number; name: string }>)
+    ? ((await (own.length
+        ? db.prepare("SELECT id, name FROM branches WHERE id = ANY(@ids::int[]) ORDER BY id").all({ ids: own })
+        : db.prepare("SELECT id, name FROM branches ORDER BY id").all())) as Array<{ id: number; name: string }>)
     : []
   return {
     // Linko's order (Euro, SUM, USD): the codes alphabetically, not the labels shown here (ЕВРО / SOM / USD).

@@ -9,6 +9,7 @@ import {
   actorName,
   clientName,
   giveToClient,
+  idNameIn,
   inventoryProduct,
   isAttached,
   itemRef,
@@ -25,7 +26,7 @@ import type { InventoryListResult, InventoryRequest, InventoryRequestStatus, Inv
 // client ("Прикрепления") or to take an item back ("Открепления"); the manager
 // confirms ("Подтвердить": attach picks an item from a warehouse, detach takes
 // the requested one) or rejects ("Отклонить"). Agents create requests through
-// POST /api/inventory-items/requests (the web page offers "Новый запрос" too).
+// POST /api/inventory-items/requests (like Linko, the web page has no button for it).
 
 const NOT_FOUND = "Запрос не найден"
 
@@ -95,6 +96,8 @@ export async function listInventoryRequests(query: InventoryQuery): Promise<Inve
   if (query.items.length) add("r.item_id = ANY(?::int[])", query.items)
   if (query.requestedBy.length) add("fin_key(r.requested_by) = ANY(?::text[])", query.requestedBy.map(nameKey))
   if (query.processedBy.length) add("fin_key(r.updated_by) = ANY(?::text[])", query.processedBy.map(nameKey))
+  if (query.requestedByIds.length) add(idNameIn("r.requested_by", "employee"), query.requestedByIds)
+  if (query.processedByIds.length) add(idNameIn("r.updated_by", "employee"), query.processedByIds)
   if (query.createdFrom) add(`${createdDay("r.created_at")} >= ?`, query.createdFrom)
   if (query.createdTo) add(`${createdDay("r.created_at")} <= ?`, query.createdTo)
   if (query.updatedFrom) add(`r.updated_at <> '' AND ${createdDay("r.updated_at")} >= ?`, query.updatedFrom)

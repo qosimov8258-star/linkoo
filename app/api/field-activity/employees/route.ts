@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 
+import { dayTaskHistoryEnd, historyDayCounts } from "@/lib/activity-history"
 import { requireFieldReader, scopedEmployeeIds } from "@/lib/field-activity/actor"
 import { listFieldEmployees } from "@/lib/field-activity/employees"
 import { lastLocations, liveLocations } from "@/lib/field-activity/gps-repo"
@@ -51,10 +52,13 @@ export async function GET(request: NextRequest) {
     const [locations, statuses] = await Promise.all([live.value ? liveRows : lastLocations(ids, until), dayStatus(ids, day.value)])
     const locationOf = new Map(locations.map((location) => [location.employeeId, location]))
     const statusOf = new Map(statuses.map((status) => [status.employeeId, status]))
+    // Отслеживание on a day copied from Linko counts Linko's own day plans (lib/activity-history.ts).
+    const historyEnd = live.value ? await dayTaskHistoryEnd() : null
+    const history = historyEnd && day.value <= historyEnd ? await historyDayCounts(ids, day.value) : null
     return NextResponse.json({
       date: day.value,
       rows: employees.map((employee) => {
-        const status = statusOf.get(employee.employeeId)
+        const status = history?.get(employee.employeeId) ?? statusOf.get(employee.employeeId)
         return {
           ...employee,
           location: locationOf.get(employee.employeeId) ?? null,

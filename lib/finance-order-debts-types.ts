@@ -148,6 +148,9 @@ export type OrderDebtOrderRow = {
   orderId: number
   currency: string
   client: { key: string; id: number | null; name: string }
+  /** The financial account the order is booked on (Linko's order `client`, shown in the ЗАКАЗЫ «Клиент» cell while the
+   * click opens the shop): "acc:<id>" with the account's name, else the shop's own key and name. */
+  account: { key: string; name: string }
   status: string
   /** orders.agent ("Заказ оформил" / "Агент"). */
   agent: string
@@ -212,7 +215,9 @@ export type OrderDebtClientDetail = {
 
 export type OrderDebtOrderDetail = {
   order: OrderDebtOrderRow & { zone: string; delivery: string; product: string }
-  parts: Array<{ currency: string; total: number; paid: number; allocated: number; remaining: number }>
+  /** `balance`: what the order still owes as Linko's order dialog shows it (total_balance; «Оплачено» = total − balance):
+   * Linko's own remainder of an imported order (a cancelled one too), else `remaining`. */
+  parts: Array<{ currency: string; total: number; paid: number; allocated: number; remaining: number; balance: number }>
   items: Array<{ id: number; name: string; unit: string; quantity: number; price: number; discount: number; currency: string; amount: number }>
 }
 

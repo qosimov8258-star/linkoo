@@ -4,14 +4,14 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { dbErrorResponse } from "@/lib/db-errors"
-import { formatStatementDate } from "@/lib/finance/dates"
+import { formatStatementDate, nowLocalIso } from "@/lib/finance/dates"
 import { listClientTypes } from "@/lib/client-types-repo"
 import { getDb, outsideTransaction } from "@/lib/db"
 import { listOrganizations } from "@/lib/organizations-repo"
 import { nameKey } from "@/lib/platform-refs"
 
-// "Опросник" (/analytics/surveys). A survey belongs to one of the factory's own organizations
-// (/api/organizations, required) and optionally to one client type (/api/client-types; none =
+// "Опросник" (/analytics/surveys). A survey optionally belongs to one of the factory's own organizations
+// (/api/organizations; the reference leaves it empty on several surveys) and optionally to one client type (/api/client-types; none =
 // "Не указано"): surveys.organization_id / client_type_id, validated on every write (400
 // "Организация не найдена" / "Тип клиента не найден"). organization / store_type keep the names (the
 // organization rename cascade and delete check of lib/organizations-repo.ts find surveys by them);
@@ -19,6 +19,9 @@ import { nameKey } from "@/lib/platform-refs"
 // The survey form's sequence number (orderNo), its four switches (flags) and its questions are
 // stored with the survey (surveys.order_no / flags / questions, JSON); an update that omits them
 // keeps the stored ones.
+
+/** A product picked for a "Продукт" / "Инвентарь" / "Планограмма" question (its name as it was when saved). */
+export type SurveyProduct = { id: number; name: string }
 
 export type SurveyQuestion = {
   text: string
@@ -28,12 +31,26 @@ export type SurveyQuestion = {
   orderNo: string
   required: boolean
   answers: string[]
+  /** «Оценка» of each answer (same order as `answers`) when the survey has a scoring system; "" = none. */
+  balls: string[]
+  /** "Продукт": Face check / Price check / Продукт конкурента and the «Список товаров» (own or rival products). */
+  checkAmount: boolean
+  checkPrice: boolean
+  isRival: boolean
+  products: SurveyProduct[]
+  rivalProducts: SurveyProduct[]
+  /** Perfect Store questions: «Минимальное количество» (Инвентарь), «ID планограммы» (Планограмма) and their switches. */
+  minimumQuantity: string
+  planogramId: string
+  fullyOutOfStock: boolean
+  allProductsHavePriceTag: boolean
+  requirePlanogramExistsInStore: boolean
 }
 
 export type SurveyFlags = { required: boolean; storeCheck: boolean; scoring: boolean; perfect: boolean }
 
 /** Question types and answer formats of the survey form (components/analytics/survey-form.tsx); "" = not chosen. */
-const QUESTION_TYPES = ["Выбрать одну", "Выбрать несколько", "Вводит текст", "Продукт"] as const
+const QUESTION_TYPES = ["Выбрать одну", "Выбрать несколько", "Вводит текст", "Продукт", "Инвентарь", "Планограмма"] as const
 const QUESTION_FORMATS = ["Текст", "Число"] as const
 const NO_FLAGS: SurveyFlags = { required: false, storeCheck: false, scoring: false, perfect: false }
 
@@ -41,6 +58,8 @@ export type Survey = {
   id: number
   name: string
   createdAt: string
+  /** The creation day (YYYY-MM-DD) for the «Период создания» filter. */
+  createdOn: string
   active: boolean
   organization: string
   /** null = a survey saved before surveys were linked by id (only the name is known). */
@@ -164,6 +183,13 @@ function readQuestions(text: string | null | undefined): SurveyQuestion[] {
   const value = parseJson(text)
   if (!Array.isArray(value)) return []
   const str = (item: unknown) => (typeof item === "string" ? item : "")
+  const products = (list: unknown): SurveyProduct[] =>
+    Array.isArray(list)
+      ? list.flatMap((item) => {
+          const id = Number((item as SurveyProduct | null)?.id)
+          return Number.isSafeInteger(id) && id > 0 ? [{ id, name: str((item as SurveyProduct).name) }] : []
+        })
+      : []
   return value
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
     .map((question) => ({
@@ -174,6 +200,17 @@ function readQuestions(text: string | null | undefined): SurveyQuestion[] {
       orderNo: str(question.orderNo),
       required: question.required === true,
       answers: Array.isArray(question.answers) ? question.answers.map(str) : [],
+      balls: Array.isArray(question.balls) ? question.balls.map(str) : [],
+      checkAmount: question.checkAmount === true,
+      checkPrice: question.checkPrice === true,
+      isRival: question.isRival === true,
+      products: products(question.products),
+      rivalProducts: products(question.rivalProducts),
+      minimumQuantity: str(question.minimumQuantity),
+      planogramId: str(question.planogramId),
+      fullyOutOfStock: question.fullyOutOfStock === true,
+      allProductsHavePriceTag: question.allProductsHavePriceTag === true,
+      requirePlanogramExistsInStore: question.requirePlanogramExistsInStore === true,
     }))
 }
 
@@ -186,6 +223,7 @@ function rowToSurvey(row: Row, refs: Directory): Survey {
     id: Number(row.id),
     name: row.name,
     createdAt: formatDate(row.created_at),
+    createdOn: /^\d{4}-\d{2}-\d{2}/.test(String(row.created_at ?? "")) ? String(row.created_at).slice(0, 10) : "",
     active: !!row.active,
     organization: (organizationId !== null ? refs.organizations.get(organizationId) : undefined) ?? row.organization ?? "",
     organizationId,
@@ -207,6 +245,9 @@ const id = z.number().int().positive().max(2_147_483_647)
 /** A sequence number of the form: "" or a whole number (up to 9 digits). */
 const sequence = z.string().trim().regex(/^\d{0,9}$/, { error: "Введите целое число" })
 
+/** A picked product: its id (checked against the catalogue on save) and the name shown in the list. */
+const productSchema = z.object({ id, name: z.string().max(500, "Не более 500 символов").optional() })
+
 const questionSchema = z.object({
   text: z.string().trim().max(1000, "Не более 1000 символов"),
   type: z.union([z.enum(QUESTION_TYPES), z.literal("")], { error: "Неверное значение" }),
@@ -215,9 +256,20 @@ const questionSchema = z.object({
   orderNo: sequence,
   required: z.boolean(),
   answers: z.array(z.string().trim().max(500, "Не более 500 символов")).max(200, "Слишком много значений"),
+  balls: z.array(z.string().trim().regex(/^-?\d{0,9}([.,]\d{0,4})?$/, { error: "Введите число" })).max(200, "Слишком много значений").optional(),
+  checkAmount: z.boolean().optional(),
+  checkPrice: z.boolean().optional(),
+  isRival: z.boolean().optional(),
+  products: z.array(productSchema).max(500, "Слишком много значений").optional(),
+  rivalProducts: z.array(productSchema).max(500, "Слишком много значений").optional(),
+  minimumQuantity: sequence.optional(),
+  planogramId: z.string().trim().max(255, "Не более 255 символов").optional(),
+  fullyOutOfStock: z.boolean().optional(),
+  allProductsHavePriceTag: z.boolean().optional(),
+  requirePlanogramExistsInStore: z.boolean().optional(),
 })
 
-/** POST / PUT body. organizationId (or the organization name) is required; clientTypeId / storeType optional (null / "" = none). */
+/** POST / PUT body. organizationId (or the organization name) and clientTypeId / storeType are optional (null / "" = none). */
 export const surveyBodySchema = z.object({
   name: z.string().trim().min(1, "Название обязательно").max(255, "Не более 255 символов"),
   active: z.boolean().optional(),
@@ -239,19 +291,61 @@ export type SurveyBody = z.infer<typeof surveyBodySchema>
 type SurveyValues = {
   name: string
   active: boolean
-  organizationId: number
+  /** null = no organization (the reference's «Организация» may stay empty). */
+  organizationId: number | null
   organization: string
   clientTypeId: number | null
   storeType: string
   comment: string
 }
 
+type QuestionBody = NonNullable<SurveyBody["questions"]>[number]
+
+/** Names of the catalogue's products / rival products by id (unknown ids are left out). */
+async function productNames(table: "products" | "rival_products", ids: number[]): Promise<Map<number, string>> {
+  if (!ids.length) return new Map()
+  const exists = (await getDb().prepare(`SELECT to_regclass('${table}') IS NOT NULL AS ok`).get()) as { ok: boolean } | undefined
+  if (!exists?.ok) return new Map()
+  const rows = (await getDb().prepare(`SELECT id, name FROM ${table} WHERE id = ANY(@ids::int[])`).all({ ids })) as Array<{ id: number; name: string }>
+  return new Map(rows.map((row) => [Number(row.id), String(row.name ?? "")]))
+}
+
+/** The questions as stored: every field present, picked products checked against the catalogue (with their names). */
+async function storedQuestions(questions: QuestionBody[]): Promise<SurveyQuestion[]> {
+  const own = await productNames("products", [...new Set(questions.flatMap((question) => (question.products ?? []).map((item) => item.id)))])
+  const rival = await productNames("rival_products", [...new Set(questions.flatMap((question) => (question.rivalProducts ?? []).map((item) => item.id)))])
+  const pick = (list: QuestionBody["products"], names: Map<number, string>): SurveyProduct[] => {
+    const seen = new Set<number>()
+    return (list ?? []).flatMap((item) => (names.has(item.id) && !seen.has(item.id) && seen.add(item.id) ? [{ id: item.id, name: names.get(item.id)! }] : []))
+  }
+  return questions.map((question) => ({
+    text: question.text,
+    type: question.type,
+    maxAnswers: question.maxAnswers,
+    format: question.format,
+    orderNo: question.orderNo,
+    required: question.required,
+    answers: question.answers,
+    balls: (question.balls ?? []).slice(0, question.answers.length).map((ball) => ball.replace(",", ".")),
+    checkAmount: question.checkAmount ?? false,
+    checkPrice: question.checkPrice ?? false,
+    isRival: question.isRival ?? false,
+    products: pick(question.products, own),
+    rivalProducts: pick(question.rivalProducts, rival),
+    minimumQuantity: question.minimumQuantity ?? "",
+    planogramId: question.planogramId ?? "",
+    fullyOutOfStock: question.fullyOutOfStock ?? false,
+    allProductsHavePriceTag: question.allProductsHavePriceTag ?? false,
+    requirePlanogramExistsInStore: question.requirePlanogramExistsInStore ?? false,
+  }))
+}
+
 /** The form fields kept as they are: orderNo / flags / questions (an omitted one keeps `current`). */
-function formParams(body: SurveyBody, current?: Row) {
+async function formParams(body: SurveyBody, current?: Row) {
   return {
     orderNo: body.orderNo ?? current?.order_no ?? "",
     flags: JSON.stringify(body.flags ? { ...NO_FLAGS, ...body.flags } : current ? readFlags(current.flags) : NO_FLAGS),
-    questions: JSON.stringify(body.questions ?? (current ? readQuestions(current.questions) : [])),
+    questions: JSON.stringify(body.questions ? await storedQuestions(body.questions) : current ? readQuestions(current.questions) : []),
   }
 }
 
@@ -267,7 +361,6 @@ async function surveyValues(body: SurveyBody): Promise<SurveyValues> {
     organizationId = [...refs.organizations].find(([, name]) => nameKey(name) === key)?.[0] ?? null
     if (organizationId === null) throw new SurveyError("Организация не найдена", 400, "organizationId")
   }
-  if (organizationId === null) throw new SurveyError("Выберите организацию", 400, "organizationId")
 
   let clientTypeId: number | null = null
   if (body.clientTypeId) {
@@ -282,7 +375,7 @@ async function surveyValues(body: SurveyBody): Promise<SurveyValues> {
     name: body.name,
     active: body.active ?? true,
     organizationId,
-    organization: refs.organizations.get(organizationId)!,
+    organization: organizationId === null ? "" : refs.organizations.get(organizationId)!,
     clientTypeId,
     storeType: clientTypeId === null ? "" : refs.clientTypes.get(clientTypeId)!,
     comment: body.comment ?? "",
@@ -317,10 +410,11 @@ export async function createSurvey(body: SurveyBody): Promise<Survey> {
   const values = await surveyValues(body)
   const result = await getDb()
     .prepare(
-      `INSERT INTO surveys (name, active, organization, organization_id, store_type, client_type_id, comment, order_no, flags, questions)
-       VALUES (@name, @active, @organization, @organizationId, @storeType, @clientTypeId, @comment, @orderNo, @flags, @questions)`,
+      `INSERT INTO surveys (name, active, organization, organization_id, store_type, client_type_id, comment, order_no, flags, questions, created_at, updated_at)
+       VALUES (@name, @active, @organization, @organizationId, @storeType, @clientTypeId, @comment, @orderNo, @flags, @questions, @createdAt, @createdAt)`,
     )
-    .run({ ...params(values), ...formParams(body) })
+    // The creation time is the local (Asia/Tashkent) wall clock, like the reference's (and the imported surveys').
+    .run({ ...params(values), ...(await formParams(body)), createdAt: nowLocalIso().replace("T", " ") })
   return (await getSurvey(Number(result.lastInsertRowid)))!
 }
 
@@ -335,7 +429,7 @@ export async function updateSurvey(surveyId: number, body: SurveyBody): Promise<
          store_type = @storeType, client_type_id = @clientTypeId, comment = @comment, order_no = @orderNo, flags = @flags,
          questions = @questions, updated_at = datetime('now') WHERE id = @id`,
     )
-    .run({ ...params(values), ...formParams(body, current), id: surveyId })
+    .run({ ...params(values), ...(await formParams(body, current)), id: surveyId })
   return getSurvey(surveyId)
 }
 

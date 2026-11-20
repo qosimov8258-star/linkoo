@@ -10,7 +10,7 @@ import type { RecommendedRow } from "@/lib/stock-recommended"
 // Table of "Рекомендованный запас" (demo c138 module 5165): Товар | Вес одной
 // ед. | Тип | Бренд | Продано | Доля от продаж (%) | Доступно | Сред. дневные
 // продажи | Запас дней | Рек. запас на 6 / 30 дней. "Доля" and "Запас дней"
-// are coloured pills (demo thresholds). Numeric headers sort (desc → asc → none).
+// are coloured pills (demo thresholds). Numeric headers sort (asc → desc → none) with Linko's ?ordering names.
 
 type Column = { id: string; label: string; sortKey?: string; render: (row: RecommendedRow) => ReactNode }
 
@@ -39,13 +39,11 @@ const MIN_ROWS = 3
 export function ReorderLevelTable({
   rows,
   ordering,
-  unit,
   onOrderingChange,
   loading,
 }: {
   rows: RecommendedRow[]
   ordering: string
-  unit: string
   onOrderingChange: (next: string) => void
   loading: boolean
 }) {
@@ -61,20 +59,21 @@ export function ReorderLevelTable({
     observer.observe(el)
     return () => observer.disconnect()
   }, [rows.length])
-  // The reference prints plain numbers in the default "Количество" mode; the unit follows only for weight / volume / blocks.
-  const unitOf = (row: RecommendedRow) => (unit !== "measurement" && row.unit ? ` ${t(row.unit)}` : "")
+  // Linko prints plain numbers in every «Показать по типу ед.» mode (no unit), the weight as it is stored («0.8»), and
+  // nothing for a product without a type or brand.
+  const named = (value: string) => (value && value !== "No brand" ? value : "")
   const columns: Column[] = [
     { id: "name", label: "Товар", render: (row) => row.name },
-    { id: "weight", label: "Вес одной ед.", sortKey: "weight", render: (row) => (row.weight ? `${number(row.weight)} ${t("кг")}` : "0") },
-    { id: "type", label: "Тип", render: (row) => row.type || t("Не указано") },
-    { id: "brand", label: "Бренд", render: (row) => row.brand || t("Не указано") },
-    { id: "sold", label: "Продано", sortKey: "sold", render: (row) => `${number(row.sold)}${unitOf(row)}` },
+    { id: "weight", label: "Вес одной ед.", sortKey: "kgValue", render: (row) => String(row.weight || 0) },
+    { id: "type", label: "Тип", render: (row) => named(row.type) },
+    { id: "brand", label: "Бренд", render: (row) => named(row.brand) },
+    { id: "sold", label: "Продано", sortKey: "totalAmount", render: (row) => number(row.sold) },
     { id: "salePart", label: "Доля от продаж (%)", sortKey: "salePart", render: (row) => <Pill color={shareColor(row.salePart)}>{number(row.salePart, 2)} %</Pill> },
-    { id: "available", label: "Доступно", sortKey: "available", render: (row) => `${number(row.available)}${unitOf(row)}` },
+    { id: "available", label: "Доступно", sortKey: "totalBalance", render: (row) => number(row.available) },
     { id: "byDay", label: "Сред. дневные продажи", sortKey: "byDay", render: (row) => number(row.byDay, 2) },
-    { id: "remainDays", label: "Запас дней", sortKey: "remainDays", render: (row) => <Pill color={daysColor(row.remainDays)}>{number(row.remainDays, 2)}</Pill> },
-    { id: "week", label: "Рек. запас на 6 дней", sortKey: "week", render: (row) => `${number(row.week)}${unitOf(row)}` },
-    { id: "month", label: "Рек. запас на 30 дней", sortKey: "month", render: (row) => `${number(row.month)}${unitOf(row)}` },
+    { id: "remainDays", label: "Запас дней", sortKey: "remainDays", render: (row) => <Pill color={daysColor(row.remainDays)}>{number(row.remainDays, 0)}</Pill> },
+    { id: "week", label: "Рек. запас на 6 дней", sortKey: "weekRecommendations", render: (row) => number(row.week) },
+    { id: "month", label: "Рек. запас на 30 дней", sortKey: "monthRecommendations", render: (row) => number(row.month) },
   ]
   const pill = new Set(["salePart", "remainDays"])
   // The reference grid: a 300px name column, 100px columns after it, a 65px header with a soft shadow, 31.3px rows.
@@ -90,12 +89,13 @@ export function ReorderLevelTable({
       >
         <div style={template} className="grid min-h-[48px] [box-shadow:0_4px_14px_rgba(0,0,0,0.15)]">
           {columns.map((column) => {
-            const sorted = column.sortKey && (ordering === column.sortKey || ordering === `-${column.sortKey}`)
+            // Linko's header marks: ascending = a 3px bar on top, descending = at the bottom.
+            const sorted = column.sortKey && (ordering === column.sortKey ? "asc" : ordering === `-${column.sortKey}` ? "desc" : "")
             const label = column.id === "week" || column.id === "month" ? t("Рек. запас на {n} дней").replace("{n}", column.id === "week" ? "6" : "30") : t(column.label)
             return (
-              <div key={column.id} className={`${cell} flex items-center justify-center bg-[#f0f4f9] px-[5px] py-[5.5px] text-center text-[13px] font-semibold leading-[18px] text-[#374557] ${sorted ? "[box-shadow:inset_0_-3px_0_rgba(0,0,0,0.6)]" : ""}`}>
+              <div key={column.id} className={`${cell} flex items-center justify-center bg-[#f0f4f9] px-[5px] py-[5.5px] text-center text-[13px] font-semibold leading-[18px] text-[#374557] ${sorted === "asc" ? "[box-shadow:inset_0_3px_0_rgba(0,0,0,0.6)]" : sorted === "desc" ? "[box-shadow:inset_0_-3px_0_rgba(0,0,0,0.6)]" : ""}`}>
                 {column.sortKey ? (
-                  <button type="button" onClick={() => onOrderingChange(nextOrdering([ordering], column.sortKey!, "desc-first")[0] ?? "")} className="block w-full text-center">
+                  <button type="button" onClick={() => onOrderingChange(nextOrdering([ordering], column.sortKey!, "asc-first")[0] ?? "")} className="block w-full text-center">
                     {label}
                   </button>
                 ) : (

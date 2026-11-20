@@ -108,15 +108,15 @@ export type StoredKnowledgeBaseFile = { data: Buffer; name: string; contentType:
 /**
  * The bytes of a file visible in `scope`: a reader of every article may open any file of an
  * article and their own unattached uploads; anyone else only the files of the active articles
- * published to their position. Null when missing or not visible.
+ * published to their access right. Null when missing or not visible.
  */
 export async function readKnowledgeBaseFile(id: number, scope: KnowledgeBaseScope, actorId: number): Promise<StoredKnowledgeBaseFile | null> {
   await ensureKnowledgeBaseSchema()
   const row = (await getDb()
     .prepare(
       `SELECT f.data, f.name, f.content_type, f.created_by, a.id AS article_id, a.active,
-              (SELECT COUNT(*)::int FROM knowledge_base_article_positions l WHERE l.article_id = a.id) AS position_count,
-              EXISTS (SELECT 1 FROM knowledge_base_article_positions l WHERE l.article_id = a.id AND l.position_id = @positionId) AS own_position
+              (SELECT COUNT(*)::int FROM knowledge_base_article_access_rights l WHERE l.article_id = a.id) AS position_count,
+              EXISTS (SELECT 1 FROM knowledge_base_article_access_rights l WHERE l.article_id = a.id AND l.access_right_id = @positionId) AS own_position
          FROM knowledge_base_files f
          LEFT JOIN knowledge_base_articles a ON a.file_id = f.id
         WHERE f.id = @id`,

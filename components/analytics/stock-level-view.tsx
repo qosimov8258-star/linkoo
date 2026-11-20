@@ -8,6 +8,7 @@ import { BalanceDownloadMenu } from "@/components/analytics/balance/download-men
 import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { StockItemDialog } from "@/components/analytics/stock-level-detail"
+import { StockReservedDialog } from "@/components/analytics/stock-level-reserved"
 import { movementLink } from "@/components/analytics/stock-movement-link"
 import { StockFilterButton, StockFilterDialog } from "@/components/analytics/stock-level-filters"
 import {
@@ -66,7 +67,8 @@ export function StockLevelView() {
   const [exportError, setExportError] = useState("")
 
   const needsPriceList = state.mode === "price" && !state.priceList
-  const list = useCashJson<StockLevelList>(needsPriceList ? null : `${LIST_URL}?${stockListQuery(state)}`)
+  // ПРАЙС ЛИСТ without a list: Linko shows «Пожалуйста выберите прайс лист» but still counts the rows in the pager.
+  const list = useCashJson<StockLevelList>(`${LIST_URL}?${stockListQuery(needsPriceList ? { ...state, mode: "amount" } : state)}`)
   const options = useCashJson<StockOptions>("/api/stock/options").data
   const data = needsPriceList ? null : list.data
   const rows = data?.rows ?? []
@@ -104,6 +106,22 @@ export function StockLevelView() {
   }
 
   // --- excel ----------------------------------------------------------------------------
+  // «Список»: Linko's client-side sheet of the page (its file is named «Прогноз по поставщикам» there too): Товар, Тип
+  // товара, «Всего / Забронировано / В пути» in one cell (no В пути outside КОЛ-ВО), Доступно, Цена, Валюта.
+  const pageSheet = (data: StockLevelRow[]) => {
+    const quantity = state.mode === "amount"
+    return [
+      [t("Товар"), t("Тип товара"), t(quantity ? "Всего / Забронировано / В пути" : "Всего / Забронировано"), t("Доступно"), t("Цена"), t("Валюта")],
+      ...data.map((row) => [
+        row.name,
+        row.type,
+        quantity ? `${formatQty(row.total + row.defects)} / ${formatQty(row.reserved)} / ${formatQty(row.transit)}` : `${formatQty(row.total + row.defects)} / ${formatQty(row.reserved)}`,
+        row.total - row.reserved,
+        state.mode === "net_cost" ? row.value : state.mode === "price" ? (row.price ?? 0) : 0,
+        currencyLabel(currency),
+      ]),
+    ]
+  }
   const sheet = (data: StockLevelRow[]) => {
     const columns = visibleStockColumns(state.mode, [])
     const money = columns.filter((column) => column.id === "cost" || column.id === "price" || column.id === "value")
@@ -177,10 +195,11 @@ export function StockLevelView() {
     </div>
   )
 
-  const lastPage = Math.max(1, Math.ceil((data?.count ?? 0) / state.pageSize))
-  const currentPage = Math.min(data?.page ?? state.page, lastPage)
+  const total = list.data?.count ?? 0
+  const lastPage = Math.max(1, Math.ceil(total / state.pageSize))
+  const currentPage = Math.min(list.data?.page ?? state.page, lastPage)
   const from = (currentPage - 1) * state.pageSize + 1
-  const to = Math.min(currentPage * state.pageSize, data?.count ?? 0)
+  const to = Math.min(currentPage * state.pageSize, total)
   return (
     <RefPage>
       <div className="pl-[2px]"><RefHeader title={t("Остаток")} /></div>
@@ -191,27 +210,27 @@ export function StockLevelView() {
             label="Скачать"
             disabled={exporting || needsPriceList}
             items={[
-              { label: "Список", onClick: () => downloadExcelTable(t("Прогноз по поставщикам"), sheet(rows)) },
+              { label: "Список", onClick: () => downloadExcelTable(t("Прогноз по поставщикам"), pageSheet(rows)) },
               { label: "Скачать все", onClick: () => void exportAll() },
             ]}
           />
         </section>
         {exportError && <p className="pt-2 text-[13px] text-[#e5484d]">{t(exportError)}</p>}
 
-        <section className={`flex justify-between border-b border-[#efefef] pb-[14px] pt-[14px] text-[#666] ${list.loading ? "opacity-60" : ""}`}>
+        <section className={`flex justify-between border-b border-[#efefef] text-[#666] ${needsPriceList ? "" : "pb-[14px] pt-[14px]"} ${list.loading ? "opacity-60" : ""}`}>
           {needsPriceList ? (
-            <p className="text-[13px] font-semibold text-[#e57373]">{t("Пожалуйста выберите прайс лист")}</p>
+            // Linko's miniError: 20px semibold in the brand colour, centred in an 80px band.
+            <p className="flex h-[80px] w-full items-center justify-center text-[20px] font-semibold text-[#1E4A9A]">{t("Пожалуйста выберите прайс лист")}</p>
           ) : (
             <>
               {card("Общая сумма", sum?.total.count ?? 0, sum?.total.price ?? 0, "total")}
               {card("Сумма забронированных", sum?.reserved.count ?? 0, sum?.reserved.price ?? 0, "reserved")}
-              {state.mode === "amount" ? (
+              {/* Linko (В пути on): the third card is «В пути» in КОЛ-ВО and nothing in СЕБЕСТОИМОСТЬ / ПРАЙС ЛИСТ. */}
+              {state.mode === "amount" && (
                 <div>
                   <p className="text-[13px] leading-[16.3px]">{t("В пути")}</p>
                   {bigCount(sum?.given ?? 0, "transit", "text-[16px] font-semibold leading-[20px] text-[#333]")}
                 </div>
-              ) : (
-                card("Сумма забракованных", sum?.defected.count ?? 0, sum?.defected.price ?? 0, "defects")
               )}
               {card("Сумма доступных", sum?.available.count ?? 0, sum?.available.price ?? 0, "available")}
             </>
@@ -225,7 +244,7 @@ export function StockLevelView() {
                 key={item.mode}
                 type="button"
                 onClick={() => update({ mode: item.mode, page: 1, ordering: "" })}
-                style={{ minWidth: [70, 90.7, 146.7][index] }}
+                style={{ minWidth: [82, 142, 112][index] }}
                 className={`h-[32px] px-[16px] text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.mode === item.mode ? "bg-[#1E4A9A] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
               >
                 {t(item.label)}
@@ -233,11 +252,12 @@ export function StockLevelView() {
             ))}
           </div>
           {state.mode === "price" && (
-            <label className="absolute left-[330px] top-[19px] flex w-[200px] flex-col text-[10px] font-semibold text-black">
-              {t("Прайс лист")}
+            // Linko: a 250px field right of the toggles (their wrapper is 30% wide); empty, its label sits in the field.
+            <label style={{ left: "calc(30% + 7px)" }} className="absolute top-[8px] flex w-[250px] flex-col text-[10px] font-semibold text-black">
+              <span className={state.priceList ? "" : "invisible"}>{t("Прайс лист")}</span>
               <span className="relative mt-1 flex h-9 items-center border-b border-[#e0e0e0]">
-                <select value={state.priceList} onChange={(event) => update({ priceList: event.target.value, page: 1 })} className="h-full w-full appearance-none bg-transparent pr-7 text-[13px] text-[#333] outline-none">
-                  <option value="">{t("Не выбрано")}</option>
+                <select value={state.priceList} onChange={(event) => update({ priceList: event.target.value, page: 1 })} className={`h-full w-full appearance-none bg-transparent pr-7 text-[13px] outline-none ${state.priceList ? "text-[#333]" : "font-semibold text-black"}`}>
+                  <option value="">{t("Прайс лист")}</option>
                   {(options?.priceLists ?? []).map((name) => (
                     <option key={name} value={name}>
                       {name}
@@ -248,7 +268,8 @@ export function StockLevelView() {
               </span>
             </label>
           )}
-          <label style={{ left: "calc(546.2px + (100% - 1236px) * 0.603)" }} className="absolute top-[22px] block h-[36px] w-[245.7px] border-b border-[#e0e0e0]">
+          {/* Linko's search form is a quarter of the row, its magnifier button (40px) inside it. */}
+          <label style={{ left: "calc(546.2px + (100% - 1236px) * 0.603)", width: "calc(25% - 40px)" }} className="absolute top-[22px] block h-[36px] border-b border-[#e0e0e0]">
             <input
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
@@ -287,7 +308,7 @@ export function StockLevelView() {
               <svg viewBox="0 0 10 5" className="pointer-events-none absolute left-[23px] top-[26px] h-[5px] w-[10px] fill-[#333]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
             </label>
             <span className="ml-[11px] whitespace-nowrap text-[13px] text-[#5d6474]">
-              {from} - {to} {t("из")} {data?.count ?? 0}
+              {from} - {to} {t("из")} {total}
             </span>
             <button type="button" disabled={currentPage <= 1} onClick={() => update({ page: currentPage - 1 })} aria-label={t("Назад")} className="pl-[10px] pr-[5px] disabled:opacity-30">
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-black/60" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-5l-3-3 3-3v6z" /></svg>
@@ -299,7 +320,7 @@ export function StockLevelView() {
         </section>
 
         {needsPriceList ? (
-          <p className="p-16 text-center font-semibold text-[#e57373]">{t("Пожалуйста выберите прайс лист")}</p>
+          <p className="flex h-[400px] items-center justify-center border-t border-[#efefef] text-[20px] font-semibold text-[#1E4A9A]">{t("Пожалуйста выберите прайс лист")}</p>
         ) : list.error && !data ? (
           <p className="p-16 text-center text-[#e5484d]">{t(list.error)}</p>
         ) : (
@@ -311,12 +332,22 @@ export function StockLevelView() {
             ordering={state.ordering}
             onSort={sort}
             onOpenItem={(row) => router.push(movementLink(row.key))}
+            onOpenReserved={(row) => update({ reserved: row.key })}
+            warehouses={data?.warehouses ?? []}
             loading={list.loading}
           />
         )}
       </div>
 
       <StockFilterDialog open={filterOpen} filters={state.filters} options={options} onApply={(filters) => update({ filters, page: 1 })} onClose={() => setFilterOpen(false)} />
+      {state.reserved && (
+        <StockReservedDialog
+          itemKey={state.reserved}
+          name={rows.find((row) => row.key === state.reserved)?.name ?? ""}
+          warehouses={state.filters.warehouse}
+          onClose={() => update({ reserved: "" })}
+        />
+      )}
       {state.item && <StockItemDialog itemKey={state.item} scope={stockScopeQuery(state.filters)} fallbackName="" onClose={() => update({ item: "" })} />}
     </RefPage>
   )

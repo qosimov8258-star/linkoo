@@ -29,8 +29,9 @@ export function scopeOfStatus(status: InventoryStatusParam): InventoryItemScope 
   return status === "attachment" ? "all" : null
 }
 
-/** Состояние (demo main/gear_condition). Stored as the Russian name. */
-export const INVENTORY_CONDITIONS = ["Новый", "Хороший", "Средний", "Плохой", "Неисправный"] as const
+/** Состояние (Linko main/gear_condition): its default conditions. The live list is the table
+ * inventory_conditions (imported from Linko); an item stores the Russian name. */
+export const INVENTORY_CONDITIONS = ["Новый", "Хороший", "Старый"] as const
 
 export const INVENTORY_LOG_STATUSES = ["create", "give", "take"] as const
 export type InventoryLogStatus = (typeof INVENTORY_LOG_STATUSES)[number]
@@ -72,7 +73,12 @@ export type InventoryItem = {
   isReviewed: boolean
   reviewedAt: string
   reviewedBy: string
+  /** The item has a photo (Linko shows its frame even when the file is gone). */
   hasPhoto: boolean
+  /** The photo file can be served (GET /api/inventory-items/[id]/photo); false for a Linko file its server no longer has. */
+  photoReady: boolean
+  /** Linko's file id of the photo (its viewer's openImageDialog=<id>); null for a photo uploaded here. */
+  photoId: number | null
   /** Changes whenever the item changes (photo URL cache key). */
   version: string
   deleted: boolean
@@ -112,6 +118,8 @@ export type InventoryCheck = {
   comment: string
   createdBy: string
   createdAt: string
+  /** The review's photos (Linko gear_check images): Linko's file ids; its server no longer serves the files. */
+  images: Array<{ id: number; fileId: number | null }>
 }
 
 /** "Запросы" row (demo main/gear_request). */
@@ -137,9 +145,14 @@ export type InventoryListResult<T> = { count: number; page: number; pageSize: nu
 export type InventoryOptions = {
   products: Array<{ id: number; name: string; unit: string; organization: string }>
   warehouses: Array<{ name: string; branch: string }>
+  /** Склад of the item forms (Linko saas/for_select m=Stock): active warehouse names, newest first. */
+  stocks: string[]
+  /** Состояние: inventory_conditions in id order. */
   conditions: string[]
   /** Ответственный: staff and system users. */
   responsibles: string[]
+  /** Ответственный of the item forms (Linko main/crud/for_select): active staff "first last", in id order. */
+  staff: string[]
   /** Every user name seen on the module (Пользователи / Создал / Запросил / Обработал). */
   users: string[]
   zones: string[]

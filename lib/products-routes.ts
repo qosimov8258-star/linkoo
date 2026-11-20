@@ -46,7 +46,7 @@ export async function catalogCreateRoute(request: Request, kind: CatalogKind): P
   const patch = catalogPatch(parsed.data)
   if (!patch.name?.trim()) return NextResponse.json({ error: "Наименование обязательно", fields: { name: "Обязательное поле" } }, { status: 400 })
   return catalogWrite(async () => {
-    const id = await createCatalogItem(kind, patch)
+    const id = await createCatalogItem(kind, patch, parsed.data.attributes)
     const view = new URL(request.url).searchParams.get("view")
     return NextResponse.json(view === "item" ? await getCatalogDetail(kind, id) : await legacyItem(kind, id), { status: 201 })
   })
@@ -71,7 +71,7 @@ export async function catalogUpdateRoute(request: Request, kind: CatalogKind, id
   const parsed = await parseJsonBody(request, catalogItemSchema)
   if (parsed.error) return parsed.error
   return catalogWrite(async () => {
-    const result = await updateCatalogItem(kind, id, catalogPatch(parsed.data))
+    const result = await updateCatalogItem(kind, id, catalogPatch(parsed.data), parsed.data.attributes)
     if (!result) return notFound(kind)
     const view = new URL(request.url).searchParams.get("view")
     const item = view === "item" ? await getCatalogDetail(kind, id) : await legacyItem(kind, id)

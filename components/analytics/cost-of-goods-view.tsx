@@ -15,7 +15,6 @@ import { formatCategoryDate } from "@/components/analytics/categories-grid"
 import { ListBTable } from "@/components/analytics/list-b-table"
 import { FilterDate, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefIconButton, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
-import { useAppCurrency } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
   NET_COST_API,
@@ -120,20 +119,24 @@ function TotalsTable({ totals, loading }: { totals: NetCostTotals | null; loadin
   const { t } = useLanguage()
   const [expanded, setExpanded] = useState(false)
   const rows = totals?.rows ?? []
-  const visible = expanded ? rows : rows.slice(0, 3)
-  // Linko's headers name no currency; with an app currency (Настройки → Валюта приложения) the amounts are converted,
-  // so the headers say which one.
-  const currency = useAppCurrency() ? (totals?.currency ?? "") : ""
-  const th = "whitespace-nowrap bg-[#fafafa] px-[10px] py-[7px] text-[14px] font-semibold leading-[16px] text-[#333]"
-  const td = "border-b border-[#f0f0f0] px-[10px] py-[7px] text-[14px] leading-[16px] text-[#333]"
+  // Linko shows 5 rows, the rest behind «Показать больше».
+  const visible = expanded ? rows : rows.slice(0, 5)
+  // Linko's headers end with its PRIMARY_CURRENCY («… SUM»); here the currency the amounts are shown in (the base one,
+  // or the app currency of Настройки → Валюта приложения).
+  const currency = totals?.currency ?? ""
+  // Linko's summary table: 16 px card padding, cells 6 / 10 px, a line under the header and between the rows (none
+  // under the last one), and an empty fifth column.
+  const th = "whitespace-nowrap border-b border-[#f0f0f0] bg-[#fafafa] px-[10px] py-[6px] text-[14px] font-semibold leading-[17px] text-[#333]"
+  const td = "border-b border-[#f0f0f0] px-[10px] py-[6px] text-[14px] leading-[18px] text-[#333] [tr:last-child>&]:border-b-0"
   return (
-    <section className={`mb-[17px] mt-4 overflow-x-auto rounded-[10px] bg-white pb-[14px] pl-4 pr-12 pt-4 shadow-[0_2px_8px_rgba(0,0,0,0.05)] ${loading && !totals ? "opacity-60" : ""}`}>
+    <section className={`mb-[17px] mt-4 overflow-x-auto rounded-[10px] bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.05)] ${loading && !totals ? "opacity-60" : ""}`}>
       <table className="w-full min-w-[900px] table-fixed border-collapse text-left">
         <colgroup>
-          <col style={{ width: "15.32%" }} />
-          <col style={{ width: "34.93%" }} />
-          <col style={{ width: "38.29%" }} />
-          <col style={{ width: "11.46%" }} />
+          <col style={{ width: "14.35%" }} />
+          <col style={{ width: "32.74%" }} />
+          <col style={{ width: "35.91%" }} />
+          <col style={{ width: "14.48%" }} />
+          <col style={{ width: "2.52%" }} />
         </colgroup>
         <thead>
           <tr>
@@ -147,6 +150,7 @@ function TotalsTable({ totals, loading }: { totals: NetCostTotals | null; loadin
             <th className={`${th} text-right`}>
               {t("Разница")} {currency}
             </th>
+            <th className={th} />
           </tr>
         </thead>
         <tbody>
@@ -158,18 +162,19 @@ function TotalsTable({ totals, loading }: { totals: NetCostTotals | null; loadin
               <td className={`${td} text-right`} style={{ color: row.isCorrect ? "green" : "red" }}>
                 {fmtSum(row.fault)}
               </td>
+              <td className={td} />
             </tr>
           ))}
           {!visible.length && (
             <tr>
-              <td colSpan={4} className="px-3 py-6 text-center text-[#9aa3b6]">
+              <td colSpan={5} className="px-3 py-6 text-center text-[#9aa3b6]">
                 {loading ? t("Загрузка...") : t("Нет данных")}
               </td>
             </tr>
           )}
         </tbody>
       </table>
-      {rows.length > 3 && (
+      {rows.length > 5 && (
         <div className="mt-3 text-center">
           <button type="button" onClick={() => setExpanded((value) => !value)} className="inline-flex items-center gap-1 text-[13px] text-[#1890ff]">
             {t(expanded ? "Скрыть" : "Показать больше")}
@@ -337,17 +342,19 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
         )}
 
         <div className={`-mt-px ${list.loading ? "opacity-60" : ""}`}>
+          {/* Linko's flex row: 5 : 2 : 3 : 3 : 3 : 3 shares and a fixed «Проверка» cell (80 px in the header, 88 px in a row). */}
           <ListBTable
-            cols="minmax(0,289.3fr) minmax(0,119.5fr) minmax(0,175.2fr) minmax(0,175.2fr) minmax(0,175.2fr) minmax(0,175.2fr) minmax(0,70.4fr)"
+            cols="minmax(0,5fr) minmax(0,2fr) minmax(0,3fr) minmax(0,3fr) minmax(0,3fr) minmax(0,3fr) 88px"
+            headCols="minmax(0,5fr) minmax(0,2fr) minmax(0,3fr) minmax(0,3fr) minmax(0,3fr) minmax(0,3fr) 80px"
             minWidth={1100}
             heads={[
               sortHead("product__name", t("Наименование")),
               sortHead("stock", t("Склад")),
-              sortHead("created_date", t("Дата"), false, "-ml-[3px]"),
-              sortHead("cost", t("Уср. Себестоимость"), true, "!w-auto ml-auto mr-[7px] max-w-[100px]"),
-              sortHead("real_cost", t("Себестоимость"), true, "!w-auto ml-auto mr-[8px]"),
-              <span key="rev" className="mr-[10px] block text-right">{t("Сумма переоценки")}</span>,
-              <span key="check" className="-ml-[10px] block text-center">{t("Проверка")}</span>,
+              sortHead("created_date", t("Дата")),
+              sortHead("cost", t("Уср. Себестоимость"), true),
+              sortHead("real_cost", t("Себестоимость"), true),
+              <span key="rev" className="block text-right">{t("Сумма переоценки")}</span>,
+              <span key="check" className="block text-center">{t("Проверка")}</span>,
             ]}
             rows={rows}
             rowKey={(row) => row.id}

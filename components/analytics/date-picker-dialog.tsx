@@ -41,7 +41,7 @@ export function DatePickerDialog({ value, onCancel, onPick, anchor }: { value: s
       <div
         onMouseDown={(event) => event.stopPropagation()}
         style={anchor ? { position: "absolute", left: Math.max(8, Math.min(anchor.left, window.innerWidth - 318)), top: Math.max(8, Math.min(anchor.top, window.innerHeight - 442)) } : undefined}
-        className={`flex h-[434px] w-[310px] flex-col bg-white text-[#333] ${anchor ? "rounded-[2px] [box-shadow:0_2px_10px_rgba(0,0,0,0.2)]" : "shadow-xl"}`}
+        className={`flex h-[434px] w-[310px] flex-col bg-white text-[#333] ${anchor ? "overflow-hidden rounded-[8px] [box-shadow:0_2px_10px_rgba(0,0,0,0.2)]" : "shadow-xl"}`}
       >
         <div data-no-translate className="h-[104px] bg-[#1E4A9A] px-[20px] pt-[17px] text-white">
           <div className="text-[16px] opacity-80">{chosen.year}</div>

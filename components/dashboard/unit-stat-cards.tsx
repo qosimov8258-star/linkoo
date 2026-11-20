@@ -2,6 +2,7 @@
 
 import { formatStatTitle } from "@/lib/dashboard-date-range"
 import type { DashboardSummary } from "@/lib/dashboard-summary-repo"
+import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CARD_CLASS } from "./stat-cards"
 
@@ -11,11 +12,13 @@ export function UnitStatCards({ begin, end, visible, summary }: { begin: Date; e
   const { t, language } = useLanguage()
   // Other languages get the date part translated (no Russian "на" / "с … по").
   const dateT = language === "ru" ? undefined : t
-  const number = (value: number | undefined, digits: number) => (value ?? 0).toLocaleString("ru-RU", { maximumFractionDigits: digits })
+  // The reference prints these widgets' totals with its numberFormat: three decimals, or those of Настройки →
+  // Округление сумм when set.
+  const number = (value: number | undefined) => formatMoney(value ?? 0)
   const cards = [
-    { key: "salesUnits", title: formatStatTitle(t("Продажи в Штуках"), begin, end, dateT), value: `${number(summary?.units.pieces, 3)} ${t("шт.")}` },
-    { key: "salesBlocks", title: formatStatTitle(t("Продажи в Блоках"), begin, end, dateT), value: `${number(summary?.units.blocks, 2)} ${t("блок")}` },
-    { key: "salesWeight", title: formatStatTitle(t("Продажи в Весе"), begin, end, dateT), value: `${number(summary?.units.weight, 3)} ${t("кг")}` },
+    { key: "salesUnits", title: formatStatTitle(t("Продажи в Штуках"), begin, end, dateT), value: `${number(summary?.units.pieces)} ${t("шт.")}` },
+    { key: "salesBlocks", title: formatStatTitle(t("Продажи в Блоках"), begin, end, dateT), value: `${number(summary?.units.blocks)} ${t("блок")}` },
+    { key: "salesWeight", title: formatStatTitle(t("Продажи в Весе"), begin, end, dateT), value: `${number(summary?.units.weight)} ${t("кг")}` },
   ].filter((card) => visible.has(card.key))
 
   if (cards.length === 0) return null

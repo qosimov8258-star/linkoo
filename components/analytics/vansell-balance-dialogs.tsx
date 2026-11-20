@@ -8,6 +8,7 @@ import { formatMoney } from "@/lib/finance/currency"
 import { monthEndIso, monthStartIso, nowLocalIso, todayIso } from "@/lib/finance/dates"
 import type { FinanceCurrency } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { amountDigits } from "@/lib/amount-precision"
 
 // Dialogs of the "Баланс вансел" page (demo modules 3904, 3906, 3908, 3910):
 // "Добавить" / "Добавить расход", edit of a manual movement, "Скачать акт
@@ -20,13 +21,13 @@ type FieldErrors = Partial<Record<"user" | "currency" | "amount" | "date" | "for
 
 const fieldClass = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[15px] font-semibold text-[#17233b] outline-none focus:border-[#1E4A9A]"
 
-/** Demo normalizeNumber: thousands separated by spaces, comma → dot, up to 3 decimals. */
+/** Demo normalizeNumber: thousands separated by spaces, comma → dot, up to the decimals of Настройки → Округление сумм (3 when not set). */
 export function formatAmountInput(raw: string, allowNegative = false): string {
   let text = raw.replace(/\s/g, "").replace(/,/g, ".")
   const negative = allowNegative && text.startsWith("-")
   text = text.replace(/[^\d.]/g, "")
   const [integer, ...rest] = text.split(".")
-  const fraction = rest.length ? `.${rest.join("").slice(0, 3)}` : ""
+  const fraction = rest.length ? `.${rest.join("").slice(0, amountDigits(3))}` : ""
   return `${negative ? "-" : ""}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}${fraction}`
 }
 
@@ -93,7 +94,8 @@ export function VansellModal({
   }, [])
   return (
     <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-10" onClick={onClose}>
-      <div className="w-full rounded-md bg-white shadow-2xl" style={{ maxWidth: width }} onClick={(event) => event.stopPropagation()}>
+      {/* my-auto: vertically centred like Linko's dialogs while it fits, from the top once it is taller than the screen. */}
+      <div className="my-auto w-full rounded-md bg-white shadow-2xl" style={{ maxWidth: width }} onClick={(event) => event.stopPropagation()}>
         <header className="flex min-h-[60px] items-center justify-between gap-4 border-b border-[#efefef] pl-7 pr-3">
           <h2 className="text-[15px] font-bold uppercase tracking-wide text-[#333]">{title}</h2>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="rounded-full p-2 text-[#666] hover:bg-[#f2f5f8]">
@@ -397,7 +399,8 @@ export function VansellLimitDialog({
 
   return (
     <VansellModal title={t("Изменить лимит")} onClose={onClose} footer={<SaveButton saving={saving} disabled={!rows.length} onClick={save} />}>
-      <div className="max-h-[55vh] overflow-y-auto px-7 py-4">
+      {/* Linko: a 400 px tall body; with no ticked agent only the column titles show. */}
+      <div className="max-h-[55vh] min-h-[400px] overflow-y-auto px-7 py-4">
         <div className="grid grid-cols-[1fr_180px] gap-4 border-b border-[#efefef] pb-2 text-[13px] font-semibold text-[#586174]">
           <span>{t("Вансел")}</span>
           <span>{t("Лимит")}</span>
@@ -414,7 +417,6 @@ export function VansellLimitDialog({
             />
           </div>
         ))}
-        {!rows.length && <p className="py-8 text-center text-[#9aa3b6]">{t("Выберите вансел в таблице")}</p>}
         {error && <p className="pt-3 text-[13px] font-medium text-[#e57373]">{t(error)}</p>}
       </div>
     </VansellModal>

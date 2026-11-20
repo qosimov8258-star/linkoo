@@ -10,7 +10,7 @@ import { getOrder } from "@/lib/orders-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
-const ACTIONS = ["created", "updated", "given", "cancel_given", "delivered", "undelivered", "add_discount", "add_bonus", "canceled"] as const
+const ACTIONS = ["created", "updated", "given", "cancel_given", "delivered", "undelivered", "add_discount", "cancel_discount", "add_bonus", "canceled"] as const
 
 const logSchema = z.object({
   action: z.enum(ACTIONS),

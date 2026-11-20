@@ -201,12 +201,13 @@ export function CategoryFormModal({
       ? isEdit ? "Изменить категорию приходов" : "Добавить категорию приходов"
       : isEdit ? "Изменить категорию расходов" : "Добавить категорию расходов"
 
+  // The reference's dialog (old Material-UI Dialog) is centred by its height and never closer than 80 px to the top
+  // (a taller one starts at 80 px and the page scrolls); a click on the dim backdrop does not close it.
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/45 px-4 pb-4 pt-[64px]" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[70] flex flex-col items-center overflow-y-auto bg-black/[0.54] px-4 py-[80px]">
       <form
         onSubmit={save}
-        onMouseDown={(event) => event.stopPropagation()}
-        className={`relative w-full rounded bg-white shadow-2xl ${kind === "income" ? "max-w-[550px]" : "max-w-[500px]"}`}
+        className={`relative my-auto w-full shrink-0 rounded-[2px] bg-white shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)] ${kind === "income" ? "max-w-[550px]" : "max-w-[500px]"}`}
         aria-busy={busy}
       >
         <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[15px]">
@@ -215,7 +216,7 @@ export function CategoryFormModal({
             <X className="h-6 w-6" strokeWidth={1.6} />
           </button>
         </header>
-        <div className={`relative min-h-[300px] space-y-3 pl-[30px] pt-[10px] ${kind === "income" ? "pb-[19px] pr-[54px]" : "pb-[20px] pr-[52px]"}`}>
+        <div className={`relative min-h-[300px] space-y-3 pl-[30px] pr-[30px] pt-[10px] ${kind === "income" ? "pb-[19px]" : "pb-[30px]"}`}>
           {busy && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80">
               <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
@@ -231,17 +232,20 @@ export function CategoryFormModal({
           </Field>
 
           {kind === "expense" && (
-            <ParentSelect
-              value={draft.parentId}
-              valueName={draft.parentName}
-              options={parentChoices}
-              loading={parentsLoading}
-              error={errors.parentId ? t(errors.parentId) : ""}
-              onChange={(parent) => patch({ parentId: parent?.id ?? null, parentName: parent?.name ?? "" }, "parentId")}
-            />
+            // Padding of a wrapper: a top margin on a direct child of the space-y body is overridden.
+            <div className="pt-[4px]">
+              <ParentSelect
+                value={draft.parentId}
+                valueName={draft.parentName}
+                options={parentChoices}
+                loading={parentsLoading}
+                error={errors.parentId ? t(errors.parentId) : ""}
+                onChange={(parent) => patch({ parentId: parent?.id ?? null, parentName: parent?.name ?? "" }, "parentId")}
+              />
+            </div>
           )}
 
-          <div className={`space-y-[6px] ${kind === "income" ? "pt-[7px]" : "-mt-[2px]"}`}>
+          <div className={`space-y-[10px] ${kind === "income" ? "pt-[7px]" : "-mt-[2px]"}`}>
             <Checkbox checked={draft.showOptions} onChange={(checked) => patch({ showOptions: checked }, "options")} label={t("Дополнительные параметры")} />
             {kind === "income" ? (
               <Checkbox checked={draft.otherIncome} onChange={(checked) => patch({ otherIncome: checked })} label={t("Прочий приход")} />
@@ -268,7 +272,7 @@ export function CategoryFormModal({
           {errors.general && <p className="text-sm font-medium text-rose-600">{t(errors.general)}</p>}
         </div>
         <footer className="flex h-[57px] items-center justify-end border-t border-[#efefef] px-[10px]">
-          <button type="submit" disabled={busy} className="h-9 rounded bg-[#6ccd8b] px-4 text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:opacity-60">
+          <button type="submit" disabled={busy} className="h-9 min-w-[111px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:opacity-60">
             {saving ? t("Сохранение...") : t("Сохранить")}
           </button>
         </footer>
@@ -278,7 +282,7 @@ export function CategoryFormModal({
 }
 
 function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
-  return <StaffCheck checked={checked} onChange={onChange} className="!items-start !gap-[2px] leading-5" label={<span className="block pr-[34px] pt-[2px] text-black">{label}</span>} />
+  return <StaffCheck checked={checked} onChange={onChange} className="!items-start leading-5" label={<span className="block pr-[34px] text-black">{label}</span>} />
 }
 
 /** Searchable select of the parent expense category (underlined like the other fields). */
@@ -317,7 +321,7 @@ function ParentSelect({
   const visible = (needle ? options.filter((item) => item.name.toLowerCase().includes(needle)) : options).slice(0, 200)
 
   return (
-    <div ref={ref} className="relative mt-[4px] pt-4">
+    <div ref={ref} className="relative pt-4">
       <span className={`pointer-events-none absolute left-0 font-semibold text-[#333] transition-all ${selectedName ? "top-0 text-[10px]" : "top-[28px] text-[13px]"}`}>{t("Родительская категория")}</span>
       <div className={`flex h-9 items-center border-b ${error ? "border-rose-500" : open ? "border-[#1E4A9A]" : "border-[#e0e0e0]"}`}>
         <button
@@ -325,7 +329,7 @@ function ParentSelect({
           onClick={() => setOpen((current) => !current)}
           aria-haspopup="listbox"
           aria-expanded={open}
-          className="min-w-0 flex-1 truncate py-1.5 text-left text-[15px] text-[#333]"
+          className="min-w-0 flex-1 truncate py-1.5 text-left text-[13px] font-semibold text-[#333]"
         >
           {selectedName}
         </button>

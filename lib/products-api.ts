@@ -114,6 +114,8 @@ export const catalogItemSchema = z.object({
   salePoints: amount.optional(),
   boxSizes: z.array(boxSizeSchema).max(20).optional(),
   priceLists: z.array(priceEntrySchema).max(500).optional(),
+  /** «Характеристика»: {attribute id: value} (products only; an empty value clears it). */
+  attributes: z.record(z.string().regex(/^\d{1,9}$/), z.string().max(500)).optional(),
 })
 
 export type CatalogItemBody = z.infer<typeof catalogItemSchema>
@@ -213,7 +215,13 @@ export function catalogListQuery(params: URLSearchParams, kind: CatalogKind): Ca
   return {
     tab,
     search: (params.get("search") ?? "").slice(0, 200),
-    ordering: (CATALOG_ORDERINGS as readonly string[]).includes(ordering.replace(/^-/, "")) ? ordering : "",
+    // One column or several, comma-separated (Linko's ordering=vendor_code,-created_date); unknown columns are dropped.
+    ordering: ordering
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => (CATALOG_ORDERINGS as readonly string[]).includes(entry.replace(/^-/, "")))
+      .slice(0, CATALOG_ORDERINGS.length)
+      .join(","),
     page: Number.isInteger(page) && page > 0 ? page : 1,
     pageSize: Number.isInteger(pageSize) && pageSize >= 0 && pageSize <= 2000 ? pageSize : 25,
     filters: {

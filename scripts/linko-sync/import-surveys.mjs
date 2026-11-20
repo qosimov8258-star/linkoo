@@ -1,5 +1,6 @@
 // «Опросник» and «План опроса» from Linko.
-// - surveys: Linko's questionnaires (main/quiz?from_desktop=true, every one, active or not) by id, with their questions,
+// - surveys: Linko's questionnaires (main/quiz?from_desktop=true, every one, active or not) by id, with their questions
+//   (answers with their «Оценка», the «Продукт» switches Face / Price check / Продукт конкурента and product lists),
 //   switches, sequence number, organization (Linko's division = the organization of the same id) and creation time
 //   (Linko's wall clock, the way the page shows it). The four example surveys an older seed wrote (organization
 //   "Linko Distribution", 2026-10-15) are removed: Linko has none of them and they took Linko's ids 1-4.
@@ -21,6 +22,8 @@ const DEMO_SURVEYS = ["Do'kon holati so'rovi", "Narx monitoringi", "Raqobatchila
 
 const text = (value) => (value == null ? "" : String(value))
 
+const product = (item) => (item && Number(item.id) > 0 ? [{ id: Number(item.id), name: text(item.name) }] : [])
+
 function question(option) {
   const answers = (option.values ?? []).map((value) => text(value.value))
   return {
@@ -31,6 +34,18 @@ function question(option) {
     orderNo: text(option.position),
     required: option.is_required === true,
     answers: answers.length ? answers : [""],
+    // «Оценка» of each answer, the «Продукт» switches and its product lists (Linko's option fields of the same names).
+    balls: answers.length ? (option.values ?? []).map((value) => (value.ball == null ? "" : text(value.ball))) : [""],
+    checkAmount: option.check_amount === true,
+    checkPrice: option.check_price === true,
+    isRival: option.is_rival === true,
+    products: (option.products ?? []).flatMap(product),
+    rivalProducts: (option.rival_products ?? []).flatMap(product),
+    minimumQuantity: text(option.minimum_quantity),
+    planogramId: text(option.planogram_id),
+    fullyOutOfStock: option.fully_out_of_stock === true,
+    allProductsHavePriceTag: option.all_products_have_price_tag === true,
+    requirePlanogramExistsInStore: option.require_planogram_exists_in_store === true,
   }
 }
 

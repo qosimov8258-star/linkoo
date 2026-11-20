@@ -11,12 +11,15 @@ import { ActivityOrderDialog, ActivityPhotoViewer, Spinner } from "@/components/
 import { ActivityFilterPanel, type ClientTypeOption } from "@/components/analytics/activity-filter"
 import { ActivityStrip } from "@/components/analytics/activity-strip"
 import { ClientDrawer } from "@/components/clients/clients-view"
+import { keepShopDrawerParams } from "@/components/clients/shop-drawer-url"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { ClientReturnDialog } from "@/components/orders/returns-view"
 import {
   ACTIVITY_COLUMNS,
   activityFilterQuery,
   activitySearch,
+  monthEnd,
+  monthStart,
   parseActivityState,
   type ActivityBoard,
   type ActivityState,
@@ -28,7 +31,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 // Активность (Personal → Контроль, demo #/activity): the agent strip and the activity board of
 // a period, from real data (lib/activity-repo.ts over the field event stream). All of the
-// page's state lives in the query string (fromDate, toDate, agentId, marketType, withGear,
+// page's state lives in the query string (fromDate, toDate, agentId, marketTypeParent, withGear,
 // orderDetails), like the demo, so a link or Back restores it. Default period: today.
 
 /** "26 Окт. 2026" — the header label capitalises the month like the demo. */
@@ -55,7 +58,11 @@ export function ActivityView() {
   /** Writes a new state into the URL (useSearchParams follows, no server round-trip). */
   const navigate = useCallback(
     (patch: Partial<ActivityState>) => {
-      const next = activitySearch({ ...state, ...patch }, today)
+      const merged = { ...state, ...patch }
+      // An open store card keeps its own tab / sub-tab / period parameters (components/clients/shop-drawer-url.ts).
+      const params = new URLSearchParams(activitySearch(merged, today))
+      if (merged.shopId !== null) keepShopDrawerParams(params)
+      const next = params.toString()
       window.history.replaceState(null, "", `${pathname}${next ? `?${next}` : ""}`)
     },
     [state, pathname, today],
@@ -104,6 +111,11 @@ export function ActivityView() {
     return () => controller.abort()
   }, [])
 
+  // Linko's «Дата» opens with the URL's period, else with the current month (the page itself shows today).
+  const filterPeriod = useMemo(
+    () => (searchParams.has("fromDate") ? { from: state.from, to: state.to } : { from: monthStart(today), to: monthEnd(today) }),
+    [searchParams, state.from, state.to, today],
+  )
   const closeFilter = useCallback(() => setFilterOpen(false), [])
   const closeOrder = useCallback(() => navigate({ orderId: null }), [navigate])
   const closeViewer = useCallback(() => setViewer(null), [])
@@ -130,7 +142,8 @@ export function ActivityView() {
   const error = boardError?.key === boardKey ? boardError.message : ""
   const stripData = board?.data ?? null
   const loading = !current && !error
-  const empty = current !== null && ACTIVITY_COLUMNS.every((column) => current.columns[column].count === 0)
+  // Linko shows the robot when no column has a card (a header sum alone does not show a column).
+  const empty = current !== null && ACTIVITY_COLUMNS.every((column) => (current.cards?.[column] ?? 0) === 0)
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] font-sans text-[13px] text-[#333]">
@@ -140,7 +153,7 @@ export function ActivityView() {
           <span className="font-normal text-[#999]">|</span>
           <h1 className="text-[#555]">{t("Активность")}</h1>
         </div>
-        <div className="relative flex flex-wrap items-center gap-4">
+        <div className="relative flex min-h-9 flex-wrap items-center gap-4">
           <strong className="text-[12px] text-[#1E4A9A]">
             {headerDay(state.from, language)} - {headerDay(state.to, language)}
           </strong>
@@ -150,20 +163,24 @@ export function ActivityView() {
               {t("Показать на карте")}
             </Link>
           )}
-          <button
-            type="button"
-            onClick={() => setFilterOpen((open) => !open)}
-            aria-expanded={filterOpen}
-            className="inline-flex h-9 items-center gap-2 rounded-[4px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"
-          >
-            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden="true">
-              <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />
-            </svg>
-            {t("Показать фильтр")}
-          </button>
+          {/* Linko hides «Показать фильтр» while its card is open. */}
+          {!filterOpen && (
+            <button
+              type="button"
+              onClick={() => setFilterOpen(true)}
+              aria-expanded={filterOpen}
+              className="inline-flex h-9 items-center gap-2 rounded-[4px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"
+            >
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden="true">
+                <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />
+              </svg>
+              {t("Показать фильтр")}
+            </button>
+          )}
           {filterOpen && (
             <ActivityFilterPanel
               state={state}
+              initialPeriod={filterPeriod}
               today={today}
               clientTypes={clientTypes}
               onClose={closeFilter}
@@ -201,7 +218,7 @@ export function ActivityView() {
         </div>
       )}
       {current && !empty && (
-        <ActivityColumns columns={current.columns} order={ACTIVITY_COLUMNS} baseCurrency={current.baseCurrency} queryKey={boardKey} actions={actions} />
+        <ActivityColumns columns={current.columns} cards={current.cards} order={ACTIVITY_COLUMNS} baseCurrency={current.baseCurrency} queryKey={boardKey} actions={actions} />
       )}
       {empty && (
         <section className="flex min-h-[420px] flex-col items-center justify-center gap-4 py-12">
@@ -212,7 +229,7 @@ export function ActivityView() {
 
       {state.orderId !== null && <ActivityOrderDialog key={state.orderId} orderId={state.orderId} onClose={closeOrder} />}
       {viewer && <ActivityPhotoViewer photos={viewer.photos} start={viewer.index} onClose={closeViewer} />}
-      {state.shopId !== null && <ClientDrawer key={state.shopId} clientId={state.shopId} onClose={closeShop} />}
+      {state.shopId !== null && <ClientDrawer key={state.shopId} clientId={state.shopId} onClose={closeShop} editHref={`/clients?openShop=${state.shopId}&openUpdateDialog=true`} />}
       {returnId !== null && <ClientReturnDialog key={returnId} id={returnId} onClose={closeReturn} />}
     </main>
   )

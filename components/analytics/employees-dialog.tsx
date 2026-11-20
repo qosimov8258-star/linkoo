@@ -15,6 +15,8 @@ import { notify } from "@/lib/notify"
 
 // "Добавить / Изменить сотрудника" (demo users form): name, phone, job, branches, access switches, organizations and — once
 // "Доступ к системе" is on — login, access right, password, subscription, supervisor, stocks, price lists and currencies.
+// "Доступ к системе" is the employee's `active` (Linko's is_active): turned off and saved, the employee moves to
+// "Удаленные"; turned on for a deleted one, it comes back. The access right is kept either way, as in Linko.
 // The login and password are those of the employee's sign-in account: saving with a password creates it (or resets the
 // password of the linked one), a changed login renames it; only an administrator sets them (the server checks again).
 
@@ -65,7 +67,7 @@ function draftFrom(employee: Employee | null): Draft {
     integrationCode: employee?.integrationCode ?? "",
     jobId: employee?.jobId ? String(employee.jobId) : "",
     branchIds: toStrings(employee?.branchIds ?? []),
-    systemAccess: employee?.systemAccess ?? false,
+    systemAccess: employee?.active ?? false,
     showInTracking: employee?.showInTracking ?? false,
     twoStepCheck: employee?.twoStepCheck ?? false,
     sessionLimit: employee?.sessionLimit ?? false,
@@ -92,8 +94,22 @@ function draftFrom(employee: Employee | null): Draft {
   }
 }
 
-function CheckGrid({ items, value, onChange, columns = 3 }: { items: Option[]; value: string[]; onChange: (value: string[]) => void; columns?: number }) {
+/** Three columns of checkboxes. Organizations and stocks cut a long name with "…"; `wrap` (price lists, currencies)
+ * is Linko's other grid there: 241 px columns from 8 px further left, a long name on a second line. */
+function CheckGrid({ items, value, onChange, columns = 3, wrap = false }: { items: Option[]; value: string[]; onChange: (value: string[]) => void; columns?: number; wrap?: boolean }) {
   const set = new Set(value)
+  const toggle = (item: Option, checked: boolean) => onChange(checked ? [...value, item.value] : value.filter((id) => id !== item.value))
+  if (wrap) {
+    return (
+      <div className="-ml-[8px] grid w-[723px] max-w-[calc(100%+15px)]" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+        {items.map((item) => (
+          <div key={item.value} className="flex min-w-0 items-start py-[10px] pl-[10px]">
+            <Check className="min-w-0 !items-start" checked={set.has(item.value)} onChange={(checked) => toggle(item, checked)} label={<span className="block max-w-[161px] break-words">{item.label}</span>} />
+          </div>
+        ))}
+      </div>
+    )
+  }
   return (
     <div className="grid" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
       {items.map((item) => (
@@ -101,7 +117,7 @@ function CheckGrid({ items, value, onChange, columns = 3 }: { items: Option[]; v
           <Check
             className="min-w-0"
             checked={set.has(item.value)}
-            onChange={(checked) => onChange(checked ? [...value, item.value] : value.filter((id) => id !== item.value))}
+            onChange={(checked) => toggle(item, checked)}
             label={<span className="relative top-[1.3px] block max-w-[170px] truncate" title={item.label}>{item.label}</span>}
           />
         </div>
@@ -211,8 +227,13 @@ export function EmployeeDialog({
   // The access right of a linked account is the account's rights: only an administrator changes it.
   const accessRightLocked = !canManageAccounts && Boolean(employee?.account) && Boolean(employee?.accessRightId)
   const accessRight = options.accessRights.find((item) => String(item.id) === draft.accessRightId)
-  const isManager = Boolean(accessRight?.groups.includes("Завсклад"))
-  const isCashier = Boolean(accessRight?.groups.includes("Кассир"))
+  // Linko shows a section by the groups of the chosen access right: the cashboxes for its "supervisor" or "cashier"
+  // group, the stocks for "manager" or "delivery", the stocks to send requests to for "manager" (here the capabilities
+  // Супервайзер, Кассир, Завсклад, Доставщик).
+  const groups = accessRight?.groups ?? []
+  const showCashboxes = groups.includes("Супервайзер") || groups.includes("Кассир")
+  const showStocks = groups.includes("Завсклад") || groups.includes("Доставщик")
+  const showRequestStocks = groups.includes("Завсклад")
   const peopleWithGroup = (group: string): Option[] => {
     const rightIds = new Set(options.accessRights.filter((item) => item.groups.includes(group)).map((item) => item.id))
     return options.employees.filter((item) => item.id !== employee?.id && (rightIds.size === 0 || rightIds.has(item.accessRightId ?? -1))).map((item) => ({ value: String(item.id), label: item.name }))
@@ -252,7 +273,9 @@ export function EmployeeDialog({
         const weak = passwordProblem(draft.password, login, passwordPolicy)
         if (weak) found.password = t(weak)
       }
-      if (draft.password !== draft.passwordConfirm) found.passwordConfirm = t("Пароли не совпадают")
+      // Linko's checks: a typed password must be confirmed, and a confirmation must match it (under the password).
+      if (draft.password && !draft.passwordConfirm) found.passwordConfirm = t("Подтвердите пароль")
+      else if (draft.passwordConfirm && draft.password !== draft.passwordConfirm) found.password = t("Пароли не совпадают")
     }
     return found
   }
@@ -263,9 +286,9 @@ export function EmployeeDialog({
     if (draft.startPoint) shown.add("locationPointIds")
     if (draft.systemAccess) {
       for (const key of ["login", "password", "accessRightId", "passwordConfirm", "supervisorId", "deliveryManId", "auditAgentIds", "priceListIds", "marketPriceListIds", "currencyIds"]) shown.add(key)
-      if (isCashier) shown.add("cashboxIds").add("requestCashboxIds")
-      if (accessRight) shown.add("stockIds")
-      if (accessRight && isManager) shown.add("requestStockIds")
+      if (showCashboxes) shown.add("cashboxIds").add("requestCashboxIds")
+      if (showStocks) shown.add("stockIds")
+      if (showRequestStocks) shown.add("requestStockIds")
     }
     return shown
   }
@@ -290,6 +313,7 @@ export function EmployeeDialog({
           branchIds: toNumbers(draft.branchIds),
           organizationIds: toNumbers(draft.organizationIds),
           systemAccess: draft.systemAccess,
+          ...(employee ? { active: draft.systemAccess } : {}),
           showInTracking: draft.showInTracking,
           twoStepCheck: draft.twoStepCheck,
           sessionLimit: draft.sessionLimit,
@@ -297,7 +321,7 @@ export function EmployeeDialog({
           startPoint: draft.startPoint,
           locationPointIds: draft.startPoint ? toNumbers(draft.locationPointIds) : [],
           login: withAccess ? draft.login.trim() : "",
-          accessRightId: withAccess && draft.accessRightId ? Number(draft.accessRightId) : null,
+          accessRightId: draft.accessRightId ? Number(draft.accessRightId) : null,
           password: withAccess ? draft.password : "",
           licenseKey: !employee && withAccess ? draft.licenseKey : "",
           supervisorId: draft.supervisorId ? Number(draft.supervisorId) : null,
@@ -366,8 +390,8 @@ export function EmployeeDialog({
                 {t("Учетная запись")}: <b data-no-translate>{employee.account}</b>
                 {" — "}
                 <span className={employee.canSignIn ? "text-[#43a047]" : "text-[#e57373]"}>{employee.canSignIn ? t("Вход разрешен") : t("Вход заблокирован")}</span>
-                {employee.systemAccess && !draft.systemAccess && <span className="block text-[#e57373]">{t("Без доступа к системе пользователь не сможет войти, его сессии будут завершены.")}</span>}
-                {employee.active && !employee.systemAccess && draft.systemAccess && <span className="block">{t("После сохранения пользователь снова сможет войти.")}</span>}
+                {employee.active && !draft.systemAccess && <span className="block text-[#e57373]">{t("Без доступа к системе пользователь не сможет войти, его сессии будут завершены.")}</span>}
+                {!employee.active && employee.systemAccess && draft.systemAccess && <span className="block">{t("После сохранения пользователь снова сможет войти.")}</span>}
               </>
             ) : canManageAccounts ? (
               t("Нет учетной записи для входа. Укажите логин и пароль — она будет создана при сохранении.")
@@ -398,9 +422,9 @@ export function EmployeeDialog({
 
           {draft.systemAccess && (
             <>
-              <div className="mt-[16px] grid grid-cols-2 gap-x-[20px] gap-y-[8px]">
+              <div className="mt-[16px] grid grid-cols-2 gap-x-[20px] gap-y-[26px]">
                 <Field error={errors.login}><AccountField label={t("Логин")} required value={draft.login} disabled={!canManageAccounts} onChange={(login) => patch({ login })} /></Field>
-                <Field error={errors.password}><AccountField secret label={employee?.account ? t("Изменить пароль") : t("Пароль")} value={draft.password} disabled={!canManageAccounts} onChange={(password) => patch({ password })} /></Field>
+                <Field error={errors.password}><AccountField secret label={employee ? t("Изменить пароль") : t("Пароль")} value={draft.password} disabled={!canManageAccounts} onChange={(password) => patch({ password })} /></Field>
                 <Field error={errors.accessRightId}>
                   <div className={accessRightLocked ? "pointer-events-none opacity-60" : ""} aria-disabled={accessRightLocked || undefined}>
                     <LinePick flush label={t("Права доступа")} required value={draft.accessRightId} options={options.accessRights.map((item) => ({ value: String(item.id), label: item.name }))} onChange={(accessRightId) => patch({ accessRightId })} />
@@ -408,13 +432,20 @@ export function EmployeeDialog({
                 </Field>
                 <Field error={errors.passwordConfirm}><AccountField secret label={t("Подтвердите пароль")} value={draft.passwordConfirm} disabled={!canManageAccounts} onChange={(passwordConfirm) => patch({ passwordConfirm })} /></Field>
               </div>
-              <p className="mt-[6px] text-[12px] leading-[16px] text-[#757575]">
-                {!canManageAccounts
-                  ? t(ADMIN_ONLY)
-                  : employee?.account
-                    ? t("Оставьте пустым, чтобы не менять. Новый пароль нужно будет сменить при следующем входе.")
-                    : `${t(passwordHintFor(passwordPolicy))} ${t("Этот пароль нужно будет сменить при первом входе.")}`}
-              </p>
+              {employee && draft.password ? (
+                // Linko's notice while a new password is typed into an existing employee.
+                <div className="mt-[10px] flex items-start gap-[10px] rounded-[4px] bg-[#fff8e1] px-[12px] py-[10px]">
+                  <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] shrink-0 fill-[#ffa000]" aria-hidden><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" /></svg>
+                  <div className="text-[12px] leading-[16px] text-[#333]">
+                    <div className="font-semibold">{t("Обратите внимание")}</div>
+                    <div>{t("При изменении пароля все активные сессии пользователя удаляются. Если не хотите изменить пароль, пожалуйста, ничего не пишите в пункт изменения пароля")}</div>
+                  </div>
+                </div>
+              ) : !canManageAccounts || !employee ? (
+                <p className="mt-[6px] text-[12px] leading-[16px] text-[#757575]">
+                  {!canManageAccounts ? t(ADMIN_ONLY) : `${t(passwordHintFor(passwordPolicy))} ${t("Этот пароль нужно будет сменить при первом входе.")}`}
+                </p>
+              ) : null}
               {!employee && (
                 <div className="mt-[8px]">
                   <LinePick
@@ -425,34 +456,34 @@ export function EmployeeDialog({
                   />
                 </div>
               )}
-              <div className="mt-[15px]"><Field error={errors.supervisorId}><LinePick flush label={t("Супервайзер")} value={draft.supervisorId} options={supervisors} onChange={(supervisorId) => patch({ supervisorId })} /></Field></div>
-              <div className="mt-[15px]"><Field error={errors.deliveryManId}><LinePick flush label={t("Связанный доставщик")} value={draft.deliveryManId} options={deliverers} onChange={(deliveryManId) => patch({ deliveryManId })} /></Field></div>
+              <div className="mt-[22px]"><Field error={errors.supervisorId}><LinePick flush label={t("Супервайзер")} value={draft.supervisorId} options={supervisors} onChange={(supervisorId) => patch({ supervisorId })} /></Field></div>
+              <div className="mt-[22px]"><Field error={errors.deliveryManId}><LinePick flush label={t("Связанный доставщик")} value={draft.deliveryManId} options={deliverers} onChange={(deliveryManId) => patch({ deliveryManId })} /></Field></div>
               <div className="mt-[15px]"><Field error={errors.auditAgentIds}><MultiSelectField flush label={t("Агенты для аудита")} options={agents} value={draft.auditAgentIds} onChange={(auditAgentIds) => patch({ auditAgentIds })} /></Field></div>
-              {isCashier && (
+              {showCashboxes && (
                 <>
                   <div className="mt-[8px]"><Field error={errors.cashboxIds}><MultiSelectField flush pills label={t("Какие кассы будут доступны?")} options={cashboxItems} value={draft.cashboxIds} onChange={(cashboxIds) => patch({ cashboxIds })} /></Field></div>
                   <div className="mt-[2px]"><Field error={errors.requestCashboxIds}><MultiSelectField flush label={t("Кассы для запроса")} options={cashboxItems} value={draft.requestCashboxIds} onChange={(requestCashboxIds) => patch({ requestCashboxIds })} /></Field></div>
                 </>
               )}
-              {accessRight && (
+              {showStocks && (
                 <>
                   <Caption>{t("Связанные склады")}</Caption>
                   <Field error={errors.stockIds}><CheckGrid items={stockItems} value={draft.stockIds} onChange={(stockIds) => patch({ stockIds })} /></Field>
-                  {isManager && (
-                    <>
-                      <Caption>{t("Может отправить запрос к этим складам")}</Caption>
-                      <Field error={errors.requestStockIds}><CheckGrid items={stockItems} value={draft.requestStockIds} onChange={(requestStockIds) => patch({ requestStockIds })} /></Field>
-                    </>
-                  )}
+                </>
+              )}
+              {showRequestStocks && (
+                <>
+                  <Caption>{t("Может отправить запрос к этим складам")}</Caption>
+                  <Field error={errors.requestStockIds}><CheckGrid items={stockItems} value={draft.requestStockIds} onChange={(requestStockIds) => patch({ requestStockIds })} /></Field>
                 </>
               )}
               <Caption>{t("Поддерживаемый прайс лист")}</Caption>
-              <Field error={errors.priceListIds}><CheckGrid items={priceItems} value={draft.priceListIds} onChange={(priceListIds) => patch({ priceListIds })} /></Field>
+              <Field error={errors.priceListIds}><CheckGrid wrap items={priceItems} value={draft.priceListIds} onChange={(priceListIds) => patch({ priceListIds })} /></Field>
               <div className="mt-[16px]">
                 <Field error={errors.marketPriceListIds}><MultiSelectField flush label={t("Поддерживаемый прайс лист клиентов")} placeholder={t("Выберите из списка")} options={priceItems} value={draft.marketPriceListIds} onChange={(marketPriceListIds) => patch({ marketPriceListIds })} /></Field>
               </div>
               <Caption>{t("Валюты")}</Caption>
-              <Field error={errors.currencyIds}><CheckGrid items={currencyItems} value={draft.currencyIds} onChange={(currencyIds) => patch({ currencyIds })} /></Field>
+              <Field error={errors.currencyIds}><CheckGrid wrap items={currencyItems} value={draft.currencyIds} onChange={(currencyIds) => patch({ currencyIds })} /></Field>
             </>
           )}
         </div>

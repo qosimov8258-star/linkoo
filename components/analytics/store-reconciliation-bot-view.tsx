@@ -71,11 +71,11 @@ const SUMMARY: SummaryBox[] = [
   { align: "right", metrics: [{ label: "Общий", field: "total" }] },
 ]
 
-/** Demo grid colours (4614): Сумма green #92ce95 / red #e27676. */
-function totalColor(value: number): string | undefined {
-  if (value > 0) return "#92ce95"
-  if (value < 0) return "#e27676"
-  return undefined
+/** Linko's money cells (Сумма, нал. / переч., Кол-во заказов): green #48a34b / red #e27676 semibold, zero plain black. */
+function moneyStyle(value: number): { color: string; fontWeight: number } {
+  if (value > 0) return { color: "#48a34b", fontWeight: 600 }
+  if (value < 0) return { color: "#e27676", fontWeight: 600 }
+  return { color: "#000", fontWeight: 400 }
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -184,7 +184,8 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
   const filterCount = countReconciliationFilters(state.filters)
   const asOf = data?.asOf ?? (state.filters.debtDate || todayIso())
 
-  const daysText = (value: number | null) => (value === null ? "—" : `${formatMoney(value, 0)} ${t("дня")}`)
+  // Linko shows a missing day count as «0 дня».
+  const daysText = (value: number | null) => `${formatMoney(value ?? 0, 0)} ${t("дня")}`
   const deadlineText = (value: string | null) => (value ? formatStatementDate(value, language, false) : t("Не указано"))
 
   // --- Excel ---------------------------------------------------------------------------------
@@ -374,7 +375,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
         )}
 
         <div className={`overflow-x-auto ${loading ? "opacity-60" : ""}`}>
-          <table className={`border-collapse text-[#666] ${refGrid ? "table-fixed text-[13px]" : "w-full min-w-[1150px] text-[14px]"}`} style={refGrid ? { width: 300 + 100 * (5 + columnCurrencies.length * 2 + 1) } : undefined}>
+          <table className={`border-collapse text-[#333] ${refGrid ? "table-fixed text-[13px]" : "w-full min-w-[1150px] text-[14px]"}`} style={refGrid ? { width: 300 + 100 * (5 + columnCurrencies.length * 2 + 1) } : undefined}>
             {refGrid && (
               <colgroup>
                 <col style={{ width: 300 }} />
@@ -428,7 +429,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
                       </span>
                     </td>
                     <td className={cell} onClick={() => openAct(row)}>
-                      <span style={overdue ? { color: "#e27676", fontWeight: 600 } : { color: row.paymentDeadline ? "#000" : undefined }}>{deadlineText(row.paymentDeadline)}</span>
+                      <span style={overdue ? { color: "#e27676", fontWeight: 600 } : { color: "#000" }}>{deadlineText(row.paymentDeadline)}</span>
                     </td>
                     <td className={cell} onClick={() => openAct(row)}>
                       <span style={row.paymentDays !== null && row.paymentDays > 20 ? { color: "#e27676", fontWeight: 600 } : undefined}>{daysText(row.paymentDays)}</span>
@@ -437,19 +438,17 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
                       {daysText(row.orderDays)}
                     </td>
                     <td className={cell} onClick={() => openAct(row)}>
-                      <span className="font-semibold" style={{ color: totalColor(row.total) }}>
-                        {formatMoney(row.total)}
-                      </span>
+                      <span style={moneyStyle(row.total)}>{formatMoney(row.total)}</span>
                     </td>
                     {columnCurrencies.flatMap((code) =>
                       (["cash", "bank"] as const).map((field) => (
                         <td key={`${field}.${code}`} className={cell} onClick={() => openAct(row)}>
-                          {formatMoney(row.currencies[code]?.[field] ?? 0)}
+                          <span style={moneyStyle(row.currencies[code]?.[field] ?? 0)}>{formatMoney(row.currencies[code]?.[field] ?? 0)}</span>
                         </td>
                       )),
                     )}
                     <td className={cell} onClick={() => openAct(row)}>
-                      {formatMoney(row.orders, 0)}
+                      <span style={moneyStyle(row.orders)}>{formatMoney(row.orders, 0)}</span>
                     </td>
                   </tr>
                 )

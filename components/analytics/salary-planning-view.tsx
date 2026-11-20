@@ -2,9 +2,11 @@
 
 import Image from "next/image"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import { FilterSelect, RI, RefButton, RefCard, RefHeader, RefImportDialog, RefPage, RefTabs } from "@/components/ref/list-kit"
 import { REF_PAGE_SIZES, RefPager } from "@/components/ref/pager-controls"
 import { RefTip } from "@/components/ref/ref-tip"
+import { BranchKpiDetailPanel } from "@/components/analytics/branch-kpi-detail"
 import { SalaryAddDialog } from "@/components/analytics/salary-add-dialog"
 import { SalaryCopyDialog } from "@/components/analytics/salary-copy-dialog"
 import { SalaryMonthSelect, SalaryYearField } from "@/components/analytics/salary-fields"
@@ -85,6 +87,7 @@ function Money({ lines }: { lines: Array<{ value: number; currency: string }> })
 }
 
 export function SalaryPlanningView() {
+  const router = useRouter()
   const { t } = useLanguage()
   const today = new Date()
   const [month, setMonth] = useState<number | null>(today.getMonth())
@@ -103,6 +106,8 @@ export function SalaryPlanningView() {
   const [plansOpen, setPlansOpen] = useState(false)
   const [copyOpen, setCopyOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  // The record whose card is open (the reference's #/employ-salary/<id>/, here ?id=<id>).
+  const [openId, setOpenId] = useState<number | null>(null)
   const [kpis, setKpis] = useState<SalaryKpi[]>([])
   // The Excel template lists every KPI flagged active (the reference's template also has the ones whose period has ended).
   const [templateKpis, setTemplateKpis] = useState<SalaryKpi[]>([])
@@ -136,16 +141,26 @@ export function SalaryPlanningView() {
     if (size && (REF_PAGE_SIZES as readonly number[]).includes(size)) { setPageSize(size); touched.current.add("pageSize") }
     const pg = num("page")
     if (pg && pg > 0) { setPage(pg); touched.current.add("page") }
+    // The open dialogs and the checkbox mode are in the address too (the reference's open…Dialog / showCheckboxes).
+    if (params.get("openCreateDialog") === "true") setAddOpen(true)
+    if (params.get("openDuplicateDialog") === "true") setCopyOpen(true)
+    if (params.get("excelUpdateCreateDialogOpen") === "true") { if (m && m >= 1 && m <= 12) setImpMonth(m - 1); if (y) setImpYear(y); setImportOpen(true) }
+    if (params.get("showCheckboxes") === "true") setSelectMode(true)
+    const id = num("id")
+    if (id && id > 0) setOpenId(id)
     setReady(true)
   }, [])
   useEffect(() => {
     if (!ready) return
-    const values: Record<string, string> = { month: String(effMonth), page: String(page), pageSize: String(pageSize), search: debounced, showTab: TAB_PARAM[tab], year: String(year) }
+    const values: Record<string, string> = { id: openId ? String(openId) : "", month: String(effMonth), page: String(page), pageSize: String(pageSize), search: debounced, showTab: TAB_PARAM[tab], year: String(year) }
+    const flags: Record<string, boolean> = { excelUpdateCreateDialogOpen: importOpen, openCreateDialog: addOpen, openDuplicateDialog: copyOpen, showCheckboxes: selectMode }
     const params = new URLSearchParams()
-    for (const key of Object.keys(values).sort()) if (touched.current.has(key) && values[key] !== "") params.set(key, values[key])
+    for (const key of [...Object.keys(values), ...Object.keys(flags)].sort()) {
+      if (key in flags) { if (flags[key]) params.set(key, "true") } else if ((touched.current.has(key) || key === "id") && values[key] !== "") params.set(key, values[key])
+    }
     const query = params.toString()
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}`)
-  }, [ready, effMonth, year, tab, debounced, page, pageSize])
+  }, [ready, effMonth, year, tab, debounced, page, pageSize, importOpen, addOpen, copyOpen, selectMode, openId])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query), 300)
@@ -420,12 +435,13 @@ export function SalaryPlanningView() {
           <div className="relative flex h-[50px] items-center whitespace-nowrap px-[5px]">
             <div className="absolute left-[5px] top-[-2.5px] w-[200px]"><SalaryMonthSelect bare rs value={month} onChange={(value) => { markFilter("month"); setMonth(value) }} /></div>
             <div className="absolute left-[205px] top-[-2.2px] w-[100px]"><SalaryYearField bare rs lower value={year} onChange={(value) => { markFilter("year"); setYear(value) }} /></div>
-            <div className="absolute left-[377.5px] top-0 flex h-[40px] w-[300px] items-start border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
+            {/* The reference's search sits in a col-xs-3 after the month / year column: it moves with the window width. */}
+            <div className="absolute left-[calc(25%+16.5px)] top-0 flex h-[40px] w-[min(300px,calc(25%-24.5px))] items-start border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
               <input
                 value={query}
                 onChange={(event) => { touched.current.add("search"); setQuery(event.target.value); setPage(1) }}
                 placeholder={t("Поиск")}
-                className="h-12 w-[262px] bg-transparent text-[13px] outline-none placeholder:text-black/30"
+                className="h-12 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-black/30"
               />
               <svg viewBox="0 0 24 24" className="ml-[12px] mt-[12px] h-6 w-6 shrink-0 fill-[#ccc]"><path d={SEARCH} /></svg>
             </div>
@@ -441,7 +457,8 @@ export function SalaryPlanningView() {
           </div>
         )}
 
-        <div className="overflow-x-auto bg-white">
+        {/* An open row card is wider than the list (like the reference), so the list does not clip it then. */}
+        <div className={openId ? "bg-white" : "overflow-x-auto bg-white"}>
           <div style={{ minWidth: 1100 }}>
             <div className={`grid h-[50px] grid-cols-[1fr_1fr_1fr_1fr_2fr] items-center bg-[#5d6474] pr-[30px] font-semibold text-white ${selectMode ? "pl-[50px]" : "pl-[30px]"}`}>
               <div className="relative leading-[16px]">
@@ -467,8 +484,22 @@ export function SalaryPlanningView() {
             ) : (
               rows.map((row) => {
                 const checked = selected.includes(row.userId)
+                // A click on a row opens its card in the row's place (KPI balances of the month, like the reference).
+                if (openId === row.id && !selectMode)
+                  return (
+                    <BranchKpiDetailPanel
+                      key={row.id}
+                      branchId={row.id}
+                      url={`/api/salary-records/${row.id}`}
+                      month={row.month}
+                      year={row.year}
+                      version={reload}
+                      onClose={() => setOpenId(null)}
+                      onOpenIndicator={(kpiId) => router.push(`/analytics/kpi-tasks?pageSize=25&id=${kpiId}`)}
+                    />
+                  )
                 return (
-                  <div key={row.id} className={`relative grid min-h-[50px] grid-cols-[1fr_1fr_1fr_1fr_2fr] items-center border-b border-dotted border-[#d7dee3] text-[#333] ${selectMode ? "pl-[55px] pr-[80px]" : "pl-[30px] pr-[30px]"} ${checked ? "bg-[#f2f5f8]" : ""}`}>
+                  <div key={row.id} onClick={selectMode ? undefined : () => setOpenId(row.id)} className={`relative grid min-h-[50px] grid-cols-[1fr_1fr_1fr_1fr_2fr] items-center border-b border-dotted border-[#d7dee3] text-[#333] ${selectMode ? "pl-[55px] pr-[80px]" : "cursor-pointer pl-[30px] pr-[30px] hover:bg-[#f2f5f8]"} ${checked ? "bg-[#f2f5f8]" : ""}`}>
                     {selectMode && <div className="absolute left-[20px] top-1/2 -translate-y-1/2"><Box checked={checked} label={row.name} onClick={() => toggleRow(row.userId)} /></div>}
                     <div className="px-2 leading-[16px]">{row.name}</div>
                     <div className="px-2 text-right leading-[16px]">{fmt(row.salary)} {row.currency}</div>

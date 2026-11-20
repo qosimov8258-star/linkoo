@@ -17,6 +17,7 @@ export function SplitDetailList<T>({
   detail,
   tableProps,
   toolbar,
+  detailClassName = "-mx-[15px] mb-[20px] mt-[21px] bg-white shadow-[0_3px_9px_rgba(0,0,0,0.2)]",
 }: {
   rows: T[]
   selectedKey: string | number | null
@@ -25,6 +26,8 @@ export function SplitDetailList<T>({
   tableProps: TableProps<T>
   /** Rendered inside the first card, above the table header. */
   toolbar?: ReactNode
+  /** Classes of the card's frame (margins, shadow) where a page's reference card differs. */
+  detailClassName?: string
 }) {
   const index = selectedKey == null ? -1 : rows.findIndex((row) => rowKey(row) === selectedKey)
   if (index < 0) {
@@ -43,7 +46,7 @@ export function SplitDetailList<T>({
         {toolbar}
         <RefTable {...tableProps} rows={before} hideBody={before.length === 0} />
       </RefCard>
-      <section className="-mx-[15px] mb-[20px] mt-[21px] bg-white shadow-[0_3px_9px_rgba(0,0,0,0.2)]">{detail(rows[index])}</section>
+      <section className={detailClassName}>{detail(rows[index])}</section>
       {after.length > 0 && (
         <RefCard className="bg-white">
           <RefTable {...tableProps} rows={after} hideHead />

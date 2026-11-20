@@ -51,23 +51,24 @@ export function CategoryOptionsPicker({
   error?: string
 }) {
   const { t } = useLanguage()
+  // Reference geometry (Material-UI radio group): 10 px under the checkboxes, a 24 px radio icon, the label 16 px after
+  // it in regular weight, 20 px of padding and 16 px of margin after each item, rows 34 px apart.
   return (
-    <fieldset>
-      <legend className="text-[13px] font-semibold text-black">{t("Дополнительные параметры")}</legend>
-      <div role="radiogroup" className="flex flex-wrap pt-1">
-        {categoryOptionItems(kind).map((item) => (
-          <label key={item.key} title={t(item.description)} className="mr-4 mt-2.5 inline-flex cursor-pointer items-center gap-[6px] text-[13px] font-semibold text-black">
-            <input
-              type="radio"
-              name={`${kind}-category-option`}
-              value={item.key}
-              checked={value === item.key}
-              onChange={() => onChange(item.key)}
-              className="h-[20px] w-[20px] accent-[#757575]"
-            />
-            {t(item.title)}
-          </label>
-        ))}
+    <fieldset className="-mt-[2px]">
+      <legend className="text-[13px] font-semibold leading-4 text-[#333]">{t("Дополнительные параметры")}</legend>
+      <div role="radiogroup" className="flex flex-wrap pt-[10px]">
+        {categoryOptionItems(kind).map((item) => {
+          const checked = value === item.key
+          return (
+            <label key={item.key} title={t(item.description)} className="relative mr-4 mt-[10px] inline-flex h-6 cursor-pointer items-center pr-5 text-[13px] text-black">
+              <input type="radio" name={`${kind}-category-option`} value={item.key} checked={checked} onChange={() => onChange(item.key)} className="peer absolute inset-0 cursor-pointer opacity-0" />
+              <svg viewBox="0 0 24 24" className={`h-6 w-6 shrink-0 rounded-full peer-focus-visible:ring-2 peer-focus-visible:ring-[#5d6474]/40 ${checked ? "fill-[#5d6474]" : "fill-[#333]"}`} aria-hidden>
+                <path d={checked ? "M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" : "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"} />
+              </svg>
+              <span className="ml-4">{t(item.title)}</span>
+            </label>
+          )
+        })}
       </div>
       {error && <p className="mt-1.5 text-[12px] text-rose-500">{error}</p>}
     </fieldset>

@@ -35,6 +35,10 @@ export type FieldEventQuery = FieldEventFilter & {
   orders?: "all" | "not_cancelled"
   /** Client returns kept: "not_cancelled" (default: pending and accepted) or "accepted" only. */
   returns?: "not_cancelled" | "accepted"
+  /** Leave out the events of these employees (events without an employee stay). */
+  excludeEmployeeIds?: number[]
+  /** Only these documents (source ids of the kinds asked for). */
+  sourceIds?: number[]
 }
 
 const DAY_MS = 24 * 60 * 60_000
@@ -234,8 +238,10 @@ function paymentSource(ctx: Ctx): string {
   const client = clientJoin(ctx, T, "p")
   const agent = employeeJoin(ctx, T, "p", "agent", "pa")
   const courier = employeeJoin(ctx, T, "p", "delivery_man", "pd")
+  // Last, the employee who entered the payment (Linko's transaction `user`, which its agent filter reads).
+  const creator = employeeJoin(ctx, T, "p", "created_by", "pc")
   const byId = has(ctx, T, "delivery_man_id")
-  const ids = [agent.id, byId ? "pde.id" : "", courier.id].filter((value) => value && value !== "NULL")
+  const ids = [agent.id, byId ? "pde.id" : "", courier.id, creator.id].filter((value) => value && value !== "NULL")
   const raws = [agent.raw, courier.raw].filter((value) => value !== "''")
   const moments = [
     col(ctx, T, "payment_date", "fin_ts(p.payment_date)", ""),
@@ -265,6 +271,7 @@ function paymentSource(ctx: Ctx): string {
   ${agent.join}
   ${byId ? "LEFT JOIN employees pde ON pde.id = p.delivery_man_id" : ""}
   ${courier.join}
+  ${creator.join}
   WHERE ${at} >= @from::timestamp AND ${at} < @to::timestamp${col(ctx, T, "is_deleted", " AND COALESCE(p.is_deleted, 0) = 0", "")}`
 }
 
@@ -388,7 +395,7 @@ async function buildFiltered(query: FieldEventQuery): Promise<Built> {
     : undefined
   const base = baseRow?.code || "SUM"
   const kinds = new Set<FieldEventKind>(query.kinds?.length ? query.kinds : FIELD_EVENT_KINDS)
-  const empty = (query.employeeIds && !query.employeeIds.length) || (query.clientIds && !query.clientIds.length)
+  const empty = (query.employeeIds && !query.employeeIds.length) || (query.clientIds && !query.clientIds.length) || (query.sourceIds && !query.sourceIds.length)
   if (empty) return { sql: null, base }
   const ctx: Ctx = { s, extra, excludeCancelled: Boolean(query.excludeCancelled), orders: query.orders, returns: query.returns }
   const sources: string[] = []
@@ -404,6 +411,8 @@ async function buildFiltered(query: FieldEventQuery): Promise<Built> {
 
   const where: string[] = []
   if (query.employeeIds) where.push("ev.employee_id = ANY(@employeeIds::int[])")
+  if (query.excludeEmployeeIds?.length) where.push("(ev.employee_id IS NULL OR NOT ev.employee_id = ANY(@excludeEmployeeIds::int[]))")
+  if (query.sourceIds) where.push("ev.source_id = ANY(@sourceIds::int[])")
   if (query.onlyAttributed) where.push("ev.employee_id IS NOT NULL")
   if (query.clientIds) where.push("ev.client_id = ANY(@clientIds::int[])")
   if (query.branchId) {
@@ -448,6 +457,8 @@ async function buildFiltered(query: FieldEventQuery): Promise<Built> {
       fromUtc: new Date(fromMs).toISOString(),
       toUtc: new Date(toMs).toISOString(),
       employeeIds: query.employeeIds ?? [],
+      excludeEmployeeIds: query.excludeEmployeeIds ?? [],
+      sourceIds: query.sourceIds ?? [],
       clientIds: query.clientIds ?? [],
       branchId: query.branchId ?? 0,
       clientTypeIds: query.clientTypeIds ?? [],

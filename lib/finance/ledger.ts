@@ -1,5 +1,6 @@
 import "server-only"
 
+import { AmountSum } from "@/lib/amount-precision"
 import { getDb, type PgDb } from "@/lib/db"
 import { loadCurrencyContext, toWork, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
 import { roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
@@ -267,9 +268,22 @@ function matchesBalanceType(row: WorkRow, type: BalanceTypeFilter | "" | undefin
 
 function sumRows(rows: WorkRow[], codes: string[], columns: string[]): Record<string, CurrencyBalance> {
   const totals: Record<string, CurrencyBalance> = {}
-  for (const code of codes) totals[code] = emptyBalance(columns)
-  for (const row of rows) for (const code of codes) if (row.currencies[code]) addInto(totals[code], row.currencies[code])
-  for (const code of codes) totals[code] = roundBalance(totals[code])
+  for (const code of codes) {
+    // Exact decimal sums (AmountSum): float additions over thousands of rows drift a unit in the last decimal the
+    // totals print, the reference's server sums do not.
+    const sums = new Map<string, AmountSum>()
+    for (const row of rows) {
+      const balance = row.currencies[code]
+      if (!balance) continue
+      for (const [field, value] of Object.entries(balance)) {
+        const sum = sums.get(field) ?? new AmountSum()
+        sums.set(field, sum.add(value))
+      }
+    }
+    const total = emptyBalance(columns)
+    for (const [field, sum] of sums) total[field] = sum.value()
+    totals[code] = roundBalance(total)
+  }
   return totals
 }
 

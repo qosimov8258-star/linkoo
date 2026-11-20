@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/rbac"
 import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { toTransferInput, transferBodySchema, transferResponse } from "@/lib/internal-transfers-api"
 import { deleteTransfer, getTransfer, updateTransfer } from "@/lib/internal-transfers-repo"
+import { withProductFacts } from "@/lib/internal-transfers-series"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -12,10 +13,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   if (!(await getCurrentUser())) return notSignedInResponse()
   const transfer = await getTransfer(parseIdSegment((await params).id) ?? 0)
   if (!transfer) return NextResponse.json({ error: "Передача не найдена" }, { status: 404 })
-  return NextResponse.json(transfer)
+  // Each line with its product's expiry flag and box (the card's Серия column and Группа line).
+  return NextResponse.json(await withProductFacts(transfer))
 }
 
-/** Edit ("Изменить"): only while 'ожидает' / 'потвержден'; isConfirmed toggles between them. */
+/** Edit ("Изменить"), any status as in Linko: isConfirmed toggles 'ожидает' / 'потвержден'; a transfer in transit or
+ * accepted keeps its status and its changed goods are checked as movements (updateTransfer). */
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error

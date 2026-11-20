@@ -59,7 +59,7 @@ function texts(values: string[]): string[] {
 /**
  * GET /api/stock/inventories?search &status=pending|confirmed|canceled &warehouse=<name>* (also stock)
  * &createdBy=<name>* (also created_by) &fromDate &toDate (also begin_date / end_date; inventory day)
- * &ordering=id|-id|created_date|-created_date|total_price|-total_price &page &pageSize (0 = all; also page_size)
+ * &ordering=id|-id|created_date|-created_date|total_price|-total_price (several, comma-separated) &page &pageSize (0 = all; also page_size)
  */
 export function parseInventoryListQuery(url: string): Parsed<StockInventoryListQuery> {
   const search = new URL(url).searchParams
@@ -75,8 +75,9 @@ export function parseInventoryListQuery(url: string): Parsed<StockInventoryListQ
   const toDate = (search.get("toDate") ?? search.get("end_date") ?? "").trim()
   if (fromDate && !ISO_DAY.test(fromDate)) return { error: bad("fromDate", "YYYY-MM-DD") }
   if (toDate && !ISO_DAY.test(toDate)) return { error: bad("toDate", "YYYY-MM-DD") }
-  const ordering = (search.get("ordering") ?? "-id").trim() || "-id"
-  if (!ORDERINGS.includes(ordering as StockInventoryOrdering)) return { error: bad("ordering", ORDERINGS.join(" | ")) }
+  // Linko sorts by several heads at once ("created_date,-id"): each key is checked.
+  const ordering = ((search.get("ordering") ?? "-id").trim() || "-id").split(",").map((key) => key.trim()).filter(Boolean)
+  if (!ordering.length || ordering.length > 5 || ordering.some((key) => !ORDERINGS.includes(key as StockInventoryOrdering))) return { error: bad("ordering", ORDERINGS.join(" | ")) }
   return {
     data: {
       search: (search.get("search") ?? "").trim().slice(0, 200),
@@ -85,7 +86,7 @@ export function parseInventoryListQuery(url: string): Parsed<StockInventoryListQ
       createdBy: texts([...search.getAll("createdBy"), ...search.getAll("created_by")]),
       fromDate,
       toDate,
-      ordering: ordering as StockInventoryOrdering,
+      ordering: ordering as StockInventoryOrdering[],
       page,
       pageSize,
     },
@@ -115,6 +116,7 @@ const lineSchema = z.object({
   key: z.string().trim().min(1, REQUIRED).max(300),
   amount: amountSchema,
   series: z.string().trim().max(200).optional(),
+  seriesId: z.number({ error: "Серия не найдена" }).int("Серия не найдена").positive("Серия не найдена").max(2_147_483_647, "Серия не найдена").nullable().optional(),
 })
 
 const headerShape = {
@@ -148,6 +150,9 @@ export const inventoryImportSchema = z.object({
 
 /** POST /api/stock/inventories/[id]/confirm {comment?} (demo InventoryVerifyForm). */
 export const inventoryConfirmSchema = z.object({ comment: z.string().max(2000).optional() })
+
+/** DELETE /api/stock/inventories/[id] {comment?} (Linko's «Удаление» dialog sends the comment with the delete). */
+export const inventoryDeleteSchema = z.object({ comment: z.string().max(2000).optional() })
 
 /**
  * Reads and validates a JSON body like parseJsonBody, but answers with the first

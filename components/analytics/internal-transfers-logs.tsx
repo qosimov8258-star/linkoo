@@ -6,72 +6,109 @@ import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashModal, EmptyBlock, ErrorBlock, LoadingBlock } from "@/components/analytics/cash-management-shared"
 import { TransferStatusLabel, docDate, formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { TRANSFER_LOG_COLORS, TRANSFER_LOG_LABELS, type TransferLog, type TransferLogAction } from "@/lib/internal-transfers-types"
+import { TRANSFER_LOG_COLORS, TRANSFER_LOG_LABELS, type TransferLog, type TransferLogAction, type TransferStatus } from "@/lib/internal-transfers-types"
 
-// "Логи" tab of a transfer (demo c7 module 4640): one block per action —
-// "Передача: <action>", "Статус: …", Кем, Со склада, На склад, Когда and the
-// comment — and "Детали изменений товаров" (module 4641): every product's
-// quantity / price / sum after each action, changed cells highlighted.
+// "Логи" tab of a transfer as Linko draws it (its StockTransferLogs): newest first, one 75 px box per action
+// (#FBFBFB, 1 px #E5E8F1 border, radius 10, padding 20) with «Передача: <action chip>» and «Статус: <icon> <status>» on
+// the left and «Кем», «Со склада», «На склад», «Когда» on the right; a comment goes under its box. Linko's button
+// «Детали изменений товаров» needs its API 150 (the account runs 147), so it is not shown; ProductChangesDialog below
+// keeps that view for when it is.
 
+// Linko's status icons of a log entry (Material access_time, store, local_shipping, assignment_turned_in, block).
+const LOG_STATUS: Record<TransferStatus, { label: string; color: string; path: string }> = {
+  ожидает: { label: "Ожидает", color: "#f0ad4e", path: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" },
+  потвержден: { label: "Потвержден", color: "#f0ad4e", path: "M20 4H4v2h16V4zm1 10v-2l-1-5H4l-1 5v2h1v6h10v-6h4v6h2v-6h1zm-9 4H6v-4h6v4z" },
+  "в пути": { label: "В пути", color: "#f0ad4e", path: "M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" },
+  принят: { label: "Принят", color: "#81c784", path: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" },
+  отменен: { label: "Отменен", color: "#e57373", path: "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zM4 12c0-4.4 3.6-8 8-8 1.8 0 3.5.6 4.9 1.7L5.7 16.9C4.6 15.5 4 13.8 4 12zm8 8c-1.8 0-3.5-.6-4.9-1.7L18.3 7.1C19.4 8.5 20 10.2 20 12c0 4.4-3.6 8-8 8z" },
+}
+
+/** Linko's action chip: an outer and an inner 1×7 px padded span, the inner one with the coloured 1 px border and a
+ * 15 px radius. «approved» has no chip in Linko («Не установлен» as plain text). */
 function ActionBadge({ action }: { action: TransferLogAction }) {
   const { t } = useLanguage()
-  const color = TRANSFER_LOG_COLORS[action] ?? "#64b5f6"
+  const color = action === "approved" ? null : TRANSFER_LOG_COLORS[action]
   return (
-    <span className="rounded-full border px-2.5 py-0.5 text-[12px] font-semibold" style={{ color, borderColor: color }}>
-      {t(TRANSFER_LOG_LABELS[action] ?? "Не установлен")}
+    <span className="whitespace-nowrap px-[7px] py-px">
+      {color ? (
+        <span className="whitespace-nowrap rounded-[15px] border px-[7px] py-px" style={{ color, borderColor: color }}>
+          {t(TRANSFER_LOG_LABELS[action])}
+        </span>
+      ) : (
+        t("Не установлен")
+      )}
     </span>
   )
 }
 
+const NBSP = "\u00a0"
+
 export function TransferLogsPanel({ id }: { id: number }) {
   const { t, language } = useLanguage()
   const logs = useCashJson<TransferLog[]>(`/api/internal-transfers/${id}/logs`)
-  const [details, setDetails] = useState(false)
   if (logs.loading && !logs.data) return <LoadingBlock className="py-10" />
   if (logs.error && !logs.data) return <ErrorBlock error={logs.error} onRetry={logs.reload} />
   const rows = [...(logs.data ?? [])].reverse()
-  if (!rows.length) return <EmptyBlock text="Ничего не найдено" className="py-10" />
+  if (!rows.length) return <p className="mt-[50px] text-center text-[13px]">{t("Ничего не найдено")}</p>
   return (
-    <div className="py-3">
-      <div className="mb-3 flex justify-end">
-        <button type="button" onClick={() => setDetails(true)} className="inline-flex h-[30px] items-center rounded-sm bg-[rgb(79,113,220)] px-3 text-[13px] font-semibold text-white hover:brightness-95">
-          {t("Детали изменений товаров")}
-        </button>
-      </div>
-      <ul className="flex flex-col gap-3">
-        {rows.map((log) => (
-          <li key={log.id} className="rounded-md border border-[#e1e5eb] px-4 py-3 leading-7">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="flex items-center gap-2">
-                <b>{t("Передача")}:</b> <ActionBadge action={log.action} />
-              </span>
-              <span className="flex items-center gap-2">
-                <b>{t("Статус: ")}</b> <TransferStatusLabel status={log.status} title />
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-x-6 text-[13px]">
-              <span>
-                <b>{t("Кем")}:</b> {log.userName || t("Не указано")}
-              </span>
-              <span>
-                <b>{t("Со склада")}:</b> {log.fromWarehouse}
-              </span>
-              <span>
-                <b>{t("На склад")}:</b> {log.toWarehouse}
-              </span>
-              <span>
-                <b>{t("Когда")}:</b> {docDate(log.createdAt, language, true)}
-              </span>
+    <div className="flex w-full flex-col gap-[20px] pt-[25px] text-[13px] text-[#333]">
+      {rows.map((log) => {
+        const status = LOG_STATUS[log.status] ?? LOG_STATUS["отменен"]
+        return (
+          <div key={log.id}>
+            <div className="mb-[10px] flex justify-between rounded-[10px] border border-[#E5E8F1] bg-[#FBFBFB] p-[20px]">
+              <div className="flex">
+                <div className="flex items-center">
+                  {/* Linko's flex items drop the space after the colon on this side. */}
+                  <span className="font-semibold">{t("Передача")}:</span>
+                  <ActionBadge action={log.action} />
+                </div>
+                <div className="ml-[10px] flex items-center">
+                  <span className="font-semibold">{t("Статус:")}</span>
+                  <div className="flex items-center">
+                    <span className="flex h-[33px] w-[33px] items-center justify-center" aria-hidden>
+                      <svg viewBox="0 0 24 24" className="h-[23px] w-[23px]" style={{ fill: status.color }}>
+                        <path d={status.path} />
+                      </svg>
+                    </span>
+                    <span>{t(status.label)}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center">
+                <div>
+                  <span className="font-semibold">
+                    {t("Кем")}:{NBSP}
+                  </span>
+                  {log.userName}
+                </div>
+                <div className="ml-[20px] flex items-center">
+                  <span className="font-semibold">
+                    {t("Со склада")}:{NBSP}
+                  </span>
+                  <span data-no-translate>{log.fromWarehouse}</span>
+                </div>
+                <div className="ml-[20px] flex items-center">
+                  <span className="font-semibold">
+                    {t("На склад")}:{NBSP}
+                  </span>
+                  <span data-no-translate>{log.toWarehouse}</span>
+                </div>
+                <div className="ml-[20px] flex items-center">
+                  <span className="font-semibold">{t("Когда")}:</span>
+                  <p className="ml-[5px] leading-[2]">{docDate(log.createdAt, language, true)}</p>
+                </div>
+              </div>
             </div>
             {log.comment && (
-              <div className="text-[13px]">
-                <b>{t("Комментарий")}:</b> {log.comment}
+              <div className="flex items-center">
+                <span className="mr-[5px] font-semibold">{t("Комментарий")}: </span>
+                <p className="leading-[2]">{log.comment}</p>
               </div>
             )}
-          </li>
-        ))}
-      </ul>
-      {details && <ProductChangesDialog logs={logs.data ?? []} onClose={() => setDetails(false)} />}
+          </div>
+        )
+      })}
     </div>
   )
 }

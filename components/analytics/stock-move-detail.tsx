@@ -181,7 +181,7 @@ export function StockMoveDetail({ url, kind, onKindChange, onClose }: { url: str
                           <td className="whitespace-nowrap px-3 py-2">{formatDotDate(document.day)}</td>
                           <td className="px-3 py-2">
                             {source ? (
-                              <Link href={source.href} className="text-[#1E4A9A] hover:underline">
+                              <Link href={source.byId ? `${source.href}/${document.docId}` : source.href} className="text-[#1E4A9A] hover:underline">
                                 {label}
                               </Link>
                             ) : (

@@ -78,6 +78,7 @@ const LABELS: Record<string, string> = {
   invoice_incomings: "Входящие счета-фактуры",
   job_positions: "Должности",
   knowledge_base_articles: "База знания",
+  knowledge_base_article_access_rights: "База знания",
   knowledge_base_article_positions: "База знания",
   kpi_tasks: "KPI задачи",
   linked_repricings: "Переоценка",

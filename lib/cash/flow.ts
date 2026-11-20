@@ -3,6 +3,7 @@ import "server-only"
 import { getDb, type PgDb } from "@/lib/db"
 import { listCashOperations } from "@/lib/cash/list"
 import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
+import { roundMoney } from "@/lib/finance/currency"
 import type { CashOperation } from "@/lib/cash/types"
 import type { CashFlowResult, CashFlowRow, CashFlowSection } from "@/lib/cash/flow-types"
 
@@ -14,7 +15,9 @@ import type { CashFlowResult, CashFlowRow, CashFlowSection } from "@/lib/cash/fl
 // the months of the period. Transfers between cash desks are a section of their own (with no cash
 // desk filter they cancel out, but for one desk they are its money in / out).
 
-const round = (value: number) => Math.round(value * 100) / 100
+// Rounded to the decimals of Настройки → Округление сумм (three when not set), the precision the reference prints this
+// report with (its numberFormat), not to cents.
+const round = (value: number) => roundMoney(value)
 
 /** The day before an ISO day. */
 function dayBefore(day: string): string {

@@ -3,7 +3,6 @@ import "server-only"
 import { getDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { getStockOptions } from "@/lib/stock/options"
-import { jsonLines } from "@/lib/stock/sources"
 import { ensureTransfersSchema, rowToTransfer, syncTransferValues, type TransferRow } from "@/lib/internal-transfers-repo"
 import type { Transfer, TransferListResult, TransferOptions, TransferStatus, TransferWarehouse } from "@/lib/internal-transfers-types"
 
@@ -39,21 +38,38 @@ export type TransferListQuery = {
 
 const CREATED_TS = "COALESCE(fin_ts(t.created_at_label), fin_ts(t.created_at, true))"
 
-const ORDERING: Record<string, string> = {
-  id: "t.id",
-  created_date: CREATED_TS,
-  date_delivery: "fin_ts(t.delivered_at)",
-  total_price: "t.amount",
-  total_weight: "t.weight",
-  status: "t.status",
-  created_by: "t.created_by",
-  from_stock: "t.from_warehouse",
-  to_stock: "t.to_warehouse",
-  accepted_time: "fin_ts(t.accepted_at)",
-  given_time: "fin_ts(t.given_at)",
+// Linko orders a status by its code (accepted < approved < cancelled < given < pending), not by the Russian label.
+const STATUS_RANK = "CASE t.status WHEN 'принят' THEN 1 WHEN 'потвержден' THEN 2 WHEN 'отменен' THEN 3 WHEN 'в пути' THEN 4 ELSE 5 END"
+
+const ORDERING: Record<string, string[]> = {
+  id: ["t.id"],
+  // Days first (an edited creation day), then the stored second.
+  created_date: [CREATED_TS, "fin_ts(t.created_at, true)"],
+  date_delivery: ["fin_ts(t.delivered_at)"],
+  total_price: ["t.amount"],
+  total_weight: ["t.weight"],
+  status: [STATUS_RANK],
+  created_by: ["t.created_by"],
+  // Linko's «Создал» column sorts by accepted_by (the user saved on the document).
+  accepted_by: ["t.created_by"],
+  from_stock: ["t.from_warehouse"],
+  to_stock: ["t.to_warehouse"],
+  accepted_time: ["fin_ts(t.accepted_at)"],
+  given_time: ["fin_ts(t.given_at)"],
 }
 
-export const TRANSFER_SORT_KEYS = Object.keys(ORDERING)
+/** Linko's ordering list ("created_date,-total_price"): known keys in click order, each field once. */
+export function parseTransferOrdering(value: string): string {
+  const seen = new Set<string>()
+  const keys: string[] = []
+  for (const item of value.split(",").map((part) => part.trim()).filter(Boolean)) {
+    const field = item.replace(/^-/, "")
+    if (!Object.hasOwn(ORDERING, field) || seen.has(field)) continue
+    seen.add(field)
+    keys.push(item)
+  }
+  return keys.slice(0, 10).join(",")
+}
 
 const inNames = (column: string, param: string) => `fin_key(${column}) IN (SELECT fin_key(x) FROM unnest(@${param}::text[]) AS x)`
 
@@ -102,20 +118,22 @@ function where(query: TransferListQuery): { sql: string; params: Record<string, 
   range("fin_ts(t.given_at)", query.givenFrom, query.givenTo, "given")
   const search = query.search.trim()
   if (search) {
+    // Linko searches a transfer by its number only: every id whose digits contain the text («5» → 5, 15, 50 … 59).
     params.search = `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
-    params.search_id = /^\d{1,9}$/.test(search) ? Number(search) : -1
-    parts.push(`(t.id = @search_id OR t.from_warehouse ILIKE @search OR t.to_warehouse ILIKE @search OR t.created_by ILIKE @search
-      OR t.comment ILIKE @search OR t.invoice_number ILIKE @search OR t.transport_number ILIKE @search OR t.driver ILIKE @search
-      OR EXISTS (SELECT 1 FROM jsonb_array_elements(${jsonLines("t.items")}) AS l(j) WHERE l.j ->> 'product' ILIKE @search))`)
+    parts.push("t.id::text ILIKE @search")
   }
   return { sql: parts.length ? `WHERE ${parts.join(" AND ")}` : "", params }
 }
 
 function orderBy(ordering: string): string {
-  const desc = ordering.startsWith("-")
-  const expr = ORDERING[ordering.replace(/^-/, "")]
-  if (!expr) return "ORDER BY t.id DESC"
-  return `ORDER BY ${expr} ${desc ? "DESC" : "ASC"} NULLS LAST, t.id DESC`
+  const terms = parseTransferOrdering(ordering)
+    .split(",")
+    .filter(Boolean)
+    .flatMap((item) => {
+      const dir = item.startsWith("-") ? "DESC" : "ASC"
+      return ORDERING[item.replace(/^-/, "")].map((expr) => `${expr} ${dir} NULLS LAST`)
+    })
+  return `ORDER BY ${[...terms, "t.id DESC"].join(", ")}`
 }
 
 export async function listTransfers(query: TransferListQuery): Promise<TransferListResult> {

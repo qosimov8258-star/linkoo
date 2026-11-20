@@ -249,7 +249,8 @@ export function GroupPaymentDialog({
               <tbody>
                 {rows.map((row, index) => (
                   <tr key={row.key} className="border-b border-[#e1e5eb]">
-                    <td className="px-3 py-2">{index + 1}</td>
+                    {/* Linko's № is the client's (account's) id. */}
+                    <td className="px-3 py-2">{row.id ?? (row.key.startsWith("acc:") ? row.key.slice(4) : index + 1)}</td>
                     <td className="px-3 py-2">{row.name}</td>
                     {currencies.map((code) => (
                       <td key={code} className="px-3 py-2">

@@ -5,6 +5,7 @@ import { customerPaymentTotals } from "@/lib/cash/customer-payments"
 import { acceptedReturnTotals, periodReturnTotals } from "@/lib/client-returns-repo"
 import { getDb } from "@/lib/db"
 import { foldToWork, loadCurrencyContext } from "@/lib/finance/context"
+import { roundMoney } from "@/lib/finance/currency"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { ownAgentSql } from "@/lib/finance/sources"
 import { ensureOrdersSchema } from "@/lib/orders-repo"
@@ -55,10 +56,8 @@ export type DashboardSummary = {
   ownAgents?: string[]
 }
 
-const round = (value: number, digits = 2) => {
-  const factor = 10 ** digits
-  return Math.round((Number(value) || 0) * factor) / factor
-}
+/** To the decimals the dashboard prints (the reference's numberFormat: those of Настройки → Округление сумм, else three). */
+const round = (value: number) => roundMoney(Number(value) || 0)
 
 const ORDER_DAY = "fin_ts(o.created_at, true)::date"
 
@@ -141,9 +140,9 @@ export async function getDashboardSummary(begin: string, end: string, fieldEmplo
     akb: akbRow?.n ?? 0,
     field: await getFieldSummary(begin, end, fieldEmployeeIds),
     units: {
-      pieces: round(unitRow?.pieces ?? 0, 3),
-      blocks: round(unitRow?.blocks ?? 0, 2),
-      weight: round(unitRow?.weight ?? 0, 3),
+      pieces: round(unitRow?.pieces ?? 0),
+      blocks: round(unitRow?.blocks ?? 0),
+      weight: round(unitRow?.weight ?? 0),
     },
     orderStatusCounts: { shipped: inTransit + delivered, inTransit, delivered, cancelledShipped: returns.orders },
     ...(ownAgents ? { ownAgents } : {}),

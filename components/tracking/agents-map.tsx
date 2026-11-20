@@ -23,10 +23,14 @@ export type MapDayClient = {
   clientId: number | null
   name: string
   address: string
+  /** «Ориентир» ("" when none): Linko's line under the name. */
+  landmark: string
   lat: number
   lng: number
   state: MapClientState
   syncedAt: string
+  /** Metres between the client and the visit's check-in (Linko's «Разница»), null when not visited. */
+  distanceM: number | null
   distance: string
   actualLat: number | null
   actualLng: number | null
@@ -40,7 +44,7 @@ export type MapZoneShape = { id: number; name: string; ring: LatLng[] }
 export type MapLabels = {
   synced: string
   client: string
-  distance: string
+  difference: string
   actual: string
   address: string
   showOnMap: string
@@ -115,40 +119,55 @@ function pinIcon(color: string, label: string, size = 30): L.DivIcon {
   return L.divIcon({ html: pin, className: "tracking-pin", iconSize: [size, size], iconAnchor: [size / 2, size] })
 }
 
-const mapsLink = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`
+/** Linko's «Показать на карте»: Yandex Maps at the point. */
+const mapsLink = (lat: number, lng: number) => `https://maps.yandex.ru/?text=${lat},${lng}`
 
+/** Linko's colour of the check-in distance: up to 50 m green, up to 100 m orange, more red. */
+const distanceTone = (meters: number) => (meters > 100 ? "rgb(255, 94, 94)" : meters >= 50 ? "rgb(255, 159, 0)" : "rgb(58, 201, 119)")
+
+/** Linko's popup of a client of the day: the name, its «Ориентир» line, «Разница» / «Синхронизировано» of a visit, the
+ * client's and the visit's points (full precision, «Показать на карте» on Yandex Maps), the address, the day's lines and
+ * the «Показать клиента» pill. */
 function popupOf(client: MapDayClient, labels: MapLabels, onOpen: (id: number) => void): HTMLElement {
-  const root = element("div", { fontSize: "12px", minWidth: "220px", maxWidth: "300px" })
-  root.appendChild(element("h2", { fontSize: "15px", fontWeight: "700", margin: "0 0 6px" }, client.name))
-  const line = (label: string, value: string, link?: string) => {
-    if (!value) return
-    const row = element("div", { margin: "2px 0" })
-    row.appendChild(element("b", {}, `${label} `))
-    row.appendChild(document.createTextNode(value))
-    if (link) {
-      const anchor = element("a", { color: "#1E4A9A", marginLeft: "6px" }, labels.showOnMap) as HTMLAnchorElement
-      anchor.href = link
-      anchor.target = "_blank"
-      anchor.rel = "noopener noreferrer"
-      row.appendChild(anchor)
-    }
-    root.appendChild(row)
+  const root = element("div", { fontSize: "13px", color: "#333", width: "439px", maxWidth: "100%" })
+  root.appendChild(element("h2", { fontSize: "19.5px", fontWeight: "700", lineHeight: "25px", margin: "0" }, client.name))
+  root.appendChild(element("p", { fontWeight: "500", color: "#666", margin: "6px 0 10px", minHeight: "0" }, client.landmark))
+  const row = () => root.appendChild(element("div", { display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: "10px", margin: "0 0 10px" }))
+  const field = (parent: HTMLElement, label: string, value: string, color?: string) => {
+    const line = element("p", { fontWeight: "500", margin: "0" }, `${label} `)
+    line.appendChild(element("span", color ? { color } : {}, value))
+    parent.appendChild(line)
   }
-  line(labels.synced, client.syncedAt)
-  line(labels.client, `${client.lat.toFixed(6)}, ${client.lng.toFixed(6)}`, mapsLink(client.lat, client.lng))
-  line(labels.distance, client.distance)
-  if (client.actualLat !== null && client.actualLng !== null) {
-    line(labels.actual, `${client.actualLat.toFixed(6)}, ${client.actualLng.toFixed(6)}`, mapsLink(client.actualLat, client.actualLng))
+  const point = (label: string, lat: number, lng: number) => {
+    const line = row()
+    field(line, label, `${lat}, ${lng}`)
+    const anchor = element("a", { color: "#1E4A9A", fontWeight: "500" }, labels.showOnMap) as HTMLAnchorElement
+    anchor.href = mapsLink(lat, lng)
+    anchor.target = "_blank"
+    anchor.rel = "noopener noreferrer"
+    line.appendChild(anchor)
   }
-  line(labels.address, client.address)
+  if (client.syncedAt) {
+    const line = row()
+    if (client.distanceM !== null) field(line, labels.difference, client.distance, distanceTone(client.distanceM))
+    field(line, labels.synced, client.syncedAt)
+  }
+  point(labels.client, client.lat, client.lng)
+  if (client.actualLat !== null && client.actualLng !== null) point(labels.actual, client.actualLat, client.actualLng)
+  if (client.address) root.appendChild(element("p", { fontWeight: "500", margin: "0 0 10px" }, `${labels.address} ${client.address}`))
   if (client.lines.length) {
-    const list = element("ul", { margin: "6px 0", paddingLeft: "0", listStyle: "none" })
-    for (const text of client.lines) list.appendChild(element("li", { margin: "2px 0" }, `— ${text}`))
+    const list = element("ul", { margin: "0", padding: "0", listStyle: "none" })
+    for (const text of client.lines) list.appendChild(element("li", { margin: "5px" }, `— ${text}`))
     root.appendChild(list)
   }
   if (client.clientId !== null) {
     const id = client.clientId
-    const button = element("button", { color: "#1E4A9A", fontWeight: "600", background: "none", border: "0", padding: "0", cursor: "pointer" }, labels.showClient)
+    const button = element(
+      "button",
+      { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "30px", marginTop: "20px", border: "0", borderRadius: "100px", background: "#f0f4f8", color: "#1E4A9A", fontSize: "13px", cursor: "pointer" },
+      labels.showClient,
+    ) as HTMLButtonElement
+    button.type = "button"
     button.addEventListener("click", () => onOpen(id))
     root.appendChild(button)
   }
@@ -207,7 +226,7 @@ export function AgentsMap({ agents, onAgentClick, clients, visitClose, actualVis
     layer.clearLayers()
     for (const client of clients) {
       L.marker([client.lat, client.lng], { icon: pinIcon(STATE_COLOR[client.state], String(client.seq)) })
-        .bindPopup(() => popupOf(client, labels, (id) => clientOpenRef.current(id)), { maxWidth: 320 })
+        .bindPopup(() => popupOf(client, labels, (id) => clientOpenRef.current(id)), { maxWidth: 500 })
         .addTo(layer)
     }
   }, [clients, labels])

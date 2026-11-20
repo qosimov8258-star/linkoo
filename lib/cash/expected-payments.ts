@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb } from "@/lib/db"
+import { roundMoney } from "@/lib/finance/currency"
 import { nameKey } from "@/lib/finance/entities"
 import { CashError, currencyContext, loadCategories, pageOf } from "@/lib/cash/common"
 import { allocatedOrderDue, allocatedOrderDues, type AllocatedOrderDue } from "@/lib/cash/orders"
@@ -120,9 +121,10 @@ export async function listExpectedPayments(query: ExpectedPaymentsQuery): Promis
     rows: pageSize ? rows.slice((page - 1) * pageSize, page * pageSize) : rows,
     totals: [...totals.values()].map((item) => ({
       currency: item.currency,
-      total: Math.round(item.total * 100) / 100,
-      paid: Math.round(item.paid * 100) / 100,
-      remaining: Math.round(item.remaining * 100) / 100,
+      // The decimals of Настройки → Округление сумм (Linko prints the cards with its numberFormat).
+      total: roundMoney(item.total),
+      paid: roundMoney(item.paid),
+      remaining: roundMoney(item.remaining),
     })),
   }
 }

@@ -1,33 +1,58 @@
 "use client"
 
-import { Trash2 } from "lucide-react"
-import { ChangeEvent, Fragment, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
-import { FilterCheck, FilterDate, FilterSelect, FilterTextMui, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit"
+import { RI, RefAppliedFilter, RefButton, RefCard, RefHeader, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
+import type { LinkoOption } from "@/components/ref/linko-select-fields"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { formatMoney as formatMoneyValue } from "@/lib/finance/currency"
+import { formatSupplyAmount } from "@/lib/amount-precision"
 import { formatStatementDate, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { unitWeightKg } from "@/lib/internal-transfers-types"
 import type { InvoiceSupplyDraft } from "@/lib/invoice-incomings-types"
 import { RefTip } from "@/components/ref/ref-tip"
+import { SortArrows } from "@/components/ref/sort-arrows"
 import { formatUnitTotals } from "./internal-transfers-picker"
-import { ConfirmDialog, useCanManage } from "./cash-management-shared"
+import { CashSnackbar, ConfirmDialog, useCanManage, type SnackbarMessage } from "./cash-management-shared"
 import { MaterialBody, MaterialDate, MaterialDialog, MaterialFooter } from "./cash-material"
 import { OrganizationFormModal } from "./organization-form-modal"
 import { SupplierFormModal } from "./supplier-form-modal"
 import {
   incomingPaymentTypes as paymentTypes,
-  supplyCostLines,
   type Incoming,
   type IncomingExpense,
   type IncomingLog,
   type IncomingStatus as Status,
 } from "./supplier-incomings-data"
-import { currencyChoices, IncomingExpenseDialog, IncomingRepriceDialog, LOG_LABELS, useCurrencyCodes } from "./supplier-incoming-dialogs"
+import { currencyChoices, IncomingExpenseDialog, IncomingRepriceDialog, useCurrencyCodes } from "./supplier-incoming-dialogs"
+import {
+  SupplyDownloadMenu,
+  SupplyEditMenu,
+  SupplyInvoiceDialog,
+  SupplyLogCards,
+  SupplyLogPopover,
+  SupplyMarksCell,
+  SupplyMarksPanel,
+  SupplyPrintButton,
+  downloadSupplyPrices,
+  downloadSupplyProducts,
+} from "./supplier-incoming-card-actions"
+import { SupplyCostTab, SupplyExpenseSummary, SupplyExpensesTab } from "./supplier-incoming-card-tabs"
 import { SupplierIncomingForm, isoToRuDate, ruDateToIso } from "./supplier-incoming-form"
+import {
+  SupplierIncomingsFilterPanel,
+  incomingMatchesFilter,
+  incomingMatchesSearch,
+  incomingsFilterCount,
+  incomingsFilterPatch,
+  linkoOrder,
+  readIncomingsFilter,
+  type IncomingsFilter,
+  type IncomingsFilterOptions,
+  type IncomingsLookups,
+} from "./supplier-incomings-filter"
 import { SupplierProductPicker } from "./supplier-product-picker"
 import { SupplyPaymentsDialog } from "./supplier-payments-supply-dialog"
 import { WarehouseFormModal } from "./warehouse-form-modal"
@@ -41,7 +66,8 @@ const ITEM_IMPORT_HEADER_ALIASES: Record<string, string> = {
 
 /** Money with 2 decimals (lib/finance/currency.ts) and the document's currency code. */
 function formatMoney(value: number, currency = "") {
-  return `${formatMoneyValue(value, 2)} ${currency}`.trim()
+  // Linko's supplyNumberFormat: the supply decimals of Настройки → Округление сумм, else two.
+  return `${formatSupplyAmount(value, 2)} ${currency}`.trim()
 }
 
 /** A stored timestamp (UTC ISO, local text, …) in the page language, Asia/Tashkent time. */
@@ -60,12 +86,51 @@ function formatDay(value: string, language: string) {
 const statusDots: Record<Status, string> = {
   принят: "bg-[#81c784]",
   ожидает: "bg-[#f0ad4e]",
-  отменен: "bg-rose-500",
+  отменен: "bg-[#e57373]",
 }
 
 /** `source` = the e-invoice line the item was prefilled from ("Создать приход"). */
-type DraftItem = { id: number; product: string; qty: number; cost: number; expiry?: string; source?: { name: string; ikpu: string; unit: string } }
+type DraftItem = { id: number; product: string; qty: number; cost: number; expiry?: string; series?: string; source?: { name: string; ikpu: string; unit: string } }
 type Tab = "items" | "cost" | "expenses" | "logs"
+
+/** The card tabs' URL values (Linko's ?tab=). */
+const TAB_PARAM: Record<Tab, string> = { items: "productList", cost: "costPriceProductList", expenses: "expenses", logs: "logs" }
+
+const NO_LOOKUPS: IncomingsLookups = { branches: new Map(), suppliers: new Map(), warehouses: new Map(), organizations: new Map(), products: new Map(), warehouseIds: new Map() }
+/** Linko's page sizes of the list. */
+const PAGE_SIZES = [10, 25, 50, 100, 200, 500, 1000, 2000]
+
+/** Sets or removes list parameters of the address, keys in order as Linko's query-string writes them; typing in the
+ * search box replaces the entry, everything else is a history entry. */
+function setListParams(patch: Record<string, string | null>, replace = false) {
+  const url = new URL(window.location.href)
+  for (const [name, value] of Object.entries(patch)) {
+    if (value === null) url.searchParams.delete(name)
+    else url.searchParams.set(name, value)
+  }
+  url.searchParams.sort()
+  const next = `${url.pathname}${url.search}`
+  if (next === `${window.location.pathname}${window.location.search}`) return
+  if (replace) window.history.replaceState(null, "", next)
+  else window.history.pushState(null, "", next)
+}
+
+/** Sets (or drops) a query parameter of the address, like Linko's hash history (?openUpdateDialog=true …). */
+function setUrlParam(name: string, value: string | null, push = false) {
+  const url = new URL(window.location.href)
+  if (value === null) url.searchParams.delete(name)
+  else url.searchParams.set(name, value)
+  const next = `${url.pathname}${url.search}`
+  if (push) window.history.pushState(null, "", next)
+  else window.history.replaceState(null, "", next)
+}
+
+/** «Счет фактура» of the list: «№12345678 от 10 дек. 2025». */
+function invoiceLabel(row: Incoming, language: string) {
+  if (!row.invoiceNumber) return ""
+  // Plain spaces: Linko's cell wraps inside the date («№12345678 от 15 / дек. 2025»).
+  return row.invoiceDate ? `№${row.invoiceNumber} от ${formatDay(row.invoiceDate, language).replace(/[\u00a0\u202f]/g, " ")}` : `№${row.invoiceNumber}`
+}
 
 /** Older expense logs stored the amount unformatted ("Доставка: 250000 SUM"). */
 function logDetails(log: IncomingLog): string {
@@ -119,7 +184,7 @@ function TipIconButton({ path, label, onClick }: { path: string; label: string; 
 
 function SupplyAction({ children, icon, onClick, color = "#1E4A9A", disabled, width }: { children: ReactNode; icon: string; onClick: () => void; color?: string; disabled?: boolean; width?: number }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} style={{ backgroundColor: color, width }} className="inline-flex h-[30px] min-w-[88px] items-center justify-center gap-[8px] rounded-[5px] pl-[12px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50">
+    <button type="button" disabled={disabled} onClick={onClick} style={{ backgroundColor: color, width }} className="inline-flex h-[30px] min-w-[88px] items-center justify-center gap-[8px] rounded-[5px] pl-[12px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:hover:brightness-100">
       <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden>
         <path d={icon} />
       </svg>
@@ -137,13 +202,12 @@ function InfoRow({ label, value, valueClass = "" }: { label: string; value: Reac
   )
 }
 
+/** A header cell of «Список товаров»: Linko's two grey triangles after the name. */
 function SortHead({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-center pl-[18px]">
       {children}
-      <svg viewBox="0 0 24 24" className="ml-[8px] h-4 w-4 fill-[#9e9e9e]" aria-hidden>
-        <path d="M12 5.83L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z" />
-      </svg>
+      <SortArrows color="#888" className="ml-[4px]" />
     </div>
   )
 }
@@ -158,7 +222,6 @@ function blockLabel(qty: number, box: { unit: string; amount: number } | undefin
 
 type WarehouseOption = { name: string; branch: string; active: boolean }
 
-const sameName = (a: string, b: string) => a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase()
 
 export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean }) {
   const { t, language } = useLanguage()
@@ -166,23 +229,6 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
   const [saving, setSaving] = useState(false)
-  const [query, setQuery] = useState("")
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [warehouseFilter, setWarehouseFilter] = useState("all")
-  const [branchFilter, setBranchFilter] = useState("")
-  const [supplierFilter, setSupplierFilter] = useState("")
-  const [productFilter, setProductFilter] = useState("")
-  const [organizationFilter, setOrganizationFilter] = useState("")
-  const [paymentFilter, setPaymentFilter] = useState("")
-  const [contractFilter, setContractFilter] = useState("")
-  const [invoiceFilter, setInvoiceFilter] = useState("")
-  const [supplyDateFilter, setSupplyDateFilter] = useState({ begin: "", end: "" })
-  const [invoiceDateFilter, setInvoiceDateFilter] = useState({ begin: "", end: "" })
-  const [acceptedFilter, setAcceptedFilter] = useState({ begin: "", end: "" })
-  const [createdFilter, setCreatedFilter] = useState({ begin: "", end: "" })
-  const [excludeCancelled, setExcludeCancelled] = useState(true)
-  const [excludeInventory, setExcludeInventory] = useState(false)
   const pathname = usePathname()
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [detailTab, setDetailTab] = useState<Tab>("items")
@@ -205,15 +251,36 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const currencies = useCurrencyCodes()
   /** "Наценка" writes a price list: procurement.manage (this page) and catalog.manage (repricing). */
   const canReprice = useCanManage(["procurement.manage", "catalog.manage"])
+  /** «Изменить детали» needs the right to change supplies (Linko's change_supply). */
+  const canEdit = useCanManage(["procurement.manage"])
+  /** The card whose «Добавить лог» box is open. */
+  const [logPopover, setLogPopover] = useState<number | null>(null)
+  /** The line whose marking codes are unfolded ("<supply>:<line>"). */
+  const [marksOpen, setMarksOpen] = useState<string | null>(null)
+  const [snackbar, setSnackbar] = useState<SnackbarMessage | null>(null)
+  const closeSnackbar = useCallback(() => setSnackbar(null), [])
+  /** Closes the supply form; closing «Изменение поставки» writes openUpdateDialog=false, like Linko's X. */
+  const closeForm = useCallback(() => {
+    setModalOpen(false)
+    if (embedded) return
+    if (editingId !== null) setUrlParam("openUpdateDialog", "false")
+    else if (new URLSearchParams(window.location.search).get("openCreateDialog") === "true") setUrlParam("openCreateDialog", "false")
+  }, [editingId, embedded])
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [supplierOptions, setSupplierOptions] = useState<string[]>([])
   const [warehouseRows, setWarehouseRows] = useState<WarehouseOption[]>([])
   const [organizationOptions, setOrganizationOptions] = useState<string[]>([])
   const [branchOptions, setBranchOptions] = useState<string[]>([])
+  /** The list filter's choices (ids as Linko writes them in the address) and the names behind its ids. */
+  const [filterOptions, setFilterOptions] = useState<IncomingsFilterOptions | null>(null)
+  const [lookups, setLookups] = useState<IncomingsLookups>(NO_LOOKUPS)
   const [productOptions, setProductOptions] = useState<string[]>([])
   const [productUnits, setProductUnits] = useState<Record<string, string>>({})
   const [productExpiry, setProductExpiry] = useState<Record<string, boolean>>({})
+  /** Products that keep series (Linko's useSeries) and their code (Linko's product.code, shown under the name). */
+  const [productSeries, setProductSeries] = useState<Record<string, boolean>>({})
+  const [productCodes, setProductCodes] = useState<Record<string, string>>({})
   const [productInfo, setProductInfo] = useState<Record<string, { stock: number; barcode: string }>>({})
   const [productBoxes, setProductBoxes] = useState<Record<string, { unit: string; amount: number }>>({})
   /** Weight of one unit, kg (the item's mass, else what a weight unit implies), by item name. */
@@ -270,29 +337,36 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         fetch("/api/branches").catch(() => null),
       ])
       if (cancelled) return
-      if (suppliersRes?.ok) {
-        const data = (await suppliersRes.json()) as { name: string }[]
-        setSupplierOptions(Array.from(new Set(data.map((item) => item.name))))
-      }
-      if (warehousesRes?.ok) {
-        const data = (await warehousesRes.json()) as Array<{ name: string; branch?: string; active?: boolean }>
-        setWarehouseRows(data.map((item) => ({ name: item.name, branch: item.branch ?? "", active: item.active !== false })))
-      }
-      if (organizationsRes?.ok) {
-        const data = (await organizationsRes.json()) as { name: string }[]
-        setOrganizationOptions(Array.from(new Set(data.map((item) => item.name))))
-      }
-      if (branchesRes?.ok) {
-        const data = (await branchesRes.json()) as { name: string }[]
-        setBranchOptions(Array.from(new Set(data.map((item) => item.name))))
-      }
+      type Named = { id: number; name: string }
+      const read = async <T,>(response: Response | null) => (response?.ok ? ((await response.json().catch(() => [])) as T[]) : [])
+      const suppliers = await read<Named>(suppliersRes)
+      const warehouses = await read<Named & { branch?: string; active?: boolean }>(warehousesRes)
+      const organizations = await read<Named>(organizationsRes)
+      const branches = await read<Named>(branchesRes)
+      if (suppliersRes?.ok) setSupplierOptions(Array.from(new Set(suppliers.map((item) => item.name))))
+      if (warehousesRes?.ok) setWarehouseRows(warehouses.map((item) => ({ name: item.name, branch: item.branch ?? "", active: item.active !== false })))
+      if (organizationsRes?.ok) setOrganizationOptions(Array.from(new Set(organizations.map((item) => item.name))))
+      if (branchesRes?.ok) setBranchOptions(Array.from(new Set(branches.map((item) => item.name))))
+      // The list filter's choices as Linko lists them: suppliers and products newest first, the rest by name.
+      const byName = (list: Named[]): LinkoOption[] => [...list].sort((a, b) => linkoOrder(a.name, b.name)).map((item) => ({ value: String(item.id), label: item.name }))
+      const newest = (list: Named[]): LinkoOption[] => [...list].sort((a, b) => b.id - a.id).map((item) => ({ value: String(item.id), label: item.name }))
+      const names = (list: Named[]) => new Map(list.map((item) => [String(item.id), item.name]))
+      const warehouseIds = new Map<string, string[]>()
+      for (const item of warehouses) warehouseIds.set(item.name, [...(warehouseIds.get(item.name) ?? []), String(item.id)])
+      const filterProducts = productsRes?.ok ? ((await productsRes.clone().json().catch(() => [])) as Array<Named & { deleted?: boolean }>).filter((item) => !item.deleted) : []
+      setLookups({ branches: names(branches), suppliers: names(suppliers), warehouses: names(warehouses), organizations: names(organizations), products: names(filterProducts), warehouseIds })
+      setFilterOptions({ branches: byName(branches), suppliers: newest(suppliers), warehouses: byName(warehouses), products: newest(filterProducts), organizations: byName(organizations) })
       // Raw materials are received from suppliers too (production stock).
-      const catalog: { name: string; unit: string; mass: number; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean }[] = []
+      const catalog: { name: string; unit: string; mass: number; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean; trackSeries?: boolean; code?: string }[] = []
       const massOf = (value: unknown) => Number(String(value ?? "").replace(",", ".")) || 0
       // Soft-deleted products ("Удалённые") are not offered.
       if (productsRes?.ok) {
-        const data = (await productsRes.json()) as { name: string; unit: string; weight?: unknown; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean; deleted?: boolean }[]
-        catalog.push(...data.filter((item) => !item.deleted).map((item) => ({ name: item.name, unit: item.unit, mass: massOf(item.weight), boxUnit: item.boxUnit, boxAmount: item.boxAmount, trackExpiry: item.trackExpiry })))
+        const data = (await productsRes.json()) as { name: string; unit: string; weight?: unknown; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean; trackSeries?: boolean; integrationCode?: string; deleted?: boolean }[]
+        catalog.push(
+          ...data
+            .filter((item) => !item.deleted)
+            .map((item) => ({ name: item.name, unit: item.unit, mass: massOf(item.weight), boxUnit: item.boxUnit, boxAmount: item.boxAmount, trackExpiry: item.trackExpiry, trackSeries: item.trackSeries, code: item.integrationCode })),
+        )
       }
       if (rawMaterialsRes?.ok) {
         const data = (await rawMaterialsRes.json()) as { name: string; unit: string; mass?: unknown }[]
@@ -302,6 +376,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       setProductUnits(Object.fromEntries(catalog.map((item) => [item.name, item.unit])))
       setProductUnitKg(Object.fromEntries(catalog.map((item) => [item.name, unitWeightKg(item.unit, item.mass)])))
       setProductExpiry(Object.fromEntries(catalog.map((item) => [item.name, Boolean(item.trackExpiry)])))
+      setProductSeries(Object.fromEntries(catalog.map((item) => [item.name, Boolean(item.trackSeries)])))
+      setProductCodes(Object.fromEntries(catalog.filter((item) => item.code?.trim()).map((item) => [item.name, String(item.code).trim()])))
       setProductBoxes(Object.fromEntries(catalog.filter((item) => item.boxUnit && (item.boxAmount ?? 0) > 0).map((item) => [item.name, { unit: item.boxUnit as string, amount: item.boxAmount as number }])))
       setOptionsLoaded(true)
       // "В наличии" and the barcode shown in the product search of the reference's form.
@@ -322,13 +398,9 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     }
   }, [])
 
-  /** Every warehouse (filters, legacy rows). */
-  const warehouseOptions = useMemo(() => warehouseRows.map((item) => item.name), [warehouseRows])
-  /** Warehouses a new supply may go to: active ones of the chosen branch (all branches when none is chosen). */
-  const draftWarehouseOptions = useMemo(
-    () => warehouseRows.filter((item) => item.active && (!draft.branch || !item.branch || sameName(item.branch, draft.branch))).map((item) => item.name),
-    [warehouseRows, draft.branch],
-  )
+  /** Warehouses a supply may go to: every active one, whatever its branch (Linko's «Склад назначения» lists every
+   * stock; the server refuses an inactive one). */
+  const draftWarehouseOptions = useMemo(() => Array.from(new Set(warehouseRows.filter((item) => item.active).map((item) => item.name))), [warehouseRows])
 
   // "Создать приход" of an accepted incoming e-invoice: the create dialog prefilled with
   // its supplier, organization, currency, contract / invoice number and date and the lines
@@ -336,12 +408,18 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const invoiceParam = searchParams.get("openCreateDialog") === "true" ? searchParams.get("invoiceId") : null
   // ?openCreateDialog=true (no invoice) opens the empty create dialog, like the reference.
   const plainCreate = searchParams.get("openCreateDialog") === "true" && !searchParams.get("invoiceId")
+  // «Добавление поставки» lives in the address like Linko's: «Добавить» writes openCreateDialog=true, closing writes
+  // false; Back (or a link without it) closes the empty form.
   useEffect(() => {
-    if (!plainCreate || !optionsLoaded || invoiceHandled.current === "plain") return
+    if (!plainCreate) {
+      if (invoiceHandled.current === "plain") {
+        invoiceHandled.current = null
+        setModalOpen(false)
+      }
+      return
+    }
+    if (!optionsLoaded || invoiceHandled.current === "plain") return
     invoiceHandled.current = "plain"
-    const url = new URL(window.location.href)
-    url.searchParams.delete("openCreateDialog")
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`)
     setDraft(emptyDraft(currencies.base))
     setDraftItems([])
     setEditingId(null)
@@ -380,35 +458,85 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       .catch((reason: unknown) => notify(t(reason instanceof Error ? reason.message : String(reason))))
   }, [invoiceParam, optionsLoaded, t, currencies.base])
 
-  const filtered = useMemo(() => {
-    return rows.filter((row) => {
-      if (query && !row.supplier.toLowerCase().includes(query.toLowerCase()) && !String(row.id).includes(query)) return false
-      if (statusFilter !== "all" && row.status !== statusFilter.toLowerCase()) return false
-      if (warehouseFilter !== "all" && row.warehouse !== warehouseFilter) return false
-      if (branchFilter && row.branch !== branchFilter) return false
-      if (supplierFilter && row.supplier !== supplierFilter) return false
-      if (productFilter && !row.items.some((item) => item.product === productFilter)) return false
-      if (organizationFilter && row.organization !== organizationFilter) return false
-      if (paymentFilter && row.paymentType !== paymentFilter) return false
-      if (contractFilter && !row.contractNumber.toLowerCase().includes(contractFilter.toLowerCase())) return false
-      if (invoiceFilter && !row.invoiceNumber.toLowerCase().includes(invoiceFilter.toLowerCase())) return false
-      if (excludeCancelled && row.status === "отменен") return false
-      if (excludeInventory && /инвент?[ao]ризаци/i.test(row.supplier)) return false
-      for (const [range, value] of [[invoiceDateFilter, row.invoiceDate], [acceptedFilter, row.acceptedAt], [createdFilter, row.date]] as const) {
-        if (!range.begin && !range.end) continue
-        const iso = /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : isoDay(value)
-        if (!iso || (range.begin && iso < range.begin) || (range.end && iso > range.end)) return false
-      }
-      if (supplyDateFilter.begin || supplyDateFilter.end) {
-        const iso = isoDay(row.date)
-        if (!iso || (supplyDateFilter.begin && iso < supplyDateFilter.begin) || (supplyDateFilter.end && iso > supplyDateFilter.end)) return false
-      }
-      return true
-    })
-  }, [supplyDateFilter, invoiceDateFilter, acceptedFilter, createdFilter, excludeCancelled, excludeInventory, rows, query, statusFilter, warehouseFilter, branchFilter, supplierFilter, productFilter, organizationFilter, paymentFilter, contractFilter, invoiceFilter])
+  // The list's state lives in the address like Linko's #/supply: page, pageSize, search, the filter
+  // (supplier-incomings-filter.tsx) and openFilterDialog; Linko's links add &supply=<id> (that supply only).
+  const supplyParam = Number(searchParams.get("supply")) || null
+  const listFilter = useMemo(() => readIncomingsFilter(new URLSearchParams(searchParams.toString())), [searchParams])
+  const appliedCount = useMemo(() => incomingsFilterCount(new URLSearchParams(searchParams.toString())), [searchParams])
+  const filterOpen = !embedded && searchParams.get("openFilterDialog") === "true"
+  const searchParam = searchParams.get("search") ?? ""
+  const [query, setQuery] = useState(searchParam)
+  /** The search text this page last wrote: a link or Back that brings another one replaces the box's text. */
+  const writtenSearch = useRef(searchParam)
+  useEffect(() => {
+    if (searchParam === writtenSearch.current) return
+    writtenSearch.current = searchParam
+    setQuery(searchParam)
+  }, [searchParam])
+  const acceptedDay = useCallback((row: Incoming) => (row.acceptedAt ? (parseAnyDay(row.acceptedAt) ?? "") : ""), [])
+  const filtered = useMemo(
+    () =>
+      rows.filter(
+        (row) =>
+          (supplyParam === null || row.id === supplyParam) &&
+          incomingMatchesFilter(row, listFilter, lookups, acceptedDay) &&
+          incomingMatchesSearch(row, query, lookups),
+      ),
+    [rows, supplyParam, listFilter, lookups, acceptedDay, query],
+  )
 
-  const paging = usePaging(filtered.length)
-  const visible = filtered.slice(paging.start, paging.end)
+  const sizeParam = Number(searchParams.get("pageSize"))
+  const listPageSize = PAGE_SIZES.includes(sizeParam) ? sizeParam : 25
+  const pageCount = Math.max(1, Math.ceil(filtered.length / listPageSize))
+  const listPage = Math.min(Math.max(1, Math.floor(Number(searchParams.get("page"))) || 1), pageCount)
+  const pageStart = (listPage - 1) * listPageSize
+  const paging = {
+    page: listPage,
+    pageSize: listPageSize,
+    pageCount,
+    start: pageStart,
+    end: Math.min(pageStart + listPageSize, filtered.length),
+    setPage: (page: number) => {
+      if (!embedded) setListParams({ page: String(page) })
+    },
+    setPageSize: (size: number) => {
+      if (!embedded) setListParams({ pageSize: String(size), page: "1" })
+    },
+  }
+  function applyFilter(filter: IncomingsFilter) {
+    if (!embedded) setListParams(incomingsFilterPatch(filter))
+  }
+  /** Linko's ⊗ goes to the bare #/supply: no filter, search, page or page size. */
+  function clearFilter() {
+    if (!embedded) setListParams(Object.fromEntries([...new URLSearchParams(window.location.search).keys()].map((key) => [key, null])))
+  }
+  function onSearch(value: string) {
+    setQuery(value)
+    writtenSearch.current = value
+    // The search starts again from the first page (Linko keeps the page and shows an empty one).
+    if (!embedded) setListParams({ search: value || null, page: listPage > 1 ? "1" : searchParams.get("page") }, true)
+  }
+  // The card of /analytics/supplier-incomings/<id> (a link from another page) is always shown: the list moves to the
+  // page that holds the supply, and a supply the filters leave out (a cancelled one, …) is shown on top of the page.
+  const pinned = useMemo(
+    () => (expandedId === null || filtered.some((row) => row.id === expandedId) ? null : (rows.find((row) => row.id === expandedId) ?? null)),
+    [expandedId, filtered, rows],
+  )
+  const jumpedTo = useRef<number | null>(null)
+  const { pageSize, page: currentPage, setPage } = paging
+  useEffect(() => {
+    if (expandedId === null) {
+      jumpedTo.current = null
+      return
+    }
+    if (jumpedTo.current === expandedId) return
+    const index = filtered.findIndex((row) => row.id === expandedId)
+    if (index < 0) return
+    jumpedTo.current = expandedId
+    const page = Math.floor(index / pageSize) + 1
+    if (page !== currentPage) setPage(page)
+  }, [expandedId, filtered, pageSize, currentPage, setPage])
+  const visible = pinned ? [pinned, ...filtered.slice(paging.start, paging.end)] : filtered.slice(paging.start, paging.end)
 
   useEffect(() => {
     if (expandedId === null) return
@@ -485,17 +613,24 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || quickAddSupplierOpen || quickAddWarehouseOpen || quickAddOrganizationOpen) return
       if (pickerOpen) setPickerOpen(false)
-      else setModalOpen(false)
+      else closeForm()
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [modalOpen, pickerOpen, quickAddSupplierOpen, quickAddWarehouseOpen, quickAddOrganizationOpen])
+  }, [modalOpen, pickerOpen, quickAddSupplierOpen, quickAddWarehouseOpen, quickAddOrganizationOpen, closeForm])
 
   function toggleExpand(row: Incoming) {
     const next = expandedId === row.id ? null : row.id
     setExpandedId(next)
     setDetailTab("items")
-    if (!embedded) window.history.pushState(null, "", next === null ? "/analytics/supplier-incomings" : `/analytics/supplier-incomings/${next}`)
+    setLogPopover(null)
+    if (embedded) return
+    // Linko's row link keeps the list's query (#/supply/350?page=1&pageSize=25&provider=79); the card's own
+    // parameters stay with the card.
+    const params = new URLSearchParams(window.location.search)
+    for (const name of ["tab", "openUpdateDialog", "openInvoiceDialog"]) params.delete(name)
+    const search = params.toString()
+    window.history.pushState(null, "", `${next === null ? "/analytics/supplier-incomings" : `/analytics/supplier-incomings/${next}`}${search ? `?${search}` : ""}`)
   }
 
   // /analytics/supplier-incomings/<id> opens the supply card (back / forward and direct links included).
@@ -505,7 +640,24 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     setExpandedId(match ? Number(match[1]) : null)
   }, [pathname, embedded])
 
+  // The card's state in the address, like Linko: ?tab=… (the open tab), ?openUpdateDialog=true (the «Изменение
+  // поставки» form) and ?openInvoiceDialog=true (the invoice dialog); a direct link opens them, closing writes false.
+  const tabParam = searchParams.get("tab")
+  useEffect(() => {
+    const found = (Object.keys(TAB_PARAM) as Tab[]).find((key) => TAB_PARAM[key] === tabParam)
+    if (found) setDetailTab(found)
+  }, [tabParam])
+  function chooseTab(tab: Tab) {
+    setDetailTab(tab)
+    if (!embedded) setUrlParam("tab", TAB_PARAM[tab], true)
+  }
+  const invoiceRow = searchParams.get("openInvoiceDialog") === "true" && expandedId !== null ? rows.find((item) => item.id === expandedId) : undefined
+
   function openCreate() {
+    if (!embedded) {
+      setListParams({ openCreateDialog: "true" })
+      return
+    }
     setDraft(emptyDraft(currencies.base))
     setDraftItems([])
     setEditingId(null)
@@ -513,6 +665,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     setModalOpen(true)
   }
 
+  /** «Изменение поставки»: the supply's values; the invoice number and day stay empty (Linko does not load them: they
+   * change through «Изменить детали счет фактуры»). */
   function openEdit(row: Incoming) {
     setDraft({
       supplier: row.supplier,
@@ -522,19 +676,37 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       currency: row.currency || currencies.base,
       paymentType: row.paymentType,
       date: isoToRuDate(isoDay(row.date) || todayIso()),
-      expectedFactoryExit: "",
-      expectedCustomsArrival: "",
+      expectedFactoryExit: isoToRuDate(isoDay(row.expectedFactoryExit)),
+      expectedCustomsArrival: isoToRuDate(isoDay(row.expectedCustomsArrival)),
       contractNumber: row.contractNumber,
-      invoiceNumber: row.invoiceNumber,
-      invoiceDate: isoToRuDate(isoDay(row.invoiceDate)),
+      invoiceNumber: "",
+      invoiceDate: "",
       comment: row.comment,
     })
-    setDraftItems(row.items.map((item) => ({ id: item.id, product: item.product, qty: item.qty, cost: item.cost })))
+    setDraftItems(row.items.map((item) => ({ id: item.id, product: item.product, qty: item.qty, cost: item.cost, expiry: item.expiry || "", series: item.series || "" })))
     setEditingId(row.id)
     setFromInvoice(null)
     setModalOpen(true)
   }
 
+  const updateParam = searchParams.get("openUpdateDialog") === "true"
+  const editHandled = useRef<number | null>(null)
+  useEffect(() => {
+    if (!updateParam) {
+      editHandled.current = null
+      // Back (or a link) without ?openUpdateDialog=true closes «Изменение поставки», like Linko.
+      if (modalOpen && editingId !== null && !embedded) setModalOpen(false)
+      return
+    }
+    const row = expandedId === null ? undefined : rows.find((item) => item.id === expandedId)
+    if (!row || !optionsLoaded || editHandled.current === row.id) return
+    editHandled.current = row.id
+    // A cancelled supply and an inventory surplus have no «Изменить детали».
+    if (row.status === "отменен" || row.isInventory) setUrlParam("openUpdateDialog", "false")
+    else openEdit(row)
+    // openEdit reads the current options; it runs once per opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateParam, expandedId, rows, optionsLoaded, modalOpen, editingId, embedded])
   function updateDraftItem(id: number, patch: Partial<DraftItem>) {
     setDraftItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
   }
@@ -619,7 +791,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     const items = draftItems.map((item) => ({
       id: item.id,
       product: item.product,
-      expiry: item.expiry ?? "",
+      expiry: item.expiry ? toIsoDay(item.expiry) || item.expiry : "",
+      series: item.series ?? "",
       qty: item.qty,
       block: 0,
       kg: 0,
@@ -644,6 +817,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           contractNumber: draft.contractNumber,
           invoiceNumber: draft.invoiceNumber,
           invoiceDate: toIsoDay(draft.invoiceDate),
+          expectedFactoryExit: toIsoDay(draft.expectedFactoryExit),
+          expectedCustomsArrival: toIsoDay(draft.expectedCustomsArrival),
           comment: draft.comment,
           items,
           ...(fromInvoice && !isEdit ? { invoiceId: fromInvoice.invoiceId } : {}),
@@ -657,8 +832,9 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       const saved = (await response.json()) as Incoming
       setRows((current) => (isEdit ? current.map((row) => (row.id === editingId ? saved : row)) : [saved, ...current]))
       setDetailVersion((value) => value + 1)
-      setModalOpen(false)
+      closeForm()
       setFromInvoice(null)
+      if (isEdit) setSnackbar({ text: "Успешно сохранено", tone: "success" })
     } catch {
       notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
@@ -666,18 +842,28 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     }
   }
 
-  function downloadRow(row: Incoming) {
-    downloadExcelTable(`postavka-${row.id}`, [
-      [t("№"), t("Товар"), t("Количество"), t("Стоимость"), t("Итог")],
-      ...row.items.map((item) => [item.id, item.product, `${item.qty} ${productUnits[item.product] ?? ""}`.trim(), item.cost, item.total]),
-    ])
-  }
-
+  /** Linko's «Поставки.xlsx»: every row of the filtered list, the day as the list prints it, «Не указано» for no
+   * contract, the invoice as «N от YYYY-MM-DD» and the currency; columns as wide as 1.5 × their longest text
+   * (the last one left at Excel's default). */
   function downloadList() {
-    downloadExcelTable("prihod-ot-postavshikov", [
-      [t("№"), t("Поставщик"), t("Склад"), t("Дата поставки"), t("Тип оплаты"), t("Номер договора"), t("Сумма поставки"), t("Статус"), t("Счет фактура")],
-      ...filtered.map((row) => [row.id, row.supplier, row.warehouse, row.date, t(row.paymentType), row.contractNumber, row.amount, t(row.status), row.invoiceNumber]),
-    ])
+    const table: Array<Array<string | number>> = [
+      [t("№"), t("Поставщик"), t("Склад"), t("Дата поставки"), t("Тип оплаты"), t("Номер договора"), t("Сумма поставки"), t("Статус"), t("Счет фактура"), t("Валюта")],
+      ...filtered.map((row) => [
+        row.id,
+        row.supplier,
+        row.warehouse,
+        formatDay(row.date, language),
+        t(row.paymentType),
+        row.contractNumber || t("Не указано"),
+        row.amount,
+        t(row.status),
+        row.invoiceNumber ? (row.invoiceDate ? `${row.invoiceNumber} ${t("от")} ${isoDay(row.invoiceDate)}` : row.invoiceNumber) : "",
+        row.currency,
+      ]),
+    ]
+    // Excel's width of N characters is N + 5/6 of the `wch` SheetJS writes.
+    const widths = table[0].slice(0, -1).map((_, column) => Math.max(...table.map((line) => String(line[column] ?? "").length)) * 1.5 - 5 / 6)
+    downloadExcelTable(t("Поставки"), table, { sheetName: t("Поставки"), widths })
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -687,25 +873,15 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     { id: "logs", label: "Логи" },
   ]
 
-  const filterPanel = (
-    <RefFilterPanel narrow applyClassName="mt-[25px]" onClose={() => setFilterOpen(false)} onApply={() => setFilterOpen(false)} className="!w-[310px]">
-      <FilterSelect className="-mt-[1px]" label={t("Филиалы")} value={branchFilter} onChange={(value) => { setBranchFilter(value); paging.setPage(1) }} options={branchOptions} />
-      <FilterSelect label={t("Поставщик")} value={supplierFilter} onChange={(value) => { setSupplierFilter(value); paging.setPage(1) }} options={supplierOptions} />
-      <FilterSelect label={t("Склад")} value={warehouseFilter === "all" ? "" : warehouseFilter} onChange={(value) => { setWarehouseFilter(value || "all"); paging.setPage(1) }} options={warehouseOptions} />
-      <FilterSelect label={t("Товар")} value={productFilter} onChange={(value) => { setProductFilter(value); paging.setPage(1) }} options={productOptions} />
-      <FilterSelect label={t("Организация")} value={organizationFilter} onChange={(value) => { setOrganizationFilter(value); paging.setPage(1) }} options={organizationOptions} />
-      <FilterSelect label={t("Тип оплаты")} value={paymentFilter} onChange={(value) => { setPaymentFilter(value); paging.setPage(1) }} options={[...paymentTypes]} />
-      <FilterSelect label={t("Тип")} value={statusFilter === "all" ? "" : statusFilter} onChange={(value) => { setStatusFilter(value || "all"); paging.setPage(1) }} options={["Ожидает", "В процессе", "Принят", "Отменен"]} />
-      <FilterTextMui className="mt-[1px]" label={t("Номер договора")} value={contractFilter} onChange={(value) => { setContractFilter(value); paging.setPage(1) }} />
-      <FilterTextMui label="Номер счет фактуры" value={invoiceFilter} onChange={(value) => { setInvoiceFilter(value); paging.setPage(1) }} />
-      <FilterDate mui label={t("Дата счет фактуры")} begin={invoiceDateFilter.begin} end={invoiceDateFilter.end} onChange={(begin, end) => { setInvoiceDateFilter({ begin, end }); paging.setPage(1) }} />
-      <FilterDate mui label={t("Дата поставки")} begin={supplyDateFilter.begin} end={supplyDateFilter.end} onChange={(begin, end) => { setSupplyDateFilter({ begin, end }); paging.setPage(1) }} />
-      <FilterDate mui tall label={t("Период передачи со склада")} begin={acceptedFilter.begin} end={acceptedFilter.end} onChange={(begin, end) => { setAcceptedFilter({ begin, end }); paging.setPage(1) }} />
-      <FilterDate mui label={t("Дата создания")} begin={createdFilter.begin} end={createdFilter.end} onChange={(begin, end) => { setCreatedFilter({ begin, end }); paging.setPage(1) }} />
-      <FilterCheck compact label={t("Исключить отмененные поставки")} checked={excludeCancelled} onChange={(value) => { setExcludeCancelled(value); paging.setPage(1) }} className="mt-[10px] w-[235.5px]" />
-      <FilterCheck compact label="Исключить инвентаризации" checked={excludeInventory} onChange={(value) => { setExcludeInventory(value); paging.setPage(1) }} className="mt-[10px]" />
-    </RefFilterPanel>
-  )
+  const filterPanel = filterOpen ? (
+    <SupplierIncomingsFilterPanel
+      key={searchParams.toString()}
+      initial={listFilter}
+      options={filterOptions}
+      onApply={applyFilter}
+      onClose={() => setListParams({ openFilterDialog: "false" })}
+    />
+  ) : null
 
   const heads = [<span key="n" className="-ml-2 block">{t("№")}</span>, t("Поставщик"), t("Склад"), t("Дата поставки"), t("Тип оплаты"), t("Номер договора"), t("Сумма поставки"), t("Статус"), t("Счет фактура")]
 
@@ -719,14 +895,20 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       <RefCard>
         <RefToolbar
           linkFilter="flush"
+          fluid
+          thinChevron
+          pageSizeMenu
           filterOpen={filterOpen}
-          onToggleFilter={() => setFilterOpen((value) => !value)}
+          onToggleFilter={() => setListParams({ openFilterDialog: filterOpen ? "false" : "true" })}
           filterPanel={filterPanel}
+          leftSlot={
+            appliedCount > 0 && !filterOpen ? (
+              // Linko's afterFilter bar: its column less 8 px, 30 px left of the card's edge.
+              <RefAppliedFilter width="calc(100% - 8px)" shift={30} count={appliedCount} onEdit={() => setListParams({ openFilterDialog: "true" })} onClear={clearFilter} />
+            ) : undefined
+          }
           query={query}
-          onQuery={(value) => {
-            setQuery(value)
-            paging.setPage(1)
-          }}
+          onQuery={onSearch}
           pageSize={paging.pageSize}
           onPageSize={paging.setPageSize}
           from={filtered.length ? paging.start + 1 : 0}
@@ -748,7 +930,17 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           rowClass={(row) => (expandedId === row.id ? "hidden" : "")}
           empty={loading ? t("Загрузка...") : loadError || t("По вашему запросу ничего не найдено")}
           render={(row) => [
-            row.id,
+            // Linko marks a supply with a comment by «(ком.)» under its number; the comment is its hint.
+            row.comment.trim() ? (
+              <span key="id" className="block leading-[16px]">
+                {row.id}
+                <RefTip side="right" raw text={row.comment} className="!flex">
+                  <span>({t("ком.")})</span>
+                </RefTip>
+              </span>
+            ) : (
+              row.id
+            ),
             row.supplier,
             row.warehouse,
             formatDay(row.date, language),
@@ -758,33 +950,48 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
             <span key="status">
               <i className={`mr-[6px] inline-block h-[7px] w-[7px] rounded-full ${statusDots[row.status]}`} /> {t(row.status)}
             </span>,
-            row.invoiceNumber,
+            row.invoiceNumber ? (
+              // Right-aligned in its cell up to the row's padding, as Linko's (its last cell has no right padding).
+              <span key="invoice" className="-mr-[8px] block text-right">
+                <RefTip side="left" text={`${t("Номер счет фактуры")}: ${row.invoiceNumber}\n${t("Комментарий")}: ${row.invoiceComment}`}>
+                  <span data-no-translate>{invoiceLabel(row, language)}</span>
+                </RefTip>
+              </span>
+            ) : (
+              ""
+            ),
           ]}
           expanded={(row) =>
             expandedId === row.id ? (
               <div className="-mx-[15px] mb-[14px] mt-[20px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
                       <div className="px-[30px] pb-[20px] text-[13px]">
-                        <div className="-mx-[30px] flex h-[65px] items-center justify-between border-b border-[#e0e0e0] pl-[30px] pr-[43px]">
-                          <h2 className="text-[18px] font-normal leading-[24px] text-[#333]">{t("Поставка №")} {row.id}</h2>
+                        <div className="relative -mx-[30px] flex h-[65px] items-center justify-between border-b border-[#e0e0e0] pl-[30px] pr-[43px]">
+                          <h2 className="text-[18px] font-normal leading-[24px] text-[#333]">
+                            {t("Поставка №")} {row.id}
+                            {row.isInventory && <span className="ml-[95px] font-semibold text-[#81c784]">{t("Инвентаризация")}</span>}
+                          </h2>
                           <div className="flex items-center gap-[10px]">
-                            {row.status !== "отменен" && !/^инвент/i.test(row.supplier) && (
-                              <SupplyAction onClick={() => setExpenseTarget(row)} icon="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z">
+                            {!row.isInventory && (
+                              <SupplyAction disabled={row.status === "отменен"} onClick={() => setExpenseTarget(row)} icon="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z">
                                 {t("Добавить расход")}
                               </SupplyAction>
                             )}
-                            {row.status !== "отменен" && canReprice && (
+                            {canReprice && (
                               <SupplyAction onClick={() => setMarkupTarget(row)} icon="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z">
                                 <span>{t("Наценка")}</span>
                               </SupplyAction>
                             )}
-                            {row.status === "ожидает" && (
-                              <SupplyAction onClick={() => openEdit(row)} icon="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z">
-                                {t("Изменить")}
-                              </SupplyAction>
-                            )}
-                            <SupplyAction onClick={() => downloadRow(row)} icon="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z">
-                              {t("Скачать")}
-                            </SupplyAction>
+                            <SupplyEditMenu
+                              row={row}
+                              canEdit={canEdit}
+                              onEditDetails={() => setUrlParam("openUpdateDialog", "true", true)}
+                              onEditInvoice={() => setUrlParam("openInvoiceDialog", "true", true)}
+                              onAddLog={() => setLogPopover((current) => (current === row.id ? null : row.id))}
+                            />
+                            <SupplyDownloadMenu
+                              onProducts={() => downloadSupplyProducts(row, productUnits, t)}
+                              onPrices={() => void downloadSupplyPrices(row, t).then((ok) => ok || notify(t("Не удалось скачать файл")))}
+                            />
                             {row.status === "ожидает" && (
                               <SupplyAction disabled={busy} color="#71ce87" onClick={() => changeStatus(row, "accept")} icon="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z">
                                 {t("Принять на склад")}
@@ -795,20 +1002,30 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                 <span className="whitespace-nowrap">{t("Отменит приёмку")}</span>
                               </SupplyAction>
                             )}
-                            <RefTip text={t("Распечатать")} side="left" gap={24} className="ml-[10px]">
-                              <button type="button" onClick={() => window.print()} aria-label={t("Распечатать")} title="" className="flex h-6 w-6 items-center justify-center">
-                                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z" /></svg>
+                            <SupplyPrintButton id={row.id} />
+                            {!row.isInventory && (
+                              <button
+                                type="button"
+                                disabled={row.status === "отменен"}
+                                onClick={() => changeStatus(row, row.status === "ожидает" ? "cancel" : "unaccept")}
+                                aria-label={t("Отменить")}
+                                className="ml-[13px] flex h-6 w-6 items-center justify-center disabled:cursor-default"
+                              >
+                                <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: row.status === "отменен" ? "rgba(0,0,0,0.3)" : "#5d6474" }}><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
                               </button>
-                            </RefTip>
-                            <button
-                              type="button"
-                              onClick={() => (row.status === "отменен" ? undefined : changeStatus(row, row.status === "ожидает" ? "cancel" : "unaccept"))}
-                              aria-label={t("Отменить")}
-                              className="ml-[13px] flex h-6 w-6 items-center justify-center"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
-                            </button>
+                            )}
                           </div>
+                          {logPopover === row.id && (
+                            <SupplyLogPopover
+                              row={row}
+                              onClose={() => setLogPopover(null)}
+                              onSaved={(saved) => {
+                                setLogPopover(null)
+                                replaceRow(saved)
+                                setSnackbar({ text: "Успешно сохранено", tone: "success" })
+                              }}
+                            />
+                          )}
                         </div>
 
                         <div className="-mx-[30px] grid grid-cols-[496fr_481fr_497fr] border-b border-[#e0e0e0] text-[13px] leading-[25px] text-[#333]">
@@ -823,7 +1040,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                           </dl>
 
                           <div className="border-r border-[#e0e0e0] pb-[20px] pl-[15px] pr-[16px] pt-[11px]">
-                            <p className="uppercase leading-[25px]">{t("Баланс")}</p>
+                            <p className="font-semibold uppercase leading-[25px]">{t("Баланс")}</p>
                             <dl className="mt-[5px]">
                               <InfoRow label={t("Стоимость поставки")} value={formatMoney(row.amount, row.currency)} />
                               <InfoRow label={t("Тип оплаты")} value={t(row.paymentType)} />
@@ -842,28 +1059,21 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               />
                               <InfoRow label={`${t("Остаток")}:`} value={formatMoney(row.amount - row.paid, row.currency)} valueClass={row.amount - row.paid > 0 ? "text-[#e57373]" : "text-[#81c784]"} />
                             </dl>
-                            <p className="mt-[6px] uppercase leading-[25px]">{t("Доп. расходы")}</p>
-                            {detailExpenses.length ? (
-                              <dl className="mt-[2px]">
-                                {Object.entries(detailExpenses.reduce<Record<string, number>>((totals, expense) => ({ ...totals, [expense.currency]: (totals[expense.currency] ?? 0) + expense.amount }), {})).map(([currency, total]) => (
-                                  <InfoRow key={currency} label={`${t("Итого")}:`} value={formatMoney(total, currency)} />
-                                ))}
-                              </dl>
-                            ) : (
-                              <p className="mt-[2px] leading-[25px]">{t("Нет дополнительных расходов")}</p>
-                            )}
+                            <p className="mt-[6px] font-semibold uppercase leading-[25px]">{t("Доп. расходы")}</p>
+                            <SupplyExpenseSummary expenses={detailExpenses} />
                           </div>
 
                           <div className="pb-[20px] pl-[16px] pr-[30px] pt-[11px]">
-                            <p className="uppercase leading-[25px]">{t("Исполнение")}</p>
+                            <p className="font-semibold uppercase leading-[25px]">{t("Исполнение")}</p>
                             <dl className="mt-[5px]">
                               <InfoRow label={`${t("Склад")}:`} value={row.warehouse} />
                               <InfoRow label={`${t("Статус")}:`} value={row.status === "принят" ? t("Завершен") : row.status === "ожидает" ? t("Ожидает") : t("Отменен")} valueClass={row.status === "принят" ? "text-[#81c784]" : row.status === "ожидает" ? "text-[#f5a623]" : "text-[#e57373]"} />
-                              <InfoRow label={`${t("Принимать на склад")}:`} value={row.status === "отменен" ? t("Нельзя") : t("Можно")} valueClass={row.status === "отменен" ? "text-[#999]" : "text-[#81c784]"} />
-                              <InfoRow label={`${t("Время приемки")}:`} value={row.acceptedAt ? <span data-no-translate>{formatTimestamp(row.acceptedAt, language)}{row.acceptedBy ? ` (${row.acceptedBy})` : ""}</span> : t("Не начался")} />
+                              {/* Linko: is_confirmed (a supply not confirmed yet is not planned for receiving), whatever the status. */}
+                              <InfoRow label={t("Принимать на склад")} value={row.isConfirmed ? t("Можно") : t("Нельзя")} valueClass={row.isConfirmed ? "text-[#81c784]" : "text-[#e57373]"} />
+                              <InfoRow label={`${t("Время приемки")}:`} value={row.acceptedAt ? <span data-no-translate>{formatTimestamp(row.acceptedAt, language)}</span> : t("Не начался")} />
                               <InfoRow label={`${t("Дата поставки")}:`} value={formatDay(row.date, language)} />
                               <InfoRow label={`${t("Комментарии")}:`} value={row.comment || t("Не указан")} />
-                              <InfoRow label={`${t("Счет фактура")}:`} value={row.invoiceNumber || t("Не указан")} />
+                              <InfoRow label={`${t("Счет фактура")}:`} value={row.invoiceNumber ? <span data-no-translate>{row.invoiceNumber}</span> : t("Не указан")} />
                             </dl>
                           </div>
                         </div>
@@ -873,18 +1083,26 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             <button
                               key={tab.id}
                               type="button"
-                              onClick={() => setDetailTab(tab.id)}
-                              className={`h-[51px] flex-1 border-b text-center text-[13px] ${detailTab === tab.id ? "border-[#5d6474] text-black" : "border-transparent text-black"}`}
+                              onClick={() => chooseTab(tab.id)}
+                              className={`h-[51px] flex-1 border-b-2 text-center text-[13px] font-medium ${detailTab === tab.id ? "border-[#1E4A9A] text-black" : "border-transparent text-black"}`}
                             >
                               {t(tab.label)}
                             </button>
                           ))}
                         </div>
 
-                        {detailTab === "items" && (
+                        {detailTab === "items" && (() => {
+                          // Linko adds the marking column only when a product of the supply needs marking codes.
+                          const marks = row.items.some((item) => item.useMark)
+                          const cols = marks
+                            ? "grid-cols-[minmax(0,49fr)_minmax(0,140fr)_minmax(0,303fr)_minmax(0,150fr)_minmax(0,133fr)_minmax(0,159fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,202fr)_minmax(0,183fr)]"
+                            : "grid-cols-[minmax(0,52fr)_minmax(0,348fr)_minmax(0,150fr)_minmax(0,132fr)_minmax(0,187fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,231fr)_minmax(0,219fr)]"
+                          return (
                           <div className="-mt-px text-[13px] text-[#333]">
-                            <div className="grid min-h-[36px] grid-cols-[minmax(0,147fr)_minmax(0,231fr)_minmax(0,150fr)_minmax(0,86fr)_minmax(0,123fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,139fr)_minmax(0,138fr)] items-center bg-[#f0f4f7]">
+                            {/* Linko's table: a 600-weight header, rows as tall as their text (7.8 px padding, 20 px lines). */}
+                            <div className={`grid min-h-[36px] ${cols} items-center bg-[#f0f4f9] font-semibold text-[#374557]`}>
                               <div className="pl-[19px]">{t("№")}</div>
+                              {marks && <div />}
                               <SortHead>{t("Товар")}</SortHead>
                               <SortHead>{t("Срок годности")}</SortHead>
                               <SortHead>{t("Количество")}</SortHead>
@@ -895,29 +1113,33 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               <SortHead>{t("Итог")}</SortHead>
                             </div>
                             <div className="border-b border-l border-[#e0e0e0]">
-                              {row.items.map((item) => (
-                                <div key={item.id} className="grid min-h-[55px] grid-cols-[minmax(0,147fr)_minmax(0,231fr)_minmax(0,150fr)_minmax(0,86fr)_minmax(0,123fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,139fr)_minmax(0,138fr)] items-center border-t border-[#e0e0e0] first:border-t-0 [&>*]:self-stretch [&>*]:border-r [&>*]:border-[#e0e0e0]">
-                                  <div className="relative flex items-center pl-[19px]">
-                                    <span>{item.id}</span>
-                                    <svg viewBox="0 0 24 24" className="absolute left-[58px] top-1/2 h-5 w-5 -translate-y-1/2 fill-[#333]"><path d="M3 11h8V3H3v8zm2-6h4v4H5V5zm8-2v8h8V3h-8zm6 6h-4V5h4v4zM3 21h8v-8H3v8zm2-6h4v4H5v-4zm13-2h-2v3h-3v2h3v3h2v-3h3v-2h-3v-3z" /></svg>
-                                    <span className="absolute right-[10px] top-1/2 -translate-y-1/2 text-[10px] text-[#1E4A9A]">0 / 0</span>
-                                  </div>
-                                  <div className="flex flex-col justify-center pl-[18px] pr-[8px] leading-[19px]">
+                              {row.items.map((item, index) => (
+                                <div key={item.id} className={index ? "border-t border-[#e0e0e0]" : ""}>
+                                <div className={`grid min-h-[36px] ${cols} items-center leading-[20px] [&>*]:self-stretch [&>*]:border-r [&>*]:border-[#e0e0e0] [&>*]:py-[7.8px]`}>
+                                  <div className="flex items-center pl-[19px]">{index + 1}</div>
+                                  {marks && (
+                                    <div className="flex items-center">
+                                      {item.useMark && <SupplyMarksCell stat={item.markStat} open={marksOpen === `${row.id}:${item.id}`} onToggle={() => setMarksOpen((current) => (current === `${row.id}:${item.id}` ? null : `${row.id}:${item.id}`))} />}
+                                    </div>
+                                  )}
+                                  <div className="flex flex-col justify-center pl-[18px] pr-[8px]">
                                     <span>{item.product}</span>
-                                    {productInfo[item.product]?.barcode && productInfo[item.product].barcode !== "не установлен" && <span className="text-[#1E4A9A]">{productInfo[item.product].barcode}</span>}
+                                    {productCodes[item.product] && <span data-no-translate className="text-[#1E4A9A]">{productCodes[item.product]}</span>}
                                   </div>
-                                  <div className="flex items-center pl-[18px]">{item.expiry}</div>
-                                  <div className="flex items-center px-[18px] py-[8px]">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ? t(productUnits[item.product]) : ""}</div>
-                                  <div className="flex items-center px-[18px] py-[8px] leading-[19px]">{blockLabel(item.qty, productBoxes[item.product], productUnits[item.product] ? t(productUnits[item.product]) : "")}</div>
+                                  <div className="flex items-center pl-[18px]">{item.expiry ? <span data-no-translate>{formatDay(item.expiry, language)}</span> : ""}</div>
+                                  <div className="flex items-center px-[18px]">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ? t(productUnits[item.product]) : ""}</div>
+                                  <div className="flex items-center px-[18px]">{blockLabel(item.qty, productBoxes[item.product], productUnits[item.product] ? t(productUnits[item.product]) : "")}</div>
                                   <div className="flex items-center pl-[18px]">{lineKg(item).toLocaleString("ru-RU")}</div>
                                   <div className="flex items-center pl-[18px]">{item.netWeight}</div>
                                   <div className="flex items-center justify-end pr-[18px]">{formatMoney(item.cost, row.currency)}</div>
                                   <div className="flex items-center justify-end pr-[18px]">{formatMoney(item.total, row.currency)}</div>
                                 </div>
+                                {item.useMark && marksOpen === `${row.id}:${item.id}` && <SupplyMarksPanel />}
+                                </div>
                               ))}
-                              <div className="grid min-h-[62px] grid-cols-[minmax(0,147fr)_minmax(0,231fr)_minmax(0,150fr)_minmax(0,86fr)_minmax(0,123fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,139fr)_minmax(0,138fr)] items-center border-t border-[#e0e0e0] text-[16px] font-bold [&>*]:self-stretch [&>*]:border-r [&>*]:border-[#e0e0e0]">
-                                <div className="col-span-3 flex items-center pl-[19px]">{t("Итого")}:</div>
-                                <div className="flex items-center px-[18px] py-[6px] leading-[24px]">{formatUnitTotals(row.items.map((item) => ({ qty: item.qty, unit: productUnits[item.product] ?? "" })), t)}</div>
+                              <div className={`grid min-h-[39px] ${cols} items-center border-t border-[#e0e0e0] text-[15px] font-semibold leading-[23.5px] [&>*]:self-stretch [&>*]:border-r [&>*]:border-[#e0e0e0] [&>*]:py-[7.8px]`}>
+                                <div className={`${marks ? "col-span-4" : "col-span-3"} flex items-center pl-[19px]`}>{t("Итого")}:</div>
+                                <div className="flex items-center px-[18px]">{formatUnitTotals(row.items.map((item) => ({ qty: item.qty, unit: productUnits[item.product] ?? "" })), t)}</div>
                                 <div className="flex items-center pl-[17px]" />
                                 <div className="flex items-center pl-[18px]">{(Math.round(row.items.reduce((sum, item) => sum + lineKg(item), 0) * 1000) / 1000).toLocaleString("ru-RU")}</div>
                                 <div className="flex items-center pl-[18px]">{row.items.reduce((sum, item) => sum + item.netWeight, 0)}</div>
@@ -926,87 +1148,14 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               </div>
                             </div>
                           </div>
-                        )}
-
-                        {detailTab === "cost" && (
-                          <table className="w-full text-left text-sm">
-                            <thead>
-                              <tr className="text-slate-500">
-                                <th className="py-2 pr-4">{t("Товар")}</th>
-                                <th className="py-2 pr-4">{t("Количество")}</th>
-                                <th className="py-2 pr-4">{t("Закупочная цена")}</th>
-                                <th className="py-2 pr-4">{t("Доп. расход на ед.")}</th>
-                                <th className="py-2 pr-4">{t("Себестоимость за ед.")}</th>
-                                <th className="py-2 pr-4">{t("Итог")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {supplyCostLines(row).map((line, index) => (
-                                <tr key={`${line.product}-${index}`} className="border-t border-slate-100">
-                                  <td className="py-2 pr-4">{line.product}</td>
-                                  <td className="py-2 pr-4">{line.qty.toLocaleString("ru-RU")} {productUnits[line.product] ? t(productUnits[line.product]) : ""}</td>
-                                  <td className="py-2 pr-4">{formatMoney(line.purchasePrice, row.currency)}</td>
-                                  <td className="py-2 pr-4">{formatMoney(line.expensePerUnit, row.currency)}</td>
-                                  <td className="py-2 pr-4 font-medium">{formatMoney(line.unitCost, row.currency)}</td>
-                                  <td className="py-2 pr-4">{formatMoney(line.total, row.currency)}</td>
-                                </tr>
-                              ))}
-                              <tr className="border-t border-slate-300 font-bold">
-                                <td className="py-2 pr-4" colSpan={5}>{t("Итого")}:</td>
-                                <td className="py-2 pr-4">{formatMoney(row.amount + row.expensesTotal, row.currency)}</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        )}
-
-                        {detailTab === "expenses" && (
-                          detailExpenses.length ? (
-                            <table className="w-full text-left text-sm">
-                              <thead>
-                                <tr className="text-slate-500">
-                                  <th className="py-2 pr-4">{t("Дата")}</th>
-                                  <th className="py-2 pr-4">{t("Описание расхода")}</th>
-                                  <th className="py-2 pr-4">{t("Тип оплаты")}</th>
-                                  <th className="py-2 pr-4">{t("Сумма")}</th>
-                                  <th className="py-2 pr-4">{t("Добавил")}</th>
-                                  <th className="w-10" />
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {detailExpenses.map((expense) => (
-                                  <tr key={expense.id} className="border-t border-slate-100">
-                                    <td className="py-2 pr-4">{formatDay(expense.date, language)}</td>
-                                    <td className="py-2 pr-4">{expense.description}</td>
-                                    <td className="py-2 pr-4">{t(expense.paymentType)}</td>
-                                    <td className="py-2 pr-4">{formatMoney(expense.amount, expense.currency)}</td>
-                                    <td className="py-2 pr-4">{expense.createdBy}</td>
-                                    <td className="py-2 pr-4 text-right">
-                                      <button type="button" disabled={busy} onClick={() => removeExpense(row, expense)} aria-label={t("Удалить")} className="text-slate-400 hover:text-rose-500">
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <p className="text-sm text-slate-500">{t("Нет дополнительных расходов")}</p>
                           )
-                        )}
+                        })()}
 
-                        {detailTab === "logs" && (
-                          <ul className="space-y-2 text-sm text-slate-600">
-                            {detailLogs.map((log) => (
-                              <li key={log.id} className="flex flex-wrap gap-x-2 border-b border-dashed border-slate-200 pb-2">
-                                <span className="text-slate-400">{formatTimestamp(log.createdAt, language)}</span>
-                                <span className="font-medium text-slate-700">{t(LOG_LABELS[log.action] ?? log.action)}</span>
-                                {log.details && <span>— {logDetails(log)}</span>}
-                                <span className="text-slate-400">({log.userName})</span>
-                              </li>
-                            ))}
-                            {!detailLogs.length && <li className="text-slate-400">{t("Записей нет")}</li>}
-                          </ul>
-                        )}
+                        {detailTab === "cost" && <SupplyCostTab row={row} baseCurrency={currencies.base} version={detailVersion} />}
+
+                        {detailTab === "expenses" && <SupplyExpensesTab expenses={detailExpenses} busy={busy} onDelete={(expense) => removeExpense(row, expense)} />}
+
+                        {detailTab === "logs" && <SupplyLogCards logs={detailLogs} details={logDetails} />}
                       </div>
               </div>
             ) : null
@@ -1060,7 +1209,11 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
 
       {modalOpen && (
         <SupplierIncomingForm
-          title={editingId !== null ? `${t("Изменить поставку №")} ${editingId}` : t("Добавление поставки")}
+          title={editingId !== null ? t("Изменение поставки") : t("Добавление поставки")}
+          update={editingId !== null}
+          acceptedByStock={editingId !== null && rows.find((item) => item.id === editingId)?.status === "принят"}
+          editOnlyPrice={editingId !== null && rows.find((item) => item.id === editingId)?.status === "принят"}
+          productSeries={productSeries}
           banner={
             fromInvoice && editingId === null ? (
               <div className="space-y-1 border-b border-sky-200 bg-sky-50 px-[30px] py-3 text-sm text-sky-800">
@@ -1073,17 +1226,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
             ) : null
           }
           draft={draft}
-          setDraft={(update) =>
-            setDraft((current) => {
-              const next = update(current)
-              // A warehouse of another branch is no longer offered: pick again.
-              if (next.branch !== current.branch && next.warehouse && next.warehouse === current.warehouse) {
-                const known = warehouseRows.find((item) => item.name === next.warehouse)
-                if (next.branch && known?.branch && !sameName(known.branch, next.branch)) return { ...next, warehouse: "" }
-              }
-              return next
-            })
-          }
+          setDraft={(update) => setDraft((current) => update(current))}
           supplierOptions={supplierOptions}
           branchOptions={branchOptions}
           warehouseOptions={draftWarehouseOptions}
@@ -1097,7 +1240,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           productBoxes={productBoxes}
           productInfo={productInfo}
           productExpiry={productExpiry}
-          onClose={() => setModalOpen(false)}
+          onClose={closeForm}
           onSubmit={save}
           onQuickAddSupplier={() => setQuickAddSupplierOpen(true)}
           onQuickAddOrganization={() => setQuickAddOrganizationOpen(true)}
@@ -1116,15 +1259,28 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       {pickerOpen && (
         <SupplierProductPicker
           currency={draft.currency || currencies.base}
+          organization={draft.organization}
           stock={productInfo}
           initial={draftItems.map((item) => ({ product: item.product, qty: item.qty, cost: item.cost }))}
           onClose={() => setPickerOpen(false)}
           onSave={(picked) =>
             setDraftItems((current) => {
-              const names = new Set(picked.map((item) => item.product))
-              const kept = current.filter((item) => !names.has(item.product))
+              // A changed row becomes the product's one line (in place of its first line, keeping that line's id,
+              // series and expiry); products the user did not touch keep their lines; new products are added.
               let nextId = Math.max(0, ...current.map((item) => item.id)) + 1
-              return [...kept, ...picked.map((item) => ({ id: nextId++, product: item.product, qty: item.qty, cost: item.cost }))]
+              const byName = new Map(picked.map((item) => [item.product, item]))
+              const placed = new Set<string>()
+              const next: DraftItem[] = []
+              for (const item of current) {
+                const pick = byName.get(item.product)
+                if (!pick) next.push(item)
+                else if (!placed.has(item.product)) {
+                  placed.add(item.product)
+                  next.push({ ...item, qty: pick.qty, cost: pick.cost })
+                }
+              }
+              for (const pick of picked) if (!placed.has(pick.product)) next.push({ id: nextId++, product: pick.product, qty: pick.qty, cost: pick.cost })
+              return next
             })
           }
         />
@@ -1151,6 +1307,20 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           }}
         />
       )}
+
+      {invoiceRow && (
+        <SupplyInvoiceDialog
+          key={invoiceRow.id}
+          row={invoiceRow}
+          onClose={() => setUrlParam("openInvoiceDialog", "false")}
+          onSaved={(saved) => {
+            replaceRow(saved)
+            setUrlParam("openInvoiceDialog", "false")
+            setSnackbar({ text: "Успешно изменено", tone: "success" })
+          }}
+        />
+      )}
+      <CashSnackbar message={snackbar} onClose={closeSnackbar} />
 
       {quickAddOrganizationOpen && (
         <OrganizationFormModal

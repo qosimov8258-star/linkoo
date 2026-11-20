@@ -185,7 +185,8 @@ export function BranchKpiPlansView() {
   const selecting = selected.length > 0
   const headCols = state.showCheckboxes ? "26px 463px 227px 1fr" : undefined
   // the reference lays the rows out narrower than the header bar in checkbox mode
-  const cols = state.showCheckboxes ? "26px 449.3px 217.7px 1fr" : "469.3px 230.7px 1fr"
+  // (without checkboxes: the reference's col-xs-4 / 2 / 6, so the columns follow the window width)
+  const cols = state.showCheckboxes ? "26px 449.3px 217.7px 1fr" : "minmax(0,4fr) minmax(0,2fr) minmax(0,6fr)"
 
   return (
     <RefPage>
@@ -211,6 +212,8 @@ export function BranchKpiPlansView() {
       <RefCard className={selecting ? "" : "bg-white"}>
         <RefToolbar
           hideFilter
+          fluid="position"
+          filterWidth={303.5}
           hideSearch={selecting}
           plain={selecting}
           leftSlot={
@@ -308,12 +311,12 @@ export function BranchKpiPlansView() {
                   ]
                 : []),
               sortHead("name", t("Филиал")),
-              sortHead("salary", t("Сумма бонусов")),
-              "KPI",
+              <span key="salary" className="block pl-2">{sortHead("salary", t("Сумма бонусов"))}</span>,
+              <span key="kpi" className="block pl-2">KPI</span>,
             ]}
             rows={rows}
             rowKey={(row) => row.id}
-            rowClass={(row) => (state.id === row.id ? "!bg-[#f2f5f8]" : "")}
+            rowClass={(row) => `!py-0 ${state.id === row.id ? "!bg-[#f2f5f8]" : ""}`}
             onRowClick={(row) => update({ id: state.id === row.id ? null : row.id })}
             empty={loading ? "" : t("Нет данных")}
             render={(row) => [
@@ -325,10 +328,10 @@ export function BranchKpiPlansView() {
                   ]
                 : []),
               <span key="name" className={`block ${state.showCheckboxes ? "pl-[13px]" : "pl-2"}`}>{row.name}</span>,
-              kpiNumber(row.totalBonus),
-              <div key="kpi" className="flex flex-wrap items-center">
+              <span key="bonus" className="block pl-2">{kpiNumber(row.totalBonus)}</span>,
+              <div key="kpi" className="flex flex-wrap items-center pl-2">
                 {row.performanceIndicators.map((item) => (
-                  <div key={item.id} className="my-[4px] mr-2.5 inline-flex h-7 items-center rounded-sm bg-[#e9ecef] px-2.5 leading-none">
+                  <div key={item.id} className="my-[5px] mr-2.5 inline-flex h-7 items-center rounded-[2px] bg-[#e9ecef] px-2.5 leading-none">
                     {item.name}: <span className="ml-1 font-semibold text-[#1E4A9A]">{kpiNumber(item.plan)}</span>
                   </div>
                 ))}

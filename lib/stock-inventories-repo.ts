@@ -6,6 +6,7 @@ import { loadCurrencyContext } from "@/lib/finance/context"
 import { isIsoDay, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { checkDay, findWarehouse, lockDocumentWarehouses, lockWarehouseStock, shortageMessage } from "@/lib/internal-transfers-stock"
 import type { StockShortage } from "@/lib/internal-transfers-types"
+import { leadingNumber } from "@/lib/stock/catalog"
 import { getStockBalances } from "@/lib/stock/ledger"
 import { stockOrphanNames } from "@/lib/stock/level"
 import { minBalancesFrom } from "@/lib/stock/min-balance"
@@ -37,7 +38,7 @@ import type {
 } from "@/lib/stock-inventories-types"
 
 // "Инвентаризация" (demo #/inventory, API stock/inventory/): list / detail /
-// create / update / delete while pending, confirm (pending → confirmed: the
+// create / update while pending, delete (pending or confirmed), confirm (pending → confirmed: the
 // system balance, diff, cost and sum of every line are frozen from the stock
 // core in one transaction) and cancel (confirmed → canceled: the core reads
 // confirmed inventories only, so the stock goes back). Demo rules: edit and
@@ -64,6 +65,7 @@ type InventoryRow = {
   confirmed_by: string
   canceled_at: string
   canceled_by: string
+  booked_by_documents?: number | string | null
   item_count?: number | string
 }
 
@@ -78,21 +80,23 @@ type ItemRow = {
   cost: number
   total_price: number
   series: string
+  series_id: number | null
+  total_weight: number | null
+  total_weight_netto: number | null
   position: number
 }
 
-type Line = { key: string; name: string; unit: string; amount: number; series: string; position: number }
+type Line = { key: string; name: string; unit: string; amount: number; series: string; seriesId: number | null; position: number }
 
 const NOT_FOUND = "Инвентаризация не найдена"
 const WAREHOUSE_KEY_SQL = "regexp_replace(lower(btrim(i.warehouse)), '\\s+', ' ', 'g')"
 
-const ORDER_BY: Record<StockInventoryListQuery["ordering"], string> = {
-  id: "i.id ASC",
-  "-id": "i.id DESC",
-  created_date: "i.inv_date ASC, i.created_at ASC, i.id ASC",
-  "-created_date": "i.inv_date DESC, i.created_at DESC, i.id DESC",
-  total_price: "i.total_price ASC, i.id ASC",
-  "-total_price": "i.total_price DESC, i.id DESC",
+// Sort keys of the list; several apply in order (Linko's "created_date,-id"), then the newest first.
+const ORDER_COLUMNS: Record<string, string[]> = { id: ["i.id"], created_date: ["i.inv_date", "i.created_at"], total_price: ["i.total_price"] }
+
+function orderBy(keys: StockInventoryListQuery["ordering"]): string {
+  const parts = keys.flatMap((key) => (ORDER_COLUMNS[key.replace(/^-/, "")] ?? []).map((column) => `${column} ${key.startsWith("-") ? "DESC" : "ASC"}`))
+  return [...parts, "i.id DESC"].join(", ")
 }
 
 function userName(user: { displayName?: string; username?: string }): string {
@@ -131,8 +135,15 @@ function toRow(row: InventoryRow): StockInventoryRow {
   }
 }
 
-function toItem(row: ItemRow, catalog: Map<string, StockCatalogItem> | null, live: LineSnapshot | null): StockInventoryItem {
+/** products.id of a "product:<id>" key, else null. */
+function productIdOf(key: string): number | null {
+  const match = /^product:(\d{1,10})$/.exec(key)
+  return match ? Number(match[1]) : null
+}
+
+function toItem(row: ItemRow, catalog: Map<string, StockCatalogItem> | null, tracked: Set<number>): StockInventoryItem {
   const amount = round6(Number(row.amount) || 0)
+  const productId = productIdOf(row.item_key)
   return {
     id: Number(row.id),
     key: row.item_key,
@@ -140,11 +151,16 @@ function toItem(row: ItemRow, catalog: Map<string, StockCatalogItem> | null, liv
     article: catalog?.get(row.item_key)?.article ?? "",
     unit: row.unit || catalog?.get(row.item_key)?.unit || "",
     series: row.series ?? "",
+    seriesId: row.series_id == null ? null : Number(row.series_id),
+    productId,
+    trackExpiry: productId !== null && tracked.has(productId),
     amount,
-    balanceAmount: live ? live.balanceAmount : round6(Number(row.balance_amount) || 0),
-    diff: live ? live.diff : round6(Number(row.diff) || 0),
-    cost: live ? live.cost : round6(Number(row.cost) || 0),
-    totalPrice: live ? live.totalPrice : round6(Number(row.total_price) || 0),
+    balanceAmount: round6(Number(row.balance_amount) || 0),
+    diff: round6(Number(row.diff) || 0),
+    cost: round6(Number(row.cost) || 0),
+    totalPrice: round6(Number(row.total_price) || 0),
+    totalWeight: round6(Number(row.total_weight) || 0),
+    totalWeightNetto: round6(Number(row.total_weight_netto) || 0),
     position: Number(row.position) || 0,
   }
 }
@@ -256,9 +272,10 @@ export async function listStockInventories(query: StockInventoryListQuery): Prom
     fromDate: query.fromDate,
     toDate: query.toDate,
   }
+  // Linko's stock/inventory/?search= matches the number only («13» → 13, 113, 130 … 133); a warehouse, a creator or a
+  // product name finds nothing there.
   const where = `
-    (@needle = '' OR strpos(lower(i.id::text || ' ' || i.warehouse || ' ' || i.comment || ' ' || i.created_by), @needle) > 0
-      OR EXISTS (SELECT 1 FROM stock_inventory_items s WHERE s.inventory_id = i.id AND strpos(lower(s.item_name), @needle) > 0))
+    (@needle = '' OR strpos(i.id::text, @needle) > 0)
     AND (@status = '' OR i.status = @status)
     AND (cardinality(@warehouses::text[]) = 0 OR ${WAREHOUSE_KEY_SQL} = ANY(@warehouses::text[]))
     AND (cardinality(@createdBy::text[]) = 0 OR i.created_by = ANY(@createdBy::text[]))
@@ -272,43 +289,47 @@ export async function listStockInventories(query: StockInventoryListQuery): Prom
        FROM stock_inventories i
        LEFT JOIN (SELECT inventory_id, count(*)::int AS n FROM stock_inventory_items GROUP BY inventory_id) c ON c.inventory_id = i.id
        WHERE ${where}
-       ORDER BY ${ORDER_BY[query.ordering]} ${paging}`,
+       ORDER BY ${orderBy(query.ordering)} ${paging}`,
     )
     .all(params)) as InventoryRow[]
   return { count: Number(countRow?.n ?? 0), results: rows.map(toRow) }
 }
 
-/** Detail; while pending the lines carry the live system balance / diff / sum. */
+/** Detail. Like Linko's GET stock/inventory/:id/, every status shows the values stored on the document: a pending
+ * inventory keeps the system balance / difference / sum computed when it was last saved (create / «Изменение»), so the
+ * card, its Excel and the list «Сумма» agree; confirming computes them again at that moment. */
 export async function getStockInventory(id: number): Promise<StockInventoryDetail | null> {
   await ensureStockInventoriesSchema()
   const db = getDb()
   const row = (await db.prepare("SELECT * FROM stock_inventories WHERE id = ?").get(id)) as InventoryRow | undefined
   if (!row) return null
   const items = (await db.prepare("SELECT * FROM stock_inventory_items WHERE inventory_id = ? ORDER BY position, id").all(id)) as ItemRow[]
-  const pending = asStatus(row.status) === "pending"
   let catalog: Map<string, StockCatalogItem> | null = null
-  let live: LineSnapshot[] | null = null
-  let liveError = ""
   try {
     catalog = await loadCatalogMap(db)
-    if (pending && items.length) live = await snapshotLines(momentOf(row), items.map((item) => ({ key: item.item_key, amount: Number(item.amount) || 0 })), db)
   } catch (error) {
-    console.error("stock inventories: live balances", error)
-    liveError = "Не удалось загрузить остатки склада"
+    // Only the articles come from the catalog: the card still opens without them.
+    console.error("stock inventories: catalog", error)
   }
-  const lines = items.map((item, index) => toItem(item, catalog, live ? live[index] : null))
-  const base = toRow({ ...row, item_count: items.length })
+  const tracked = await trackedProducts(db, items.map((item) => productIdOf(item.item_key)))
   return {
-    ...base,
-    totalPrice: live ? round6(lines.reduce((sum, line) => sum + line.totalPrice, 0)) : base.totalPrice,
+    ...toRow({ ...row, item_count: items.length }),
     confirmedAt: localTime(row.confirmed_at),
     confirmedBy: row.confirmed_by ?? "",
     canceledAt: localTime(row.canceled_at),
     canceledBy: row.canceled_by ?? "",
-    live: Boolean(live) || (pending && !items.length),
-    liveError,
-    items: lines,
+    items: items.map((item) => toItem(item, catalog, tracked)),
   }
+}
+
+/** The products among `ids` that keep expiry dates / series (products.track_expiry = 1). */
+async function trackedProducts(db: PgDb, ids: Array<number | null>): Promise<Set<number>> {
+  const wanted = [...new Set(ids.filter((id): id is number => id !== null))]
+  if (!wanted.length) return new Set()
+  const rows = (await db
+    .prepare("SELECT id FROM products WHERE id = ANY(@ids::int[]) AND COALESCE((to_jsonb(products) ->> 'track_expiry')::int, 0) = 1")
+    .all({ ids: wanted })) as Array<{ id: number }>
+  return new Set(rows.map((row) => Number(row.id)))
 }
 
 async function requireDetail(id: number): Promise<StockInventoryDetail> {
@@ -398,13 +419,28 @@ async function resolveWarehouse(db: PgDb, name: string, current?: InventoryRow):
   throw new StockInventoryError("Склад не найден", 400, "warehouse")
 }
 
+/** A chosen inventory day: a real day, a year within 2000..2100, not in the future. */
+function checkedDay(day: string): string {
+  if (!isIsoDay(day)) throw new StockInventoryError("Укажите дату", 400, "invDate")
+  if (!docYearOk(day)) throw new StockInventoryError(DOC_DATE_INVALID, 400, "invDate")
+  if (day > todayIso()) throw new StockInventoryError("Дата не может быть позже сегодняшнего дня", 400, "invDate")
+  return day
+}
+
 /** fact_date: today, end of the day (= the balance right now); custom_date: the chosen day and time. */
 async function resolveHeader(db: PgDb, input: Omit<StockInventoryInput, "items">, current?: InventoryRow): Promise<Header> {
   // The demo update form keeps the type (radio disabled).
   const type = current ? asType(current.type) : input.type
   const { name: warehouse, id: warehouseId } = await resolveWarehouse(db, input.warehouse, current)
   const comment = (input.comment ?? current?.comment ?? "").trim()
-  if (type === "fact_date") return { type, warehouse, warehouseId, invDate: current?.inv_date || todayIso(), forDayEnd: true, comment }
+  if (type === "fact_date") {
+    // A new count is today's balance (end of the day). The edit form («Изменение») may move it to another day, as
+    // Linko's PUT created_date does; it keeps the stored «Время» (for_day_end), which Linko's form sends back unchanged.
+    if (!current) return { type, warehouse, warehouseId, invDate: todayIso(), forDayEnd: true, comment }
+    const moved = (input.invDate ?? "").slice(0, 10)
+    const invDate = moved ? checkedDay(moved) : current.inv_date || todayIso()
+    return { type, warehouse, warehouseId, invDate, forDayEnd: Number(current.for_day_end) === 1, comment }
+  }
   const invDate = (input.invDate ?? "").slice(0, 10)
   if (!isIsoDay(invDate)) throw new StockInventoryError("Укажите дату", 400, "invDate")
   // Every document date has a year within 2000..2100 (lib/document-dates.ts).
@@ -449,9 +485,32 @@ async function countableOrphans(db: PgDb, warehouse: string, currentId?: number)
   return allowed
 }
 
+/** stock_series rows of the given ids (id → product and display name); empty when the series catalog does not exist. */
+async function loadSeries(db: PgDb, ids: number[]): Promise<Map<number, { productId: number; name: string }>> {
+  const out = new Map<number, { productId: number; name: string }>()
+  if (!ids.length) return out
+  const exists = (await db.prepare("SELECT to_regclass('stock_series') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!exists?.ok) return out
+  const rows = (await db.prepare("SELECT id, product_id, number, expiration_date FROM stock_series WHERE id = ANY(@ids::int[])").all({ ids })) as Array<{
+    id: number
+    product_id: number
+    number: string | null
+    expiration_date: string | null
+  }>
+  for (const row of rows) {
+    // The display name lib/client-returns-series-repo.ts gives a series: its number, else its expiry day.
+    const day = /^\d{4}-\d{2}-\d{2}/.exec(row.expiration_date ?? "")?.[0] ?? ""
+    out.set(Number(row.id), { productId: Number(row.product_id), name: row.number || day || String(row.id) })
+  }
+  return out
+}
+
+/** The counted lines in their order. The same item may be counted on several lines (Linko's edit form adds lines
+ * without merging them, e.g. one per series); snapshotLines then gives the system balance to its first line only, so
+ * the differences still add up to counted − balance. A series must belong to the line's product. */
 async function resolveLines(items: StockInventoryInput["items"], catalog: Map<string, StockCatalogItem>, db: PgDb, warehouse: string, currentId?: number): Promise<Line[]> {
   if (!items.length) throw new StockInventoryError("Вы еще не выбрали ни одного товара", 400, "items")
-  const seen = new Set<string>()
+  const series = await loadSeries(db, [...new Set(items.map((item) => item.seriesId).filter((id): id is number => typeof id === "number"))])
   const keys = items.map((item) => {
     const key = item.key.trim()
     return key.startsWith("name:") && !catalog.has(key) ? orphanKey(key) : key
@@ -462,11 +521,20 @@ async function resolveLines(items: StockInventoryInput["items"], catalog: Map<st
   const orphans = await stockOrphanNames(orphanKeys, db)
   return items.map((item, index) => {
     const key = keys[index]
-    if (seen.has(key)) throw new StockInventoryError("Товар повторяется в списке", 400, `items.${index}.key`)
-    seen.add(key)
     const product = catalog.get(key)
     if (!product && !(key.startsWith("name:") && key.length > 5 && allowed.has(key))) throw new StockInventoryError("Товар не найден", 400, `items.${index}.key`)
-    return { key, name: product?.name ?? orphans.get(key)?.name ?? nameFromKey(key), unit: product?.unit ?? "", amount: round6(item.amount), series: (item.series ?? "").trim(), position: index }
+    let seriesId: number | null = null
+    let seriesName = (item.series ?? "").trim()
+    if (typeof item.seriesId === "number") {
+      const found = series.get(item.seriesId)
+      if (!found) throw new StockInventoryError("Серия не найдена", 400, `items.${index}.seriesId`)
+      if (found.productId !== productIdOf(key)) throw new StockInventoryError("Серия не относится к товару", 400, `items.${index}.seriesId`)
+      seriesId = item.seriesId
+      seriesName = found.name
+    } else if (item.seriesId === null) {
+      seriesName = ""
+    }
+    return { key, name: product?.name ?? orphans.get(key)?.name ?? nameFromKey(key), unit: product?.unit ?? "", amount: round6(item.amount), series: seriesName, seriesId, position: index }
   })
 }
 
@@ -481,16 +549,46 @@ async function trySnapshot(moment: BalanceMoment, lines: Line[]): Promise<LineSn
   }
 }
 
+/** Weight and net weight of one unit of each product line (products.weight / net_weight, kg; 0 when unknown). */
+async function unitWeights(db: PgDb, keys: string[]): Promise<Map<string, { weight: number; net: number }>> {
+  const out = new Map<string, { weight: number; net: number }>()
+  const ids = [...new Set(keys.map(productIdOf).filter((id): id is number => id !== null))]
+  if (!ids.length) return out
+  const rows = (await db
+    .prepare("SELECT id, to_jsonb(p) ->> 'weight' AS weight, to_jsonb(p) ->> 'net_weight' AS net_weight FROM products p WHERE id = ANY(@ids::int[])")
+    .all({ ids })) as Array<{ id: number; weight: string | null; net_weight: string | null }>
+  for (const row of rows) out.set(`product:${row.id}`, { weight: leadingNumber(row.weight), net: leadingNumber(row.net_weight) })
+  return out
+}
+
+/** Linko's total_weight / total_weight_netto of a line: its difference × the weight / net weight of one unit. */
+async function lineWeights(db: PgDb, keys: string[], snapshot: LineSnapshot[]): Promise<{ weights: number[]; netto: number[] }> {
+  const units = await unitWeights(db, keys)
+  return {
+    weights: keys.map((key, index) => round6(snapshot[index].diff * (units.get(key)?.weight ?? 0))),
+    netto: keys.map((key, index) => round6(snapshot[index].diff * (units.get(key)?.net ?? 0))),
+  }
+}
+
 async function insertLines(db: PgDb, inventoryId: number, lines: Line[], snapshot: LineSnapshot[]) {
   if (!lines.length) return
+  const { weights, netto } = await lineWeights(
+    db,
+    lines.map((line) => line.key),
+    snapshot,
+  )
   await db
     .prepare(
-      `INSERT INTO stock_inventory_items (inventory_id, item_key, item_name, unit, amount, balance_amount, diff, cost, total_price, series, position)
-       SELECT @inventoryId, t.k, t.n, t.u, t.a, t.b, t.d, t.c, t.tp, t.s, t.p
+      `INSERT INTO stock_inventory_items (inventory_id, item_key, item_name, unit, amount, balance_amount, diff, cost, total_price, series, series_id, position,
+                                          total_weight, total_weight_netto)
+       SELECT @inventoryId, t.k, t.n, t.u, t.a, t.b, t.d, t.c, t.tp, t.s, t.si, t.p, t.w, t.wn
        FROM unnest(@keys::text[], @names::text[], @units::text[], @amounts::float8[], @balances::float8[], @diffs::float8[],
-                   @costs::float8[], @totals::float8[], @series::text[], @positions::int[]) AS t(k, n, u, a, b, d, c, tp, s, p)`,
+                   @costs::float8[], @totals::float8[], @series::text[], @seriesIds::int[], @positions::int[], @weights::float8[], @netto::float8[])
+            AS t(k, n, u, a, b, d, c, tp, s, si, p, w, wn)`,
     )
     .run({
+      weights,
+      netto,
       inventoryId,
       keys: lines.map((line) => line.key),
       names: lines.map((line) => line.name),
@@ -501,6 +599,7 @@ async function insertLines(db: PgDb, inventoryId: number, lines: Line[], snapsho
       costs: snapshot.map((line) => line.cost),
       totals: snapshot.map((line) => line.totalPrice),
       series: lines.map((line) => line.series),
+      seriesIds: lines.map((line) => line.seriesId),
       positions: lines.map((line) => line.position),
     })
 }
@@ -559,12 +658,31 @@ export async function updateStockInventory(id: number, input: StockInventoryInpu
   return requireDetail(id)
 }
 
-/** Only a pending inventory can be deleted (a confirmed one is cancelled instead, which keeps its history). */
-export async function deleteStockInventory(id: number): Promise<void> {
+/**
+ * Linko's «Удаление» (DELETE stock/inventory/:id/ {comment}): a pending or a confirmed inventory (the card offers 🗑
+ * unless it is cancelled). Deleting a confirmed one takes its differences out of the stock, like «Отменить»: refused
+ * (409) while a surplus it booked has already left the warehouse. An imported inventory whose differences Linko booked
+ * as separate documents (booked_by_documents) has no stock effect of its own. Who deleted it, the comment and a copy of
+ * the document go to stock_inventory_deletions.
+ */
+export async function deleteStockInventory(id: number, comment: string | undefined, user: { displayName?: string; username?: string }): Promise<void> {
   await ensureStockInventoriesSchema()
-  await withTransaction(async (tx) => {
-    const row = await lockRow(tx, id)
-    if (asStatus(row.status) !== "pending") throw new StockInventoryError("Удалить можно только инвентаризацию в ожидании", 409)
+  await ensureStockSchema()
+  await withInventoryLocked(id, async (tx, row) => {
+    const status = asStatus(row.status)
+    if (status === "canceled") throw new StockInventoryError("Отмененную инвентаризацию нельзя удалить", 409)
+    const items = (await tx.prepare("SELECT * FROM stock_inventory_items WHERE inventory_id = ? ORDER BY position, id").all(id)) as ItemRow[]
+    if (status === "confirmed" && !Number(row.booked_by_documents)) {
+      await requireStockFromInventoryDay(
+        tx,
+        row,
+        items.map((item) => ({ key: item.item_key, name: item.item_name, unit: item.unit, qty: Number(item.diff) || 0 })),
+        "Не возможно удалить. ",
+      )
+    }
+    await tx
+      .prepare("INSERT INTO stock_inventory_deletions (inventory_id, status, comment, deleted_by, document) VALUES (@id, @status, @comment, @user, @document::jsonb)")
+      .run({ id, status, comment: (comment ?? "").trim(), user: userName(user), document: JSON.stringify({ ...row, items }) })
     await tx.prepare("DELETE FROM stock_inventories WHERE id = ?").run(id)
   })
 }
@@ -606,13 +724,21 @@ export async function confirmStockInventory(id: number, comment: string | undefi
       items.map((item, index) => ({ key: item.item_key, name: item.item_name, unit: item.unit, qty: -snapshot[index].diff })),
       "Не возможно подтвердить. ",
     )
+    const { weights, netto } = await lineWeights(
+      tx,
+      items.map((item) => item.item_key),
+      snapshot,
+    )
     await tx
       .prepare(
-        `UPDATE stock_inventory_items AS it SET balance_amount = t.b, diff = t.d, cost = t.c, total_price = t.tp
-         FROM unnest(@ids::int[], @balances::float8[], @diffs::float8[], @costs::float8[], @totals::float8[]) AS t(id, b, d, c, tp)
+        `UPDATE stock_inventory_items AS it SET balance_amount = t.b, diff = t.d, cost = t.c, total_price = t.tp, total_weight = t.w, total_weight_netto = t.wn
+         FROM unnest(@ids::int[], @balances::float8[], @diffs::float8[], @costs::float8[], @totals::float8[], @weights::float8[], @netto::float8[])
+              AS t(id, b, d, c, tp, w, wn)
          WHERE it.id = t.id AND it.inventory_id = @inventoryId`,
       )
       .run({
+        weights,
+        netto,
         inventoryId: id,
         ids: items.map((item) => Number(item.id)),
         balances: snapshot.map((line) => line.balanceAmount),

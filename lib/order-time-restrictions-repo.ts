@@ -26,10 +26,11 @@ import type { OrderTimeRestrictionUpdate } from "@/lib/order-time-restrictions-s
 //                                     (the Russian name, informational: the page shows the
 //                                     i18n key of the code), status 1..4, from_time / to_time
 //                                     TIME (only for statuses 3 / 4), is_all, updated_at.
-//   order_time_restriction_employees  (restriction_id, employee_id): the agents a row with
-//                                     is_all = false applies to. Deleting an employee drops
-//                                     its assignments (they are the employee's own setting,
-//                                     like the reference's user.accesses), never a document.
+//   order_time_restriction_employees  (restriction_id, employee_id): agents a row with
+//                                     is_all = false applies to (an older way of assigning).
+//                                     Deleting an employee drops its assignments, never a document.
+// A row with is_all = false also applies to every employee whose own «Ограничения времени»
+// (employees.details.accesses, the reference's user.accesses) name it — the reference's only way.
 //
 // The schema is created / migrated once per process on the maintenance pool (never inside
 // a request transaction) under an advisory lock, and the two rows are seeded idempotently
@@ -294,16 +295,30 @@ export type OrderTimeCheck = {
 
 export type OrderTimeActor = { role: string; employeeId: number | null }
 
-type CheckRow = { status: number | string; from_time: string | null; to_time: string | null; is_all: boolean; assigned: boolean }
+type CheckRow = { name: string; status: number | string; from_time: string | null; to_time: string | null; is_all: boolean; assigned: boolean }
+
+/** Whether the employee's own «Ограничения времени» (employees.details.accesses, Linko's user.accesses — the
+ * Сотрудники form and bulk dialog) name the row: that is how Linko limits a row «только для выбранных агентов». */
+async function namedInEmployeeAccesses(employeeId: number, name: string): Promise<boolean> {
+  const row = (await getDb().prepare("SELECT details FROM employees WHERE id = ?").get(employeeId)) as { details: string | null } | undefined
+  try {
+    const accesses = (JSON.parse(row?.details || "{}") as { accesses?: unknown }).accesses
+    return Array.isArray(accesses) && accesses.some((item) => typeof item === "object" && item !== null && (item as { name?: unknown }).name === name)
+  } catch {
+    return false
+  }
+}
 
 async function readCheckRow(code: OrderTimeCode, employeeId: number): Promise<CheckRow | undefined> {
-  return (await getDb()
+  const row = (await getDb()
     .prepare(
-      `SELECT r.status, r.from_time::text AS from_time, r.to_time::text AS to_time, r.is_all,
+      `SELECT r.name, r.status, r.from_time::text AS from_time, r.to_time::text AS to_time, r.is_all,
               EXISTS (SELECT 1 FROM order_time_restriction_employees a WHERE a.restriction_id = r.id AND a.employee_id = @employeeId) AS assigned
          FROM order_time_restrictions r WHERE r.code = @code`,
     )
     .get({ code, employeeId })) as CheckRow | undefined
+  if (row && !row.is_all && !row.assigned) row.assigned = await namedInEmployeeAccesses(employeeId, String(row.name ?? ""))
+  return row
 }
 
 /**

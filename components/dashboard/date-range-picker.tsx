@@ -134,6 +134,7 @@ export function DateRangePicker({
   highlightPreset = true,
   variant = "default",
   onChange,
+  openOnBeginMonth = false,
 }: {
   begin: string
   end: string
@@ -148,13 +149,15 @@ export function DateRangePicker({
   variant?: "default" | "builder"
   /** Called with the range on every pick (a preset, a day): the builders print the period while it is chosen. */
   onChange?: (begin: string, end: string) => void
+  /** true: the left month is the range's first month (the shop drawer's «Баланс»), not the one before it. */
+  openOnBeginMonth?: boolean
 }) {
   const { t, language } = useLanguage()
   const weekdays = weekdayLabels(language, WEEKDAYS)
   const builder = variant === "builder"
   const presets: readonly Preset[] = builder ? BUILDER_PRESETS : PRESETS
   const initial = fromIso(begin)
-  const [view, setView] = useState({ year: initial.getFullYear(), month: initial.getMonth() - 1 })
+  const [view, setView] = useState({ year: initial.getFullYear(), month: initial.getMonth() - (openOnBeginMonth ? 0 : 1) })
   const [start, setStart] = useState<Date | null>(fromIso(begin))
   const [stop, setStop] = useState<Date | null>(fromIso(end))
   const [hover, setHover] = useState<Date | null>(null)

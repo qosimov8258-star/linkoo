@@ -5,16 +5,21 @@ import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 import { parseBotPageInput, updateBotPage } from "@/lib/telegram-bot-pages-repo"
 
+const TOO_LONG = "Слишком длинное значение"
+
+// One language of «Редактирование новости»: Заголовок, Описание, Ссылка на статью and Содержание (the reference's
+// translations[<lang>][title | description | telegraph_link | body]).
+const pageText = z
+  .object({
+    title: z.string().max(255, TOO_LONG).optional(),
+    description: z.string().max(1000, TOO_LONG).optional(),
+    telegraphLink: z.string().max(500, TOO_LONG).optional(),
+    body: z.string().max(4096, TOO_LONG).optional(),
+  })
+  .optional()
+
 const botPageSchema = z.object({
-  title: z.string().optional(),
-  description: z.string().optional(),
-  content: z
-    .object({
-      ru: z.string().optional(),
-      uz: z.string().optional(),
-      en: z.string().optional(),
-    })
-    .optional(),
+  translations: z.object({ ru: pageText, uz: pageText, en: pageText }),
 })
 
 type RouteParams = { params: Promise<{ key: string }> }

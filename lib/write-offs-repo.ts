@@ -6,7 +6,6 @@ import { isIsoDay, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dat
 import { getStockBalances } from "@/lib/stock/ledger"
 import { nowLocalMoment } from "@/lib/stock/moments"
 import { ensureStockSchema } from "@/lib/stock/schema"
-import { jsonLines } from "@/lib/stock/sources"
 import {
   catalogIndex,
   countedByInventory,
@@ -203,15 +202,16 @@ export async function listWriteOffs(query: WriteOffListQuery): Promise<WriteOffL
   const search = query.search.trim()
   if (search) {
     params.search = `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
-    params.search_id = /^\d{1,9}$/.test(search) ? Number(search) : -1
-    // Lines by product name only (not the raw JSON: costs, blocks and ids would match digits).
-    parts.push(`(w.id = @search_id OR w.warehouse ILIKE @search OR w.creator ILIKE @search OR w.comment ILIKE @search
-      OR EXISTS (SELECT 1 FROM jsonb_array_elements(${jsonLines("w.items")}) AS l(j) WHERE l.j ->> 'product' ILIKE @search))`)
+    // Linko's writeoff_request search: the number contains the text («6» → 6, 16, 36 … 69) or the warehouse name does.
+    parts.push(`(w.id::text ILIKE @search OR w.warehouse ILIKE @search)`)
   }
   const where = parts.length ? `WHERE ${parts.join(" AND ")}` : ""
-  const desc = query.ordering.startsWith("-")
-  const expr = ORDERING[query.ordering.replace(/^-/, "")]
-  const order = expr ? `ORDER BY ${expr} ${desc ? "DESC" : "ASC"} NULLS LAST, w.id DESC` : "ORDER BY w.id DESC"
+  // One or several keys ("-created_date,id"), applied in order, then the newest first.
+  const keys = query.ordering.split(",").flatMap((key) => {
+    const expr = ORDERING[key.trim().replace(/^-/, "")]
+    return expr ? [`${expr} ${key.trim().startsWith("-") ? "DESC" : "ASC"} NULLS LAST`] : []
+  })
+  const order = keys.length ? `ORDER BY ${keys.join(", ")}, w.id DESC` : "ORDER BY w.id DESC"
   const pageSize = Math.max(0, query.pageSize)
   const page = Math.max(1, query.page)
   const limit = pageSize ? `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}` : ""
@@ -233,7 +233,16 @@ export async function writeOffOptions(): Promise<WriteOffOptions> {
   await ensureWriteOffsSchema()
   const db = getDb()
   const [warehouses, users] = await Promise.all([
-    db.prepare("SELECT name FROM warehouses WHERE btrim(name) <> '' AND COALESCE(active, 1) = 1 UNION SELECT warehouse FROM write_offs WHERE btrim(warehouse) <> '' ORDER BY 1").all() as Promise<Array<{ name: string }>>,
+    // Linko's Stock for_select order: the newest warehouse first; names only found on write-offs come last.
+    db
+      .prepare(
+        `SELECT name FROM (
+           SELECT name, 0 AS grp, id FROM warehouses WHERE btrim(name) <> '' AND COALESCE(active, 1) = 1
+           UNION ALL
+           SELECT DISTINCT warehouse, 1, 0 FROM write_offs WHERE btrim(warehouse) <> ''
+         ) AS w ORDER BY grp, id DESC, name`,
+      )
+      .all() as Promise<Array<{ name: string }>>,
     db.prepare("SELECT DISTINCT creator AS name FROM write_offs WHERE btrim(creator) <> '' ORDER BY 1").all() as Promise<Array<{ name: string }>>,
   ])
   const unique = (rows: Array<{ name: string }>) => [...new Map(rows.map((row) => [row.name.replace(/\s+/g, " ").trim().toLowerCase(), row.name.trim()])).values()]

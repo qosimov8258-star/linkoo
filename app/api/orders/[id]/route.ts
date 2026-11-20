@@ -44,6 +44,7 @@ const moneyValue = (min: number) => z.number().finite().min(min, { error: "Сл�
 // The shared patch schema plus the reference-snapshot fields the order card edits.
 const orderPatchSchema = baseOrderPatchSchema.extend({
   expeditor: z.string().trim().max(200).optional(),
+  collector: z.string().trim().max(200).optional(),
   payMethod: z.enum(["cash", "bank", ""]).optional(),
   payTypeName: z.string().trim().max(100).optional(),
   stockName: z.string().trim().max(200).optional(),

@@ -1,7 +1,9 @@
 // Products Linko has deleted but its documents (supplies, orders, transfers, write-offs, returns, inventories, production)
 // still name: added as deleted products (products.deleted = 1), so those documents keep their product names and units,
-// and — like in Linko — they are left out of the catalog and of Остаток. Also marks as deleted the local products
-// Linko does not have that only demo seeds created (demo_seed_rows).
+// and — like in Linko — they are left out of the catalog and of Остаток. Their product type comes from the same
+// documents (Linko still prints it, e.g. «Тип товара» of a return's warehouse sheet); a deleted product copied before
+// without one gets it. Also marks as deleted the local products Linko does not have that only demo seeds created
+// (demo_seed_rows).
 //
 //   node scripts/linko-sync/import-deleted-products.mjs
 import { connect, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
@@ -10,8 +12,15 @@ const run = runId("deleted-products")
 const live = new Set(raw("products").map((p) => p.id))
 const found = new Map()
 const note = (p) => {
-  if (!p || !p.id || live.has(p.id) || found.has(p.id)) return
-  found.set(p.id, { id: p.id, name: p.name ?? `#${p.id}`, unit: p.measurement?.name ?? "", code: p.vendor_code ?? p.code ?? "" })
+  if (!p || !p.id || live.has(p.id)) return
+  // Order and supply details name it product_type, the other documents type.
+  const type = p.type?.name ?? p.product_type?.name ?? ""
+  const seen = found.get(p.id)
+  if (seen) {
+    if (!seen.type && type) seen.type = type
+    return
+  }
+  found.set(p.id, { id: p.id, name: p.name ?? `#${p.id}`, unit: p.measurement?.name ?? "", code: p.vendor_code ?? p.code ?? "", type })
 }
 const each = (name, pick) => {
   if (!hasRaw(name)) return
@@ -33,19 +42,26 @@ const client = await connect()
 await ensureRegistry(client)
 let added = 0
 let marked = 0
+let typed = 0
 try {
   await client.query("BEGIN")
   for (const p of found.values()) {
-    const exists = (await client.query("SELECT id, deleted FROM products WHERE id = $1", [p.id])).rows[0]
+    const exists = (await client.query("SELECT id, deleted, COALESCE(type, '') AS type FROM products WHERE id = $1", [p.id])).rows[0]
     if (exists) {
       if (!exists.deleted) {
         await client.query("UPDATE products SET deleted = 1, updated_at = datetime('now') WHERE id = $1", [p.id])
         await register(client, run, "products", p.id, "update", { deleted: 0 })
         marked++
       }
+      // A product copied before without a type gets the documents' one; a type already set is kept.
+      if (p.type && !exists.type) {
+        await client.query("UPDATE products SET type = $2 WHERE id = $1", [p.id, p.type])
+        await register(client, run, "products", p.id, "update", { type: exists.type })
+        typed++
+      }
       continue
     }
-    await client.query("INSERT INTO products (id, name, unit, article, deleted, can_sell) VALUES ($1, $2, $3, $4, 1, 0)", [p.id, p.name, p.unit, p.code])
+    await client.query("INSERT INTO products (id, name, unit, article, type, deleted, can_sell) VALUES ($1, $2, $3, $4, $5, 1, 0)", [p.id, p.name, p.unit, p.code, p.type])
     await register(client, run, "products", p.id, "insert")
     added++
   }
@@ -65,4 +81,4 @@ try {
 } finally {
   await client.end()
 }
-console.log(`deleted products: ${found.size} named by documents; added ${added}; marked deleted ${marked}`)
+console.log(`deleted products: ${found.size} named by documents; added ${added}; marked deleted ${marked}; types filled ${typed}`)

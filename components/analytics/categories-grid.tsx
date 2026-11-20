@@ -1,6 +1,5 @@
 "use client"
 
-import { ArrowDown, ArrowUp } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 
@@ -110,6 +109,18 @@ function nextOrdering(current: string, field: string): string {
   if (current === `-${field}`) return ""
   return field
 }
+
+/** The reference's header arrow: ascending draws "↓", descending "↑" (24×15 material arrows, 6 px after the text). */
+function SortArrow({ descending }: { descending: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[15px] w-[15px] shrink-0 -translate-y-[0.5px] fill-white" aria-hidden>
+      <path d={descending ? "M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z" : "M11,4H13V16L18.5,10.5L19.92,11.92L12,19.84L4.08,11.92L5.5,10.5L11,16V4Z"} />
+    </svg>
+  )
+}
+
+/** Row icons of the reference sit in its 12th grid column (rows padded 30 px), 8 px inside it (+3 px: RowIcon's -3 px margin). */
+const ROW_ACTIONS_LEFT = "calc(41px + (100% - 60px) * 11 / 12)"
 
 function useCategoryList<T>(url: string) {
   const [data, setData] = useState<ListResult<T> | null>(null)
@@ -327,6 +338,9 @@ export function CategoriesGrid<T extends CategoryRow>({
         }
         query={searchDraft}
         onQuery={setSearchDraft}
+        // The reference's search starts a quarter of the strip in (+16 px) and is 300 px wide at 1600 px.
+        searchClassName="left-[calc(25%_+_16px)] top-[20px]"
+        searchWidth={300}
         pager={{
           pageSize: state.pageSize,
           onPageSize: (size) => update({ pageSize: size, page: 1 }),
@@ -345,11 +359,11 @@ export function CategoriesGrid<T extends CategoryRow>({
               <button
                 type="button"
                 onClick={() => update({ ordering: nextOrdering(state.ordering, column.ordering!), page: 1 })}
-                className="inline-flex items-center gap-[10px] text-left font-semibold"
+                className="inline-flex items-center gap-[10.5px] text-left font-semibold"
               >
                 {t(column.title)}
-                {state.ordering === column.ordering && <ArrowUp className="h-[14px] w-[14px] shrink-0" />}
-                {state.ordering === `-${column.ordering}` && <ArrowDown className="h-[14px] w-[14px] shrink-0" />}
+                {state.ordering === column.ordering && <SortArrow descending={false} />}
+                {state.ordering === `-${column.ordering}` && <SortArrow descending />}
               </button>
             ) : (
               t(column.title)
@@ -376,6 +390,7 @@ export function CategoriesGrid<T extends CategoryRow>({
               <span />
               {canEdit && (
                 <RowActions
+                  left={ROW_ACTIONS_LEFT}
                   onEdit={() => setDialog({ kind: "update", id: row.id })}
                   onDelete={() => setDialog({ kind: "delete", id: row.id, name: row.name })}
                 />

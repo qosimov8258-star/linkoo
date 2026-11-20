@@ -7,8 +7,9 @@ import { MENU_BOX, MENU_COLUMN, MENU_HEADING, MENU_ITEM, MENU_LINK } from "./men
 import { monthStartIso, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-// `query` mirrors the reference menu links, which open each page with its default period / page size.
-type MenuItem = { label: string; href: string; query?: (today: string, monthStart: string) => string }
+// `query` mirrors the reference menu links, which open each page with its default period / page size; `newTab` items
+// open in a new browser tab and leave the current page as it is.
+type MenuItem = { label: string; href: string; query?: (today: string, monthStart: string) => string; newTab?: boolean }
 
 type Props = {
   onSelect: (item: string) => void
@@ -37,6 +38,8 @@ function LinkColumn({
             <Link
               href={item.query ? `${item.href}?${item.query(today, monthStart)}` : item.href}
               onClick={() => onSelect(item.label)}
+              target={item.newTab ? "_blank" : undefined}
+              rel={item.newTab ? "noopener" : undefined}
               className={MENU_LINK}
             >
               {t(item.label)}
@@ -49,9 +52,8 @@ function LinkColumn({
 }
 
 const finances: MenuItem[] = [
-  // The reference opens the dashboard for this entry (the module is not available there); the page itself stays at
-  // /analytics/invoice-incomings.
-  { label: "Входящие счет фактуры", href: "/", query: (today) => `beginDate=${today}&endDate=${today}` },
+  // The reference opens its incoming invoices (its separate EDO app) in a new tab; here they are this app's own page.
+  { label: "Входящие счет фактуры", href: "/analytics/invoice-incomings", newTab: true },
   { label: "Организация", href: "/analytics/organization" },
   { label: "Кассы", href: "/analytics/cashboxes" },
   { label: "Категории приходов", href: "/analytics/income-categories" },
@@ -82,7 +84,7 @@ const cashOperations: MenuItem[] = [
 
 const additional: MenuItem[] = [
   // The page lists deliverer (доставщик) debts; supplier debts live on "Баланс поставщиков".
-  { label: "Долги доставщиков", href: "/analytics/supplier-debts" },
+  { label: "Долги доставщиков", href: "/analytics/supplier-debts", query: () => "pageSize=25&toggleType=prediction" },
   { label: "Долги с заказов", href: "/analytics/order-debts", query: () => "pageSize=25&toggle=client&withProfit=True" },
   { label: "Сверка магазина через бот", href: "/analytics/store-reconciliation-bot", query: () => "pageSize=25" },
   { label: "Сверка счетов", href: "/analytics/account-reconciliation", query: () => "pageSize=25" },
@@ -95,7 +97,7 @@ const additional: MenuItem[] = [
 // Used by top-nav.tsx to decide when the "Финансы" tab should be
 // highlighted — most of these pages live under the shared /analytics/[slug]
 // route, which "Аналитика" would otherwise claim first.
-export const financeHrefs: string[] = [...finances, ...balance, ...cashOperations, ...additional].map((item) => item.href).filter((href) => href !== "/")
+export const financeHrefs: string[] = [...finances, ...balance, ...cashOperations, ...additional].map((item) => item.href)
 
 export function FinanceMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
   return (

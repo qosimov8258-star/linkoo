@@ -8,9 +8,6 @@ import dynamic from "next/dynamic"
 import {
   RefreshCw,
   Search,
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
   X,
   CheckCircle2,
   PlusCircle,
@@ -18,8 +15,9 @@ import {
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import type { ClientVisitPage, ClientVisitRow, FieldRecordPage, FieldRecordRow } from "@/lib/field-activity/record-list-types"
-import type { LanguageCode } from "@/lib/i18n/types"
+import type { FieldRecordPage, FieldRecordRow } from "@/lib/field-activity/record-list-types"
+import { formatStatementDate } from "@/lib/finance/dates"
+import type { ShopCard } from "@/lib/shop-drawer-repo"
 import { formatMoney } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -30,6 +28,13 @@ import { ClientAgentsDialog, type ClientAgentRow } from "@/components/clients/cl
 
 import { clientTabs, type Client } from "./clients-data"
 import { ClientDebtLimits } from "./client-debt-limits"
+import { RoutePlanDialog } from "./route-plan-dialog"
+import { ShopBalanceBlock } from "./shop-drawer-balance"
+import { ShopClosedChip } from "./shop-closed-chip"
+import { DOTTED_ROW, ShopContractsTab, ShopLogsTab } from "./shop-drawer-logs"
+import { ShopDrawerGears } from "./shop-drawer-gears"
+import { ShopTasksTab } from "./shop-drawer-tasks"
+import { closeShopDrawerParams, readShopDrawerParam, writeShopDrawerParams } from "./shop-drawer-url"
 import { invalidateDirectory, useDirectoryNames } from "./use-directory"
 import { MultiEditDialog, type MultiEditExtras, type MultiEditPatch } from "./multi-edit-dialog"
 import { TableColumnsDrawer } from "@/components/ref/table-columns-drawer"
@@ -222,6 +227,8 @@ export function ClientsView() {
   const [formError, setFormError] = useState("")
   const [routeAssigned, setRouteAssigned] = useState<Set<number>>(() => new Set())
   const [detailClient, setDetailClient] = useState<Client | null>(null)
+  // «ИЗМЕНЕНИЕ МАРШРУТА» of the selected clients (Linko's ?openPlanCreate=true).
+  const [planOpen, setPlanOpen] = useState(false)
   const promotionInputRef = useRef<HTMLInputElement>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importingClients, setImportingClients] = useState(false)
@@ -386,11 +393,15 @@ export function ClientsView() {
   const deepLinkedShopId = useRef(0)
   const deepLinkedUpdate = useRef(false)
   const deepSelect = useRef<number[] | null>(null)
+  const deepPlan = useRef(false)
   useEffect(() => {
+    // Read once: the URL sync below rewrites the address in the same commit (a second run would read `search` gone).
+    if (urlReady.current) return
     const params = new URLSearchParams(window.location.search)
     // Kept once read: the URL sync below drops openShop / openUpdateDialog at once, and a second run of this effect
-    // (React's development double run) must not forget the card the link asked for.
-    const linkedShop = Number(params.get("openShop"))
+    // (React's development double run) must not forget the card the link asked for. The shop drawer's Маршруты
+    // pencil names the card Linko's way (openShopDetail).
+    const linkedShop = Number(params.get("openShop") ?? params.get("openShopDetail"))
     if (Number.isSafeInteger(linkedShop) && linkedShop > 0) deepLinkedShopId.current = linkedShop
     if (params.get("openUpdateDialog") === "true") deepLinkedUpdate.current = true
     const tabEntry = Object.entries(TAB_PARAM).find(([, value]) => value === params.get("showTab"))
@@ -434,6 +445,9 @@ export function ClientsView() {
     if (ids.length) deepSelect.current = ids
     if (params.get("openFilterDialog") === "true") setFiltersOpen(true)
     if (params.get("openMultiUpdateDialog") === "true") setMultiEditOpen(true)
+    // Linko #/shop?openCreateDialog=true (the order form's «+ добавить» opens it in a new tab): «Добавить клиента» open.
+    if (params.get("openCreateDialog") === "true") setModalMode("add")
+    if (params.get("openPlanCreate") === "true") deepPlan.current = true
     const dialog = (Object.keys(IMPORT_PARAM) as (keyof typeof IMPORT_PARAM)[]).find((key) => params.get(IMPORT_PARAM[key]) === "true")
     if (dialog) setImportDialog(dialog)
     urlReady.current = true
@@ -458,9 +472,14 @@ export function ClientsView() {
     if (filtersOpen) params.set("openFilterDialog", "true")
     if (multiEditOpen) params.set("openMultiUpdateDialog", "true")
     if (importDialog) params.set(IMPORT_PARAM[importDialog], "true")
+    params.delete("openPlanCreate")
+    if (planOpen) params.set("openPlanCreate", "true")
     params.delete("openShop")
+    params.delete("openShopDetail")
     params.delete("openUpdateDialog")
+    params.delete("openCreateDialog")
     if (modalMode === "edit") params.set("openUpdateDialog", "true")
+    if (modalMode === "add") params.set("openCreateDialog", "true")
     if (detailClient) {
       params.delete("openClient")
       params.set("openShop", String(detailClient.id))
@@ -469,7 +488,7 @@ export function ClientsView() {
     const search = sorted.toString()
     const next = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`
     if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", next)
-  }, [activeTab, problemSub, page, pageSize, query, sort, selectMode, selected, filtersOpen, multiEditOpen, importDialog, detailClient, modalMode])
+  }, [activeTab, problemSub, page, pageSize, query, sort, selectMode, selected, filtersOpen, multiEditOpen, importDialog, detailClient, modalMode, planOpen])
   const total = filtered.length
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const currentPage = Math.min(page, totalPages)
@@ -506,6 +525,9 @@ export function ClientsView() {
     if (!ids.length) return
     setSelectMode(true)
     setSelected(ids)
+    // ?openPlanCreate=true: «ИЗМЕНЕНИЕ МАРШРУТА» of those clients (the shop drawer's Маршруты pencil).
+    if (deepPlan.current) setPlanOpen(true)
+    deepPlan.current = false
   }, [loading, clients])
 
   const allSelected = pageRows.length > 0 && pageRows.every((r) => selected.includes(r.id))
@@ -842,11 +864,7 @@ export function ClientsView() {
 
   function assignRoute() {
     if (selectedClients.length === 0) return
-    setRouteAssigned((current) => new Set([...current, ...selectedClients.map((client) => client.id)]))
-    setNotice({
-      tone: "success",
-      message: `${t("Маршрут установлен для")} ${selectedClients.length} ${t("клиент(ов)")}`,
-    })
+    setPlanOpen(true)
   }
 
   return (
@@ -1315,6 +1333,17 @@ export function ClientsView() {
           onClose={() => setDetailClient(null)}
           onEdit={() => openEditModalFor(detailClient)}
           onDelete={() => deleteClient(detailClient)}
+        />
+      )}
+      {planOpen && selectedClients.length > 0 && (
+        <RoutePlanDialog
+          shops={selectedClients.map((client) => ({ id: client.id, name: client.name }))}
+          onClose={() => setPlanOpen(false)}
+          onSaved={(ids) => {
+            setPlanOpen(false)
+            setRouteAssigned((current) => new Set([...current, ...ids]))
+            setNotice({ tone: "success", message: `${t("Маршрут установлен для")} ${ids.length} ${t("клиент(ов)")}` })
+          }}
         />
       )}
     </div>
@@ -2071,72 +2100,9 @@ function CheckRow({ label, checked, onChange }: { label: string; checked: boolea
 
 const DETAIL_TABS = ["АКТИВНОСТЬ", "ЗАДАЧИ", "КЛИЕНТ", "ОТЧЕТЫ", "ОТКАЗЫ"] as const
 const CLIENT_SUBTABS = ["ДЕТАЛИ", "ФИНАНСОВЫЕ НАСТРОЙКИ", "ЛОГИ", "ДОГОВОРЫ"] as const
-const SHORT_MONTHS = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
-const LOG_FILTERS = ["Все", "Заказ", "Возврат", "Финансы", "Клиент"]
-
-/** `translated`: the text is already in the UI language (built from i18n keys), so it is shown as is. */
-type DetailTask = { text: string; at?: string; link?: boolean; done: boolean; by?: string; time?: number; translated?: boolean }
-
-const MONTHS_NOMINATIVE = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
-function createdDateText(raw: string | undefined): string {
-  const date = raw ? new Date(raw.replace(" ", "T")) : null
-  return date && !Number.isNaN(date.getTime()) ? `${date.getDate()} ${MONTHS_GENITIVE[date.getMonth()]} ${date.getFullYear()}` : "-"
-}
-const MONTHS_GENITIVE = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
-
-type DetailOrder = { id: number; clientId?: number | null; client: string; created: string; createdAt: string; status: string; amount?: string }
-
-/**
- * The reference's task feed for a client: every order the client placed shows up as an unscheduled
- * visit + «Оформили заказ» (+ «Доставили заказ» once delivered). Built from the real orders.
- */
-function tasksFromOrders(orders: DetailOrder[]): DetailTask[] {
-  return [...orders]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
-    .flatMap((order) => {
-      const [datePart, timePart = "00:00:00"] = order.createdAt.split(/[ T]/)
-      const [, month, day] = datePart.split("-").map(Number)
-      const [hours, minutes] = timePart.split(":").map(Number)
-      const monthName = MONTHS_NOMINATIVE[month - 1]
-      const time = new Date(order.createdAt.replace(" ", "T")).getTime()
-      return [
-        ...(order.status === "Доставлено" ? [{ text: `Доставили заказ №${order.id} в ${hours}:${minutes}`, at: order.created, done: true, time }] : []),
-        { text: `Оформили заказ №${order.id}`, at: order.created, link: true, done: true, time },
-        { text: `Внеплановый визит ${day} ${monthName} в ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`, at: order.created, done: true, time },
-      ]
-    })
-}
-
-type FieldTask = { responsible: string; store: string; description: string; date: string; status: string }
-
-/** Visits without an order and the client's planned tasks join the order feed, newest first.
- * A visit's text is built from i18n keys; its local time (Asia/Tashkent) goes through formatDateText. */
-function mergeFieldTasks(base: DetailTask[], visits: ClientVisitRow[], planned: FieldTask[], t: (key: string) => string, language: LanguageCode): DetailTask[] {
-  const fromVisits = visits.map((visit): DetailTask => {
-    const when = formatDateText(visit.startedAt, language, { withTime: true })
-    const label = t(visit.planned ? "Плановый визит" : "Внеплановый визит")
-    const refusal = visit.refusal ? `${t("Отказ")}: ${visit.refusal}` : t("Отказ")
-    return {
-      text: visit.result === "refusal" ? `${label} ${when}. ${refusal}` : `${label} ${when}`,
-      at: when,
-      done: visit.result !== "open",
-      by: visit.agent,
-      time: new Date(visit.startedAt).getTime(),
-      translated: true,
-    }
-  })
-  const fromTasks = planned.map((task): DetailTask => {
-    const date = new Date(`${task.date}T09:00:00`)
-    return {
-      text: `${task.description}`.trim() || "Следует посетить клиента",
-      at: `${String(date.getDate()).padStart(2, "0")} ${SHORT_MONTHS[date.getMonth()].toLowerCase()} ${date.getFullYear()}`,
-      done: task.status === "done" || task.status === "finished",
-      by: task.responsible,
-      time: date.getTime(),
-    }
-  })
-  return [...base, ...fromVisits, ...fromTasks].sort((a, b) => (b.time ?? 0) - (a.time ?? 0))
-}
+/** Linko's ?shopDrawerTab= of each tab (none or "activity" is АКТИВНОСТЬ) and ?marketTab= of each КЛИЕНТ sub-tab. */
+const TAB_PARAMS: Record<(typeof DETAIL_TABS)[number], string> = { АКТИВНОСТЬ: "activity", ЗАДАЧИ: "task", КЛИЕНТ: "detail", ОТЧЕТЫ: "report", ОТКАЗЫ: "reject" }
+const SUBTAB_PARAMS: Record<(typeof CLIENT_SUBTABS)[number], string> = { ДЕТАЛИ: "detail", "ФИНАНСОВЫЕ НАСТРОЙКИ": "limitDebt", ЛОГИ: "logs", ДОГОВОРЫ: "contracts" }
 
 // The card's figures come from the client ledger (/api/clients/[id]/summary)
 // and its documents (orders, payments, returns); nothing here is invented.
@@ -2285,28 +2251,6 @@ function moneyLines(values: Array<{ currency: string; value: number }>, base: st
   return lines.length ? lines.join(", ") : moneyText(0, base)
 }
 
-type CardLog = { type: "Заказ" | "Возврат" | "Оплата" | "Клиент"; status: string; by: string; at: string; sortKey: string; sum: string }
-
-/** A log day as the reference prints it ("28 октября 2026"; t() puts the month in the UI language). */
-function displayDay(value: string | null | undefined) {
-  if (!value) return ""
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
-  if (!match) return value
-  return `${Number(match[3])} ${MONTHS_GENITIVE[Number(match[2]) - 1]} ${match[1]}`
-}
-
-/** A stored UTC moment in browser time: "28 октября 2026, 14:05". */
-function displayMoment(value: string | null | undefined) {
-  if (!value) return ""
-  const date = new Date(/[zZ]$/.test(value) ? value : `${value.replace(" ", "T")}Z`)
-  if (Number.isNaN(date.getTime())) return value
-  return `${date.getDate()} ${MONTHS_GENITIVE[date.getMonth()]} ${date.getFullYear()}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
-}
-
-function formatDetailDate(date: Date) {
-  return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
-}
-
 /** Records per request of the card's ОТКАЗЫ / ОТЧЕТЫ. */
 const FIELD_RECORDS_PAGE = 50
 
@@ -2322,12 +2266,14 @@ async function fetchFieldRecords(tab: "ОТЧЕТЫ" | "ОТКАЗЫ", clientId:
 
 /** The client card opened from another page (Активность, Отслеживание, Классификация и динамика клиентов): loads the
  * client by id and shows the same drawer as Клиенты, without the delete button (that stays on the Клиенты page).
- * Closes itself when the client cannot be loaded. */
+ * Closes itself (or calls onMissing) when the client cannot be loaded. */
 export function ClientDrawer({
   clientId,
   onClose,
   withCall = false,
   editHref,
+  embedded = false,
+  onMissing,
 }: {
   clientId: number
   onClose: () => void
@@ -2335,6 +2281,11 @@ export function ClientDrawer({
   withCall?: boolean
   /** The pencil: Linko links it to the Клиенты edit form of the client in a new tab when the page has none. */
   editHref?: string
+  /** Fills the host's panel instead of the fixed 580 px drawer (Linko's agent panel swapped for the shop card). */
+  embedded?: boolean
+  /** Called instead of onClose when the client cannot be loaded (the drawer then shows nothing), so a host whose onClose
+   * adds a history entry can leave its address as it is. */
+  onMissing?: () => void
 }) {
   const [client, setClient] = useState<Client | null>(null)
 
@@ -2347,21 +2298,23 @@ export function ClientDrawer({
         setClient(body)
       })
       .catch((cause: { name?: string }) => {
-        if (cause?.name !== "AbortError") onClose()
+        if (cause?.name !== "AbortError") (onMissing ?? onClose)()
       })
     return () => controller.abort()
-  }, [clientId, onClose])
+  }, [clientId, onClose, onMissing])
 
+  // Linko's drawer stays open on Escape (only its X closes it). The key is heard first (capture) and marked handled, so a
+  // card under the drawer (a return or an order opened in a dialog) stays open too.
   useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose()
+    function keepOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !event.defaultPrevented) event.preventDefault()
     }
-    document.addEventListener("keydown", closeOnEscape)
-    return () => document.removeEventListener("keydown", closeOnEscape)
-  }, [onClose])
+    document.addEventListener("keydown", keepOnEscape, true)
+    return () => document.removeEventListener("keydown", keepOnEscape, true)
+  }, [])
 
   if (!client || client.id !== clientId) return null
-  return <ClientDetail client={client} onClose={onClose} variant="activity" withCall={withCall} editHref={editHref} />
+  return <ClientDetail client={client} onClose={onClose} variant="activity" withCall={withCall} editHref={editHref} embedded={embedded} />
 }
 
 export function ClientDetail({
@@ -2372,6 +2325,7 @@ export function ClientDetail({
   variant,
   withCall = false,
   editHref,
+  embedded = false,
 }: {
   client: Client
   onClose: () => void
@@ -2383,64 +2337,49 @@ export function ClientDetail({
   withCall?: boolean
   /** Without onEdit: the pencil opens this link (the Клиенты edit form) in a new tab. */
   editHref?: string
+  /** Fills the host's panel (h-full w-full) instead of the fixed 580 px drawer. */
+  embedded?: boolean
 }) {
   const { t, language } = useLanguage()
   const fromActivity = variant === "activity"
-  const [tab, setTab] = useState<(typeof DETAIL_TABS)[number]>("АКТИВНОСТЬ")
-  const [subTab, setSubTab] = useState<(typeof CLIENT_SUBTABS)[number]>("ДЕТАЛИ")
-  const [logFilter, setLogFilter] = useState("Все")
-  const [clientOrders, setClientOrders] = useState<DetailOrder[]>([])
-  const [fieldVisits, setFieldVisits] = useState<ClientVisitRow[]>([])
-  // ЗАДАЧИ: where the client's older visits continue ("Загрузить еще..."); null once all are loaded.
-  const [visitsCursor, setVisitsCursor] = useState<string | null>(null)
-  const [fieldTasks, setFieldTasks] = useState<FieldTask[]>([])
+  // Linko's card on its Клиенты page (#/shop) has the photo frame and «Финансовые настройки»; opened from any other
+  // page it shows the store picture and three sub-tabs.
+  const onShopPage = !fromActivity
+  const subTabs = CLIENT_SUBTABS.filter((item) => onShopPage || item !== "ФИНАНСОВЫЕ НАСТРОЙКИ")
+  // The tab and the КЛИЕНТ sub-tab live in the address like Linko's (?shopDrawerTab=, ?marketTab=).
+  const [tab, setTabState] = useState<(typeof DETAIL_TABS)[number]>(() => DETAIL_TABS.find((item) => TAB_PARAMS[item] === readShopDrawerParam("shopDrawerTab")) ?? "АКТИВНОСТЬ")
+  const [subTab, setSubTabState] = useState<(typeof CLIENT_SUBTABS)[number]>(
+    () => subTabs.find((item) => SUBTAB_PARAMS[item] === readShopDrawerParam("marketTab")) ?? "ДЕТАЛИ",
+  )
+  // Like Linko's, each tab or sub-tab click is a history entry, and Back / Forward show the tab of the address again.
+  const setTab = (next: (typeof DETAIL_TABS)[number]) => {
+    setTabState(next)
+    writeShopDrawerParams({ shopDrawerTab: TAB_PARAMS[next] }, "push")
+  }
+  const setSubTab = (next: (typeof CLIENT_SUBTABS)[number]) => {
+    setSubTabState(next)
+    writeShopDrawerParams({ marketTab: SUBTAB_PARAMS[next] }, "push")
+  }
+  useEffect(() => {
+    const sync = () => {
+      setTabState(DETAIL_TABS.find((item) => TAB_PARAMS[item] === readShopDrawerParam("shopDrawerTab")) ?? "АКТИВНОСТЬ")
+      setSubTabState(CLIENT_SUBTABS.find((item) => (onShopPage || item !== "ФИНАНСОВЫЕ НАСТРОЙКИ") && SUBTAB_PARAMS[item] === readShopDrawerParam("marketTab")) ?? "ДЕТАЛИ")
+    }
+    window.addEventListener("popstate", sync)
+    return () => window.removeEventListener("popstate", sync)
+  }, [onShopPage])
+  // Only the X closes the card (Linko: a click beside it and Escape leave it open). Its tab parameters stay in the
+  // address, so it opens again on the tab it was left on; its open form and dialog go.
+  const close = () => {
+    closeShopDrawerParams()
+    onClose()
+  }
   // ОТЧЕТЫ / ОТКАЗЫ: the client's photo reports and visit refusals from the mobile app (field data, by client id),
   // newest first, FIELD_RECORDS_PAGE at a time ("Загрузить еще..." follows nextCursor).
   const [fieldRecords, setFieldRecords] = useState<{ tab: string; rows: FieldRecordRow[]; count: number; nextCursor: string | null; error: string } | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   // The "Загрузить еще..." request in flight; a tab or client change cancels it.
   const moreRequest = useRef<AbortController | null>(null)
-  const [cardLogs, setCardLogs] = useState<CardLog[] | null>(null)
-  useEffect(() => {
-    if (tab !== "ЗАДАЧИ") return
-    let cancelled = false
-    fetch("/api/orders")
-      .then((response) => (response.ok ? (response.json() as Promise<DetailOrder[]>) : []))
-      .then((orders) => {
-        if (!cancelled && Array.isArray(orders)) setClientOrders(orders.filter((order) => (order.clientId ? order.clientId === client.id : order.client === client.name)))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [tab, client.id, client.name])
-  // Visits are the mobile app's field records (Активность / Отслеживание) of this client id that are not
-  // linked to an order (an order already shows as its own visit), the planned tasks come from Задачи.
-  useEffect(() => {
-    if (tab !== "ЗАДАЧИ") return
-    let cancelled = false
-    setFieldVisits([])
-    setVisitsCursor(null)
-    fetch(`/api/field-activity/client-visits?clientId=${client.id}`, { cache: "no-store" })
-      .then((response) => (response.ok ? (response.json() as Promise<ClientVisitPage>) : null))
-      .then((data) => {
-        if (cancelled || !data || !Array.isArray(data.rows)) return
-        setFieldVisits(data.rows)
-        setVisitsCursor(data.hasMore ? data.nextCursor : null)
-      })
-      .catch(() => {})
-    fetch(`/api/tasks?client=${client.id}&pageSize=2000`)
-      .then((response) => (response.ok ? (response.json() as Promise<{ results?: Array<{ title: string; client: string; responsible: string; taskDate: string; status: string }> }>) : { results: [] }))
-      .then((data) => {
-        if (cancelled || !Array.isArray(data.results)) return
-        setFieldTasks(data.results.map((task) => ({ responsible: task.responsible, store: task.client, description: task.title, date: task.taskDate, status: task.status })))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [tab, client.id])
-  const tasks = useMemo(() => mergeFieldTasks(tasksFromOrders(clientOrders), fieldVisits, fieldTasks, t, language), [clientOrders, fieldVisits, fieldTasks, t, language])
   useEffect(() => {
     if (tab !== "ОТЧЕТЫ" && tab !== "ОТКАЗЫ") return
     const controller = new AbortController()
@@ -2462,39 +2401,14 @@ export function ClientDetail({
     [tab, client.id],
   )
 
-  /** "Загрузить еще...": the next older visits (ЗАДАЧИ) or records (ОТКАЗЫ / ОТЧЕТЫ) of this client. */
+  /** "Загрузить еще...": the next older records (ОТКАЗЫ / ОТЧЕТЫ) of this client. */
   function loadMore() {
     if (moreRequest.current) return
+    const shown = fieldRecords
+    if ((tab !== "ОТЧЕТЫ" && tab !== "ОТКАЗЫ") || !shown || shown.tab !== tab || !shown.nextCursor) return
     const controller = new AbortController()
     moreRequest.current = controller
     setLoadingMore(true)
-    const done = () => {
-      if (moreRequest.current !== controller) return
-      moreRequest.current = null
-      setLoadingMore(false)
-    }
-    const failed = (cause: Error) => {
-      if (cause.name === "AbortError") return
-      notify(t(cause.message || "Не удалось загрузить данные"))
-    }
-    if (tab === "ЗАДАЧИ") {
-      if (!visitsCursor) return done()
-      fetch(`/api/field-activity/client-visits?clientId=${client.id}&before=${encodeURIComponent(visitsCursor)}`, { cache: "no-store", signal: controller.signal })
-        .then(async (response) => {
-          const body = (await response.json().catch(() => null)) as (ClientVisitPage & { error?: string }) | null
-          if (!response.ok || !body || !Array.isArray(body.rows)) throw new Error(body?.error || "Не удалось загрузить данные")
-          setFieldVisits((previous) => {
-            const known = new Set(previous.map((visit) => visit.visitId))
-            return [...previous, ...body.rows.filter((visit) => !known.has(visit.visitId))]
-          })
-          setVisitsCursor(body.hasMore ? body.nextCursor : null)
-        })
-        .catch(failed)
-        .finally(done)
-      return
-    }
-    const shown = fieldRecords
-    if ((tab !== "ОТЧЕТЫ" && tab !== "ОТКАЗЫ") || !shown || shown.tab !== tab || !shown.nextCursor) return done()
     fetchFieldRecords(tab, client.id, shown.nextCursor, controller.signal)
       .then((body) =>
         setFieldRecords((previous) => {
@@ -2503,45 +2417,54 @@ export function ClientDetail({
           return { ...previous, rows: [...previous.rows, ...body.rows.filter((record) => !known.has(record.id))], count: body.count, nextCursor: body.hasMore ? body.nextCursor : null }
         }),
       )
-      .catch(failed)
-      .finally(done)
+      .catch((cause: Error) => {
+        if (cause.name !== "AbortError") notify(t(cause.message || "Не удалось загрузить данные"))
+      })
+      .finally(() => {
+        if (moreRequest.current !== controller) return
+        moreRequest.current = null
+        setLoadingMore(false)
+      })
   }
-  // Logs: the client's own documents (creation, orders, payments, returns), linked by client id.
+  // The card's own fields the client row has no column for (price list, «Статус ИНН», «Создал», last payment day).
+  const [card, setCard] = useState<ShopCard | null>(null)
   useEffect(() => {
-    if (!(tab === "КЛИЕНТ" && subTab === "ЛОГИ")) return
-    let cancelled = false
-    setCardLogs(null)
-    const json = <T,>(url: string) => fetch(url).then((response) => (response.ok ? (response.json() as Promise<T>) : null)).catch(() => null)
-    void Promise.all([
-      json<Array<{ id: number; clientId?: number | null; client: string; status: string; amount: string; createdBy?: string; agent: string; createdAt?: string }>>("/api/orders?balances=0"),
-      json<Array<{ amount: number; currency: string; paymentDate: string; createdAt: string; accepted: boolean }>>(`/api/client-payments?clientId=${client.id}`),
-      json<{ rows: Array<{ id: number; status: string; amount: number; currency: string; createdBy: string; createdAt: string }> }>(`/api/client-returns?clientId=${client.id}`),
-    ]).then(([orders, payments, returns]) => {
-      if (cancelled) return
-      const logs: CardLog[] = []
-      if (client.createdAt) logs.push({ type: "Клиент", status: "Создан", by: client.createdBy || "—", at: displayMoment(client.createdAt), sortKey: client.createdAt, sum: "0" })
-      for (const order of Array.isArray(orders) ? orders : []) {
-        if (order.clientId ? order.clientId !== client.id : order.client !== client.name) continue
-        // The reference logs an order as created, or «Удаленный» once it is cancelled.
-        logs.push({ type: "Заказ", status: order.status === "Отменен" ? "Удаленный" : "Создан", by: order.createdBy || order.agent, at: displayMoment(order.createdAt), sortKey: order.createdAt ?? "", sum: order.amount })
-      }
-      for (const payment of Array.isArray(payments) ? payments : []) {
-        // Payments carry no status pill in the reference («Не установлен» as plain text).
-        logs.push({ type: "Оплата", status: "Не установлен", by: "—", at: displayDay(payment.paymentDate) || displayMoment(payment.createdAt), sortKey: payment.createdAt ?? "", sum: moneyText(payment.amount, payment.currency) })
-      }
-      for (const entry of returns?.rows ?? []) {
-        logs.push({ type: "Возврат", status: entry.status === "accepted" ? "Принят" : entry.status === "cancelled" ? "Отменен" : "Ожидает", by: entry.createdBy || "—", at: displayMoment(entry.createdAt), sortKey: entry.createdAt, sum: moneyText(entry.amount, entry.currency) })
-      }
-      setCardLogs(logs.sort((a, b) => b.sortKey.localeCompare(a.sortKey)))
-    })
-    return () => {
-      cancelled = true
+    const controller = new AbortController()
+    setCard(null)
+    fetch(`/api/clients/${client.id}/card`, { cache: "no-store", signal: controller.signal })
+      .then((response) => (response.ok ? (response.json() as Promise<ShopCard>) : null))
+      .then(setCard)
+      .catch(() => {})
+    return () => controller.abort()
+  }, [client.id])
+  // «Заказать» / «Отказ»: Linko opens them on its Клиенты page (#/shop?openShop=<id>&openOrderDialog=true /
+  // &openCreateVisit=true); this card opens them in place there and follows those links from any other page.
+  const [orderOpen, setOrderOpen] = useState(() => onShopPage && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("openOrderDialog") === "true")
+  const [refusalOpen, setRefusalOpen] = useState(() => onShopPage && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("openCreateVisit") === "true")
+  const router = useRouter()
+  const setDialogParam = (name: "openOrderDialog" | "openCreateVisit", open: boolean) => {
+    const params = new URLSearchParams(window.location.search)
+    if (open) params.set(name, "true")
+    else params.delete(name)
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`)
+  }
+  const openShopDialog = (name: "openOrderDialog" | "openCreateVisit") => {
+    if (!onShopPage) {
+      router.push(`/clients?${new URLSearchParams({ openShop: String(client.id), [name]: "true" })}`)
+      return
     }
-  }, [tab, subTab, client.id, client.name, client.createdAt, client.createdBy])
-  const [orderOpen, setOrderOpen] = useState(false)
+    setDialogParam(name, true)
+    if (name === "openOrderDialog") setOrderOpen(true)
+    else setRefusalOpen(true)
+  }
   // «Агенты магазина»: Linko's market users of the shop (GET /api/clients/[id]/agents), edited in «Изменение агентов».
   const [agents, setAgents] = useState<ClientAgentRow[] | null>(null)
-  const [agentsOpen, setAgentsOpen] = useState(false)
+  // «Изменение агентов» lives in the address like Linko's (?openAgentPL=true).
+  const [agentsOpen, setAgentsOpenState] = useState(() => readShopDrawerParam("openAgentPL") === "true")
+  const setAgentsOpen = (open: boolean) => {
+    setAgentsOpenState(open)
+    writeShopDrawerParams({ openAgentPL: open ? "true" : null })
+  }
   useEffect(() => {
     let cancelled = false
     setAgents(null)
@@ -2557,24 +2480,28 @@ export function ClientDetail({
       cancelled = true
     }
   }, [client.id])
-  // Linko's «Позвонить» shows the client's numbers; «Отказ» opens «Создание отказа».
+  // Linko's «Позвонить» shows the client's numbers.
   const [phoneOpen, setPhoneOpen] = useState(false)
-  const [refusalOpen, setRefusalOpen] = useState(false)
   const [refusalDone, setRefusalDone] = useState(false)
   const [summary, setSummary] = useState<ClientSummary | null>(null)
   const phones = client.phone.split(",").map((phone) => phone.trim()).filter((phone) => phone && phone !== "-")
   const hasPhone = phones.length > 0
   const routes = useClientRoutes(client.id)
-  const router = useRouter()
-  const periodEnd = new Date()
-  const periodStart = new Date(periodEnd)
-  periodStart.setDate(periodStart.getDate() - 30)
-  const hasLocation = client.locationLat !== undefined && client.locationLng !== undefined
+  const hasLocation = client.locationLat !== undefined && client.locationLng !== undefined && client.locationLat !== null && client.locationLng !== null
   const base = summary?.baseCurrency ?? ""
-  const sumOf = (pick: "orders" | "actualSales" | "returns" | "begin" | "end") => moneyLines((summary?.currencies ?? []).map((entry) => ({ currency: entry.currency, value: entry[pick] })), base)
-  const beginNegative = (summary?.currencies ?? []).some((entry) => entry.begin < 0)
-  const endNegative = (summary?.currencies ?? []).some((entry) => entry.end < 0)
-  const hasBalance = summary ? summary.currencies.some((entry) => entry.begin !== 0 || entry.end !== 0) : (client.balance ?? 0) !== 0
+  const sumOf = (pick: "orders" | "actualSales" | "returns") => moneyLines((summary?.currencies ?? []).map((entry) => ({ currency: entry.currency, value: entry[pick] })), base)
+  // Linko lists the market options in its own order (a copied shop's option names), the others after them.
+  const optionOrder = card?.optionNames ?? []
+  const optionRank = (name: string) => (optionOrder.includes(name) ? optionOrder.indexOf(name) : optionOrder.length)
+  const attributes = Object.entries(client.attributes ?? {})
+    .filter(([name, value]) => !name.startsWith("_") && String(value ?? "").trim() !== "")
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => optionRank(a.entry[0]) - optionRank(b.entry[0]) || a.index - b.index)
+    .map(({ entry }) => entry)
+  const createdDay = /^\d{4}-\d{2}-\d{2}/.test(client.createdAt ?? "") ? formatStatementDate((client.createdAt ?? "").slice(0, 10), language, false) : ""
+  // Linko's inn_is_correct of a copied shop; a shop made here passes with a 9-digit INN (the «Проблемные → ИНН» rule).
+  const innStatus = card && card.innIsCorrect !== null ? card.innIsCorrect : /^\d{9}$/.test((client.inn ?? "").trim())
+  const routesHref = `/clients?${new URLSearchParams({ openPlanCreate: "true", openShopDetail: String(client.id), search: String(client.id), select: String(client.id), showCheckboxes: "true" })}`
 
   const loadSummary = useCallback(() => {
     fetch(`/api/clients/${client.id}/summary`)
@@ -2588,319 +2515,254 @@ export function ClientDetail({
   }, [loadSummary])
 
   const actionButton = "flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+  const pencil = (
+    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+    </svg>
+  )
 
   return (
-    <>
-      <button
-        type="button"
-        aria-label={t("Закрыть карточку клиента")}
-        onClick={onClose}
-        className="fixed inset-0 z-40 cursor-default bg-transparent"
-      />
-      <aside className="fixed right-0 top-0 z-50 h-full w-[580px] max-w-full overflow-y-auto bg-white font-sans text-[13px] leading-[1.25] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-        <header className="flex h-[59px] items-center justify-between border-b border-[#efefef] px-[30px] py-[5px]">
-          <div className="flex items-center gap-[10px] text-[13px] font-semibold uppercase">
-            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${fromActivity && client.isActive === false ? "fill-[#e57373]" : "fill-[#92ce95]"}`}>
-              <circle cx="12" cy="12" r="8" />
-            </svg>
-            <span>{client.name}</span>
-          </div>
-          <div className="-mr-[10px] flex items-center">
-            {onEdit ? (
-              <button type="button" aria-label={t("Изменить")} onClick={onEdit} className="flex h-12 w-12 items-center justify-center">
-                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
-                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                </svg>
-              </button>
-            ) : editHref ? (
-              <a href={editHref} target="_blank" rel="noopener noreferrer" aria-label={t("Изменить")} title={t("Изменить")} className="flex h-12 w-12 items-center justify-center">
-                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
-                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                </svg>
-              </a>
-            ) : null}
-            {onDelete && !fromActivity && (
-              <button type="button" aria-label={t("Удалить")} onClick={onDelete} className="flex h-12 w-12 items-center justify-center">
-                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
-                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-                </svg>
-              </button>
-            )}
-            <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="flex h-12 w-12 items-center justify-center">
+    <aside className={`${embedded ? "h-full w-full" : "fixed right-0 top-0 z-50 h-full w-[580px] max-w-full shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"} overflow-y-auto bg-white font-sans text-[13px] leading-[1.25] text-[#333]`}>
+      <header className="flex h-[59px] items-center justify-between border-b border-[#efefef] px-[30px] py-[5px]">
+        <div className="flex items-center gap-[10px] text-[13px] font-semibold uppercase">
+          <svg viewBox="0 0 24 24" className={`h-6 w-6 ${fromActivity && client.isActive === false ? "fill-[#e57373]" : "fill-[#92ce95]"}`}>
+            <circle cx="12" cy="12" r="8" />
+          </svg>
+          <span>{client.name}</span>
+        </div>
+        <div className="-mr-[10px] flex items-center">
+          {/* Linko's red «Закрыто» chip of a closed shop, before the pencil. */}
+          <ShopClosedChip clientId={client.id} />
+          {onEdit ? (
+            <button type="button" aria-label={t("Изменить")} onClick={onEdit} className="flex h-12 w-12 items-center justify-center">
+              {pencil}
+            </button>
+          ) : editHref ? (
+            <a href={editHref} target="_blank" rel="noopener noreferrer" aria-label={t("Изменить")} title={t("Изменить")} className="flex h-12 w-12 items-center justify-center">
+              {pencil}
+            </a>
+          ) : null}
+          {onDelete && !fromActivity && (
+            <button type="button" aria-label={t("Удалить")} onClick={onDelete} className="flex h-12 w-12 items-center justify-center">
               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
               </svg>
             </button>
+          )}
+          <button type="button" aria-label={t("Закрыть")} onClick={close} className="flex h-12 w-12 items-center justify-center">
+            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <nav className="flex">
+        {DETAIL_TABS.map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setTab(item)}
+            className={`h-12 w-1/5 border-b-2 text-[13px] font-medium uppercase text-black ${tab === item ? "border-[#1E4A9A]" : "border-transparent"}`}
+          >
+            {t(item)}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "АКТИВНОСТЬ" && (
+        <div className="p-5">
+          <div>
+            <DetailMetricRow
+              left={{ label: t("Фактические продажи (30 дней)"), value: summary ? sumOf("actualSales") : "…" }}
+              right={{
+                label: t("Прошло дней с последнего заказа"),
+                value: summary ? (summary.daysSinceLastOrder === null ? DAYS_SINCE_ANCHOR : String(summary.daysSinceLastOrder)) : "…",
+                red: summary ? (summary.daysSinceLastOrder ?? Infinity) > 30 : true,
+              }}
+              bordered
+            />
+            <DetailMetricRow
+              left={{ label: t("Сумма продаж за период (30 дней)"), value: summary ? sumOf("orders") : "…" }}
+              right={{
+                label: t("Прошло дней с последнего визита"),
+                value: summary ? (summary.daysSinceLastVisit === null || summary.daysSinceLastVisit === undefined ? DAYS_SINCE_ANCHOR : String(summary.daysSinceLastVisit)) : "…",
+                red: summary ? (summary.daysSinceLastVisit ?? Infinity) > 30 : true,
+              }}
+              bordered
+            />
+            <DetailMetricRow
+              left={{ label: t("Сумма возврата с заказов за период (30 дней)"), value: summary ? sumOf("returns") : "…" }}
+              right={{ label: t("Комментарий отказа"), value: summary?.lastRefusalComment || t("Не указан") }}
+            />
           </div>
-        </header>
 
-        <nav className="flex">
-          {DETAIL_TABS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setTab(item)}
-              className={`h-12 w-1/5 border-b-2 text-[13px] font-medium uppercase text-black ${tab === item ? "border-[#1E4A9A]" : "border-transparent"}`}
-            >
-              {t(item)}
+          <div className="mt-5 flex flex-wrap gap-[10px]">
+            {(!fromActivity || withCall) && (
+              <span className="relative">
+                <button type="button" disabled={!hasPhone} aria-expanded={phoneOpen} onClick={() => setPhoneOpen((open) => !open)} className={`${actionButton} bg-[#71ce87]`}>
+                  <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
+                    <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+                  </svg>
+                  <span className="pl-2 pr-4">{t("Позвонить")}</span>
+                </button>
+                {phoneOpen && (
+                  <span className="absolute left-[-42px] top-[calc(100%+4px)] z-[20] flex min-w-[168px] flex-col rounded-[2px] bg-white py-[8px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                    {phones.map((phone) => (
+                      <a key={phone} href={`tel:${phone}`} className="whitespace-nowrap px-[20px] py-[10px] text-[13px] text-black hover:bg-[#f5f5f5]">
+                        {phone}
+                      </a>
+                    ))}
+                  </span>
+                )}
+              </span>
+            )}
+            <button type="button" onClick={() => openShopDialog("openOrderDialog")} className={`${actionButton} bg-[#1E4A9A]`}>
+              <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z" />
+              </svg>
+              <span className="pl-2 pr-4">{t("Заказать")}</span>
             </button>
-          ))}
-        </nav>
+            <button type="button" onClick={() => openShopDialog("openCreateVisit")} className={`${actionButton} bg-[#fa8072]`}>
+              <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" />
+              </svg>
+              <span className="pl-2 pr-4">{t("Отказ")}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/analytics/cash-management?openTransactionGroupCreateDialog=true&initialClient=${client.id}&initialClientName=${encodeURIComponent(client.name)}`)}
+              className={`${actionButton} bg-[#71ce87]`}
+            >
+              <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
+                <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
+              </svg>
+              <span className="pl-2 pr-4">{t("Добавить оплату")}</span>
+            </button>
+          </div>
 
-        {tab === "АКТИВНОСТЬ" && (
-          <div className="p-5">
-            <div>
-              <DetailMetricRow
-                left={{ label: t("Фактические продажи (30 дней)"), value: summary ? sumOf("actualSales") : "…" }}
-                right={{
-                  label: t("Прошло дней с последнего заказа"),
-                  value: summary ? (summary.daysSinceLastOrder === null ? DAYS_SINCE_ANCHOR : String(summary.daysSinceLastOrder)) : "…",
-                  red: summary ? (summary.daysSinceLastOrder ?? Infinity) > 30 : true,
-                }}
-                bordered
-              />
-              <DetailMetricRow
-                left={{ label: t("Сумма продаж за период (30 дней)"), value: summary ? sumOf("orders") : "…" }}
-                right={{
-                  label: t("Прошло дней с последнего визита"),
-                  value: summary ? (summary.daysSinceLastVisit === null || summary.daysSinceLastVisit === undefined ? DAYS_SINCE_ANCHOR : String(summary.daysSinceLastVisit)) : "…",
-                  red: summary ? (summary.daysSinceLastVisit ?? Infinity) > 30 : true,
-                }}
-                bordered
-              />
-              <DetailMetricRow
-                left={{ label: t("Сумма возврата с заказов за период (30 дней)"), value: summary ? sumOf("returns") : "…" }}
-                right={{ label: t("Комментарий отказа"), value: summary?.lastRefusalComment || t("Не указан") }}
-              />
+          {orderOpen && (
+            <AddOrderDialog
+              initialShopId={client.id}
+              onClose={() => {
+                setOrderOpen(false)
+                setDialogParam("openOrderDialog", false)
+              }}
+              onCreated={() => {
+                // Linko then shows the shop's ЗАДАЧИ (the new order is on its timeline).
+                setOrderOpen(false)
+                setDialogParam("openOrderDialog", false)
+                setTab("ЗАДАЧИ")
+              }}
+            />
+          )}
+
+          {refusalOpen && (
+            <RefusalCreateDialog
+              clientId={client.id}
+              onClose={() => {
+                setRefusalOpen(false)
+                setDialogParam("openCreateVisit", false)
+              }}
+              onSaved={() => {
+                setRefusalOpen(false)
+                setDialogParam("openCreateVisit", false)
+                setRefusalDone(true)
+                loadSummary()
+                window.setTimeout(() => setRefusalDone(false), 2500)
+              }}
+            />
+          )}
+          {refusalDone && <div className="fixed bottom-6 right-6 z-[60] rounded-md bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-xl">{t("Успешно сохранено")}</div>}
+
+          <div className="pt-[19px]">
+            <DetailSectionTitle>{t("Агенты магазина")}</DetailSectionTitle>
+            <div className={`-mx-2 mr-[12px] flex items-center pb-[18px] pt-[19px] ${DOTTED_ROW}`}>
+              <div className="w-[25%] shrink-0 px-2">{t("Агент")}</div>
+              <div className="w-[25%] shrink-0 px-2">{t("Комментарий")}</div>
+              <div className="flex-1 px-2">{t("Прайс лист")}</div>
+              <div className="flex w-[8.333%] shrink-0 justify-center px-2">
+                <button type="button" aria-label={t("Изменить")} title={t("Изменить")} onClick={() => setAgentsOpen(true)} className="flex h-5 w-5 items-center justify-center">
+                  {pencil}
+                </button>
+              </div>
             </div>
-
-            <div className="mt-5 flex gap-[10px]">
-              {(!fromActivity || withCall) && <span className="relative"><button
-                type="button"
-                disabled={!hasPhone}
-                aria-expanded={phoneOpen}
-                onClick={() => setPhoneOpen((open) => !open)}
-                className={`${actionButton} bg-[#71ce87]`}
-              >
-                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
-                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
-                </svg>
-                <span className="pl-2 pr-4">{t("Позвонить")}</span>
-              </button>
-              {phoneOpen && (
-                <span className="absolute left-[-42px] top-[calc(100%+4px)] z-[20] flex min-w-[168px] flex-col rounded-[2px] bg-white py-[8px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-                  {phones.map((phone) => (
-                    <a key={phone} href={`tel:${phone}`} className="whitespace-nowrap px-[20px] py-[10px] text-[13px] text-black hover:bg-[#f5f5f5]">
-                      {phone}
-                    </a>
-                  ))}
-                </span>
-              )}
-              </span>}
-              <button type="button" onClick={() => setOrderOpen(true)} className={`${actionButton} bg-[#1E4A9A]`}>
-                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z" />
-                </svg>
-                <span className="pl-2 pr-4">{t("Заказать")}</span>
-              </button>
-              <button type="button" onClick={() => setRefusalOpen(true)} className={`${actionButton} bg-[#fa8072]`}>
-                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" />
-                </svg>
-                <span className="pl-2 pr-4">{t("Отказ")}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => router.push(`/analytics/cash-management?openTransactionGroupCreateDialog=true&initialClient=${client.id}&initialClientName=${encodeURIComponent(client.name)}`)}
-                className={`${actionButton} bg-[#71ce87]`}
-              >
-                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
-                  <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
-                </svg>
-                <span className="pl-2 pr-4">{t("Добавить оплату")}</span>
-              </button>
-            </div>
-
-            {orderOpen && (
-              <AddOrderDialog initialShopId={client.id} onClose={() => setOrderOpen(false)} onCreated={() => setOrderOpen(false)} />
-            )}
-
-            {refusalOpen && (
-              <RefusalCreateDialog
+            {/* Linko lists the shop's market users: each agent with its comment and price lists (one per line). */}
+            {(agents ?? []).map((agent) => (
+              <div key={agent.employeeId} className={`-mx-2 mr-[12px] flex items-center py-[17px] ${DOTTED_ROW}`}>
+                <div className="w-[25%] shrink-0 px-2">{agent.name}</div>
+                <div className="w-[25%] shrink-0 px-2">{agent.description || "-"}</div>
+                <div className="flex-1 px-2">{agent.priceLists.length ? agent.priceLists.map((list) => <p key={list.id}>{list.name}</p>) : "-"}</div>
+              </div>
+            ))}
+            {agentsOpen && (
+              <ClientAgentsDialog
                 clientId={client.id}
-                onClose={() => setRefusalOpen(false)}
-                onSaved={() => {
-                  setRefusalOpen(false)
-                  setRefusalDone(true)
-                  loadSummary()
-                  window.setTimeout(() => setRefusalDone(false), 2500)
+                agents={agents ?? []}
+                onClose={() => setAgentsOpen(false)}
+                onSaved={(rows) => {
+                  setAgents(rows)
+                  setAgentsOpen(false)
                 }}
               />
             )}
-            {refusalDone && (
-              <div className="fixed bottom-6 right-6 z-[60] rounded-md bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-xl">
-                {t("Успешно сохранено")}
-              </div>
-            )}
 
-            <div className="pt-[19px]">
-              <DetailSectionTitle>{t("Агенты магазина")}</DetailSectionTitle>
-              <div className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] pb-[18px] pt-[19px]">
-                <div className="w-[134px] shrink-0 px-2">{t("Агент")}</div>
-                <div className="w-[134px] shrink-0 px-2">{t("Комментарий")}</div>
-                <div className="flex-1 px-2">{t("Прайс лист")}</div>
-                <div className="flex w-[44.7px] shrink-0 justify-center px-2">
-                  <button type="button" aria-label={t("Изменить")} title={t("Изменить")} onClick={() => setAgentsOpen(true)} className="flex h-5 w-5 items-center justify-center">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
-                      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              {/* Linko lists the shop's market users: each agent with its comment and price lists (one per line). */}
-              {(agents ?? []).map((agent) => (
-                <div key={agent.employeeId} className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
-                  <div className="w-[134px] shrink-0 px-2">{agent.name}</div>
-                  <div className="w-[134px] shrink-0 px-2">{agent.description || "-"}</div>
-                  <div className="flex-1 px-2">{agent.priceLists.length ? agent.priceLists.map((list) => <p key={list.id}>{list.name}</p>) : "-"}</div>
-                </div>
-              ))}
-              {agentsOpen && (
-                <ClientAgentsDialog
-                  clientId={client.id}
-                  agents={agents ?? []}
-                  onClose={() => setAgentsOpen(false)}
-                  onSaved={(rows) => {
-                    setAgents(rows)
-                    setAgentsOpen(false)
-                  }}
-                />
-              )}
-
-              <div className="mt-[30px]">
-                <DetailSectionTitle>{t("Маршруты")}</DetailSectionTitle>
-                <div className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
-                  <div className="w-[134px] shrink-0 px-2">{t("Агент")}</div>
-                  <div className="w-[178.7px] shrink-0 px-2">{t("Частота посещения")}</div>
-                  <div className="flex-1 px-2">{t("Дни недели")}</div>
-                  <div className="flex w-[44.7px] shrink-0 justify-center px-2">
+            <div className="mt-[30px]">
+              <DetailSectionTitle>{t("Маршруты")}</DetailSectionTitle>
+              <div className={`-mx-2 mr-[12px] flex items-center py-[17px] ${DOTTED_ROW}`}>
+                <div className="w-[25%] shrink-0 px-2">{t("Агент")}</div>
+                <div className="w-[33.333%] shrink-0 px-2">{t("Частота посещения")}</div>
+                <div className="flex-1 px-2">{t("Дни недели")}</div>
+                <div className="flex w-[8.333%] shrink-0 justify-center px-2">
+                  {/* Linko's pencil opens its Клиенты list in a new tab with this shop picked for «Маршрут». */}
+                  <a href={routesHref} target="_blank" rel="noopener noreferrer" aria-label={t("Изменить")} title={t("Изменить")} className="flex">
                     <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]">
                       <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
                     </svg>
-                  </div>
+                  </a>
                 </div>
-                {fromActivity && routes !== null && routes.length === 0 && (
-                  <div className="relative h-[118px]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/robot-empty.png" alt="" className="absolute left-1/2 top-[10px] h-[103px] w-[100px] -translate-x-1/2 object-contain" />
-                    <div className="absolute inset-x-0 top-[101px] text-center text-[13px] leading-[16.25px] text-[#666]">{t("Маршрут отсутствует")}</div>
-                  </div>
-                )}
-                {(routes ?? []).map((route) => (
-                  <div key={route.id} className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
-                    <div className="w-[134px] shrink-0 px-2">{route.agent}</div>
-                    <div className="w-[178.7px] shrink-0 px-2">{t(route.frequency)}</div>
-                    <div className="flex flex-1 flex-wrap gap-[8px] px-2">
-                      {route.days.map((day) => (
-                        <span key={day} className="rounded-[2px] bg-[#eeeeee] px-[9px] py-[4px] text-[13px] text-[#333]">
-                          {t(day)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
               </div>
-
-              <div className={fromActivity ? "mt-[21px] pb-[15px]" : "mt-[21px]"}>
-                <div className="mb-[22px] flex h-[35px] items-center justify-between">
-                  <span className="text-base font-bold leading-[35px]">{t("Баланс")}</span>
-                  <span className="mr-[15px] w-[200px] text-right text-[13px] font-bold text-[#1E4A9A]">
-                    {t(formatDetailDate(periodStart))} - {t(formatDetailDate(periodEnd))}
-                  </span>
-                </div>
-                <div className={`grid grid-cols-2 gap-[15.5px] ${fromActivity && !hasBalance ? "hidden" : ""}`}>
-                  {[
-                    { label: t("Баланс на начало периода"), value: summary ? sumOf("begin") : "…", negative: beginNegative },
-                    { label: t("Баланс на конец периода"), value: summary ? sumOf("end") : "…", negative: endNegative },
-                  ].map((card) => (
-                    <div key={card.label} className="rounded-[10px] bg-[#f3f3f3] p-[10px]">
-                      <div className="ml-[9px]">
-                        <div className="pb-1 text-[#8c8c8c]">{card.label}</div>
-                        <span className={`font-semibold ${card.negative ? "text-[#e57373]" : "text-[#48a34b]"}`}>{card.value}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {summary?.lastPayment && (
-                  <div className="mt-[15px]">
-                    {t("Последняя дата платежа")}:
-                    <span className="ml-[9px] font-semibold">{formatDateText(summary.lastPayment, language)}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tab === "ЗАДАЧИ" && (
-          <div className="p-5">
-            <button type="button" className="mb-5 h-[34px] w-full rounded-[5px] bg-[#1E4A9A] text-[13px] font-semibold text-white">
-              {t("Создать задачу")}
-            </button>
-            <div className="relative pt-[10px]">
-              {tasks.length === 0 ? (
-                <div className="flex flex-col items-center py-[30px] text-[#666]">
+              {routes !== null && routes.length === 0 && (
+                // Linko's 60 px robot centred in the 116 px box, the text under it.
+                <div className="relative h-[116px]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/robot-empty.png" alt="" className="w-[150px]" />
-                  <span className="mt-[20px]">{t("Задач по этому клиенту нет")}</span>
+                  <img src="/robot-empty.png" alt="" className="absolute left-1/2 top-1/2 w-[60px] -translate-x-1/2 -translate-y-1/2 object-contain" />
+                  <div className="absolute inset-x-0 top-[100px] text-center text-[13px] leading-[16.25px] text-[#666]">{t("Маршрут отсутствует")}</div>
                 </div>
-              ) : (
-                <>
-                <span className="absolute bottom-0 left-[8px] top-0 w-[3px] bg-[#22a6c6]" />
-                {tasks.map((task, index) => (
-                  <div key={index} className="relative mb-[10px] pl-[41px]">
-                    <span className="absolute left-0 top-[15px] h-4 w-4 rounded-full bg-[#22a6c6]" />
-                    <div className="relative mr-[10px] rounded-[2px] bg-white px-5 py-[15px] text-[#666] shadow-[0_1px_6px_rgba(0,0,0,0.25)]">
-                      <span className="absolute -left-[9px] top-[13px] h-0 w-0 border-y-[9px] border-r-[9px] border-y-transparent border-r-white" />
-                      <div className="flex justify-between">
-                        <h2 className="mb-[10px] text-base font-bold leading-[16px]">{task.by ?? "—"}</h2>
-                        {task.at && <p className="mb-[10px]">{t(task.at)}</p>}
-                      </div>
-                      <div className={`flex items-center gap-[10px] font-semibold ${task.done ? "h-[25px]" : "h-[23px]"}`}>
-                        <svg viewBox="0 0 24 24" className={`h-5 w-5 ${task.done ? "fill-[#92ce95]" : "fill-[#f0ad4e]"}`}>
-                          {task.done ? (
-                            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-                          ) : (
-                            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
-                          )}
-                        </svg>
-                        <span>
-                          {task.translated ? task.text : t(task.text)}
-                          {task.link && (
-                            <>
-                              {" ("}
-                              <a className="cursor-pointer text-[#129fdd]">{t("Просмотреть")}</a>
-                              {")"}
-                            </>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                </>
               )}
+              {(routes ?? []).map((route) => (
+                // Linko's rows are 80 px high whatever they hold (two lines of chips spill into the padding).
+                <div key={route.id} className={`-mx-2 mr-[12px] flex h-[80px] items-center py-[20px] ${DOTTED_ROW}`}>
+                  <div className="flex min-h-[40px] w-[25%] shrink-0 items-center px-2">{route.agent}</div>
+                  <div className="w-[33.333%] shrink-0 px-2">{t(route.frequency)}</div>
+                  {/* Linko's 28 px day chips, four to a line in its 5/12 column. */}
+                  <div className="flex w-[41.667%] shrink-0 flex-wrap px-2">
+                    {route.days.map((day) => (
+                      <span key={day} className="my-[5px] mr-[10px] flex h-[28px] items-center rounded-[2px] bg-[#e9ecef] px-[10px] text-[13px] leading-[13px] text-[#333]">
+                        {t(day)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-            {visitsCursor && (
-              <button type="button" disabled={loadingMore} onClick={loadMore} className="mx-auto mt-[10px] block h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {t("Загрузить еще...")}
-              </button>
-            )}
-          </div>
-        )}
 
-        {tab === "КЛИЕНТ" && (
-          <div className="px-[30px] pt-[15px] pb-6">
+            <ShopBalanceBlock
+              key={client.id}
+              clientId={client.id}
+              clientName={client.name}
+              lastPayment={card ? { copied: card.copied, linko: card.lastPaymentDate, own: card.ownLastPaymentDate } : null}
+              bottomPadding={fromActivity}
+            />
+          </div>
+        </div>
+      )}
+
+      {tab === "ЗАДАЧИ" && <ShopTasksTab key={client.id} clientId={client.id} clientName={client.name} />}
+
+      {tab === "КЛИЕНТ" && (
+        <div className="px-[30px] pb-6 pt-[15px]">
+          {onShopPage ? (
             <div className="flex h-[300px] flex-col items-center justify-center border border-dashed border-[#c5ced6] bg-[#f0f4f8] text-center text-[#999]">
               <span className="max-w-[90px] text-[11px]">{t("Фото отсутствует")}</span>
               <span className="my-[8.85px] block h-px w-16 bg-[#bbb]" />
@@ -2908,207 +2770,214 @@ export function ClientDetail({
                 {t("добавить фото")}
               </button>
             </div>
-            <div className="flex">
-              {CLIENT_SUBTABS.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setSubTab(item)}
-                  className={`flex h-12 w-1/4 items-center justify-center whitespace-nowrap border-b-2 text-[13px] font-medium uppercase text-black ${subTab === item ? "border-[#1E4A9A]" : "border-transparent"}`}
-                >
-                  {t(item)}
-                </button>
+          ) : (
+            // Linko's store picture of a card opened from another page.
+            <div className="-mx-[30px] -mt-[15px] mb-[15px] h-[250px] bg-[#f2f5f8] bg-[url('/shop-placeholder.svg')] bg-[length:220px] bg-center bg-no-repeat opacity-75" />
+          )}
+          <div className="flex">
+            {subTabs.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setSubTab(item)}
+                style={{ width: `${100 / subTabs.length}%` }}
+                className={`flex h-12 items-center justify-center whitespace-nowrap border-b-2 text-[13px] font-medium uppercase text-black ${subTab === item ? "border-[#1E4A9A]" : "border-transparent"}`}
+              >
+                {t(item)}
+              </button>
+            ))}
+          </div>
+
+          {subTab === "ДЕТАЛИ" && (
+            <div>
+              <DetailListTitle>{t("Детали")}</DetailListTitle>
+              <DetailListRow label={t("Прайс лист:")} value={card ? card.priceList || t("Не указано") : "…"} bold />
+              <DetailListRow label={t("Тел. номер:")} value={/^\d{9}$/.test(client.phone) ? `+998${client.phone}` : client.phone || "-"} bold />
+              <DetailListRow label={t("Финансовый счет:")} value={card ? card.account || client.name : "…"} />
+              <DetailListRow label={t("Класс клиента:")} value={card?.marketClass || "-"} />
+              <DetailListRow label={t("Ответственный агент:")} value={client.agent && client.agent !== "Не указано" ? client.agent : t("Не указан")} />
+              <DetailListRow label={t("Тип заведения:")} value={client.type} />
+              {/* Linko fills «Частота посещений» from a field its markets never carry: the row stays empty. */}
+              <DetailListRow label={t("Частота посещений:")} value="" />
+              <DetailListRow label={t("Создал:")} value={card?.createdBy || client.createdBy || t("Неизвестно")} />
+              <DetailListRow label={t("Дата:")} value={createdDay} />
+              <DetailListRow label={t("Зона:")} value={client.zone} />
+              <DetailListRow
+                label={t("Локация:")}
+                value={
+                  hasLocation ? (
+                    <>
+                      {Number(client.locationLat!.toFixed(6))}, {Number(client.locationLng!.toFixed(6))}
+                      <a
+                        className="-mt-[8px] ml-auto block w-fit cursor-pointer text-[12px] text-[#1E4A9A]"
+                        href={`https://www.google.com/maps?q=${client.locationLat},${client.locationLng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {t("показать на карте")}
+                      </a>
+                    </>
+                  ) : (
+                    t("Не указано")
+                  )
+                }
+              />
+              <DetailListRow label={t("Статус ИНН:")} value={innStatus ? t("Правильный ИНН") : t("Неправильный ИНН")} />
+              <DetailListRow label={t("Ответственный доставщик:")} value={client.deliverer} />
+              <DetailListRow label={t("Ответственный инкассатор:")} value={client.collector} />
+              {/* Linko's market options (the client attributes): ИНН, PRICE_LIST_ID … */}
+              {attributes.map(([name, value]) => (
+                <DetailListRow key={name} label={`${name}:`} value={String(value)} />
               ))}
+
+              <DetailListTitle className="mt-[18px]">{t("Контакты")}</DetailListTitle>
+              <DetailListRow label={t("Имя:")} value={client.contactPerson ?? ""} />
+              <DetailListRow label={t("Адрес:")} value={client.address ?? ""} />
+              <DetailListRow label={t("Ориентир:")} value={client.landmark ?? ""} />
+
+              <DetailListTitle className="mt-[19px]">{t("Класс клиента")}</DetailListTitle>
+              <DetailListRow label={t("Названия класса")} value={t("Организация")} bold />
+              {(card?.classDivisions ?? []).map((item, index) => (
+                <DetailListRow key={index} label={item.className || t("Не указано")} value={item.division || t("Не указано")} />
+              ))}
+              <ShopDrawerGears clientId={client.id} />
             </div>
+          )}
 
-            {subTab === "ДЕТАЛИ" && (
-              <div>
-                <DetailListTitle>{t("Детали")}</DetailListTitle>
-                <DetailListRow label={t("Прайс лист:")} value={t("Не указано")} bold />
-                <DetailListRow label={t("Тел. номер:")} value={/^\d{9}$/.test(client.phone) ? `+998${client.phone}` : client.phone || "-"} bold />
-                <DetailListRow label={t("Финансовый счет:")} value={client.name} />
-                <DetailListRow label={t("Класс клиента:")} value="-" />
-                <DetailListRow label={t("Ответственный агент:")} value={client.agent} />
-                <DetailListRow label={t("Тип заведения:")} value={client.type} />
-                <DetailListRow label={t("Частота посещений:")} value="" />
-                <DetailListRow label={t("Создал:")} value={client.createdBy || "—"} />
-                <DetailListRow label={t("Дата:")} value={t(createdDateText(client.createdAt))} />
-                <DetailListRow label={t("Зона:")} value={client.zone} />
-                <DetailListRow
-                  label={t("Локация:")}
-                  value={
-                    hasLocation ? (
-                      <>
-                        {client.locationLat!.toFixed(6)}, {client.locationLng!.toFixed(6)}
-                        <a
-                          className="-mt-[8px] ml-auto block w-fit cursor-pointer text-[12px] text-[#1E4A9A]"
-                          href={`https://www.google.com/maps?q=${client.locationLat},${client.locationLng}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {t("показать на карте")}
-                        </a>
-                      </>
-                    ) : (
-                      "-"
-                    )
-                  }
-                />
-                <DetailListRow label={t("Статус ИНН:")} value={client.inn ? t("Правильный ИНН") : t("Неправильный ИНН")} />
-                <DetailListRow label={t("Ответственный доставщик:")} value={client.deliverer} />
-                <DetailListRow label={t("Ответственный инкассатор:")} value={client.collector} />
+          {subTab === "ФИНАНСОВЫЕ НАСТРОЙКИ" && (
+            <div className="pt-[10px]">
+              <ClientDebtLimits clientId={client.id} />
+              <ShopFinanceSettings card={card} />
+            </div>
+          )}
 
-                <DetailListTitle className="mt-[18px]">{t("Контакты")}</DetailListTitle>
-                <DetailListRow label={t("Имя:")} value={client.contactPerson || "-"} />
-                <DetailListRow label={t("Адрес:")} value={client.address || "-"} />
-                <DetailListRow label={t("Ориентир:")} value={client.landmark || "-"} />
+          {subTab === "ЛОГИ" && <ShopLogsTab key={client.id} clientId={client.id} />}
 
-                <DetailListTitle className="mt-[19px]">{t("Класс клиента")}</DetailListTitle>
-                <DetailListRow label={t("Названия класса")} value={t("Организация")} bold />
-              </div>
-            )}
+          {subTab === "ДОГОВОРЫ" && <ShopContractsTab key={client.id} clientId={client.id} />}
+        </div>
+      )}
 
-            {subTab === "ФИНАНСОВЫЕ НАСТРОЙКИ" && (
-              <div className="pt-[10px]">
-                <ClientDebtLimits clientId={client.id} />
-                <div className="border-t border-[#e5e5e5] pt-[14px]">
-                  <h3 className="text-[15px] font-semibold">{t("Финансовые настройки")}</h3>
-                  <div className="flex items-center border-b border-[#e5e5e5] pb-[2px] pt-[14px] text-[13px] font-semibold leading-[18px]">
-                    {t("Без автоматических бонусов:")}
-                    <X className="ml-2 h-5 w-5 text-[#e57373]" />
-                  </div>
-                  <div className="flex h-[45px] items-center border-b border-[#e5e5e5] text-[13px] font-semibold">
-                    {t("Маркетинговые акции:")}
-                    <span className="ml-[10px] inline-flex h-[26px] items-center rounded-full bg-[#ff9a9a] px-[5px] text-[13px] font-normal text-white">{t("Нет данных")}</span>
-                  </div>
-                  <div className="flex h-[47px] items-center text-[13px] font-semibold">
-                    KPI:
-                    <span className="ml-[10px] inline-flex h-[26px] items-center rounded-full bg-[#ff9a9a] px-[5px] text-[13px] font-normal text-white">{t("Нет данных")}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {subTab === "ЛОГИ" && (
-              <div className="pt-[10px]">
-                <div className="flex items-center justify-center gap-2 py-3">
-                  <b className="mr-1">{t("Фильтры:")}</b>
-                  {LOG_FILTERS.map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => setLogFilter(item)}
-                      className={`h-[26px] rounded-full border px-4 ${logFilter === item ? "border-[#1E4A9A] bg-[#1E4A9A] font-semibold text-white" : "border-[#ccc] bg-white"}`}
-                    >
-                      {t(item)}
-                    </button>
-                  ))}
-                </div>
-                <DetailPager total={(cardLogs ?? []).length} />
-                <div className="mt-4 grid grid-cols-[89px_134px_89px_134px_1fr] border-b border-dashed border-[#d8d8d8] pb-4 pt-3 font-semibold">
-                  <span>{t("Тип")}</span>
-                  <span>{t("Статус")}</span>
-                  <span>{t("Кем")}</span>
-                  <span>{t("Дата создания")}</span>
-                  <span>{t("Сумма")}</span>
-                </div>
-                {cardLogs === null ? (
-                  <p className="py-6 text-center text-[#888]">{t("Загрузка...")}</p>
-                ) : (
-                  cardLogs
-                    .filter((log) => logFilter === "Все" || (logFilter === "Финансы" ? log.type === "Оплата" : log.type === logFilter))
-                    .map((log, index) => (
-                      <div key={index} className="grid grid-cols-[89px_134px_89px_134px_1fr] items-center border-b border-dashed border-[#d8d8d8] py-4">
-                        <span>{t(log.type)}</span>
-                        <span>
-                          {log.status === "Отменен" || log.status === "Удаленный" ? (
-                            <span className="inline-block w-[118px] rounded-full border border-[#e57373] py-[2px] text-center text-[#e57373]">{t(log.status)}</span>
-                          ) : log.status === "Создан" ? (
-                            <span className="inline-block w-[118px] rounded-full border border-[#48a34b] py-[2px] text-center text-[#48a34b]">{t(log.status)}</span>
-                          ) : (
-                            t(log.status)
-                          )}
-                        </span>
-                        <span className="truncate pr-2">{log.by}</span>
-                        <span className="pr-3">{t(log.at)}</span>
-                        <span>{log.sum}</span>
-                      </div>
-                    ))
-                )}
-              </div>
-            )}
-
-            {subTab === "ДОГОВОРЫ" && (
-              <div className="pt-[10px]">
-                <DetailPager total={0} />
-                <div className="mt-4 grid grid-cols-[179px_179px_1fr] border-b border-dashed border-[#d8d8d8] pb-4 pt-3 font-semibold">
-                  <span>№</span>
-                  <span>{t("Дата")}</span>
-                  <span>{t("Организация")}</span>
-                </div>
-                <p className="py-8 text-center text-[#333]">{t("Ничего не найдено")}</p>
+      {(tab === "ОТЧЕТЫ" || tab === "ОТКАЗЫ") &&
+        (fieldRecords === null || fieldRecords.tab !== tab ? (
+          <p className="py-6 text-center text-[#888]">{t("Загрузка...")}</p>
+        ) : fieldRecords.rows.length === 0 ? (
+          <div className="flex flex-col items-center pt-[18px] text-[#666]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/robot-empty.png" alt="" className="w-[120px]" />
+            <span>{fieldRecords.error ? t(fieldRecords.error) : tab === "ОТЧЕТЫ" ? t("Отчеты не найдены") : t("Отказы не найдены")}</span>
+          </div>
+        ) : (
+          // Linko's cards run 10 px from the drawer's edges.
+          <div className="px-[10px] pb-5 pt-[10px]">
+            {fieldRecords.rows.map((record) => (
+              <FieldRecordCard key={record.id} record={record} kind={tab === "ОТЧЕТЫ" ? "photo_report" : "refusal"} clientName={client.name} />
+            ))}
+            {fieldRecords.nextCursor && (
+              <div className="flex flex-col items-center gap-[6px] pt-2">
+                <span className="text-[12px] text-[#888]">
+                  {fieldRecords.rows.length} / {fieldRecords.count}
+                </span>
+                <button type="button" disabled={loadingMore} onClick={loadMore} className="h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                  {t("Загрузить еще...")}
+                </button>
               </div>
             )}
           </div>
-        )}
-
-        {(tab === "ОТЧЕТЫ" || tab === "ОТКАЗЫ") &&
-          (fieldRecords === null || fieldRecords.tab !== tab ? (
-            <p className="py-6 text-center text-[#888]">{t("Загрузка...")}</p>
-          ) : fieldRecords.rows.length === 0 ? (
-            <div className="flex flex-col items-center pt-[18px] text-[#666]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/robot-empty.png" alt="" className="w-[120px]" />
-              <span>{fieldRecords.error ? t(fieldRecords.error) : tab === "ОТЧЕТЫ" ? t("Отчеты не найдены") : t("Отказы не найдены")}</span>
-            </div>
-          ) : (
-            <div className="p-5">
-              {fieldRecords.rows.map((record) => (
-                <FieldRecordCard key={record.id} record={record} kind={tab === "ОТЧЕТЫ" ? "photo_report" : "refusal"} />
-              ))}
-              {fieldRecords.nextCursor && (
-                <div className="flex flex-col items-center gap-[6px] pt-2">
-                  <span className="text-[12px] text-[#888]">
-                    {fieldRecords.rows.length} / {fieldRecords.count}
-                  </span>
-                  <button type="button" disabled={loadingMore} onClick={loadMore} className="h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                    {t("Загрузить еще...")}
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-      </aside>
-    </>
+        ))}
+    </aside>
   )
 }
 
-/** One refusal or photo report of the client card (field data): who, when, reason / comment and the photos. */
-function FieldRecordCard({ record, kind }: { record: FieldRecordRow; kind: "refusal" | "photo_report" }) {
+/** One refusal or photo report of the client card (field data), as Linko's cards: a refusal shows who, the moment on a
+ * grey line, «Клиент: <shop>» and the reason; a photo report shows who, its photos (each with its «до» / «после»
+ * badge) and the moment. */
+function FieldRecordCard({ record, kind, clientName }: { record: FieldRecordRow; kind: "refusal" | "photo_report"; clientName: string }) {
   const { t, language } = useLanguage()
   const badge = (slot: string) => (slot === "before" ? t("до") : slot === "after" ? t("после") : "")
+  const when = formatDateText(record.at, language, { withTime: true })
+  const who = record.employeeName || `#${record.employeeId}`
+  if (kind === "refusal") {
+    return (
+      <div className="mb-[10px] rounded-[2px] bg-white px-[15px] py-[20px] text-[13px] leading-[16.25px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <h2 className="text-base font-semibold leading-[22px]">{who}</h2>
+        <p className="mt-[7px] text-base leading-[22px] text-[#999]">{when}</p>
+        <p className="mt-[6px]">
+          {t("Клиент")}: <b className="font-semibold">{clientName}</b>
+        </p>
+        {[record.reason, record.comment].filter((text) => text && text.trim()).map((text, index) => (
+          <p key={index} className="whitespace-pre-line">
+            {text}
+          </p>
+        ))}
+      </div>
+    )
+  }
+  // Every before photo, then every after photo (Linko's order). A report copied from Linko has no picture files (its
+  // server answers 404 for them), so its slots come from the photo groups' counts and show their badges only, as
+  // Linko's own card does with the missing pictures.
+  const slots: Array<{ key: string; slot: string; url: string | null }> = record.photos.length
+    ? [...record.photos].sort((a, b) => Number(b.slot === "before") - Number(a.slot === "before")).map((photo) => ({ key: `photo:${photo.id}`, slot: photo.slot as string, url: photo.url }))
+    : (["before", "after"] as const).flatMap((slot) =>
+        Array.from({ length: (record.photoTypes ?? []).reduce((sum, group) => sum + (Number(group[slot]) || 0), 0) }, (_, index) => ({ key: `${slot}:${index}`, slot, url: null })),
+      )
   return (
-    <div className="mb-[10px] rounded-[2px] bg-white px-5 py-[15px] text-[#666] shadow-[0_1px_6px_rgba(0,0,0,0.25)]">
-      <div className="flex justify-between gap-3">
-        <h2 className="mb-[10px] text-base font-bold leading-[16px]">{record.employeeName || `#${record.employeeId}`}</h2>
-        <p className="mb-[10px] whitespace-nowrap">{formatDateText(record.at, language, { withTime: true })}</p>
-      </div>
-      <div className="font-semibold">
-        {kind === "refusal" ? `${t("Отказ")} № ${record.id}` : t("Фото отчет № {id}").replace("{id}", String(record.id))}
-        {kind === "refusal" && record.reason ? `: ${record.reason}` : ""}
-      </div>
-      {record.comment ? <p className="mt-[6px] whitespace-pre-line text-[#333]">{record.comment}</p> : null}
-      {record.photos.length > 0 && (
-        <div className="mt-[10px] flex flex-wrap gap-[8px]">
-          {record.photos.map((photo) => (
-            <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="relative block h-[90px] w-[90px] overflow-hidden rounded-[4px] border border-[#d9dde3]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photo.url} alt={badge(photo.slot) || t("Фото")} loading="lazy" className="h-full w-full object-cover" />
-              {badge(photo.slot) && <span className="absolute left-[2px] top-[2px] rounded-full bg-[#555] px-[6px] text-[10px] font-semibold text-white">{badge(photo.slot)}</span>}
-            </a>
-          ))}
+    <div className="mb-[10px] rounded-[2px] bg-white px-[15px] py-[20px] text-[13px] leading-[16.25px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+      <h2 className="text-[15px] font-semibold leading-[18.75px]">{who}</h2>
+      {slots.length > 0 && (
+        // Linko's grid: up to five equal columns, 10 px apart (its card is 20 px wider, past the drawer's edge).
+        <div className="mt-[10px] grid grid-cols-[repeat(auto-fit,minmax(98px,1fr))] gap-[10px]">
+          {slots.map((photo) =>
+            photo.url ? (
+              <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer" className="relative block">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photo.url} alt={badge(photo.slot) || t("Фото")} loading="lazy" className="block w-full object-contain" />
+                {badge(photo.slot) && <span className="absolute left-[8px] top-[8px] bg-[#333] px-[8px] py-[2px] text-[11px] font-semibold leading-[13.75px] text-white">{badge(photo.slot)}</span>}
+              </a>
+            ) : (
+              <div key={photo.key} className="relative">
+                {badge(photo.slot) && <span className="absolute left-[8px] top-[8px] bg-[#333] px-[8px] py-[2px] text-[11px] font-semibold leading-[13.75px] text-white">{badge(photo.slot)}</span>}
+              </div>
+            ),
+          )}
         </div>
       )}
+      <p className="mt-[10px] text-[15px] leading-[18.75px] text-[#999]">{when}</p>
+    </div>
+  )
+}
+
+/** КЛИЕНТ → ФИНАНСОВЫЕ НАСТРОЙКИ under «Лимит долга» (Linko's #/shop card only): the price list, «Без автоматических
+ * бонусов» and the shop's marketing promotions and KPIs as chips. */
+function ShopFinanceSettings({ card }: { card: ShopCard | null }) {
+  const { t } = useLanguage()
+  const chips = (names: string[]) =>
+    names.length ? (
+      names.map((name) => (
+        <span key={name} className="mb-[4px] mr-[10px] inline-flex h-[26px] items-center rounded-full bg-[#e0e0e0] px-[5px] text-[13px] font-normal leading-[26px] text-[#333]">
+          {name}
+        </span>
+      ))
+    ) : (
+      <span className="inline-flex h-[26px] items-center rounded-full bg-[#ff9a9a] px-[5px] text-[13px] font-normal text-white">{t("Нет данных")}</span>
+    )
+  return (
+    <div className="border-t border-[#e5e5e5] pt-[14px]">
+      <h3 className="text-[15px] font-semibold">{t("Финансовые настройки")}</h3>
+      <div className="pt-[14px] text-[13px] font-semibold leading-[18px]">
+        {t("Прайс лист")}: <span className="font-normal">{card ? card.priceList || t("Не указано") : "…"}</span>
+      </div>
+      <div className="flex items-center border-b border-[#e5e5e5] pb-[2px] pt-[6px] text-[13px] font-semibold leading-[18px]">
+        {t("Без автоматических бонусов:")}
+        {card?.withoutBonus ? <CheckCircle2 className="ml-2 h-5 w-5 text-[#81c784]" /> : <X className="ml-2 h-5 w-5 text-[#e57373]" />}
+      </div>
+      <div className="flex min-h-[45px] flex-wrap items-center border-b border-[#e5e5e5] pt-[4px] text-[13px] font-semibold">
+        <span className="mb-[4px] mr-[10px]">{t("Маркетинговые акции:")}</span>
+        {chips(card?.promotions ?? [])}
+      </div>
+      <div className="flex min-h-[47px] flex-wrap items-center pt-[4px] text-[13px] font-semibold">
+        <span className="mb-[4px] mr-[10px]">KPI:</span>
+        {chips(card?.kpis ?? [])}
+      </div>
     </div>
   )
 }
@@ -3147,29 +3016,6 @@ function DetailListRow({ label, value, bold }: { label: string; value: React.Rea
     <div className={`flex min-h-[25px] items-stretch justify-between leading-[25px] ${bold ? "font-semibold" : ""}`}>
       <span>{label}</span>
       <span className="text-right">{value}</span>
-    </div>
-  )
-}
-
-function DetailPager({ total }: { total: number }) {
-  const { t } = useLanguage()
-  const arrow = "flex h-5 w-5 items-center justify-center rounded-full border border-[#999] text-[#999]"
-  return (
-    <div className="flex items-center justify-center gap-4 text-[#666]">
-      <span className="flex items-center gap-1">
-        25 <ChevronDown className="h-4 w-4 text-[#bbb]" />
-      </span>
-      <span>
-        {total === 0 ? 0 : 1} - {total} {t("из")} {total}
-      </span>
-      <span className="flex gap-2">
-        <span className={arrow}>
-          <ChevronLeft className="h-3 w-3" />
-        </span>
-        <span className={arrow}>
-          <ChevronRight className="h-3 w-3" />
-        </span>
-      </span>
     </div>
   )
 }

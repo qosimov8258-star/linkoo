@@ -30,7 +30,9 @@ import { num } from "@/lib/cash/common"
 // client resolution are the ledger's own (lib/finance/sources.ts: counted
 // statuses — not Отменен / Не подтвержден —, orders.client_id first, by name for
 // legacy rows, orders of a client that does not exist are not counted); such
-// orders come back with `counted: false` and no share.
+// orders come back with `counted: false` and no share. Orders copied from
+// Linko keep Linko's own paid / remaining instead (linkoFixedDues, as "Долги с
+// заказов" does); the pool then pays the app's own orders only.
 //
 // Orders are linked to clients by orders.client_id when that column exists
 // (contract 6), else by name (legacy rows).
@@ -56,6 +58,8 @@ export type AllocatedOrderDueCurrency = OrderDueCurrency & {
   linked: number
   /** FIFO share of the client's other credits. */
   allocated: number
+  /** An order copied from Linko: paid / remaining are Linko's own figures (see linkoFixedDues), not the FIFO share. */
+  fixed?: boolean
 }
 
 export type AllocatedOrderDue = Omit<OrderDue, "currencies"> & {
@@ -186,6 +190,39 @@ export async function orderDue(db: PgDb, id: number, cc: CurrencyContext): Promi
 
 type ScopeRow = { id: number; cid: number | null; counted: boolean; age_day: string }
 
+type FixedDue = { currency: string; paid: number; remaining: number }
+
+/** Orders copied from Linko keep Linko's own «Оплачено» / «Остаток» (orders.paid_amount / linko_remaining: Linko
+ * allocates a payment to orders when it is made and stores the result per order; it never re-spreads a client's credit
+ * over its orders), less what was paid on the order here since the copy (linko_history 'order_debts') — the rule of
+ * «Долги с заказов» (lib/finance-order-debts.ts). Keyed by order id, in the order's own currency. Empty without the columns. */
+async function linkoFixedDues(db: PgDb, ids: number[], cc: CurrencyContext): Promise<Map<number, FixedDue>> {
+  const out = new Map<number, FixedDue>()
+  if (!ids.length || !(await hasColumn(db, "orders", "linko_remaining"))) return out
+  const paidColumn = await hasColumn(db, "orders", "paid_amount")
+  const history = ((await db.prepare("SELECT to_regclass('linko_history') IS NOT NULL AS ok").get()) as { ok: boolean }).ok
+  const until = history ? String(((await db.prepare("SELECT until FROM linko_history WHERE ledger = 'order_debts'").get()) as { until: string } | undefined)?.until ?? "") : ""
+  const rows = (await db
+    .prepare(
+      `SELECT o.id, o.linko_remaining::float8 AS remaining, ${paidColumn ? "COALESCE(o.paid_amount, 0)::float8" : "0::float8"} AS paid,
+              COALESCE(fin_cur(NULLIF(o.currency, '')), (SELECT a.currency FROM fin_amounts(o.amount) a WHERE a.currency IS NOT NULL LIMIT 1), @base::text) AS cur,
+              CASE WHEN @until::text = '' THEN 0 ELSE COALESCE((
+                SELECT SUM(p.amount::float8) FROM customer_payments p
+                 WHERE p.order_id = o.id AND COALESCE(p.is_deleted, 0) = 0 AND p.created_at > @until::text), 0) END AS after
+         FROM orders o WHERE o.id = ANY(@ids::int[]) AND o.linko_remaining IS NOT NULL`,
+    )
+    .all({ ids, until, base: cc.base })) as Array<{ id: number; remaining: number; paid: number; cur: string; after: number }>
+  for (const row of rows) {
+    const after = num(row.after)
+    out.set(Number(row.id), {
+      currency: normCurrency(row.cur, cc.base),
+      paid: roundMoney(Math.max(0, num(row.paid) + after)),
+      remaining: roundMoney(Math.max(0, num(row.remaining) - after)),
+    })
+  }
+  return out
+}
+
 /** Dues of the given orders (every order when `ids` is null) with the client's
  * other credits allocated FIFO (see the header). Cancelled orders get no share. */
 export async function allocatedOrderDues(db: PgDb, ids: number[] | null, cc: CurrencyContext): Promise<AllocatedOrderDue[]> {
@@ -219,18 +256,31 @@ export async function allocatedOrderDues(db: PgDb, ids: number[] | null, cc: Cur
 
   type Part = AllocatedOrderDueCurrency
   const parts = new Map<number, Part[]>()
+  const fixedDues = await linkoFixedDues(db, scope.map((row) => row.id), cc)
   for (const due of dues) {
-    parts.set(
-      due.id,
-      due.currencies.map((part) => ({
-        currency: normCurrency(part.currency, cc.base),
-        total: part.total,
-        linked: part.paid,
-        allocated: 0,
-        paid: part.paid,
-        remaining: Math.max(0, roundMoney(part.total - part.paid)),
-      })),
-    )
+    const list: Part[] = due.currencies.map((part) => ({
+      currency: normCurrency(part.currency, cc.base),
+      total: part.total,
+      linked: part.paid,
+      allocated: 0,
+      paid: part.paid,
+      remaining: Math.max(0, roundMoney(part.total - part.paid)),
+    }))
+    // An order copied from Linko: Linko's figures in its currency, any other currency part settled; the FIFO pool
+    // below leaves it alone (its remainder only counts towards the debt the pool explains).
+    const fixed = fixedDues.get(due.id)
+    if (fixed) {
+      if (!list.some((part) => part.currency === fixed.currency))
+        list.push({ currency: fixed.currency, total: roundMoney(fixed.paid + fixed.remaining), linked: 0, allocated: 0, paid: 0, remaining: 0 })
+      for (const part of list) {
+        const own = part.currency === fixed.currency
+        part.fixed = true
+        part.paid = own ? fixed.paid : roundMoney(Math.max(part.total, part.linked))
+        part.remaining = own ? fixed.remaining : 0
+        part.allocated = roundMoney(Math.max(0, part.paid - part.linked))
+      }
+    }
+    parts.set(due.id, list)
   }
 
   // Group the counted orders by client.
@@ -252,6 +302,10 @@ export async function allocatedOrderDues(db: PgDb, ids: number[] | null, cc: Cur
       let positive = 0
       let overflow = 0
       for (const part of list) {
+        if (part.fixed) {
+          positive += part.remaining
+          continue
+        }
         const rest = part.total - part.linked
         positive += Math.max(0, rest)
         overflow += Math.max(0, -rest)
@@ -259,6 +313,7 @@ export async function allocatedOrderDues(db: PgDb, ids: number[] | null, cc: Cur
       let pool = roundMoney(balance ? num(balance.currencies[code]?.end_balance) + positive : overflow)
       if (pool < -EPS) continue
       for (const part of list) {
+        if (part.fixed) continue
         if (pool <= EPS) break
         const share = Math.min(part.remaining, pool)
         if (share <= 0) continue
@@ -279,7 +334,7 @@ export async function allocatedOrderDues(db: PgDb, ids: number[] | null, cc: Cur
       counted: countedIds.has(id),
       currencies: (parts.get(id) ?? []).map((part) => ({
         ...part,
-        paid: roundMoney(part.linked + part.allocated),
+        paid: part.fixed ? part.paid : roundMoney(part.linked + part.allocated),
         remaining: roundMoney(Math.max(0, part.remaining)),
       })),
     })

@@ -2,28 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import {
-  Banknote,
-  Check,
-  CheckCheck,
-  CheckSquare,
-  Clock,
-  CreditCard,
-  Download,
-  Info,
-  RefreshCw,
-  Search,
-  Square,
-  Wallet,
-  X,
-  XCircle,
-} from "lucide-react"
+import { Check, CheckCheck, RefreshCw, X, XCircle } from "lucide-react"
+import Link from "next/link"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
-import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
-import { clientHref } from "@/components/analytics/cash-management-details"
 import { AcceptCashboxDialog, BulkUpdateDialog, ConfirmDialog, EditPaymentDialog } from "@/components/analytics/customer-payments-dialogs"
 import { CustomerPaymentCards } from "@/components/analytics/customer-payment-cards"
 import {
@@ -38,7 +21,7 @@ import {
   type CustomerPaymentsFilters,
   type CustomerPaymentsState,
 } from "@/components/analytics/customer-payments-filters"
-import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefAppliedFilter, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { CLIENT_CONFIRMATION_ICON_LABELS, type CustomerPaymentOptions, type CustomerPaymentRow, type CustomerPaymentsResult, type CustomerPaymentTab, type CustomerPaymentTotalsResult } from "@/lib/cash/customer-payments-types"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
@@ -81,8 +64,8 @@ const money = (value: number, currency: string) => `${formatMoney(value, 3)} ${c
 const dateTime = (iso: string, language: string) => (iso ? formatRuDate(iso, true, language) : "")
 
 function amountColor(value: number): string | undefined {
-  if (value > 0) return "#3aa76d"
-  if (value < 0) return "#e5484d"
+  if (value > 0) return "#81c784"
+  if (value < 0) return "#e57373"
   return undefined
 }
 
@@ -101,15 +84,42 @@ function Tip({ text, children }: { text: string; children: ReactNode }) {
   )
 }
 
+// Linko's material icons of the row: local_atm (cash), credit_card (bank), info_outline (rate), access_time (waiting).
+const ROW_ICONS = {
+  cash: "M11 17h2v-1h1c.55 0 1-.45 1-1v-3c0-.55-.45-1-1-1h-3v-1h4V8h-2V7h-2v1h-1c-.55 0-1 .45-1 1v3c0 .55.45 1 1 1h3v1H9v2h2v1zm9-13H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4V6h16v12z",
+  bank: "M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z",
+  info: "M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z",
+  clock: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z",
+  selectAll: "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z",
+  boxEmpty: "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z",
+  boxChecked: "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z",
+} as const
+
+function RowIcon({ path, color, size = 18 }: { path: string; color: string; size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} style={{ fill: color }} aria-hidden>
+      <path d={path} />
+    </svg>
+  )
+}
+
 function PaymentTypeIcon({ type }: { type: "cash" | "bank" }) {
   const { t } = useLanguage()
   return type === "bank" ? (
     <Tip text={t("банковский счет")}>
-      <CreditCard className="h-4 w-4 text-[#8e5ad8]" />
+      <RowIcon path={ROW_ICONS.bank} color="#6261b0" />
     </Tip>
   ) : (
     <Tip text={t("наличные")}>
-      <Banknote className="h-4 w-4 text-[#1E4A9A]" />
+      <RowIcon path={ROW_ICONS.cash} color="rgb(79, 113, 220)" />
+    </Tip>
+  )
+}
+
+function RateIcon({ text }: { text: string }) {
+  return (
+    <Tip text={text}>
+      <RowIcon path={ROW_ICONS.info} color="rgb(79, 113, 220)" />
     </Tip>
   )
 }
@@ -120,13 +130,13 @@ function ConfirmationIcon({ status }: { status: CustomerPaymentRow["clientConfir
   const label = t(CLIENT_CONFIRMATION_ICON_LABELS[status])
   const icon =
     status === "confirmed" ? (
-      <Check className="h-4 w-4 text-[#3aa76d]" />
+      <Check className="h-5 w-5 text-[#81c784]" />
     ) : status === "rejected" ? (
-      <XCircle className="h-4 w-4 text-[#e5484d]" />
+      <XCircle className="h-5 w-5 text-[#e57373]" />
     ) : status === "requested" ? (
-      <Clock className="h-4 w-4 text-[#f0a030]" />
+      <RowIcon path={ROW_ICONS.clock} color="#f0ad4e" size={24} />
     ) : (
-      <CheckCheck className="h-4 w-4 text-[#1E4A9A]" />
+      <CheckCheck className="h-5 w-5 text-[rgb(79,113,220)]" />
     )
   return (
     <span title={label} aria-label={label} className="inline-flex">
@@ -395,7 +405,6 @@ export function CustomerPaymentsView() {
     : (totals.data?.totals ?? []).map((item) => money(item.total, item.currency)).join(" , ")
 
   const visibleColumns = COLUMNS.filter((column) => !hidden.includes(column.id))
-  const columnCount = visibleColumns.length + (state.showCheckboxes ? 1 : 0) + 1
   const filterCount = countCustomerPaymentFilters(state.filters)
 
   const cell = (row: CustomerPaymentRow, id: ColumnId): ReactNode => {
@@ -403,19 +412,11 @@ export function CustomerPaymentsView() {
       case "id":
         return row.id
       case "client":
-        // Linko opens the client's card in a new tab.
+        // Linko's «Клиент»: the financial account's name as plain text, the shop's INN under it.
         return (
           <>
-            <div className="min-w-[140px]">
-              {row.client.id ? (
-                <a href={clientHref(row.client.id, row.client.name)} target="_blank" rel="noreferrer" className="hover:text-[#1E4A9A] hover:underline">
-                  {row.client.name}
-                </a>
-              ) : (
-                row.client.name
-              )}
-            </div>
-            {row.client.inn && <div className="text-[13px] font-medium text-[#1E4A9A]">{row.client.inn}</div>}
+            <div>{row.client.name}</div>
+            {row.client.inn && <div className="text-[#1E4A9A]">{row.client.inn}</div>}
           </>
         )
       case "user":
@@ -442,15 +443,13 @@ export function CustomerPaymentsView() {
           <>
             <div className="flex items-center gap-1.5 whitespace-nowrap font-semibold" style={{ color: amountColor(row.amount) }}>
               {money(row.amount, row.currency)}
-              <PaymentTypeIcon type={row.paymentType} />
-              {withBase && row.currency !== baseCurrency && (
-                <Tip text={`${t("Курс")}: ${row.debtRate ? formatMoney(row.debtRate, 5) : "—"}`}>
-                  <Info className="h-3.5 w-3.5 text-[#9aa3b6]" />
-                </Tip>
-              )}
+              <span className="flex gap-[5px]">
+                <PaymentTypeIcon type={row.paymentType} />
+                {withBase && row.currency !== baseCurrency && <RateIcon text={`${t("Курс")}: ${row.debtRate ? formatMoney(row.debtRate, 5) : "—"}`} />}
+              </span>
             </div>
             {withBase && row.currency !== baseCurrency && row.baseAmount !== null && (
-              <div className="whitespace-nowrap text-[11px] text-[#9aa3b6]">{money(row.baseAmount, baseCurrency)}</div>
+              <div className="whitespace-nowrap text-[11px] text-[#666]">{money(row.baseAmount, baseCurrency)}</div>
             )}
           </>
         )
@@ -459,41 +458,31 @@ export function CustomerPaymentsView() {
           <>
             <div className="flex items-center gap-1.5 whitespace-nowrap">
               {money(row.realAmount, row.realCurrency)}
-              {withBase && row.realCurrency !== baseCurrency && (
-                <Tip text={`${t("Курс")}: ${row.cashRate ? formatMoney(row.cashRate, 5) : "—"}`}>
-                  <Info className="h-3.5 w-3.5 text-[#9aa3b6]" />
-                </Tip>
-              )}
+              {withBase && row.realCurrency !== baseCurrency && <RateIcon text={`${t("Курс")}: ${row.cashRate ? formatMoney(row.cashRate, 5) : "—"}`} />}
             </div>
             {withBase && row.realCurrency !== baseCurrency && row.cashRate && (
-              <div className="whitespace-nowrap text-[11px] text-[#9aa3b6]">{money(row.realAmount * row.cashRate, baseCurrency)}</div>
+              <div className="whitespace-nowrap text-[11px] text-[#666]">{money(row.realAmount * row.cashRate, baseCurrency)}</div>
             )}
           </>
         )
       case "cashbox":
         // The column is as narrow as Linko's (69 of the weights): a long cashbox name wraps inside it, as there, instead of
-        // running over «Комментарий».
+        // running over «Комментарий». Linko: the cashbox (else «Не принято»); with its cash transaction it opens that
+        // transaction in Управления кассой in the same tab (an agent acceptance with its card open).
         return (
           <>
-            {row.accepted && row.cashbox ? (
-              row.cashDocNo ? (
-                <a
-                  href={`/analytics/cash-management?search=${row.cashDocNo}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-[#1E4A9A] [overflow-wrap:anywhere] hover:underline"
-                >
-                  {row.cashbox.name}
-                </a>
-              ) : (
-                <span className="[overflow-wrap:anywhere]">{row.cashbox.name}</span>
-              )
+            {row.cashbox && row.cashDocNo ? (
+              <Link
+                href={`/analytics/cash-management?search=${row.cashDocNo}${row.acceptance ? `&openTransactionInfo=${row.acceptance.id}` : ""}`}
+                className="text-[#1E4A9A] [overflow-wrap:anywhere] hover:underline"
+              >
+                {row.cashbox.name}
+              </Link>
             ) : (
-              <span className="[overflow-wrap:anywhere]">{t("Не принято")}</span>
+              <span className="[overflow-wrap:anywhere]">{row.cashbox ? row.cashbox.name : t("Не принято")}</span>
             )}
-            {!row.accepted && row.cashbox && <div className="text-[11px] text-[#9aa3b6] [overflow-wrap:anywhere]">{row.cashbox.name}</div>}
             {row.agentCashbox && (
-              <div title={t("Касса агента")} className="text-[11px] text-[#9aa3b6] [overflow-wrap:anywhere]">
+              <div title={t("Касса агента")} className="text-[11px] text-[#666] [overflow-wrap:anywhere]">
                 {row.agentCashbox.name}
               </div>
             )}
@@ -506,7 +495,7 @@ export function CustomerPaymentsView() {
 
   const actions = (row: CustomerPaymentRow) => {
     const warn = t("Изменить транзакцию, деньги уже приняты в кассу. При изменении изменится баланс кассы тоже.")
-    const canResend = row.clientConfirmation === "" || row.clientConfirmation === "requested" || row.clientConfirmation === "rejected"
+    const canResend = row.clientConfirmation === "requested" || row.clientConfirmation === "rejected"
     return (
       <div className="flex items-center justify-end gap-2">
         <ConfirmationIcon status={row.clientConfirmation} />
@@ -532,7 +521,7 @@ export function CustomerPaymentsView() {
           </a>
         ) : (
           <IconButton
-            label={row.accepted ? warn : t("Изменить")}
+            label={row.accepted ? warn : t("Изменить транзакцию")}
             disabled={!canWrite}
             onClick={() => setEditing(row)}
             className={row.accepted ? "text-[#e5484d] hover:text-[#c53238]" : ""}
@@ -553,7 +542,14 @@ export function CustomerPaymentsView() {
   const WEIGHTS: Record<ColumnId, number> = { id: 42, client: 166, user: 138, created_date: 138, accepted_time: 139, responsible_agent: 138, division: 139, amount: 138, real_amount: 138, cashbox: 69, comment: 139 }
   const pageCount = Math.max(1, Math.ceil((list.data?.count ?? 0) / state.pageSize))
   const heads = [
-    ...(state.showCheckboxes ? [<input key="all" type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#1E4A9A]" />] : []),
+    ...(state.showCheckboxes
+      ? [
+          // Linko's «select all» glyph in the header.
+          <button key="all" type="button" onClick={toggleAll} aria-pressed={allOnPage} aria-label={t("Выбрать все")} title={t("Выбрать все")} className="flex">
+            <RowIcon path={ROW_ICONS.selectAll} color="#fff" size={24} />
+          </button>,
+        ]
+      : []),
     ...visibleColumns.map((column) => {
       const label = (
         <span className={column.align === "right" ? "-mr-[22px] block text-right" : undefined}>
@@ -579,7 +575,7 @@ export function CustomerPaymentsView() {
 
       {totals.data?.totals.length ? <CustomerPaymentCards totals={totals.data.totals} /> : null}
 
-      <div className={`relative px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white ${hasSelection ? "bg-[#09890f]" : "bg-[#1E4A9A]"}`} aria-live="polite">
+      <div className={`relative px-[5px] py-[5px] text-[13px] font-semibold leading-[16.25px] text-white ${hasSelection ? "bg-[#09890f]" : "bg-[#1E4A9A]"}`} aria-live="polite">
         {t("Оплаты от клиентов")}: {summary || "0"}
         {totals.loading && !hasSelection && <RefreshCw className="ml-2 inline h-3.5 w-3.5 animate-spin" />}
       </div>
@@ -589,6 +585,8 @@ export function CustomerPaymentsView() {
         <RefToolbar
           linkFilter="flush"
           fluid
+          // Linko's «Фильтр: N элемента» bar replaces the link while filters are applied.
+          leftSlot={filterCount && !filterOpen ? <RefAppliedFilter count={filterCount} onEdit={() => (setDraft(state.filters), setFilterOpen(true))} onClear={clearFilters} /> : undefined}
           filterOpen={filterOpen}
           onToggleFilter={() => {
             setDraft(state.filters)
@@ -645,7 +643,13 @@ export function CustomerPaymentsView() {
           rowClass={(row) => (selected.has(row.id) ? "!bg-[#eaf0fd]" : "")}
           empty={list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
           render={(row) => [
-            ...(state.showCheckboxes ? [<input key="check" type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row)} aria-label={`№ ${row.id}`} className="h-4 w-4 accent-[#1E4A9A]" />] : []),
+            ...(state.showCheckboxes
+              ? [
+                  <button key="check" type="button" role="checkbox" aria-checked={selected.has(row.id)} onClick={() => toggleRow(row)} aria-label={`№ ${row.id}`} className="flex">
+                    <RowIcon path={selected.has(row.id) ? ROW_ICONS.boxChecked : ROW_ICONS.boxEmpty} color={selected.has(row.id) ? "#1E4A9A" : "#333"} size={24} />
+                  </button>,
+                ]
+              : []),
             ...visibleColumns.map((column) =>
               column.id === "comment" ? (
                 <div key={column.id} className="relative text-right">

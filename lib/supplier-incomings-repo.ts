@@ -2,7 +2,7 @@ import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
-import { supplyCostLines, type Incoming, type IncomingExpense, type IncomingItem, type IncomingLog } from "@/components/analytics/supplier-incomings-data"
+import { INCOMING_STATUS_CODE, supplyCostLines, type Incoming, type IncomingExpense, type IncomingItem, type IncomingLog } from "@/components/analytics/supplier-incomings-data"
 import type { SupplyPaymentsResult } from "@/components/analytics/supplier-payments-data"
 import { listSupplyPayments, paidBySupply } from "@/lib/cash/supplier-payments"
 import { lockSupplyPayments } from "@/lib/cash/common"
@@ -62,8 +62,9 @@ import {
 // the one cost of goods (lib/stock/costs.ts, contract 1).
 
 declare global {
-  // V3: + rate_to_base, money columns DOUBLE PRECISION, ISO dates.
-  var __linkoIncomingsSchemaReadyV3: Promise<void> | undefined
+  // V3: + rate_to_base, money columns DOUBLE PRECISION, ISO dates. V4: + invoice comment, expected dates,
+  // inventory / confirmed flags, log status and event day. V5: + linko_paid, expense distribution type / supplier flag.
+  var __linkoIncomingsSchemaReadyV5: Promise<void> | undefined
   var __linkoProductCostsResyncV1: Promise<void> | undefined
 }
 
@@ -82,6 +83,24 @@ async function installSchema(): Promise<void> {
       ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS accepted_by TEXT NOT NULL DEFAULT '';
       ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS invoice_id INTEGER;
       ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS rate_to_base DOUBLE PRECISION;
+      -- Copied from Linko (scripts/linko-sync/import-supplies.mjs) and kept on a fresh database too.
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS supplier_id INTEGER;
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS is_inventory INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS is_confirmed INTEGER NOT NULL DEFAULT 1;
+      -- «Изменить детали счет фактуры» (invoice_number / invoice_date above) and the expected dates of the form.
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS invoice_comment TEXT NOT NULL DEFAULT '';
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS will_be_sent_out_date TEXT NOT NULL DEFAULT '';
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS will_come_to_post_date TEXT NOT NULL DEFAULT '';
+      -- Linko's «Оплачено» of a supply copied from it (its total_paid, from Linko's own debt allocation); NULL for a
+      -- supply entered here.
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS linko_paid DOUBLE PRECISION;
+      -- Of a supply copied from Linko (scripts/linko-sync/import-supply-refs.mjs): the supplier's contact person, which
+      -- the list's search matches, and the ids of its warehouse, branch and organization, which the list's filter and
+      -- search use as Linko's do (names may repeat). An edit that changes the name drops the id.
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS contact_name TEXT NOT NULL DEFAULT '';
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS warehouse_id INTEGER;
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS branch_id INTEGER;
+      ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS organization_id INTEGER;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS initial_cost DOUBLE PRECISION;
 
       CREATE TABLE IF NOT EXISTS supplier_incoming_expenses (
@@ -100,6 +119,9 @@ async function installSchema(): Promise<void> {
       ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS rate_to_base DOUBLE PRECISION;
       -- Link to the cash entry that paid the expense (the cash core also adds it before writing).
       ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS transaction_id INTEGER;
+      -- «Тип распределения» (Linko's distribute_type: cost / weight / capacity / manual) and «Привязан к поставщику».
+      ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS distribute_type TEXT NOT NULL DEFAULT 'cost';
+      ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS bind_to_provider INTEGER NOT NULL DEFAULT 0;
 
       CREATE TABLE IF NOT EXISTS supplier_incoming_logs (
         id SERIAL PRIMARY KEY,
@@ -109,6 +131,10 @@ async function installSchema(): Promise<void> {
         user_name TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT ''
       );
+      -- The supply's status code when the entry was written (INCOMING_STATUS_CODE) and the day of a
+      -- «Добавить лог» event (sent_out / come_to_post).
+      ALTER TABLE supplier_incoming_logs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT '';
+      ALTER TABLE supplier_incoming_logs ADD COLUMN IF NOT EXISTS event_date TEXT NOT NULL DEFAULT '';
 
       -- Money columns were REAL (float4, ~7 significant digits): widen them once;
       -- the supply amount is recomputed from its lines (the float4 copy was rounded).
@@ -147,13 +173,13 @@ async function installSchema(): Promise<void> {
 }
 
 async function ensureSchema() {
-  if (!globalThis.__linkoIncomingsSchemaReadyV3) {
-    globalThis.__linkoIncomingsSchemaReadyV3 = outsideTransaction(installSchema).catch((error) => {
-      globalThis.__linkoIncomingsSchemaReadyV3 = undefined
+  if (!globalThis.__linkoIncomingsSchemaReadyV5) {
+    globalThis.__linkoIncomingsSchemaReadyV5 = outsideTransaction(installSchema).catch((error) => {
+      globalThis.__linkoIncomingsSchemaReadyV5 = undefined
       throw error
     })
   }
-  await globalThis.__linkoIncomingsSchemaReadyV3
+  await globalThis.__linkoIncomingsSchemaReadyV5
 }
 
 /** For other modules reading the incoming tables (invoices, production stock). Call before any transaction. */
@@ -208,6 +234,18 @@ type Row = {
   accepted_at: string
   accepted_by: string
   rate_to_base: number | null
+  is_inventory?: number | null
+  is_confirmed?: number | null
+  linko_paid?: number | null
+  invoice_comment?: string | null
+  will_be_sent_out_date?: string | null
+  will_come_to_post_date?: string | null
+  supplier_id?: number | null
+  contact_name?: string | null
+  warehouse_id?: number | null
+  branch_id?: number | null
+  organization_id?: number | null
+  created_at?: string | null
 }
 
 type ExpenseSum = { incoming_id: number; currency: string; rate_to_base: number | null; amount: number }
@@ -234,7 +272,7 @@ function supplyRate(row: Pick<Row, "rate_to_base" | "currency">, rates: Rates): 
   return positive(row.rate_to_base) ?? rates.rateOf(row.currency) ?? 1
 }
 
-function rowToIncoming(row: Row, expenses: ExpenseSum[], rates: Rates): Incoming {
+function rowToIncoming(row: Row, expenses: ExpenseSum[], rates: Rates, createdDay = ""): Incoming {
   const rate = supplyRate(row, rates)
   // Each expense at its own snapshot (else live) rate, as the stock ledger values it.
   const expensesBase = expenses.reduce((sum, expense) => {
@@ -268,6 +306,17 @@ function rowToIncoming(row: Row, expenses: ExpenseSum[], rates: Rates): Incoming
     expensesTotal: round6(expensesBase / rate),
     expensesBase: round6(expensesBase),
     rateToBase: positive(row.rate_to_base),
+    isInventory: Number(row.is_inventory) === 1,
+    isConfirmed: row.is_confirmed == null || Number(row.is_confirmed) !== 0,
+    invoiceComment: row.invoice_comment ?? "",
+    expectedFactoryExit: row.will_be_sent_out_date ?? "",
+    expectedCustomsArrival: row.will_come_to_post_date ?? "",
+    supplierId: row.supplier_id ?? null,
+    createdDay: createdDay || parseAnyDay(row.created_at) || parseAnyDay(row.date) || "",
+    contactName: row.contact_name ?? "",
+    warehouseId: row.warehouse_id ?? null,
+    branchId: row.branch_id ?? null,
+    organizationId: row.organization_id ?? null,
   }
 }
 
@@ -291,20 +340,58 @@ async function loadIncomings(db: PgDb, where: string, params: Record<string, unk
     .all({ ids: rows.map((row) => row.id) })) as ExpenseSum[]
   const byIncoming = new Map<number, ExpenseSum[]>()
   for (const sum of sums) byIncoming.set(sum.incoming_id, [...(byIncoming.get(sum.incoming_id) ?? []), sum])
+  // Linko's «Дата создания» filter (begin_date / end_date) compares the day of the last «Изменить», else the day the
+  // supply was created: status changes, expenses and «Добавить лог» do not move it.
+  const stamps = (await db
+    .prepare(
+      `SELECT incoming_id, MAX(created_at) FILTER (WHERE action = 'updated') AS updated, MIN(created_at) FILTER (WHERE action = 'created') AS created
+         FROM supplier_incoming_logs WHERE incoming_id = ANY(@ids::int[]) GROUP BY 1`,
+    )
+    .all({ ids: rows.map((row) => row.id) })) as Array<{ incoming_id: number; updated: string | null; created: string | null }>
+  const createdDays = new Map(stamps.map((stamp) => [stamp.incoming_id, parseAnyDay(stamp.updated) || parseAnyDay(stamp.created) || ""]))
   const rates = await currencyRates(db)
-  return rows.map((row) => rowToIncoming(row, byIncoming.get(row.id) ?? [], rates))
+  return rows.map((row) => rowToIncoming(row, byIncoming.get(row.id) ?? [], rates, createdDays.get(row.id)))
 }
 
-async function addLog(db: PgDb, incomingId: number, action: string, userName: string, details = "") {
+/** A history entry (Логи). `status` is the supply's status when it was written — before the change for a status
+ * action, as Linko records it ("arrived" carries «Ожидает»). */
+async function addLog(db: PgDb, incomingId: number, action: string, userName: string, details = "", status: Incoming["status"] | "" = "", eventDate = "") {
   await db
-    .prepare("INSERT INTO supplier_incoming_logs (incoming_id, action, details, user_name, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(incomingId, action, details, userName, new Date().toISOString())
+    .prepare("INSERT INTO supplier_incoming_logs (incoming_id, action, details, user_name, created_at, status, event_date) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(incomingId, action, details, userName, new Date().toISOString(), status ? INCOMING_STATUS_CODE[status] : "", eventDate)
 }
 
-/** "Оплачено" = live verified supplier payments linked to the supply (cash page «Расход»
- * with a supply), in the supply currency; the legacy `paid` column is not read. */
-function withPaid(incoming: Incoming, paid: Map<number, number>): Incoming {
-  return { ...incoming, paid: paid.get(incoming.id) ?? 0 }
+/** Supplier payments copied from Linko (registered by scripts/linko-sync); none on a database without the registry. */
+async function linkoCopiedPayments(db: PgDb): Promise<number[]> {
+  const registry = (await db.prepare("SELECT to_regclass('linko_sync_rows') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!registry?.ok) return []
+  const rows = (await db
+    .prepare(
+      `SELECT DISTINCT r.row_id::int AS id FROM linko_sync_rows r
+        WHERE r.table_name = 'supplier_payments' AND r.action IN ('insert', 'update') AND r.row_id ~ '^[0-9]+$'`,
+    )
+    .all()) as Array<{ id: number }>
+  return rows.map((row) => row.id)
+}
+
+/** "Оплачено": live verified supplier payments linked to the supply (cash page «Расход» with a supply), in the supply
+ * currency. A supply copied from Linko starts from Linko's own figure (linko_paid: Linko allocates payments over a
+ * supplier's debts, so a payment naming the supply may pay another one) and adds only the payments entered here since. */
+async function paidFor(db: PgDb, rows: Incoming[], linkoPaid: Map<number, number>, ids: number[] | null): Promise<Incoming[]> {
+  const all = await paidBySupply(ids, db)
+  const copied = rows.some((row) => linkoPaid.has(row.id)) ? await linkoCopiedPayments(db) : []
+  const since = copied.length ? await paidBySupply(ids, db, copied) : all
+  return rows.map((row) => {
+    const base = linkoPaid.get(row.id)
+    return { ...row, paid: base === undefined ? (all.get(row.id) ?? 0) : round6(base + (since.get(row.id) ?? 0)) }
+  })
+}
+
+async function linkoPaidOf(db: PgDb, ids: number[] | null): Promise<Map<number, number>> {
+  const rows = (await db
+    .prepare("SELECT id, linko_paid FROM supplier_incomings WHERE linko_paid IS NOT NULL AND (@all::boolean OR id = ANY(@ids::int[]))")
+    .all({ all: ids === null, ids: ids ?? [] })) as Array<{ id: number; linko_paid: number }>
+  return new Map(rows.map((row) => [Number(row.id), Number(row.linko_paid) || 0]))
 }
 
 export async function listIncomings(): Promise<Incoming[]> {
@@ -312,15 +399,14 @@ export async function listIncomings(): Promise<Incoming[]> {
   const branch = await selectedBranchName()
   // Every supply of the selected branch (all of them without one): only what this company entered.
   const rows = await loadIncomings(db, "WHERE (@branch::text = '' OR i.branch = @branch::text)", { branch })
-  const paid = await paidBySupply(null, db)
-  return rows.map((row) => withPaid(row, paid))
+  return paidFor(db, rows, await linkoPaidOf(db, null), null)
 }
 
 export async function getIncoming(id: number, db?: PgDb): Promise<Incoming | null> {
   if (!Number.isInteger(id) || id <= 0 || id > 2_147_483_647) return null
   const executor = db ?? (await incomingsDb())
   const [row] = await loadIncomings(executor, "WHERE i.id = @id", { id })
-  return row ? withPaid(row, await paidBySupply([id], executor)) : null
+  return row ? (await paidFor(executor, [row], await linkoPaidOf(executor, [id]), [id]))[0] : null
 }
 
 async function incomingExists(db: PgDb, id: number): Promise<boolean> {
@@ -350,6 +436,9 @@ export type IncomingInput = {
   contractNumber: string
   invoiceNumber: string
   invoiceDate: string
+  /** «Ожидаемый выход с завода» / «Ожидаемое прибытие в таможню»: as entered, YYYY-MM-DD on write. */
+  expectedFactoryExit: string
+  expectedCustomsArrival: string
   comment: string
   items: Array<IncomingItem & { key?: string }>
   /** Incoming e-invoice the supply is created from ("Создать приход"); create only. */
@@ -370,6 +459,8 @@ export function parseIncomingInput(body: SupplierIncomingBody): IncomingInput {
     contractNumber: body.contractNumber?.trim() ?? "",
     invoiceNumber: body.invoiceNumber?.trim() ?? "",
     invoiceDate: body.invoiceDate?.trim() ?? "",
+    expectedFactoryExit: body.expectedFactoryExit?.trim() ?? "",
+    expectedCustomsArrival: body.expectedCustomsArrival?.trim() ?? "",
     comment: body.comment ?? "",
     invoiceId: body.invoiceId ?? null,
     items: body.items.map((item, index) => {
@@ -379,6 +470,7 @@ export function parseIncomingInput(body: SupplierIncomingBody): IncomingInput {
         key: item.key?.trim() || undefined,
         product: item.product.trim(),
         expiry: item.expiry ?? "",
+        ...(item.series?.trim() ? { series: item.series.trim() } : {}),
         qty: item.qty,
         block: item.block ?? 0,
         kg: item.kg ?? 0,
@@ -426,6 +518,16 @@ async function resolveIncoming(tx: PgDb, input: IncomingInput, index: CatalogInd
   const invoiceDay: DocDate = input.invoiceDate ? parseDocDay(input.invoiceDate, { allowFuture: true }) : { ok: true, date: "" }
   if (!invoiceDay.ok) fields.invoiceDate = invoiceDay.error
   const invoiceDate = invoiceDay.ok ? invoiceDay.date : null
+  // The expected days of the goods' journey may lie ahead.
+  const expected = (field: "expectedFactoryExit" | "expectedCustomsArrival") => {
+    if (!input[field]) return ""
+    const day = parseDocDay(input[field], { allowFuture: true })
+    if (day.ok) return day.date
+    fields[field] = day.error
+    return ""
+  }
+  const expectedFactoryExit = expected("expectedFactoryExit")
+  const expectedCustomsArrival = expected("expectedCustomsArrival")
   const items = input.items.map((item, position) => {
     const line = resolveLine(index, { key: item.key, product: item.product })
     if (!line.item) fields[`items.${position}.product`] = "Товар не найден в каталоге"
@@ -446,6 +548,8 @@ async function resolveIncoming(tx: PgDb, input: IncomingInput, index: CatalogInd
       currency: currency!.code,
       date: date!,
       invoiceDate: invoiceDate ?? "",
+      expectedFactoryExit,
+      expectedCustomsArrival,
       items,
     },
   }
@@ -491,14 +595,17 @@ export async function createIncoming(draft: IncomingInput, userName: string): Pr
       .prepare(
         `INSERT INTO supplier_incomings (
           supplier, warehouse, date, payment_type, contract_number, amount, status, invoice_number,
-          organization, branch, phone, email, initiator, paid, time, comment, items, currency, invoice_date, invoice_id, updated_at
+          organization, branch, phone, email, initiator, paid, time, comment, items, currency, invoice_date, invoice_id, updated_at,
+          will_be_sent_out_date, will_come_to_post_date, supplier_id
         ) VALUES (
           @supplier, @warehouse, @date, @paymentType, @contractNumber, @amount, 'ожидает', @invoiceNumber,
-          @organization, @branch, @phone, @email, @initiator, 0, @time, @comment, @items, @currency, @invoiceDate, @invoiceId, datetime('now')
+          @organization, @branch, @phone, @email, @initiator, 0, @time, @comment, @items, @currency, @invoiceDate, @invoiceId, datetime('now'),
+          @expectedFactoryExit, @expectedCustomsArrival, @supplierId
         )`,
       )
       .run({
         supplier: input.supplier,
+        supplierId,
         warehouse: input.warehouse,
         date: input.date,
         paymentType: input.paymentType,
@@ -516,8 +623,10 @@ export async function createIncoming(draft: IncomingInput, userName: string): Pr
         currency: input.currency,
         invoiceDate: input.invoiceDate,
         invoiceId: invoice?.id ?? null,
+        expectedFactoryExit: input.expectedFactoryExit,
+        expectedCustomsArrival: input.expectedCustomsArrival,
       })
-    await addLog(tx, result.lastInsertRowid, "created", userName, invoice ? `Счет-фактура № ${invoice.number}` : "")
+    await addLog(tx, result.lastInsertRowid, "created", userName, invoice ? `Счет-фактура № ${invoice.number}` : "", "ожидает")
     return (await getIncoming(result.lastInsertRowid, tx))!
   })
 }
@@ -530,46 +639,192 @@ async function lockIncoming(db: PgDb, id: number): Promise<Incoming | null> {
   return row ? getIncoming(id, db) : null
 }
 
-/** Only a supply that hasn't reached the warehouse yet can be edited. */
+/** The day the stock ledger books an accepted supply on: the earlier of its date and its acceptance. */
+function bookingDay(date: string, acceptedAt: string): string | undefined {
+  return [parseAnyDay(date), parseAnyDay(acceptedAt)].filter((value): value is string => Boolean(value)).sort()[0]
+}
+
+/** Goods of an accepted supply leave the warehouse's history from `day` on (undoing the acceptance, removing a line,
+ * moving the supply later): the warehouse must still hold them, and no confirmed inventory may have counted them since
+ * (dated after that day, or an end-of-day count of that day; a count confirmed before the acceptance never saw them,
+ * counts of other items do not matter). Call under the warehouse's stock lock. */
+async function assertCanTakeBack(tx: PgDb, current: Incoming, lines: IncomingItem[], index: CatalogIndex, day: string | undefined, refusal: string) {
+  const stock = await warehouseStock(current.warehouse, day, tx)
+  const shortages = findShortages(
+    lines.map((item) => ({ product: item.product, quantity: Number(item.qty) || 0, key: item.key })),
+    index,
+    stock,
+  )
+  if (shortages.length) throw new ProcurementError(`${refusal} ${shortageMessage(current.warehouse, shortages)}`, 409, undefined, { shortages })
+  const accepted = parseAnyDate(current.acceptedAt) ?? (day ? `${day}T00:00:00` : "")
+  const keys = documentKeys(index, lines)
+  if (day && (await countedByInventory(tx, current.warehouse, day, accepted, keys, { registeredAt: accepted }))) {
+    throw new ProcurementError("Отменение невозможно из-за связи с другими данными", 409, undefined, { reason: "inventory" })
+  }
+}
+
+/** A line with its series number set (or dropped when empty). */
+function withSeries<T extends { series?: string }>(line: T, series: string | undefined): T {
+  const next = { ...line }
+  delete next.series
+  return series?.trim() ? { ...next, series: series.trim() } : next
+}
+
+/** What the form does not edit stays with a line it keeps: the catalog key, Linko's line id, received amount and
+ * marking data, and the line's weights (Linko's PUT sends none; a new quantity scales them). */
+function carried(line: IncomingItem, qty: number): Partial<IncomingItem> {
+  const kept: Partial<IncomingItem> = {}
+  if (line.key) kept.key = line.key
+  if (line.linkoId !== undefined) kept.linkoId = line.linkoId
+  if (line.posted !== undefined) kept.posted = line.posted
+  if (line.useMark !== undefined) kept.useMark = line.useMark
+  if (line.markStat !== undefined) kept.markStat = line.markStat
+  const before = Number(line.qty) || 0
+  const scale = before > 0 ? qty / before : 1
+  for (const field of ["kg", "netWeight", "block"] as const) {
+    const value = Number(line[field]) || 0
+    if (value) kept[field] = round6(value * scale)
+  }
+  return kept
+}
+
+/** The form's line over the stored one: the weights it does not send (0) stay the stored line's. */
+function keptLine(line: IncomingItem, item: IncomingItem): IncomingItem {
+  const kept = carried(line, Number(item.qty) || 0)
+  const next: IncomingItem = { ...kept, ...item, key: line.key ?? item.key }
+  for (const field of ["kg", "netWeight", "block"] as const) if (!(Number(item[field]) > 0) && kept[field]) next[field] = kept[field]
+  return next
+}
+
+const ACCEPTED_LINES = "У принятой поставки можно изменить только цену, серию и срок годности"
+
+/** «Изменить детали» (Linko's PUT stock/supply/<id>/). A waiting supply changes freely. An accepted one keeps its
+ * warehouse and its quantities: the header, the unit costs and a line's series / expiry change (its goods are revalued),
+ * and a line may go — or the supply move to a later day — only while the warehouse can give those goods back (as for
+ * undoing the acceptance). A cancelled supply ("locked") and an inventory surplus are not edited. The invoice number
+ * and day are changed by «Изменить детали счет фактуры» (changeIncomingInvoice) only, so they are kept here. */
 export async function updateIncoming(id: number, draft: IncomingInput, userName: string): Promise<IncomingChange> {
   await incomingsDb()
   const seen = await findWarehouse(getDb(), draft.warehouse)
-  return withTransaction(async (tx) => {
-    // Lock order (C1): the stock lock before the row lock (rename race: see createIncoming).
+  let products: string[] = []
+  const result = await withTransaction(async (tx): Promise<IncomingChange> => {
+    // Lock order (C1): the stock locks before the row lock (rename race: see createIncoming); an accepted supply moves
+    // the stock of its own warehouse.
     const warehouse = await lockNamedWarehouse(tx, draft.warehouse, seen)
+    await lockWarehousesOf(tx, "SELECT warehouse FROM supplier_incomings WHERE id = @id", { id })
     const current = await lockIncoming(tx, id)
     if (!current) return "not_found"
-    if (current.status !== "ожидает") return "locked"
-    const { input, supplierId } = await resolveIncoming(tx, { ...draft, warehouse }, await catalogIndex(tx), current.warehouse, current.date)
+    if (current.status === "отменен") return "locked"
+    if (current.isInventory) throw new ProcurementError("Инвентаризацию изменить нельзя", 409)
+    const accepted = current.status === "принят"
+    const index = await catalogIndex(tx)
+    const { input, supplierId } = await resolveIncoming(tx, { ...draft, warehouse }, index, current.warehouse, current.date)
+    const before = new Map(current.items.map((item) => [Number(item.id), item]))
+    let items: IncomingItem[]
+    let rate: number | null = current.rateToBase
+    if (accepted) {
+      if (nameKey(input.warehouse) !== nameKey(current.warehouse)) throw fieldError("warehouse", "Склад принятой поставки изменить нельзя", 409)
+      const seenIds = new Set<number>()
+      items = input.items.map((item) => {
+        const line = before.get(Number(item.id))
+        if (!line || seenIds.has(Number(item.id)) || nameKey(line.product) !== nameKey(item.product) || Math.abs((Number(line.qty) || 0) - item.qty) > 1e-9) {
+          throw new ProcurementError(ACCEPTED_LINES, 409)
+        }
+        seenIds.add(Number(item.id))
+        return withSeries({ ...line, expiry: item.expiry, cost: item.cost, total: round6((Number(line.qty) || 0) * item.cost) }, item.series)
+      })
+      const removed = current.items.filter((line) => !seenIds.has(Number(line.id)))
+      const oldDay = bookingDay(current.date, current.acceptedAt)
+      const newDay = bookingDay(input.date, current.acceptedAt)
+      // A later day takes every line out of the days in between; a removed line goes for good.
+      const leaving = oldDay && newDay && newDay > oldDay ? current.items : removed
+      if (leaving.length) await assertCanTakeBack(tx, current, leaving, index, oldDay, "Не возможно изменить.")
+      // The goods were booked at the supply currency's rate: another currency takes its current rate.
+      if (input.currency !== current.currency) rate = await rateToBase(tx, input.currency)
+      products = current.items.map((item) => item.product)
+    } else {
+      items = input.items.map((item) => {
+        const line = before.get(Number(item.id))
+        return line && nameKey(line.product) === nameKey(item.product) ? keptLine(line, item) : item
+      })
+    }
     const contact = await supplierContact(tx, supplierId)
     await tx
       .prepare(
         `UPDATE supplier_incomings SET
-           supplier = @supplier, warehouse = @warehouse, date = @date, payment_type = @paymentType,
-           contract_number = @contractNumber, amount = @amount, invoice_number = @invoiceNumber,
+           -- The same supplier name keeps its id (Linko suppliers may share a name).
+           supplier = @supplier, supplier_id = CASE WHEN supplier = @supplier AND supplier_id IS NOT NULL THEN supplier_id ELSE @supplierId END,
+           warehouse = @warehouse, date = @date, payment_type = @paymentType,
+           contract_number = @contractNumber, amount = @amount,
            organization = @organization, branch = @branch, phone = @phone, email = @email, comment = @comment,
-           items = @items, currency = @currency, invoice_date = @invoiceDate, updated_at = datetime('now')
+           warehouse_id = CASE WHEN warehouse = @warehouse THEN warehouse_id END,
+           branch_id = CASE WHEN branch = @branch THEN branch_id END,
+           organization_id = CASE WHEN organization = @organization THEN organization_id END,
+           items = @items, currency = @currency, rate_to_base = @rate,
+           will_be_sent_out_date = @expectedFactoryExit, will_come_to_post_date = @expectedCustomsArrival, updated_at = datetime('now')
          WHERE id = @id`,
       )
       .run({
         id,
         supplier: input.supplier,
+        supplierId,
         warehouse: input.warehouse,
         date: input.date,
         paymentType: input.paymentType,
         contractNumber: input.contractNumber,
-        amount: amountOf(input),
-        invoiceNumber: input.invoiceNumber,
+        amount: round6(items.reduce((sum, item) => sum + (Number(item.qty) || 0) * (Number(item.cost) || 0), 0)),
         organization: input.organization,
         branch: input.branch,
         phone: contact.phone,
         email: contact.email,
         comment: input.comment,
-        items: JSON.stringify(input.items),
+        items: JSON.stringify(items),
         currency: input.currency,
-        invoiceDate: input.invoiceDate,
+        rate,
+        expectedFactoryExit: input.expectedFactoryExit,
+        expectedCustomsArrival: input.expectedCustomsArrival,
       })
-    await addLog(tx, id, "updated", userName)
+    await addLog(tx, id, "updated", userName, "", current.status)
+    return (await getIncoming(id, tx))!
+  })
+  if (typeof result !== "string" && products.length) await refreshProductCostsByName(products)
+  return result
+}
+
+/** «Изменить детали счет фактуры» (Linko's POST stock/supply/<id>/change_invoice/): the supplier's invoice number,
+ * day and comment, for a supply in any status; logged as change_invoice with the comment. The day is required. */
+export async function changeIncomingInvoice(id: number, body: { invoiceNumber: string; invoiceDate: string; invoiceComment: string }, userName: string): Promise<IncomingChange> {
+  if (!body.invoiceDate.trim()) throw fieldError("invoiceDate", "Укажите дату счет фактуры")
+  const day = parseDocDay(body.invoiceDate, { allowFuture: true })
+  if (!day.ok) throw fieldError("invoiceDate", day.error)
+  await incomingsDb()
+  return withTransaction(async (tx) => {
+    const current = await lockIncoming(tx, id)
+    if (!current) return "not_found"
+    const comment = body.invoiceComment.trim()
+    await tx
+      .prepare("UPDATE supplier_incomings SET invoice_number = @number, invoice_date = @date, invoice_comment = @comment, updated_at = datetime('now') WHERE id = @id")
+      .run({ id, number: body.invoiceNumber.trim(), date: day.date, comment })
+    await addLog(tx, id, "change_invoice", userName, comment, current.status)
+    return (await getIncoming(id, tx))!
+  })
+}
+
+/** «Добавить лог» actions (Linko's SUPPLY_STATUS of supply_log/update_status/). */
+export const INCOMING_EVENT_ACTIONS = ["sent_out", "come_to_post"] as const
+export type IncomingEventAction = (typeof INCOMING_EVENT_ACTIONS)[number]
+
+/** «Добавить лог»: «Вышел с завода» / «Прибыл в таможню» on a day (today when none is picked) with a comment, for a
+ * supply in any status except an inventory surplus (Linko offers it for those only). */
+export async function addIncomingEventLog(id: number, body: { action: IncomingEventAction; date: string; comment: string }, userName: string): Promise<IncomingChange> {
+  const day: DocDate = body.date.trim() ? parseDocDay(body.date, { allowFuture: true }) : { ok: true, date: todayIso() }
+  if (!day.ok) throw fieldError("date", day.error)
+  await incomingsDb()
+  return withTransaction(async (tx) => {
+    const current = await lockIncoming(tx, id)
+    if (!current) return "not_found"
+    if (current.isInventory) return "locked"
+    await addLog(tx, id, body.action, userName, body.comment.trim(), current.status, day.date)
     return (await getIncoming(id, tx))!
   })
 }
@@ -684,26 +939,8 @@ export async function changeIncomingStatus(id: number, action: StatusAction, use
     } else if (action === "unaccept") {
       // The goods leave the warehouse again: it must still have them.
       await lockWarehouseStock(tx, [current.warehouse])
-      const index = await catalogIndex(tx)
       // The stock core books the receipt on the earlier of the supply date and the acceptance.
-      const days = [parseAnyDay(current.date), parseAnyDay(current.acceptedAt)].filter((value): value is string => Boolean(value)).sort()
-      const day = days[0]
-      const stock = await warehouseStock(current.warehouse, day, tx)
-      const shortages = findShortages(
-        current.items.map((item) => ({ product: item.product, quantity: Number(item.qty) || 0, key: item.key })),
-        index,
-        stock,
-      )
-      if (shortages.length) throw new ProcurementError(`Не возможно отменить. ${shortageMessage(current.warehouse, shortages)}`, 409, undefined, { shortages })
-      // A confirmed inventory counted the received items after the acceptance (dated after the day
-      // the receipt is booked on, or an end-of-day count of that day): undoing it would break the
-      // count. A count confirmed before the acceptance never saw the goods; counts of other items
-      // do not matter.
-      const accepted = parseAnyDate(current.acceptedAt) ?? (day ? `${day}T00:00:00` : "")
-      const keys = documentKeys(index, current.items)
-      if (day && (await countedByInventory(tx, current.warehouse, day, accepted, keys, { registeredAt: accepted }))) {
-        throw new ProcurementError("Отменение невозможно из-за связи с другими данными", 409, undefined, { reason: "inventory" })
-      }
+      await assertCanTakeBack(tx, current, current.items, await catalogIndex(tx), bookingDay(current.date, current.acceptedAt), "Не возможно отменить.")
       await tx
         .prepare("UPDATE supplier_incomings SET status = 'ожидает', accepted_at = '', accepted_by = '', rate_to_base = NULL, updated_at = datetime('now') WHERE id = @id")
         .run({ id })
@@ -713,7 +950,7 @@ export async function changeIncomingStatus(id: number, action: StatusAction, use
       if (await supplyHasPayments(tx, id)) throw new ProcurementError("По поставке есть оплаты — отменить нельзя", 409, undefined, { reason: "has_payments" })
       await tx.prepare("UPDATE supplier_incomings SET status = 'отменен', updated_at = datetime('now') WHERE id = @id").run({ id })
     }
-    await addLog(tx, id, action === "accept" ? "accepted" : action === "unaccept" ? "unaccepted" : "cancelled", userName)
+    await addLog(tx, id, action === "accept" ? "accepted" : action === "unaccept" ? "unaccepted" : "cancelled", userName, "", current.status)
     if (action === "accept") {
       // Настройки → Уведомления "supply_accepted": the administrators and the subscribers (in this
       // transaction: a rolled-back acceptance notifies nobody; a failed notification never undoes it).
@@ -747,6 +984,9 @@ type ExpenseRow = {
   created_by: string
   created_at: string
   rate_to_base: number | null
+  distribute_type?: string | null
+  bind_to_provider?: number | null
+  paid?: number | null
 }
 
 const toExpense = (row: ExpenseRow): IncomingExpense => ({
@@ -760,13 +1000,24 @@ const toExpense = (row: ExpenseRow): IncomingExpense => ({
   createdBy: row.created_by,
   createdAt: row.created_at,
   rateToBase: positive(row.rate_to_base),
+  distributeType: row.distribute_type || "cost",
+  bindToProvider: Number(row.bind_to_provider) === 1,
+  paid: round6(Math.abs(Number(row.paid) || 0)),
 })
 
 /** null = no such supply. */
 export async function listIncomingExpenses(incomingId: number): Promise<IncomingExpense[] | null> {
   const db = await incomingsDb()
   if (!(await incomingExists(db, incomingId))) return null
-  return ((await db.prepare("SELECT * FROM supplier_incoming_expenses WHERE incoming_id = ? ORDER BY id").all(incomingId)) as ExpenseRow[]).map(toExpense)
+  // «Оплачено»: the live cash entries paying the expense (Linko's total_paid is their sum; expense payments are negative).
+  const rows = (await db
+    .prepare(
+      `SELECT e.*, COALESCE((SELECT SUM(c.amount) FROM cash_management_entries c
+                              WHERE COALESCE(c.is_deleted, 0) = 0 AND (c.supply_expense_id = e.id OR c.id = e.transaction_id)), 0)::float8 AS paid
+         FROM supplier_incoming_expenses e WHERE e.incoming_id = ? ORDER BY e.id`,
+    )
+    .all(incomingId)) as ExpenseRow[]
+  return rows.map(toExpense)
 }
 
 export type ExpenseInput = IncomingExpenseBody
@@ -804,7 +1055,7 @@ export async function addIncomingExpense(incomingId: number, input: ExpenseInput
         rate,
       })
     // The amount as the page shows money ("250 000 SUM", up to 3 decimals like the supply view).
-    await addLog(tx, incomingId, "expense_added", userName, `${description}: ${formatMoney(input.amount, 3)} ${currency.code}`)
+    await addLog(tx, incomingId, "expense_added", userName, `${description}: ${formatMoney(input.amount, 3)} ${currency.code}`, current.status)
     if (current.status === "принят") products = current.items.map((item) => item.product)
     return (await getIncoming(incomingId, tx))!
   })
@@ -843,7 +1094,7 @@ export async function deleteIncomingExpense(incomingId: number, expenseId: numbe
     if (!expense) return "not_found"
     if ((await expensePayments(tx, [expenseId])) > 0) return "has_payments"
     await tx.prepare("DELETE FROM supplier_incoming_expenses WHERE id = ?").run(expenseId)
-    await addLog(tx, incomingId, "expense_deleted", userName, `${expense.description}: ${formatMoney(Number(expense.amount), 3)} ${expense.currency}`)
+    await addLog(tx, incomingId, "expense_deleted", userName, `${expense.description}: ${formatMoney(Number(expense.amount), 3)} ${expense.currency}`, current.status)
     if (current.status === "принят") products = current.items.map((item) => item.product)
     return (await getIncoming(incomingId, tx))!
   })
@@ -937,8 +1188,18 @@ export async function listIncomingLogs(incomingId: number): Promise<IncomingLog[
     details: string
     user_name: string
     created_at: string
+    status: string | null
+    event_date: string | null
   }>
-  return rows.map((row) => ({ id: row.id, action: row.action, details: row.details, userName: row.user_name, createdAt: row.created_at }))
+  return rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    details: row.details,
+    userName: row.user_name,
+    createdAt: row.created_at,
+    status: row.status ?? "",
+    eventDate: row.event_date ?? "",
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -970,7 +1231,7 @@ export async function repriceFromIncoming(incomingId: number, input: RepriceInpu
     if (products.length) {
       await createRepricingTx(tx, { priceListId: priceList.id, currency: input.currency, comment: input.comment, products, connected: false }, userName, available, "supplier_incoming")
     }
-    await addLog(tx, incomingId, "repriced", userName, `${priceList.name}: ${products.length}${input.comment ? ` — ${input.comment}` : ""}`)
+    await addLog(tx, incomingId, "repriced", userName, `${priceList.name}: ${products.length}${input.comment ? ` — ${input.comment}` : ""}`, incoming.status)
     return { updated: products.length, missing }
   })
 }
@@ -988,7 +1249,8 @@ export type ProductCostInfo = { initialCost: number; currentCost: number; histor
 async function productSupplyLines(productName: string, db: PgDb, history: SupplyHistoryLine[]): Promise<ProductSupplyLine[]> {
   const incomings = await loadIncomings(
     db,
-    "WHERE i.status IN ('принят', 'ожидает') AND i.items LIKE @pattern",
+    // Linko's stock/supply_product_history leaves out the supplies an inventory booked (provider «Инвенторизация»).
+    "WHERE i.status IN ('принят', 'ожидает') AND COALESCE(i.is_inventory, 0) = 0 AND i.items LIKE @pattern",
     { pattern: `%${JSON.stringify(productName).slice(1, -1)}%` },
     "ORDER BY i.id",
   )

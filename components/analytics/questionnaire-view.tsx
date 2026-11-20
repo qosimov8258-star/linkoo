@@ -1,27 +1,34 @@
 "use client"
 
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { X } from "lucide-react"
+
+import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { SurveyForm, emptyQuestion, emptySurveyDraft, type SurveyDraft } from "@/components/analytics/survey-form"
+import { KitRangeField } from "@/components/orders/field-filter-kit"
+import { RefAppliedFilter, RefFilterPanel, RefHeader, RefPage, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import { SplitDetailList } from "@/components/ref/split-detail"
-import { SurveyForm, emptySurveyDraft, type SurveyDraft } from "@/components/analytics/survey-form"
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
-import { Download, FileText, Pencil, Trash2, X } from "lucide-react"
+import { askDelete } from "@/lib/ask-confirm"
 import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { RefHeader, RefPage, RefTabs, RefToolbar, usePaging } from "@/components/ref/list-kit"
+import { monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "название": "name", "наименование": "name", "name": "name",
-  "организация": "organization",
-  "тип магазина": "storeType",
-  "комментарий": "comment",
-}
+// «Опросник» (Продажи → Маркетинг), the reference's #/questionnaire/:
+//   * its state lives in the link with the reference's names: isActive (the tab: true / false / "" = Все), search, page,
+//     pageSize, fromDate / toDate («Период создания»), openFilterDialog and id (the open card), so a reload, Back and a
+//     shared link keep it;
+//   * the filter is the reference's small «Фильтр» card; once applied it turns into «Фильтр: N элемента» (✎ / ⊗). The
+//     reference writes the period into the link but never sends it to its list request (the list stays unfiltered);
+//     here the period does filter the list by the creation day;
+//   * the card of a survey: «Скачать» (a period dialog), «Изменить», «Дублировать» and «Удалить» (with its confirmation).
 
 type Survey = {
   id: number
   name: string
   createdAt: string
+  createdOn?: string
   active: boolean
   organization: string
   /** null = saved before surveys were linked by id. */
@@ -31,14 +38,64 @@ type Survey = {
   comment: string
   orderNo?: string
   flags?: SurveyDraft["flags"]
-  questions?: SurveyDraft["questions"]
+  questions?: Array<Partial<SurveyDraft["questions"][number]>>
 }
 
-const initial: Survey[] = []
+type ActiveTab = "" | "true" | "false"
 
-type Tab = "active" | "inactive" | "all"
+type PageState = {
+  isActive: ActiveTab
+  search: string
+  page: number
+  pageSize: number
+  fromDate: string
+  toDate: string
+  openFilterDialog: boolean
+  id: number
+}
 
-// "Организация" = the factory's organizations (/api/organizations, required), "Тип клиента" = its
+const PAGE_SIZE = 25
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
+const STATE_KEYS = ["isActive", "search", "page", "pageSize", "fromDate", "toDate", "openFilterDialog", "id"]
+
+const positive = (value: string | null) => {
+  const number = Number(value)
+  return Number.isSafeInteger(number) && number > 0 ? number : 0
+}
+
+function readState(search: string): PageState {
+  const params = new URLSearchParams(search)
+  const active = params.get("isActive")
+  const fromDate = params.get("fromDate") ?? ""
+  const toDate = params.get("toDate") ?? ""
+  return {
+    isActive: active === "true" || active === "false" ? active : "",
+    search: (params.get("search") ?? "").trim(),
+    page: positive(params.get("page")) || 1,
+    pageSize: positive(params.get("pageSize")) || PAGE_SIZE,
+    fromDate: ISO_DAY.test(fromDate) ? fromDate : "",
+    toDate: ISO_DAY.test(toDate) ? toDate : "",
+    openFilterDialog: params.get("openFilterDialog") === "true",
+    id: positive(params.get("id")),
+  }
+}
+
+/** The page state → the link's query; keys of other features (e.g. a dialog of the layout) stay as they are. */
+function stateQuery(state: PageState, current: string): string {
+  const params = new URLSearchParams(current)
+  for (const key of STATE_KEYS) params.delete(key)
+  if (state.isActive) params.set("isActive", state.isActive)
+  if (state.search) params.set("search", state.search)
+  if (state.page > 1) params.set("page", String(state.page))
+  if (state.pageSize !== PAGE_SIZE) params.set("pageSize", String(state.pageSize))
+  if (state.fromDate) params.set("fromDate", state.fromDate)
+  if (state.toDate) params.set("toDate", state.toDate)
+  if (state.openFilterDialog) params.set("openFilterDialog", "true")
+  if (state.id) params.set("id", String(state.id))
+  return params.toString()
+}
+
+// "Организация" = the factory's organizations (/api/organizations, optional), "Тип клиента" = its
 // client types (/api/client-types; "Не указано" = none). Nothing is pre-selected; the form works with
 // their names and save() sends the ids (the API checks both).
 type Named = { id: number; name: string }
@@ -60,11 +117,79 @@ async function loadNamed(url: string): Promise<Named[]> {
   }
 }
 
+const ICON = {
+  download: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
+  edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+  copy: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
+  delete: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+  add: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z",
+}
+
+/** A labelled action of the card header (the reference's flat buttons: 18px icon, semibold label). */
+function CardAction({ icon, label, color = "#666", onClick }: { icon: string; label: string; color?: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="ml-[5px] flex h-[30px] items-center rounded-[2px] pl-[12px] pr-[16px] text-[13px] font-semibold hover:bg-black/[0.06]" style={{ color }}>
+      <svg viewBox="0 0 24 24" className="mb-[2px] h-[18px] w-[18px]" style={{ fill: color }} aria-hidden>
+        <path d={icon} />
+      </svg>
+      <span className="pl-[8px]">{label}</span>
+    </button>
+  )
+}
+
+/** The reference's «Скачать акт сверки» dialog of a survey: «Выберите период» and «Скачать». */
+function DownloadDialog({ survey, onClose }: { survey: Survey; onClose: () => void }) {
+  const { t, language } = useLanguage()
+  const [period, setPeriod] = useState({ from: "", to: "" })
+
+  function download() {
+    const questions = survey.questions ?? []
+    downloadExcelTable(`${t("Опросник")} №${survey.id}${period.from ? ` ${period.from} - ${period.to || period.from}` : ""}`, [
+      ["№", t("Название"), t("Дата создания"), t("Статус"), t("Организация"), t("Тип магазина"), t("Комментарий")],
+      [survey.id, survey.name, formatDateText(survey.createdAt, language), survey.active ? t("Активный") : t("Отключен"), survey.organization || t(NO_CLIENT_TYPE), survey.storeType || t(NO_CLIENT_TYPE), survey.comment],
+      [],
+      ["№", t("Вопрос"), t("Тип"), t("Ответы")],
+      ...questions.map((question, index) => [index + 1, question.text ?? "", t(question.type || NO_CLIENT_TYPE), (question.answers ?? []).filter(Boolean).join(", ")]),
+    ])
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/[0.54]" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={t("Скачать акт сверки")} onClick={(event) => event.stopPropagation()} className="w-[400px] max-w-full bg-white text-[13px] text-black shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)]">
+        <header className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[15px]">
+          <h3 className="text-[13px] font-bold uppercase text-[#333]">{t("Скачать акт сверки")}</h3>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333] hover:opacity-70">
+            <X className="h-6 w-6" strokeWidth={1.6} />
+          </button>
+        </header>
+        <div className="px-[30px] pb-[10px] pt-[20px]">
+          <KitRangeField label="Выберите период" begin={period.from} end={period.to} onChange={(from, to) => setPeriod({ from, to })} clearable={false} />
+        </div>
+        <footer className="flex h-[57px] items-center justify-end pr-[30px]">
+          <button type="button" onClick={download} className="h-[36px] px-[16px] text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#f2f5f8]">
+            {t("Скачать")}
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
 export function QuestionnaireView() {
   const { t, language } = useLanguage()
-  const [surveys, setSurveys] = useState(initial)
+  const [surveys, setSurveys] = useState<Survey[]>([])
   const [organizations, setOrganizations] = useState<Named[]>([])
   const [clientTypes, setClientTypes] = useState<Named[]>([])
+  // The page state is the link's (read after mount: the server render has no window).
+  const [state, setState] = useState<PageState | null>(null)
+  const [searchText, setSearchText] = useState("")
+  const [period, setPeriod] = useState({ from: "", to: "" })
+  const [editing, setEditing] = useState<{ mode: "new" | "edit" | "duplicate"; id: number } | null>(null)
+  const [draft, setDraft] = useState<SurveyDraft>(emptySurveyDraft)
+  const [downloading, setDownloading] = useState<Survey | null>(null)
+  const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+
   useEffect(() => {
     let cancelled = false
     void Promise.all([loadNamed("/api/organizations"), loadNamed("/api/client-types")]).then(([organizationRows, typeRows]) => {
@@ -76,6 +201,7 @@ export function QuestionnaireView() {
       cancelled = true
     }
   }, [])
+
   useEffect(() => {
     let cancelled = false
     fetch("/api/surveys")
@@ -93,90 +219,110 @@ export function QuestionnaireView() {
       cancelled = true
     }
   }, [t])
-  const [tab, setTab] = useState<Tab>("all")
-  const [query, setQuery] = useState("")
-  const [filterOpen, setFilterOpen] = useState(false)
-  // "" = every organization; else an organization id.
-  const [organizationFilter, setOrganizationFilter] = useState("")
-  const [selected, setSelected] = useState<number | null>(null)
-  const [editing, setEditing] = useState<number | "new" | null>(null)
-  const [draft, setDraft] = useState<SurveyDraft>(emptySurveyDraft)
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
 
-  const filterOrganization = organizations.find((item) => String(item.id) === organizationFilter) ?? null
+  // Link → state on mount and on Back / Forward.
+  useEffect(() => {
+    const sync = () => {
+      const next = readState(window.location.search)
+      setState(next)
+      setSearchText(next.search)
+    }
+    sync()
+    window.addEventListener("popstate", sync)
+    return () => window.removeEventListener("popstate", sync)
+  }, [])
+
+  /** A new state, written into the link as a new history entry (typing in «Поиск» replaces the current one). */
+  const navigate = useCallback((next: PageState, replace = false) => {
+    setState(next)
+    setSearchText(next.search)
+    const query = stateQuery(next, window.location.search)
+    const url = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+    if (replace) window.history.replaceState(window.history.state, "", url)
+    else window.history.pushState(window.history.state, "", url)
+  }, [])
+
   const filtered = useMemo(() => {
+    if (!state) return []
+    const needle = state.search.toLowerCase()
+    const until = state.toDate || state.fromDate
     return surveys
-      .filter((survey) => (tab === "active" ? survey.active : tab === "inactive" ? !survey.active : true))
-      // Surveys saved before the organization id was kept match by name.
-      .filter((survey) => !filterOrganization || survey.organizationId === filterOrganization.id || (survey.organizationId == null && survey.organization === filterOrganization.name))
-      .filter((survey) => survey.name.toLowerCase().includes(query.toLowerCase()))
-  }, [surveys, tab, filterOrganization, query])
-  const paging = usePaging(filtered.length)
+      .filter((survey) => (state.isActive === "true" ? survey.active : state.isActive === "false" ? !survey.active : true))
+      .filter((survey) => !state.fromDate || ((survey.createdOn ?? "") >= state.fromDate && (survey.createdOn ?? "") <= until))
+      .filter((survey) => survey.name.toLowerCase().includes(needle))
+  }, [surveys, state])
 
-  const counts = useMemo(
-    () => ({
-      active: surveys.filter((survey) => survey.active).length,
-      inactive: surveys.filter((survey) => !survey.active).length,
-      all: surveys.length,
-    }),
-    [surveys],
-  )
+  const closeNotice = useCallback(() => setNotice(null), [])
+
+  if (!state) return <RefPage><RefHeader title="Опросник" /></RefPage>
+  const current = state
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / current.pageSize))
+  const page = Math.min(current.page, pageCount)
+  const start = (page - 1) * current.pageSize
+  const end = Math.min(start + current.pageSize, filtered.length)
+  const filterCount = current.toDate ? 1 : 0
 
   function openCreate() {
     setDraft(emptySurveyDraft())
-    setEditing("new")
+    setEditing({ mode: "new", id: 0 })
   }
 
-  function openEdit(survey: Survey) {
+  function surveyDraft(survey: Survey): SurveyDraft {
     // An older survey without ids is matched by name (an unknown name has to be chosen again).
     const organization = organizations.find((item) => item.id === survey.organizationId) ?? organizations.find((item) => item.name === survey.organization)
     const clientType = clientTypes.find((item) => item.id === survey.clientTypeId) ?? clientTypes.find((item) => item.name === survey.storeType)
-    setDraft({
-      ...emptySurveyDraft(),
+    const base = emptySurveyDraft()
+    return {
+      ...base,
       name: survey.name,
       orderNo: survey.orderNo ?? "",
       organization: organization?.name ?? "",
       storeType: clientType?.name ?? "",
       active: survey.active,
       comment: survey.comment,
-      flags: { ...emptySurveyDraft().flags, ...(survey.flags ?? {}) },
-      questions: survey.questions?.length ? survey.questions : emptySurveyDraft().questions,
-    })
-    setEditing(survey.id)
+      flags: { ...base.flags, ...(survey.flags ?? {}) },
+      questions: survey.questions?.length
+        ? survey.questions.map((question) => {
+            const merged = { ...emptyQuestion(), ...question }
+            return { ...merged, answers: merged.answers.length ? merged.answers : [""], balls: merged.answers.map((_, index) => merged.balls[index] ?? "") }
+          })
+        : base.questions,
+    }
   }
 
-  async function remove(id: number) {
+  function openEdit(survey: Survey, mode: "edit" | "duplicate") {
+    setDraft(surveyDraft(survey))
+    setEditing({ mode, id: survey.id })
+  }
+
+  async function remove(survey: Survey) {
+    if (!(await askDelete())) return
     try {
-      const response = await fetch(`/api/surveys/${id}`, { method: "DELETE" })
+      const response = await fetch(`/api/surveys/${survey.id}`, { method: "DELETE" })
       if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { error?: string }
-        notify(t(data.error || "Не удалось удалить опросник"))
+        setNotice({ text: "Удаление невозможно из-за связи с другими данными", tone: "error" })
         return
       }
-      setSurveys((list) => list.filter((survey) => survey.id !== id))
-      setSelected((current) => (current === id ? null : current))
+      setSurveys((list) => list.filter((item) => item.id !== survey.id))
+      navigate({ ...current, id: 0 })
+      setNotice({ text: "Успешно удалено", tone: "success" })
     } catch {
       notify(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
   async function save() {
-    if (!draft.name.trim()) return
-    // The form picks names; the survey is linked by id to the factory's own organization / client type.
-    const organization = organizations.find((item) => item.name === draft.organization)
-    if (!organization) {
-      notify(organizations.length ? t("Выберите организацию") : t("Нет организаций — добавьте их в разделе «Организация»"))
-      return
-    }
+    if (!editing || !draft.name.trim()) return
+    // The form picks names; the survey is linked by id to the factory's own organization / client type (both optional,
+    // as in the reference).
+    const organization = organizations.find((item) => item.name === draft.organization) ?? null
     const clientType = clientTypes.find((item) => item.name === draft.storeType) ?? null
     const payload = {
       name: draft.name.trim(),
       active: draft.active,
-      organizationId: organization.id,
-      organization: organization.name,
+      organizationId: organization ? organization.id : null,
+      organization: organization ? organization.name : "",
       clientTypeId: clientType ? clientType.id : null,
       storeType: clientType ? clientType.name : "",
       comment: draft.comment,
@@ -184,178 +330,85 @@ export function QuestionnaireView() {
       flags: draft.flags,
       questions: draft.questions,
     }
+    const creating = editing.mode !== "edit"
     try {
-      if (editing === "new") {
-        const response = await fetch("/api/surveys", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        })
-        if (!response.ok) {
-          const data = (await response.json().catch(() => ({}))) as { error?: string }
-          notify(t(data.error || "Не удалось создать опросник"))
-          return
-        }
-        const saved = (await response.json()) as Survey
-        setSurveys((list) => [saved, ...list])
-      } else if (editing !== null) {
-        const response = await fetch(`/api/surveys/${editing}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        })
-        if (!response.ok) {
-          const data = (await response.json().catch(() => ({}))) as { error?: string }
-          notify(t(data.error || "Не удалось сохранить опросник"))
-          return
-        }
-        const saved = (await response.json()) as Survey
-        setSurveys((list) => list.map((survey) => (survey.id === saved.id ? saved : survey)))
+      const response = await fetch(creating ? "/api/surveys" : `/api/surveys/${editing.id}`, {
+        method: creating ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        notify(t(data.error || (creating ? "Не удалось создать опросник" : "Не удалось сохранить опросник")))
+        return
       }
+      const saved = (await response.json()) as Survey
+      setSurveys((list) => (creating ? [saved, ...list] : list.map((survey) => (survey.id === saved.id ? saved : survey))))
       setEditing(null)
+      setNotice({ text: creating ? "Успешно сохранено" : "Успешно изменено", tone: "success" })
     } catch {
       notify(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
-  function downloadTemplate() {
-    downloadExcelTable("questionnaires-template", [["Название", "Организация", "Тип магазина", "Комментарий"]])
+  function openFilter() {
+    // The reference's card opens with the applied period, else the current month.
+    const today = todayIso()
+    setPeriod(current.fromDate ? { from: current.fromDate, to: current.toDate || current.fromDate } : { from: monthStartIso(today), to: monthEndIso(today) })
+    navigate({ ...current, openFilterDialog: true })
   }
 
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
+  function applyFilter() {
+    navigate({ ...current, fromDate: period.from, toDate: period.from ? period.to || period.from : "", openFilterDialog: false, page: 1 })
   }
 
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        notify(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      // Names of the factory's own organization / client type: the API links them (or refuses the row).
-      const parsed: Array<{ name: string; active: boolean; organization: string; storeType: string; comment: string }> = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.name = row[0] ?? ""
-          record.organization = row[1] ?? ""
-          record.storeType = row[2] ?? ""
-          record.comment = row[3] ?? ""
-        }
-        if (!record.name) continue
-        parsed.push({
-          name: record.name.trim(),
-          active: true,
-          // Without an organization in the file: the only organization, if there is exactly one.
-          organization: (record.organization ?? "").trim() || (organizations.length === 1 ? organizations[0].name : ""),
-          storeType: (record.storeType ?? "").trim(),
-          comment: record.comment || "",
-        })
-      }
-
-      if (!parsed.length) {
-        notify(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-
-      const created: Survey[] = []
-      let failed = 0
-      let firstError = ""
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/surveys", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(item),
-          })
-          if (response.ok) created.push((await response.json()) as Survey)
-          else {
-            failed += 1
-            if (!firstError) firstError = String(((await response.json().catch(() => ({}))) as { error?: string }).error ?? "")
-          }
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setSurveys((current) => [...created, ...current])
-      if (failed) notify(`${t("Импортировано")} ${created.length} / ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}${firstError ? ` (${t(firstError)})` : ""}`)
-    } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
-    }
-  }
-
-  function downloadSurvey(survey: Survey) {
-    downloadExcelTable(`oprosnik-${survey.id}.xls`, [
-      ["№", t("Название"), t("Дата создания"), t("Статус"), t("Организация"), t("Тип магазина"), t("Комментарий")],
-      [survey.id, survey.name, formatDateText(survey.createdAt, language), survey.active ? t("Активный") : t("Отключен"), survey.organization, survey.storeType, survey.comment],
-    ])
-  }
-
-  const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: "active", label: "Активные", count: counts.active },
-    { key: "inactive", label: "Не активные", count: counts.inactive },
-    { key: "all", label: "Все", count: counts.all },
+  const tabs: { key: ActiveTab; label: string }[] = [
+    { key: "true", label: "Активные" },
+    { key: "false", label: "Не активные" },
+    { key: "", label: "Все" },
   ]
+  const formTitle = !editing ? "" : editing.mode === "edit" ? `${t("Изменение")} № ${editing.id}` : editing.mode === "duplicate" ? t("Дублирование") : t("Добавление")
 
   return (
     <RefPage>
       <RefHeader title="Опросник">
         <button type="button" onClick={openCreate} className="flex h-[30px] w-[118px] items-center justify-center gap-2 rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white hover:brightness-95">
-          <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-current"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
+          <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-current"><path d={ICON.add} /></svg>
           {t("Добавить")}
         </button>
       </RefHeader>
 
       <SplitDetailList
-        rows={filtered.slice(paging.start, paging.end)}
-        selectedKey={selected}
+        rows={filtered.slice(start, end)}
+        selectedKey={current.id || null}
         rowKey={(survey) => survey.id}
         toolbar={
           <>
-            <RefTabs labels={tabs.map((item) => item.label)} value={tabs.find((item) => item.key === tab)?.label ?? ""} onChange={(label) => { setTab(tabs.find((item) => item.label === label)?.key ?? tab); paging.setPage(1) }} />
+            <RefTabs labels={tabs.map((item) => item.label)} value={tabs.find((item) => item.key === current.isActive)?.label ?? "Все"} onChange={(label) => navigate({ ...current, isActive: tabs.find((item) => item.label === label)?.key ?? "", page: 1 })} />
             <RefToolbar
-              filterOpen={filterOpen}
-              onToggleFilter={() => setFilterOpen((value) => !value)}
+              // The reference's search field starts at 430 px (its filter column is wider than the default).
+              filterWidth={379}
+              filterOpen={current.openFilterDialog}
+              onToggleFilter={openFilter}
+              leftSlot={filterCount > 0 && !current.openFilterDialog ? <RefAppliedFilter count={filterCount} width={370} shift={28} onEdit={openFilter} onClear={() => navigate({ ...current, fromDate: "", toDate: "", page: 1 })} /> : undefined}
               filterPanel={
-                <div className="flex w-full flex-wrap items-end gap-4 border-b border-slate-200 bg-white px-5 py-4 shadow">
-                  <label className="text-sm font-medium text-slate-600">
-                    {t("Организация")}
-                    <select value={organizationFilter} onChange={(event) => { setOrganizationFilter(event.target.value); paging.setPage(1) }} className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#1E4A9A]">
-                      <option value="">{t("Все организации")}</option>
-                      {organizations.map((item) => (
-                        <option key={item.id} value={String(item.id)}>{item.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#1E4A9A] px-5 py-2.5 font-semibold uppercase text-white hover:brightness-95">
-                    {t("Применить")}
-                  </button>
-                </div>
+                <RefFilterPanel narrow onClose={() => navigate({ ...current, openFilterDialog: false })} onApply={applyFilter}>
+                  <KitRangeField label="Период создания" begin={period.from} end={period.to} onChange={(from, to) => setPeriod({ from, to })} />
+                </RefFilterPanel>
               }
-              query={query}
-              onQuery={(value) => { setQuery(value); paging.setPage(1) }}
-              pageSize={paging.pageSize}
-              onPageSize={paging.setPageSize}
-              from={filtered.length ? paging.start + 1 : 0}
-              to={paging.end}
+              query={searchText}
+              onQuery={(value) => {
+                navigate({ ...current, search: value.trim(), page: 1 }, true)
+                setSearchText(value)
+              }}
+              pageSize={current.pageSize}
+              onPageSize={(size) => navigate({ ...current, pageSize: size, page: 1 })}
+              from={filtered.length ? start + 1 : 0}
+              to={end}
               total={filtered.length}
-              page={paging.page}
-              pageCount={paging.pageCount}
-              onPage={paging.setPage}
+              page={page}
+              pageCount={pageCount}
+              onPage={(next) => navigate({ ...current, page: next })}
             />
           </>
         }
@@ -363,35 +416,32 @@ export function QuestionnaireView() {
           cols: "minmax(0,1fr) minmax(0,5fr) minmax(0,3fr) minmax(0,2fr)",
           heads: [t("№"), t("Название"), t("Дата создания"), t("Статус")],
           rowKey: (survey: Survey) => survey.id,
-          onRowClick: (survey: Survey) => setSelected((current) => (current === survey.id ? null : survey.id)),
+          onRowClick: (survey: Survey) => navigate({ ...current, id: current.id === survey.id ? 0 : survey.id }),
           empty: t("Ничего не найдено"),
           render: (survey: Survey) => [survey.id, survey.name, formatDateText(survey.createdAt, language), t(survey.active ? "Активный" : "Отключен")],
         }}
         detail={(survey) => (
           <>
-            <div className="flex h-[66px] items-center justify-between border-b border-[#e5e8ed] px-[30px]">
-              <h2 className="text-[18px] font-medium text-[#333]">
+            <div className="relative flex h-[65px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[15px]">
+              {/* A click on the header closes the card, as in the reference. */}
+              <button type="button" aria-label={t("Закрыть")} onClick={() => navigate({ ...current, id: 0 })} className="absolute inset-0 z-0 cursor-pointer" />
+              <h2 className="relative z-[1] text-[18px] font-semibold text-[#333]">
                 № {survey.id} - {survey.name}
               </h2>
-              <div className="flex items-center gap-[10px] text-[#5d6474]">
-                <button type="button" onClick={() => downloadSurvey(survey)} aria-label={t("Скачать")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-[#1E4A9A]">
-                  <Download className="h-5 w-5" />
-                </button>
-                <button type="button" onClick={() => openEdit(survey)} aria-label={t("Изменить")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-[#1E4A9A]">
-                  <Pencil className="h-5 w-5" />
-                </button>
-                <button type="button" onClick={() => remove(survey.id)} aria-label={t("Удалить")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-red-500">
-                  <Trash2 className="h-5 w-5" />
-                </button>
+              <div className="relative z-[1] flex items-center">
+                <CardAction icon={ICON.download} label={t("Скачать")} onClick={() => setDownloading(survey)} />
+                <CardAction icon={ICON.edit} label={t("Изменить")} onClick={() => openEdit(survey, "edit")} />
+                <CardAction icon={ICON.copy} label={t("Дублировать")} onClick={() => openEdit(survey, "duplicate")} />
+                <CardAction icon={ICON.delete} label={t("Удалить")} color="#e57373" onClick={() => void remove(survey)} />
               </div>
             </div>
             <div className="w-[320px] px-[30px] pb-[20px] pt-[16px] text-[13px] leading-[25px] text-[#333]">
-              <p>{t("Дата создания")} <b className="float-right">{formatDateText(survey.createdAt, language)}</b></p>
-              <p>{t("Организация")} <b className="float-right">{survey.organization}</b></p>
-              <p>{t("Тип магазина")} <b className="float-right">{survey.storeType || t(NO_CLIENT_TYPE)}</b></p>
-              <div className="-mx-[30px] mt-[15px] border-t border-[#e7ebf0] px-[30px] pt-[16px]">
-                <p className="font-bold">{t("Комментарий")}:</p>
-                <p className="mt-[3px]">{survey.comment || t("Комментарий отсутствует")}</p>
+              <p>{t("Дата создания")} <b className="float-right font-semibold">{formatDateText(survey.createdAt, language)}</b></p>
+              <p>{t("Организация")} <b className="float-right font-semibold">{survey.organization || t(NO_CLIENT_TYPE)}</b></p>
+              <p>{t("Тип магазина")} <b className="float-right font-semibold">{survey.storeType || t(NO_CLIENT_TYPE)}</b></p>
+              <div className="-mx-[30px] mt-[15px] border-t border-[#e7ebf0] px-[30px] pt-[16px] leading-[20px]">
+                <p className="mb-[5px] font-semibold">{t("Комментарий")}:</p>
+                <p>{survey.comment || t("Комментарий отсутствует")}</p>
               </div>
             </div>
           </>
@@ -401,7 +451,7 @@ export function QuestionnaireView() {
       {/* "Не указано" is the first client type: picking it unlinks the client type (save() sends null). */}
       {editing !== null && (
         <SurveyForm
-          title={editing === "new" ? "Добавление" : "Изменить опросник"}
+          title={formTitle}
           draft={draft}
           organizations={organizations.map((item) => item.name)}
           clientTypes={[t(NO_CLIENT_TYPE), ...clientTypes.map((item) => item.name)]}
@@ -411,37 +461,8 @@ export function QuestionnaireView() {
         />
       )}
 
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{t("Импорт с Excel")}</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}>
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#1E4A9A] hover:underline">
-                {t("1. Скачать шаблон")}
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#1E4A9A] hover:text-[#1E4A9A]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? t("Импорт...") : t("Сохранить")}
-              </button>
-            </footer>
-          </div>
-        </div>
-      )}
+      {downloading && <DownloadDialog survey={downloading} onClose={() => setDownloading(null)} />}
+      <CashSnackbar message={notice} onClose={closeNotice} />
     </RefPage>
   )
 }

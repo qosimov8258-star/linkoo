@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react"
 
 import { FilterDate, RefFilterPanel } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { elementWord, type TaskOption } from "./tasks-data"
+import { type TaskOption } from "./tasks-data"
 
-// "Фильтр" of the task list: collapsed it is the link "Показать фильтр ▾", or the grey chip
-// "Фильтр: N элемент(а)" with ✎ (reopen) and ⊗ (clear everything); open it is the 300px panel with
+// "Фильтр" of the task list: collapsed it is the link "Показать фильтр ▾", or the grey bar
+// "Фильтр: N элемента" (Linko's wording for any N) with ✎ (reopen) and ⊗ (clear everything); open it is the 300px panel with
 // Ответственный пользователь / Создал / Магазин (multi-selects), Период создания and Период задачи.
 
 export type TaskFilterValue = {
@@ -129,7 +129,7 @@ function RangeField({ label, from, to, onChange }: { label: string; from: string
   const { t } = useLanguage()
   return (
     <div className="relative">
-      <FilterDate label={label} begin={from} end={to} onChange={onChange} />
+      <FilterDate label={label} begin={from} end={to} onChange={onChange} words />
       {(from || to) && (
         <button type="button" onClick={() => onChange("", "")} aria-label={t("Очистить")} className="absolute right-0 top-[26px] flex h-6 w-6 items-center justify-center">
           <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#999]" aria-hidden>
@@ -181,20 +181,24 @@ export function TaskFilterControl({
           <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#1E4A9A]" aria-hidden><path d="M7 10l5 5 5-5z" /></svg>
         </button>
       ) : (
-        <div className="flex h-[40px] items-center bg-[#f2f5f8] pl-[12px] text-[13px] text-[#5d6474]">
+        // Linko's afterFilter: a 48px grey bar from the card's edge, «Фильтр: N элемента», ✎ and ⊗ in 48px cells.
+        <div className="relative -ml-[5px] flex h-[48px] w-[372px] max-w-full items-center bg-[#efefef] px-[30px] text-[13px] text-[#666]">
           <span className="whitespace-nowrap">
-            {t("Фильтр")}: {count} {t(elementWord(count))}
+            {t("Фильтр")}: {count} {t("элемента")}
           </span>
-          <button type="button" onClick={openPanel} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="ml-[8px] flex h-[40px] w-[36px] items-center justify-center">
-            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-[#5d6474]" aria-hidden>
-              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-            </svg>
-          </button>
-          <button type="button" onClick={() => onApply(EMPTY_TASK_FILTER)} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="flex h-[40px] w-[36px] items-center justify-center">
-            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#5d6474]" aria-hidden>
-              <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13L12 10.59 8.41 7 7 8.41 10.59 12 7 15.59 8.41 17 12 13.41 15.59 17 17 15.59 13.41 12 17 8.41z" />
-            </svg>
-          </button>
+          <div className="absolute right-0 top-0 flex">
+            <button type="button" onClick={openPanel} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="relative flex h-[48px] w-[48px] items-center justify-center border-l border-white">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]" aria-hidden>
+                <path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" />
+              </svg>
+              <span className="absolute bottom-[10px] h-[4px] w-[24px] bg-[#c8c8c8]" />
+            </button>
+            <button type="button" onClick={() => onApply(EMPTY_TASK_FILTER)} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="flex h-[48px] w-[48px] items-center justify-center border-l border-white">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]" aria-hidden>
+                <path d="M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+              </svg>
+            </button>
+          </div>
         </div>
       )}
       {open && (

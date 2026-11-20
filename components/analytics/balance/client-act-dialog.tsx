@@ -9,7 +9,7 @@ import { BalanceDownloadMenu } from "@/components/analytics/balance/download-men
 import { useBalanceStatement } from "@/components/analytics/balance/use-balance"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { currencyLabel } from "@/lib/finance/currency"
-import type { BalanceDateMode } from "@/lib/finance/types"
+import type { BalanceDateMode, StatementRow } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Информация по балансу клиента: NAME" (demo act modal 2342), shared by
@@ -70,11 +70,15 @@ export function ClientActDialog({
     reload()
   }
 
+  const rowDeliverer = (row: StatementRow) => (row.deliverer === undefined ? (row.source === "order" ? deliverer : "") : row.deliverer || t("Не указано"))
+  // Linko's act names a bank payment «Перечисления».
+  const rowPaymentType = (row: StatementRow) => t(row.paymentType === "bank" ? "Перечисления" : paymentTypeLabel(row.paymentType))
   const columns: ActColumn[] = [
     { label: "Комментарий", render: (row) => <StatementComment row={row} />, excel: (row) => describeStatementRow(row, t) },
-    { label: "Доставщик", render: (row) => (row.source === "order" ? deliverer : ""), excel: (row) => (row.source === "order" ? deliverer : "") },
+    // Linko: the delivery man written on each transaction (the statement route adds it), «Не указано» without one.
+    { label: "Доставщик", render: (row) => rowDeliverer(row), excel: (row) => rowDeliverer(row) },
     { label: "Организация", render: (row) => row.organization, excel: (row) => row.organization },
-    { label: "Тип оплаты", render: (row) => t(paymentTypeLabel(row.paymentType)), excel: (row) => t(paymentTypeLabel(row.paymentType)) },
+    { label: "Тип оплаты", render: (row) => rowPaymentType(row), excel: (row) => rowPaymentType(row) },
     {
       label: "",
       render: (row) =>

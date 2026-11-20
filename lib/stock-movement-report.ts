@@ -214,8 +214,6 @@ type Context = {
   allowedWarehouses: string[] | null
   /** Display names of keys missing from the catalog (filled by resolveOrphans). */
   orphans: Map<string, string>
-  /** Inventory items (products.is_inventory): listed only once they hold or move stock. */
-  inventoryKeys: Set<string>
 }
 
 async function loadContext(filters: Pick<MoveFilters, "warehouses" | "branches">, db: PgDb): Promise<Context> {
@@ -232,9 +230,7 @@ async function loadContext(filters: Pick<MoveFilters, "warehouses" | "branches">
     const names = filters.warehouses.length ? filters.warehouses : [...warehouses.values()].map((warehouse) => warehouse.name)
     allowedWarehouses = filters.branches.length ? names.filter((name) => filters.branches.includes(warehouses.get(finKey(name))?.branch ?? "")) : names
   }
-  const inventoryRows = (await db.prepare("SELECT id FROM products WHERE COALESCE(is_inventory, 0) = 1").all().catch(() => [])) as Array<{ id: number }>
-  const inventoryKeys = new Set(inventoryRows.map((row) => `product:${row.id}`))
-  return { catalog, warehouses, allowedWarehouses, orphans: new Map(), inventoryKeys }
+  return { catalog, warehouses, allowedWarehouses, orphans: new Map() }
 }
 
 function itemMatches(key: string, filters: MoveFilters, context: Context): boolean {
@@ -556,7 +552,9 @@ async function stockMovementRowsFresh(filters: MoveFilters, db: PgDb): Promise<M
   const hidden = needle ? [] : finished.filter((row) => deletedKeys.has(row.key))
   const rows = finished
     .filter((row) => !deletedKeys.has(row.key))
-    .filter((row) => filters.groupBy !== "product" || !(context.inventoryKeys.has(row.key) || !context.catalog.has(row.key)) || Object.values(row.qty).some((value) => value !== 0))
+    // Every live catalog item is a row, inventory products (Linko's gear products) included, as in Linko's report;
+    // an item outside the catalog only when it holds or moves stock.
+    .filter((row) => filters.groupBy !== "product" || context.catalog.has(row.key) || Object.values(row.qty).some((value) => value !== 0))
     .filter((row) => filters.groupBy === "product" || !needle || row.name.toLowerCase().includes(needle))
   return { rows, needPriceList, units, hidden }
 }

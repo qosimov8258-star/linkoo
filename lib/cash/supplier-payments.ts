@@ -291,7 +291,8 @@ function allocate(amount: number, currency: string, supplyCurrency: string, cc: 
 }
 
 /** "Оплачено" per supply: Σ live verified payments linked to it, in the supply currency. */
-export async function paidBySupply(supplyIds: number[] | null = null, db: PgDb = getDb()): Promise<Map<number, number>> {
+/** `skip`: payments left out (the supply card adds only the payments entered after a copy from Linko). */
+export async function paidBySupply(supplyIds: number[] | null = null, db: PgDb = getDb(), skip: number[] = []): Promise<Map<number, number>> {
   await ensureCashSchema(db)
   const cc = await currencyContext(db)
   const rows = (await db
@@ -300,9 +301,10 @@ export async function paidBySupply(supplyIds: number[] | null = null, db: PgDb =
        FROM supplier_payments sp JOIN supplier_incomings i ON i.id = sp.supply_id
        WHERE sp.supply_id IS NOT NULL AND sp.is_deleted = 0 AND sp.is_verified <> 0
          AND (@all::boolean OR sp.supply_id = ANY(@ids::int[]))
+         AND NOT (sp.id = ANY(@skip::int[]))
        GROUP BY 1, 2, 3`,
     )
-    .all({ base: cc.base, all: supplyIds === null, ids: ids(supplyIds ?? []) })) as Array<{ id: number; cur: string; supply_cur: string | null; amount: number }>
+    .all({ base: cc.base, all: supplyIds === null, ids: ids(supplyIds ?? []), skip: ids(skip) })) as Array<{ id: number; cur: string; supply_cur: string | null; amount: number }>
   const out = new Map<number, number>()
   for (const row of rows) {
     const value = allocate(num(row.amount), normCurrency(row.cur, cc.base), normCurrency(row.supply_cur, cc.base), cc)

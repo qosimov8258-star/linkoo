@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react"
 
+import { isPlainClick } from "@/components/clients/shop-open-address"
 import { formatMoney } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -95,8 +96,36 @@ export function eventSummary(client: TrackingClient, day: string, t: (text: stri
 
 type Actions = {
   onOpenClient: (clientId: number) => void
+  /** The address of a client's shop card (Linko's link of a client of the day, drawer=shop&openShop=<id>): the name is
+   * then a link, so Ctrl / middle click opens the card in a new tab. */
+  clientHref?: (clientId: number) => string
   onOpenOrder: (orderId: number) => void
   onOpenRecord: (kind: "refusal" | "photo_report", id: number) => void
+}
+
+/** A client's name: Linko's link to its shop card (a plain click opens the card here, the page keeps it in the address). */
+function ClientName({ clientId, name, actions, className }: { clientId: number; name: string; actions: Actions; className: string }) {
+  const classes = `min-w-0 truncate text-left font-bold text-[#333] hover:text-[#1E4A9A] hover:underline ${className}`
+  if (!actions.clientHref) {
+    return (
+      <button type="button" onClick={() => actions.onOpenClient(clientId)} className={classes}>
+        {name}
+      </button>
+    )
+  }
+  return (
+    <a
+      href={actions.clientHref(clientId)}
+      onClick={(event) => {
+        if (!isPlainClick(event)) return
+        event.preventDefault()
+        actions.onOpenClient(clientId)
+      }}
+      className={classes}
+    >
+      {name}
+    </a>
+  )
 }
 
 function ViewLink({ onClick }: { onClick: () => void }) {
@@ -391,33 +420,17 @@ export function AgentDayPanel({
       )}
       {filterOpen && <StatusFilterPanel value={status} onApply={onStatus} onClose={() => setFilterOpen(false)} />}
 
-      {plan ? (
-        // Linko's achieves: сделки (and оплаты) on the left, посещено (and отчеты / доставки / возвраты) on the right;
-        // a figure other than сделки / посещено only when it is not zero.
-        <div className="flex shrink-0 items-center justify-between border-x border-b border-[#e6e6e6] bg-white px-[20px] py-[10px]">
-          <div className="flex items-center">
-            <Stat icon={<Flame className="h-6 w-6" />} value={moneyLines(stats?.orders, base).join(" · ")} caption="сделки" />
-            {(stats?.payments.count ?? 0) > 0 && <Stat icon={<DollarSign className="h-6 w-6" />} value={moneyLines(stats?.payments, base).join(" · ")} caption="оплаты" />}
-          </div>
-          <div className="flex items-center">
-            <Stat
-              icon={<MapPin className="h-6 w-6" />}
-              value={
-                <>
-                  {stats?.done ?? 0} / {stats?.todo ?? 0}
-                  {(stats?.unplanned ?? 0) > 0 && <span className="text-[#ee667d]"> + {stats?.unplanned}</span>}
-                </>
-              }
-              caption="посещено"
-            />
-            {(stats?.reports ?? 0) > 0 && <Stat icon={<ClipboardList className="h-6 w-6" />} value={stats?.reports ?? 0} caption="отчеты" />}
-            {(stats?.deliveries ?? 0) > 0 && <Stat icon={<Truck className="h-6 w-6" />} value={stats?.deliveries ?? 0} caption="доставки" />}
-            {(stats?.returns.count ?? 0) > 0 && <Stat icon={<Undo2 className="h-6 w-6" />} value={moneyLines(stats?.returns, base).join(" · ")} caption="возвраты" />}
-          </div>
-        </div>
-      ) : drawer ? (
-        <div className="flex shrink-0 items-center justify-between border-b border-[#eee] px-[20px] py-[10px]">
+      {/* Linko's achieves, the same in Отслеживание, the agent drawer and the agent's page: сделки (and оплаты) on the
+          left, посещено (and отчеты / доставки / возвраты) on the right; a figure other than сделки / посещено only when
+          it is not zero. */}
+      <div
+        className={`flex shrink-0 items-center justify-between ${plan ? "border-x border-b border-[#e6e6e6] bg-white px-[20px]" : drawer ? "border-b border-[#eee] px-[20px]" : "overflow-x-auto border-b border-[#eee] px-[16px]"} py-[10px]`}
+      >
+        <div className="flex items-center">
           <Stat icon={<Flame className="h-6 w-6" />} value={moneyLines(stats?.orders, base).join(" · ")} caption="сделки" />
+          {(stats?.payments.count ?? 0) > 0 && <Stat icon={<DollarSign className="h-6 w-6" />} value={moneyLines(stats?.payments, base).join(" · ")} caption="оплаты" />}
+        </div>
+        <div className="flex items-center">
           <Stat
             icon={<MapPin className="h-6 w-6" />}
             value={
@@ -428,26 +441,11 @@ export function AgentDayPanel({
             }
             caption="посещено"
           />
+          {(stats?.reports ?? 0) > 0 && <Stat icon={<ClipboardList className="h-6 w-6" />} value={stats?.reports ?? 0} caption="отчеты" />}
+          {(stats?.deliveries ?? 0) > 0 && <Stat icon={<Truck className="h-6 w-6" />} value={stats?.deliveries ?? 0} caption="доставки" />}
+          {(stats?.returns.count ?? 0) > 0 && <Stat icon={<Undo2 className="h-6 w-6" />} value={moneyLines(stats?.returns, base).join(" · ")} caption="возвраты" />}
         </div>
-      ) : (
-      <div className="flex shrink-0 overflow-x-auto border-b border-[#eee] px-[16px] py-[10px]">
-        <Stat icon={<Flame className="h-6 w-6" />} value={moneyLines(stats?.orders, base).join(" · ")} caption="сделки" />
-        <Stat icon={<DollarSign className="h-6 w-6" />} value={moneyLines(stats?.payments, base).join(" · ")} caption="оплаты" />
-        <Stat
-          icon={<MapPin className="h-6 w-6" />}
-          value={
-            <>
-              {stats?.done ?? 0} / {stats?.todo ?? 0}
-              {(stats?.unplanned ?? 0) > 0 && <span className="text-[#ee667d]"> + {stats?.unplanned}</span>}
-            </>
-          }
-          caption="посещено"
-        />
-        <Stat icon={<ClipboardList className="h-6 w-6" />} value={stats?.reports ?? 0} caption="отчеты" />
-        <Stat icon={<Truck className="h-6 w-6" />} value={stats?.deliveries ?? 0} caption="доставки" />
-        <Stat icon={<Undo2 className="h-6 w-6" />} value={moneyLines(stats?.returns, base).join(" · ")} caption="возвраты" />
       </div>
-      )}
 
       <div className="flex shrink-0 gap-[8px] px-[16px] pt-[12px]">
         <Counter value={current?.counters.ordered ?? 0} label="Заказ оформлен" color="rgb(58,201,119)" />
@@ -582,9 +580,7 @@ export function AgentDayPanel({
                         />
                       )}
                       {client.clientId !== null ? (
-                        <button type="button" onClick={() => actions.onOpenClient(client.clientId as number)} className="min-w-0 truncate text-left text-[15px] font-bold text-[#333] hover:text-[#1E4A9A] hover:underline">
-                          {client.clientName}
-                        </button>
+                        <ClientName clientId={client.clientId} name={client.clientName} actions={actions} className="text-[15px]" />
                       ) : (
                         <span className="min-w-0 truncate text-[15px] font-bold">{client.clientName || "—"}</span>
                       )}
@@ -637,9 +633,7 @@ export function AgentDayPanel({
                         />
                       )}
                       {client.clientId !== null ? (
-                        <button type="button" onClick={() => actions.onOpenClient(client.clientId as number)} className="min-w-0 truncate text-left text-[14px] font-bold text-[#333] hover:text-[#1E4A9A] hover:underline">
-                          {client.clientName}
-                        </button>
+                        <ClientName clientId={client.clientId} name={client.clientName} actions={actions} className="text-[14px]" />
                       ) : (
                         <span className="min-w-0 truncate text-[14px] font-bold">{client.clientName || "—"}</span>
                       )}

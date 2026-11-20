@@ -1,10 +1,10 @@
 "use client"
 
-import { ArrowDown, ArrowUp } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 
 import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { AddLink, EmptyRows, RowActions, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
@@ -13,7 +13,6 @@ import {
   type OrganizationListResult,
   type OrganizationOrdering,
 } from "./organization-data"
-import { EmptyState, HoverActions, ListToolbar, grayHead, listRow } from "./catalog-ui"
 import { ExcelImportLink } from "./excel-row-import"
 import {
   OrganizationDeleteDialog,
@@ -90,6 +89,9 @@ function nextOrdering(current: OrganizationOrdering): OrganizationOrdering {
   if (current === "-name") return ""
   return "name"
 }
+
+/** Reference columns: Наименование and Ограничение по долгу клиента are 5 of its 12 grid parts each (rows padded 30 px). */
+const COLUMNS = "5fr 5fr 2fr"
 
 function useOrganizationList(url: string) {
   const [data, setData] = useState<OrganizationListResult | null>(null)
@@ -176,46 +178,62 @@ function OrganizationGrid() {
   const count = data?.count ?? 0
   const pageCount = Math.max(1, Math.ceil(count / state.pageSize))
   const start = (state.page - 1) * state.pageSize
-  const sortIcon = state.ordering === "name" ? <ArrowDown className="h-4 w-4" /> : state.ordering === "-name" ? <ArrowUp className="h-4 w-4" /> : null
-  const gridCols = "grid-cols-[514px_1fr]"
 
   return (
     <section className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
-      <ListToolbar
-        addLabel={t("добавить организацию")}
-        hideAdd={!canEdit}
-        onAdd={() => setDialog({ kind: "create" })}
+      <SettingsToolbar
+        left={
+          canEdit ? (
+            <>
+              <AddLink onClick={() => setDialog({ kind: "create" })}>{t("добавить организацию")}</AddLink>
+              {canImport && <ExcelImportLink className="h-[36px] pt-[3px] leading-[36px]" onClick={() => setImportOpen(true)} />}
+            </>
+          ) : undefined
+        }
         query={searchDraft}
         onQuery={setSearchDraft}
-        addPad={16}
-        extra={canImport ? <ExcelImportLink className="pt-[16px] leading-[16px]" onClick={() => setImportOpen(true)} /> : undefined}
-        searchPos={{ left: 335, top: 19 }}
-        pageSize={state.pageSize}
-        onPageSize={(pageSize) => update({ page: 1, pageSize })}
-        from={start + 1}
-        to={Math.min(start + state.pageSize, count)}
-        total={count}
-        onPrev={state.page > 1 ? () => update({ page: state.page - 1 }) : undefined}
-        onNext={state.page < pageCount ? () => update({ page: state.page + 1 }) : undefined}
+        // The reference's search starts a quarter of the strip in (+16 px) and is 300 px wide at 1600 px.
+        searchClassName="left-[calc(25%_+_16px)] top-[20px]"
+        searchWidth={300}
+        pager={{
+          pageSize: state.pageSize,
+          onPageSize: (pageSize) => update({ page: 1, pageSize }),
+          from: start + 1,
+          to: Math.min(start + state.pageSize, count),
+          total: count,
+          onPrev: state.page > 1 ? () => update({ page: state.page - 1 }) : undefined,
+          onNext: state.page < pageCount ? () => update({ page: state.page + 1 }) : undefined,
+        }}
       />
-      <div className={`${grayHead} ${gridCols}`}>
-        <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering), page: 1 })} className="inline-flex items-center gap-2 text-left font-bold">
-          {t("Наименование")} {sortIcon}
-        </button>
-        <span>{t("Ограничение по долгу клиента")}</span>
+      <div className={`${kitHead} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
+        <span>
+          <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering), page: 1 })} className="inline-flex items-center gap-[10.5px] text-left font-semibold">
+            {t("Наименование")}
+            {state.ordering && (
+              // The reference draws "↓" for the ascending order and "↑" for the descending one.
+              <svg viewBox="0 0 24 24" className="h-[15px] w-[15px] shrink-0 -translate-y-[0.5px] fill-white" aria-hidden>
+                <path d={state.ordering === "-name" ? "M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z" : "M11,4H13V16L18.5,10.5L19.92,11.92L12,19.84L4.08,11.92L5.5,10.5L11,16V4Z"} />
+              </svg>
+            )}
+          </button>
+        </span>
+        <span className="pl-[8px]">{t("Ограничение по долгу клиента")}</span>
+        <span />
       </div>
       <div className={loading && data ? "opacity-60" : undefined}>
         {error ? (
           <p className="px-[30px] py-10 text-center text-red-600">{t(error)}</p>
         ) : rows.length === 0 ? (
-          loading && !data ? null : <EmptyState />
+          loading && !data ? null : <EmptyRows />
         ) : (
           rows.map((organization) => (
-            <div key={organization.id} className={`${listRow} ${gridCols}`}>
-              <span title={organization.name} className="truncate pr-4">{organization.name}</span>
-              <span>{organization.limitByDebt ? t("С ограничением") : t("Без ограничения")}</span>
+            <div key={organization.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
+              <span title={organization.name} className="min-w-0 break-words pr-4">{organization.name}</span>
+              <span className="pl-[8px]">{organization.limitByDebt ? t("С ограничением") : t("Без ограничения")}</span>
+              <span />
               {canEdit && (
-                <HoverActions
+                <RowActions
+                  right={33}
                   onEdit={() => setDialog({ kind: "update", id: organization.id })}
                   onDelete={() => setDialog({ kind: "delete", id: organization.id, name: organization.name })}
                 />
