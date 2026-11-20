@@ -21,6 +21,8 @@ try {
   await client.query("BEGIN")
   // Photo groups of a report as the reference shows them (name + whether it had before / after pictures).
   await client.query("ALTER TABLE field_photo_reports ADD COLUMN IF NOT EXISTS photo_types TEXT NOT NULL DEFAULT '[]'")
+  // The shop's name as Linko names it on the refusal (lib/field-activity/schema.ts has the same column).
+  await client.query("ALTER TABLE field_refusals ADD COLUMN IF NOT EXISTS client_name TEXT NOT NULL DEFAULT ''")
 
   const employees = new Set((await client.query("SELECT id FROM employees")).rows.map((row) => Number(row.id)))
   const clients = new Set((await client.query("SELECT id FROM clients")).rows.map((row) => Number(row.id)))
@@ -33,7 +35,8 @@ try {
       stats.refusals.skipped.push(item.id)
       continue
     }
-    // A client deleted in Linko is still named on its refusals there: the id is kept (no local client row).
+    // A client deleted in Linko is still named on its refusals there: the id is kept (no local client row) and the name
+    // Linko shows goes to client_name (the list falls back to it).
     if (!clients.has(clientId)) stats.refusals.deletedClient.push(item.id)
     const reason = String(item.comment ?? "").trim()
     const at = utcIso(item.created_date)
@@ -42,6 +45,7 @@ try {
       employee_id: employeeId,
       client_id: clientId,
       refusal_type_id: types.get(reason) ?? null,
+      client_name: String(item.market?.name ?? "").trim(),
       reason,
       comment: "",
       lat: coord(item.location?.lat),

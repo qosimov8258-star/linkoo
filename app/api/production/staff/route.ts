@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   if (denied) return denied
   const stageId = positiveIntParam(new URL(request.url).searchParams.get("stageId"))
   if (!stageId) return errorResponse("stageId обязателен")
-  return NextResponse.json(await listStaff(stageId))
+  return guarded(async () => NextResponse.json(await listStaff(stageId)))
 }
 
 export async function POST(request: Request) {

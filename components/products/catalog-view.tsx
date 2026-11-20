@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useCallback, useEffect, useState } from "react"
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
@@ -52,16 +52,51 @@ const EYE_OFF = "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-
 const HAND = "M23 5.5V20c0 2.2-1.8 4-4 4h-7.3c-1.08 0-2.1-.43-2.85-1.19L1 14.83s1.26-1.23 1.3-1.25c.22-.19.49-.29.79-.29.22 0 .42.06.6.16.04.01 4.31 2.46 4.31 2.46V4c0-.83.67-1.5 1.5-1.5S11 3.17 11 4v7h1V1.5c0-.83.67-1.5 1.5-1.5S15 .67 15 1.5V11h1V2.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V5.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5z"
 const MINUS_BOX = "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z"
 
-/** 48px toolbar icon with the reference's dark tooltip to its left. */
-function ToolbarIcon({ path, label, onClick, tooltip = true, color = "#666" }: { path: string; label: string; onClick: () => void; tooltip?: boolean; color?: string }) {
+/** 48px toolbar icon with the reference's dark tooltip to its left (`children`: a menu anchored under it). */
+function ToolbarIcon({ path, label, onClick, tooltip = true, color = "#666", children }: { path: string; label: string; onClick: () => void; tooltip?: boolean; color?: string; children?: ReactNode }) {
   return (
     <div className="group relative shrink-0">
       <button type="button" onClick={onClick} aria-label={label} className="flex h-12 w-12 items-center justify-center">
         <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: color }}><path d={path} /></svg>
       </button>
       {tooltip && (
-        <span className="pointer-events-none absolute right-[calc(100%-12px)] top-[7px] hidden h-[33px] whitespace-nowrap rounded-[2px] bg-[#2d3037] px-5 text-[13px] font-bold leading-[33px] text-white opacity-90 group-hover:block">{label}</span>
+        <span className="pointer-events-none absolute right-[calc(100%+12px)] top-[7px] hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-2 text-[13px] font-normal leading-[16.9px] text-white opacity-90 group-hover:block">{label}</span>
       )}
+      {children}
+    </div>
+  )
+}
+
+/** Linko's «Скачать» of the ticked rows: a menu under the icon with its one item «Выбранные продукты». */
+function DownloadMenu({ label, item, onPick }: { label: string; item: string; onPick: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [open])
+  return (
+    <div ref={ref}>
+      <ToolbarIcon path={RI.download} label={label} onClick={() => setOpen((value) => !value)}>
+        {open && (
+          <div className="absolute right-0 top-full z-[40] w-[224px] rounded-md bg-white pt-2 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onPick()
+              }}
+              className="block h-12 w-full whitespace-nowrap px-5 text-left text-[13px] text-[#333] hover:bg-[#f2f5f8]"
+            >
+              {item}
+            </button>
+          </div>
+        )}
+      </ToolbarIcon>
     </div>
   )
 }
@@ -82,17 +117,40 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
     return initialDetailId ? { ...initial, detailId: initialDetailId } : initial
   })
   const [searchDraft, setSearchDraft] = useState(state.search)
-  const [filterOpen, setFilterOpen] = useState(false)
+  // ?openFilterDialog=true keeps the «Фильтр» panel open, like Linko's URL.
+  const [filterOpen, setFilterOpen] = useState(() => searchParams.get("openFilterDialog") === "true")
   // ?openCreateDialog=true (the green "+" links of other pages) opens the empty form.
   const [form, setForm] = useState<CatalogDetail | null | undefined>(() => (searchParams.get("openCreateDialog") === "true" ? null : undefined))
   const [importMode, setImportMode] = useState<CatalogImportMode | null>(null)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
+  // Linko keeps the ticked rows and the bulk dialogs in the URL: showCheckboxes=true, select=967-966,
+  // openSendShipment / openAddLimit / productMultiOpenDialog=true.
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set((searchParams.get("select") ?? "").split("-").map(Number).filter((id) => Number.isInteger(id) && id > 0)),
+  )
   const [dialog, setDialog] = useState<"bulk" | "limit" | "send" | null>(null)
+  // A bulk dialog named in the URL opens once the page is hydrated (the dialogs are client-only).
+  useEffect(() => {
+    const fromUrl = searchParams.get("productMultiOpenDialog") === "true" ? "bulk" : searchParams.get("openAddLimit") === "true" ? "limit" : searchParams.get("openSendShipment") === "true" ? "send" : null
+    if (fromUrl) setDialog(fromUrl)
+    // only once, for the link that carries the flag
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [confirm, setConfirm] = useState<Confirm>(null)
   const [busy, setBusy] = useState(false)
-  const [selectMode, setSelectMode] = useState(false)
+  const [selectMode, setSelectMode] = useState(() => searchParams.get("showCheckboxes") === "true")
   const [version, setVersion] = useState(0)
   const [message, setMessage] = useState<SnackbarMessage | null>(null)
+  // Linko's applied-filter bar fills its quarter column of the toolbar (7.5px short of the search).
+  const filterColumn = useRef<HTMLDivElement>(null)
+  const [filterBarWidth, setFilterBarWidth] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    const element = filterColumn.current
+    if (!element || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(() => setFilterBarWidth(Math.max(0, element.getBoundingClientRect().width - 7.5)))
+    observer.observe(element)
+    return () => observer.disconnect()
+    // The column is re-mounted when the selection toolbar gives way to it again.
+  }, [selectMode, selected.size])
 
   const list = useCashJson<CatalogListResult>(listUrl(kind, state))
   const options = useCashJson<CatalogOptions>(`${api}/options`)
@@ -105,10 +163,16 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
     params.delete("id")
     if (form === null) params.set("openCreateDialog", "true")
     else if (form) params.set("openUpdateDialog", "true")
+    if (filterOpen) params.set("openFilterDialog", "true")
+    if (confirm?.action === "delete") params.set("openDeleteDialog", "true")
+    if (confirm?.action === "restore") params.set("openConfirmDialog", "true")
+    if (selectMode) params.set("showCheckboxes", "true")
+    if (selectMode && selected.size) params.set("select", [...selected].join("-"))
+    if (dialog) params.set(dialog === "bulk" ? "productMultiOpenDialog" : dialog === "limit" ? "openAddLimit" : "openSendShipment", "true")
     const search = params.toString()
     const path = state.detailId ? `${basePath}/${state.detailId}` : basePath
     if (window.location.pathname !== path || window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${path}${search ? `?${search}` : ""}`)
-  }, [state, form, basePath])
+  }, [state, form, basePath, filterOpen, confirm?.action, selectMode, selected, dialog])
 
   useEffect(() => {
     const value = searchDraft.trim()
@@ -131,15 +195,28 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
     setVersion((value) => value + 1)
   }
 
-  const sort = (key: string) => update({ ordering: state.ordering === key ? `-${key}` : state.ordering === `-${key}` ? "" : key, page: 1 })
-  const sortHeader = (key: string, label: string) => (
-    <button type="button" onClick={() => sort(key)} className="flex min-h-[36px] items-center text-left font-semibold leading-[18px]">
-      {t(label)}
-      <svg viewBox="0 0 24 24" className={`ml-[6px] h-6 w-6 shrink-0 fill-white ${state.ordering === key || state.ordering === `-${key}` ? "" : "invisible"}`}>
-        <path d={state.ordering === `-${key}` ? SORT_UP : SORT_DOWN} />
-      </svg>
-    </button>
-  )
+  // Linko sorts by several columns (ordering=vendor_code,created_date): a click adds the column ascending, the next one
+  // turns it descending, the third drops it.
+  const orderKeys = state.ordering.split(",").filter(Boolean)
+  const sort = (key: string) => {
+    const next = [...orderKeys]
+    const index = next.findIndex((entry) => entry.replace(/^-/, "") === key)
+    if (index < 0) next.push(key)
+    else if (next[index] === key) next[index] = `-${key}`
+    else next.splice(index, 1)
+    update({ ordering: next.join(","), page: 1 })
+  }
+  const sortHeader = (key: string, label: string) => {
+    const active = orderKeys.find((entry) => entry.replace(/^-/, "") === key)
+    return (
+      <button type="button" onClick={() => sort(key)} className="flex min-h-[36px] items-center text-left font-semibold leading-[18px]">
+        {t(label)}
+        <svg viewBox="0 0 24 24" className={`ml-[6px] h-6 w-6 shrink-0 fill-white ${active ? "" : "invisible"}`}>
+          <path d={active === `-${key}` ? SORT_UP : SORT_DOWN} />
+        </svg>
+      </button>
+    )
+  }
 
   const fetchAll = async (ids?: number[], idsOnly = false): Promise<CatalogItem[]> => {
     const scope = idsOnly ? { ...state, search: "", filters: EMPTY_CATALOG_FILTERS } : state
@@ -152,8 +229,9 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
   const download = async (which: "all" | "selected") => {
     try {
       if (which === "selected" && !selected.size) return notify(t("Выберите продукты"), true)
-      // The selection spans pages; it is taken whatever the search / filters are now.
-      const items = which === "all" ? await fetchAll() : await fetchAll([...selected], true)
+      // «Скачать Excel» exports the rows on the page, as Linko does; the selection spans pages and is taken whatever the
+      // search / filters are now.
+      const items = which === "all" ? rows : await fetchAll([...selected], true)
       downloadExcelTable(which === "all" ? t(text.excel) : t(text.selectedExcel), catalogListSheet(items, t))
     } catch (reason) {
       notify(reason instanceof Error ? t(reason.message) : t("Сервер недоступен, попробуйте ещё раз"), true)
@@ -265,9 +343,11 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
             </span>
           ) : (
             <>
-              <div className="w-[355px] shrink-0">
+              {/* Linko's toolbar is a 3 / 3 / 6 column grid: the search starts at a quarter of the width. */}
+              <div ref={filterColumn} className="w-[calc(25%-4px)] shrink-0">
                 <CatalogFilterBar
                   kind={kind}
+                  barWidth={filterBarWidth}
                   filters={state.filters}
                   options={options.data}
                   open={filterOpen}
@@ -312,7 +392,7 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
             <div className="ml-5 flex items-center">
               {hasSelection ? (
                 <>
-                  <ToolbarIcon path={RI.download} label={t("Скачать")} onClick={() => void download("selected")} />
+                  <DownloadMenu label={t("Скачать")} item={t(text.selected)} onPick={() => void download("selected")} />
                   {canEdit && kind === "product" && <ToolbarIcon path={RI.send} color="#666" label={t("Отправить продукты")} onClick={() => setDialog("send")} />}
                   {canEdit && <ToolbarIcon path={HAND} color="#5d6474" label={t("Добавить лимит")} onClick={() => setDialog("limit")} />}
                   {canEdit && <ToolbarIcon path={RI.edit} label={t("Изменить выбранные продукты")} onClick={() => setDialog("bulk")} />}
@@ -320,7 +400,7 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
                 </>
               ) : (
                 <>
-                  <ToolbarIcon path={selectMode ? EYE_OFF : RI.checklist} color="#5d6474" label={t("Выбрать из списка")} onClick={toggleSelectMode} tooltip={false} />
+                  <ToolbarIcon path={selectMode ? EYE_OFF : RI.checklist} color="#5d6474" label={t("Выбрать из списка")} onClick={toggleSelectMode} />
                   <ToolbarIcon path={RI.download} label={t("Скачать Excel")} onClick={() => void download("all")} />
                 </>
               )}
@@ -387,6 +467,7 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
                       onRestore={(item) => setConfirm({ action: "restore", id: item.id, name: item.name })}
                       onChanged={list.reload}
                       notify={notify}
+                      attributes={options.data?.attributes}
                     />
                   </div>
                 )
@@ -394,7 +475,7 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
                 <Fragment key={row.id}>
                   <div
                     onClick={() => update({ detailId: row.id })}
-                    className={`relative grid min-h-[50px] cursor-pointer items-center px-[30px] leading-[16.25px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-dotted after:border-[#d6d6d6] text-[#333] hover:bg-[#f2f5f8] ${isSelected ? "bg-[#f2f5f8]" : "bg-white"} ${gridCols}`}
+                    className={`relative grid min-h-[50px] cursor-pointer items-center px-[30px] leading-[16.25px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-dotted after:border-[#d6d6d6] last:shadow-[0_3px_6px_rgba(0,0,0,0.12),0_3px_4px_rgba(0,0,0,0.12)] last:after:hidden text-[#333] hover:bg-[#f2f5f8] ${isSelected ? "bg-[#f2f5f8]" : "bg-white"} ${gridCols}`}
                   >
                     {selectMode && (
                       <button
@@ -423,10 +504,8 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
                     </div>
                     <div className="break-words px-2">{row.barcodes[0] ?? t("не установлен")}</div>
                     <div className="break-words px-2">{row.article || "-"}</div>
-                    <div className="px-2">
-                      {row.subcategory || row.type || "N/A"}
-                      {row.subcategory && row.type && <strong className="block font-semibold">{row.type}</strong>}
-                    </div>
+                    {/* Linko prints the product's own type only (its list answers the parent as an id, so no parent line). */}
+                    <div className="px-2">{row.subcategory || row.type || "N/A"}</div>
                     <div className="px-2">{row.organization || "-"}</div>
                     <div className="px-2">
                       <strong className="font-semibold">{unit.main}</strong>
@@ -444,43 +523,35 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
                                 className={menuItem}
                                 onClick={() => {
                                   close()
+                                  // Linko opens the row's card behind the form / confirmation (#/product/<id>?…).
+                                  update({ detailId: row.id })
                                   void openEdit(row.id)
                                 }}
                               >
                                 <svg viewBox="0 0 24 24" className={menuIcon}><path d={RI.edit} /></svg>
                                 {t("Изменить")}
                               </button>
+                              {/* A deleted product: Изменить and Восстановить only, as in Linko (no delete for good). */}
                               {row.deleted ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    className={menuItem}
-                                    onClick={() => {
-                                      close()
-                                      setConfirm({ action: "restore", id: row.id, name: row.name })
-                                    }}
-                                  >
-                                    <svg viewBox="0 0 24 24" className={menuIcon}><path d={RI.undo} /></svg>
-                                    {t("Восстановить")}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={menuItem}
-                                    onClick={() => {
-                                      close()
-                                      setConfirm({ action: "hard", id: row.id, name: row.name })
-                                    }}
-                                  >
-                                    <svg viewBox="0 0 24 24" className={menuIcon}><path d={RI.close} /></svg>
-                                    {t("Удалить навсегда")}
-                                  </button>
-                                </>
+                                <button
+                                  type="button"
+                                  className={menuItem}
+                                  onClick={() => {
+                                    close()
+                                    update({ detailId: row.id })
+                                    setConfirm({ action: "restore", id: row.id, name: row.name })
+                                  }}
+                                >
+                                  <svg viewBox="0 0 24 24" className={menuIcon}><path d={RI.undo} /></svg>
+                                  {t("Восстановить")}
+                                </button>
                               ) : (
                                 <button
                                   type="button"
                                   className={menuItem}
                                   onClick={() => {
                                     close()
+                                    update({ detailId: row.id })
                                     setConfirm({ action: "delete", id: row.id, name: row.name })
                                   }}
                                 >
@@ -594,9 +665,11 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
       )}
       {confirm && (confirm.action !== "delete" || confirm.usage) && (
         <ConfirmDialog
-          title={confirmTitle}
+          // Linko's restore: «ВЫПОЛНИТЬ» — «Подтверждение запроса», the question on a grey band, «ДА».
+          title={confirm.action === "restore" ? t("Выполнить") : confirmTitle}
+          kind={confirm.action === "restore" ? "request" : undefined}
           text={confirmText}
-          confirmLabel={confirm.action === "restore" ? "Восстановить" : "Удалить"}
+          confirmLabel={confirm.action === "restore" ? "Да" : "Удалить"}
           tone={confirm.action === "restore" ? "blue" : "red"}
           busy={busy}
           error={confirm.usage ? undefined : confirm.error}

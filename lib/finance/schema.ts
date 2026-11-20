@@ -294,6 +294,8 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
     created_date: "TEXT NOT NULL DEFAULT ''",
     created_by: "TEXT NOT NULL DEFAULT ''",
     updated_at: "TEXT NOT NULL DEFAULT ''",
+    // Linko's document of a copied movement (cash transaction / stock transfer / order return №), printed in the detail.
+    doc_ref: "INTEGER",
   },
   employee_balance_transactions: {
     type: "TEXT NOT NULL DEFAULT 'none_type'",
@@ -301,6 +303,10 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
   },
   branch_balance_transactions: {
     created_by: "TEXT NOT NULL DEFAULT ''",
+    // Linko's document of a copied movement (cash transaction / stock transfer №) and the organization of a movement,
+    // printed in the branch act («Транзакция № 76», «Перемещение на склад № 42», «Организация»).
+    doc_ref: "INTEGER",
+    organization: "TEXT NOT NULL DEFAULT ''",
   },
   // Contract 6: orders link their client by id (the orders module writes it;
   // the name stays as a snapshot). Rows without it are filled by name below

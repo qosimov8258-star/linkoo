@@ -51,6 +51,7 @@ const ROUTE_TITLES: Record<string, string> = {
   "/settings/notifications": "Настройки уведомлений",
   "/settings/profile": "Профиль",
   "/settings/currency": "Валюта приложения",
+  "/settings/amount-precision": "Округление сумм",
   "/tracking": "Отслеживание",
 }
 
@@ -59,5 +60,7 @@ const REPORT_TITLES = new Map(analyticsReports.map((report) => [report.href.spli
 /** Russian title key for a path, or null for the app's default title. */
 export function routeTitle(pathname: string): string | null {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname
-  return ROUTE_TITLES[path] ?? REPORT_TITLES.get(path) ?? null
+  // A document card (/analytics/sales/1594, /analytics/returns/213…) has the title of its list.
+  const list = /^(.+)\/\d+$/.exec(path)?.[1]
+  return ROUTE_TITLES[path] ?? REPORT_TITLES.get(path) ?? (list ? (ROUTE_TITLES[list] ?? REPORT_TITLES.get(list) ?? null) : null)
 }

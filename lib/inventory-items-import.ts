@@ -5,9 +5,10 @@ import { DOC_DATE_INVALID, parseDocDay, type DocDate } from "@/lib/document-date
 import { nameKey } from "@/lib/finance/entities"
 import { nowLocalIso, todayIso } from "@/lib/finance/dates"
 import { InventoryError } from "@/lib/inventory-items-api"
+import { inventoryConditions } from "@/lib/inventory-items-options"
 import { actorName, insertLog, type Actor } from "@/lib/inventory-items-repo"
 import { ensureInventorySchema } from "@/lib/inventory-items-schema"
-import { INVENTORY_CONDITIONS, type InventoryImportRow } from "@/lib/inventory-items-types"
+import { type InventoryImportRow } from "@/lib/inventory-items-types"
 import { strictId } from "@/lib/strict-number"
 
 // "Импорт с Excel" (demo main/gear/import_excel/): the template lists the
@@ -49,13 +50,14 @@ export async function importInventoryItems(rows: InventoryImportRow[], user: Act
   await ensureInventorySchema()
   const db = getDb()
   const by = actorName(user)
-  const [products, warehouses, existing] = await Promise.all([
+  const [products, warehouses, existing, conditions] = await Promise.all([
     db.prepare("SELECT id, name FROM products WHERE is_inventory = 1 AND deleted = 0").all() as Promise<Array<{ id: number; name: string }>>,
     // Active rows first, so an active namesake wins over an inactive one.
     db.prepare("SELECT name, COALESCE(active, 1) AS active FROM warehouses ORDER BY COALESCE(active, 1) DESC, id").all() as Promise<
       Array<{ name: string; active: number | boolean }>
     >,
     db.prepare("SELECT inventory_code FROM inventory_items WHERE deleted = 0 AND btrim(inventory_code) <> ''").all() as Promise<Array<{ inventory_code: string }>>,
+    inventoryConditions(db),
   ])
   const productByKey = new Map<string, { id: number; name: string }>()
   for (const row of products) if (!productByKey.has(nameKey(row.name))) productByKey.set(nameKey(row.name), { id: Number(row.id), name: row.name })
@@ -119,7 +121,7 @@ export async function importInventoryItems(rows: InventoryImportRow[], user: Act
       client = matches[0].name
     }
     const condition = String(row.condition ?? "").trim() || "Новый"
-    const knownCondition = INVENTORY_CONDITIONS.find((value) => nameKey(value) === nameKey(condition))
+    const knownCondition = conditions.find((value) => nameKey(value) === nameKey(condition))
     if (!knownCondition) {
       fail("Неизвестное состояние")
       continue

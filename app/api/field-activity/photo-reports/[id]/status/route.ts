@@ -17,8 +17,8 @@ const statusSchema = z.object({
 })
 
 // PATCH /api/field-activity/photo-reports/[id]/status {status: pending|rejected|accepted, from?}
-// → {id, status}: the review of a photo report on "Фотоотчеты" (Принять / Отклонить; clicking
-// the shown state again sets it back to pending). Needs clients.manage, like the field data's
+// → {id, status}: the review of a photo report on "Фотоотчеты" (Принять / Отклонить always send
+// their own status, as the reference's do; pending stays accepted here). Needs clients.manage, like the field data's
 // other writes ("field-activity" in lib/capabilities-catalog.ts, checked by requireRole), and the
 // report inside the reviewer's field scope — for a scoped reviewer, not their own report.
 // 400 bad id / body, 403 a scoped reviewer's own report, 404 missing or outside the reader's

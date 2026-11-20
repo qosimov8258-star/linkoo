@@ -71,12 +71,12 @@ export const REF_TABLE_COLUMNS: Record<string, { n: number; w: (number | null)[]
  "/analytics/equipment-efficiency": {
   "n": 6,
   "w": [
-   185,
-   155,
-   244,
-   193,
-   275,
-   null
+   220,
+   null,
+   null,
+   null,
+   null,
+   330
   ]
  },
  "/clients/client-dynamics": {
@@ -357,18 +357,6 @@ export const REF_TABLE_COLUMNS: Record<string, { n: number; w: (number | null)[]
    103,
    206,
    206,
-   null
-  ]
- },
- "/analytics/repricing": { "n": 6, "w": [145, 346, 346, 231, 230, null] },
- "/analytics/internal-transfers": { "n": 8, "w": [137, 231, 231, 230, 116, 115, 231, null] },
- "/analytics/write-offs": {
-  "n": 5,
-  "w": [
-   145,
-   461,
-   231,
-   231,
    null
   ]
  },

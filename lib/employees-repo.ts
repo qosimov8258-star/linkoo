@@ -1,6 +1,7 @@
 import "server-only"
 
 import { accountOfEmployee, ensureUserEmployeeLink, lockAccessChanges, otherAdminsWithAccess, revokeEmployeeSessions } from "@/lib/auth-employee"
+import { passwordPolicyFor } from "@/lib/auth-policy"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import {
   accountConflict,
@@ -50,6 +51,8 @@ type Row = {
   login: string
   /** Login of the linked sign-in account (users.employee_id), or null. */
   user_login?: string | null
+  /** Role of that account, or null. */
+  user_role?: string | null
   phone: string
   integration_code: string
   position: string
@@ -116,14 +119,14 @@ const COLUMNS = EMPLOYEE_COLUMNS.join(", ")
  * created lazily by its own module (lib/job-positions-repo.ts): on a fresh database, until Должности
  * was first used, there is no job name to join (and a join would fail the whole list).
  * The access right shown is the employee's; an employee without one whose account was linked earlier
- * (Права доступа → Пользователи) or whose "Доступ к системе" was turned off (that clears the employee's)
+ * (Права доступа → Пользователи) or whose right was cleared by an older save without «Доступ к системе»
  * shows the right its account signs in with, so the form never offers to replace it unseen. An
  * administrator's account is not restricted by a right, so its own is never shown. */
 async function selectSql(db: PgDb): Promise<string> {
   const jobs = await tableExists(db, "job_positions")
   return `
   SELECT ${EMPLOYEE_COLUMNS.map((column) => `e.${column}`).join(", ")}, ar.id AS access_right_ref, ar.name AS access_right_name,
-         ${jobs ? "jp.name" : "NULL::text"} AS job_name, acc.username AS user_login
+         ${jobs ? "jp.name" : "NULL::text"} AS job_name, acc.username AS user_login, acc.role AS user_role
   FROM employees e
   LEFT JOIN LATERAL (SELECT u.username, u.role, u.access_right_id FROM users u WHERE u.employee_id = e.id ORDER BY u.id LIMIT 1) acc ON TRUE
   LEFT JOIN access_rights ar ON ar.id = COALESCE(e.access_right_id, CASE WHEN acc.role <> 'admin' THEN acc.access_right_id END)${jobs ? "\n  LEFT JOIN job_positions jp ON jp.id = e.job_id" : ""}`
@@ -150,15 +153,22 @@ async function ensureSchema(): Promise<void> {
   await ensureEmployeesSchema()
 }
 
-/** Ids of the branches and organizations that exist (a stored id whose record was deleted is not shown). */
-type LiveIds = { branches: Set<number>; organizations: Set<number> }
+/** Ids of the branches and organizations that exist (a stored id whose record was deleted is not shown), and the
+ * zones (Территория) each employee is an agent of. */
+type LiveIds = { branches: Set<number>; organizations: Set<number>; zones: Map<number, number[]> }
 
 async function liveIds(db: PgDb): Promise<LiveIds> {
   const load = async (table: "branches" | "organizations") =>
     (await tableExists(db, table))
       ? new Set(((await db.prepare(`SELECT id FROM ${table}`).all()) as Array<{ id: number }>).map((row) => Number(row.id)))
       : new Set<number>()
-  return { branches: await load("branches"), organizations: await load("organizations") }
+  // The list's «Зона» filter: the employees a zone lists as its agents (client_zone_agents, created by the zones module).
+  const zones = new Map<number, number[]>()
+  if (await tableExists(db, "client_zone_agents")) {
+    const rows = (await db.prepare("SELECT employee_id, zone_id FROM client_zone_agents ORDER BY zone_id").all()) as Array<{ employee_id: number; zone_id: number }>
+    for (const row of rows) zones.set(Number(row.employee_id), [...(zones.get(Number(row.employee_id)) ?? []), Number(row.zone_id)])
+  }
+  return { branches: await load("branches"), organizations: await load("organizations"), zones }
 }
 
 function rowToEmployee(row: Row, live: LiveIds): Employee {
@@ -173,6 +183,9 @@ function rowToEmployee(row: Row, live: LiveIds): Employee {
     // The login of the linked account (the one that really signs in); otherwise an older login without one.
     login: row.user_login || row.login || "",
     account: row.user_login || null,
+    // The rules a new password of the account follows: an employee's short ones, unless an administrator's
+    // account is linked (lib/auth-policy.ts; planAccount checks it again).
+    passwordPolicy: passwordPolicyFor({ role: row.user_role ?? null, employeeId: row.id }),
     // The account signs in only while the employee is active and has "Доступ к системе" (lib/auth-employee.ts).
     canSignIn: Boolean(row.user_login) && row.active === 1 && row.system_access === 1,
     phone: row.phone,
@@ -191,6 +204,7 @@ function rowToEmployee(row: Row, live: LiveIds): Employee {
     startPoint: row.start_point === 1,
     branchIds: idList(row.branch_ids).filter((id) => live.branches.has(id)),
     organizationIds: idList(row.organization_ids).filter((id) => live.organizations.has(id)),
+    zoneIds: live.zones.get(row.id) ?? [],
     supervisorId: details.supervisorId ?? null,
     deliveryManId: details.deliveryManId ?? null,
     auditAgentIds: details.auditAgentIds ?? [],
@@ -224,6 +238,9 @@ const ID_REFERENCES: ReadonlyArray<{ table: string; column: string; nameColumn?:
   { table: "cash_management_entries", column: "employee_id", nameColumn: "employee_name" },
   { table: "production_staff", column: "employee_id", nameColumn: "employee_name" },
   { table: "production_stages", column: "responsible_id", nameColumn: "responsible" },
+  // A worker's shift sessions on a production stage (Активность → «Смены»; the name is the snapshot shown once the
+  // employee is gone).
+  { table: "production_shift_sessions", column: "employee_id", nameColumn: "employee_name" },
   { table: "cash_entry_staff", column: "employee_id" },
   { table: "employee_balance_transactions", column: "employee_id" },
   { table: "deliverer_balance_transactions", column: "employee_id" },
@@ -578,12 +595,12 @@ async function resolveDetails(
 }
 
 /** The name columns other pages read: the main (first) branch, the organizations and "access · job" (the
- * access right only while "Доступ к системе" is on, as it is stored; lib/employees-usage.ts
- * refreshEmployeePositions composes the same text after a rename). */
-async function composedFields(db: PgDb, input: EmployeeInput, refs: MainRefs) {
+ * access right as it is stored; lib/employees-usage.ts refreshEmployeePositions composes the same text after a
+ * rename). */
+async function composedFields(db: PgDb, refs: MainRefs) {
   const branches = await namesById(db, "branches", refs.branchIds)
   const organizations = await namesById(db, "organizations", refs.organizationIds)
-  const accessRightId = input.systemAccess ? refs.accessRightId : null
+  const accessRightId = refs.accessRightId
   const access = accessRightId
     ? ((await db.prepare("SELECT name FROM access_rights WHERE id = ?").get(accessRightId)) as { name: string } | undefined)
     : undefined
@@ -600,14 +617,14 @@ function fieldParams(input: EmployeeInput, refs: MainRefs, composed: Awaited<Ret
     integrationCode: input.integrationCode,
     position: composed.position,
     branch: composed.branch,
-    systemAccess: input.systemAccess ? 1 : 0,
     showInTracking: input.showInTracking ? 1 : 0,
     twoStepCheck: input.twoStepCheck ? 1 : 0,
     sessionLimit: input.sessionLimit ? 1 : 0,
     gpsCheck: input.gpsCheck ? 1 : 0,
     startPoint: input.startPoint ? 1 : 0,
     organizations: JSON.stringify(composed.organizations),
-    accessRightId: input.systemAccess ? refs.accessRightId : null,
+    // Kept with «Доступ к системе» off too, as Linko keeps the position of a deactivated user.
+    accessRightId: refs.accessRightId,
     jobId: refs.jobId,
     branchIds: JSON.stringify(refs.branchIds),
     organizationIds: JSON.stringify(refs.organizationIds),
@@ -661,7 +678,7 @@ export async function createEmployee(input: EmployeeInput, actor: EmployeeActor)
       if ("failure" in account) return account.failure
       const resolved = await resolveDetails(tx, input, {})
       if ("failure" in resolved) return resolved.failure
-      const composed = await composedFields(tx, input, checked.refs)
+      const composed = await composedFields(tx, checked.refs)
       const result = await tx
         .prepare(
           `INSERT INTO employees (
@@ -669,7 +686,7 @@ export async function createEmployee(input: EmployeeInput, actor: EmployeeActor)
             two_step_check, session_limit, gps_check, start_point, organizations, active, access_right_id, job_id,
             branch_ids, organization_ids, details
           ) VALUES (
-            @firstName, @lastName, @login, @phone, @integrationCode, @position, @branch, @systemAccess, @showInTracking,
+            @firstName, @lastName, @login, @phone, @integrationCode, @position, @branch, 1, @showInTracking,
             @twoStepCheck, @sessionLimit, @gpsCheck, @startPoint, @organizations, 1, @accessRightId, @jobId,
             @branchIds, @organizationIds, @details
           )`,
@@ -689,11 +706,14 @@ export async function createEmployee(input: EmployeeInput, actor: EmployeeActor)
  * stores it (cashboxes, warehouses, clients' agent / deliverer / collector,
  * orders, payments, contracts, production staff …) in the same transaction.
  * The login and password create or update the linked sign-in account
- * (lib/employees-account.ts). Turning "Доступ к системе" off blocks the linked
- * account's sign-in and ends its sessions; refused (EmployeeAccessError) for
- * one's own account, an administrator's account unless an administrator does
- * it and the last administrator. Turning it back on for an administrator's
- * account is refused unless an administrator does it. */
+ * (lib/employees-account.ts). «Доступ к системе» is the employee's `active`, as
+ * Linko's is_active: turning it off moves the employee to «Удаленные», which
+ * blocks the linked account's sign-in and ends its sessions; refused
+ * (EmployeeAccessError) for one's own account, an administrator's account
+ * unless an administrator does it and the last administrator. Turning it back
+ * on for an administrator's account is refused unless an administrator does
+ * it. The blocked flag (system_access, «Ограничить доступ сотрудника») is not
+ * changed by a save. */
 export async function updateEmployee(id: number, input: EmployeeInput, actor: EmployeeActor): Promise<{ employee: Employee } | EmployeeFailure | null> {
   await ensureSchema()
   const prepared = await prepareAccount(input, actor)
@@ -707,27 +727,29 @@ export async function updateEmployee(id: number, input: EmployeeInput, actor: Em
       await lockAccountLogins(tx)
       const current = (await tx.prepare(`SELECT ${COLUMNS} FROM employees WHERE id = ? FOR UPDATE`).get(id)) as Row | undefined
       if (!current) return null
-      endsAccess = Number(current.active) === 1 && Number(current.system_access) === 1 && !input.systemAccess
+      const wasActive = Number(current.active) === 1
+      const active = input.active ?? wasActive
+      endsAccess = wasActive && !active && Number(current.system_access) === 1
       if (endsAccess) await assertMayEndAccess(tx, id, actor)
-      if (Number(current.active) === 1 && Number(current.system_access) !== 1 && input.systemAccess) await assertMayRestoreAccess(tx, id, actor)
+      if (!wasActive && active && Number(current.system_access) === 1) await assertMayRestoreAccess(tx, id, actor)
       const checked = await checkReferences(tx, input, current)
       if ("failure" in checked) return checked.failure
       const account = await accountPlan(tx, input, checked.refs, current, prepared.request, actor)
       if ("failure" in account) return account.failure
       const resolved = await resolveDetails(tx, input, parse<Details>(current.details, {}), id)
       if ("failure" in resolved) return resolved.failure
-      const composed = await composedFields(tx, input, checked.refs)
+      const composed = await composedFields(tx, checked.refs)
       await tx
         .prepare(
           `UPDATE employees SET
             first_name = @firstName, last_name = @lastName, login = @login, phone = @phone, integration_code = @integrationCode,
-            position = @position, branch = @branch, system_access = @systemAccess, show_in_tracking = @showInTracking,
+            position = @position, branch = @branch, active = @active, show_in_tracking = @showInTracking,
             two_step_check = @twoStepCheck, session_limit = @sessionLimit, gps_check = @gpsCheck, start_point = @startPoint,
             organizations = @organizations, access_right_id = @accessRightId, job_id = @jobId, branch_ids = @branchIds,
             organization_ids = @organizationIds, details = @details, updated_at = datetime('now')
           WHERE id = @id`,
         )
-        .run({ ...fieldParams(input, checked.refs, composed, resolved.details, account.plan.login), id })
+        .run({ ...fieldParams(input, checked.refs, composed, resolved.details, account.plan.login), id, active: active ? 1 : 0 })
       const name = fullName({ first_name: input.firstName, last_name: input.lastName })
       await cascadeEmployeeRename(tx, id, fullName(current), name)
       return { written: await applyAccount(tx, id, name, account.plan) }
@@ -876,7 +898,8 @@ export async function bulkUpdateEmployees(ids: number[], change: BulkChange): Pr
   })
 }
 
-/** Sets "Доступ к системе" for every active employee. Blocking never touches the employee behind
+/** «Ограничить доступ сотрудника»: blocks (system_access = 0, «Заблокирован» in the list, as Linko's is_blocked) or
+ * unblocks every active employee. Blocking never touches the employee behind
  * the signed-in account (`actor`) nor one linked to an administrator's account (the people who can
  * undo it keep their sign-in), and it ends the sessions of the accounts it blocks. */
 export async function blockAllEmployees(block: boolean, actor: EmployeeActor): Promise<number> {

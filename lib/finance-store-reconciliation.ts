@@ -402,13 +402,30 @@ export async function clientBalanceSplit(db: PgDb, s: FinanceSchema, base: strin
 type StatusRow = { ek: string; status: string; created_at: string; confirmed_at: string }
 
 /** Latest reconciliation request per entity key. */
+/** The row key of a stored account key: rows written before the account rows were keyed "acc:<id>" carry the
+ * account's first shop id or "inn:<INN>" (e.g. the Linko «Срок долга» import); they are mapped onto that shop's
+ * current account. Other keys pass as they are. */
+async function storedKeySql(db: PgDb, variant: ReconciliationVariant, column: string): Promise<string> {
+  if (variant !== "account") return column
+  const shops = (await db.prepare("SELECT to_regclass('financial_account_markets') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!shops?.ok) return `CASE WHEN ${column} ~ '^[0-9]+$' THEN 'acc:' || ${column} ELSE ${column} END`
+  return `CASE
+      WHEN ${column} ~ '^[0-9]+$' THEN 'acc:' || COALESCE((SELECT fam.financial_account_id FROM financial_account_markets fam WHERE fam.client_id = ${column}::int), ${column}::int)
+      WHEN ${column} LIKE 'inn:%' THEN COALESCE((SELECT 'acc:' || fam.financial_account_id FROM clients c JOIN financial_account_markets fam ON fam.client_id = c.id
+                                                 WHERE regexp_replace(c.inn, '\\s', '', 'g') = substr(${column}, 5) ORDER BY c.id LIMIT 1), ${column})
+      ELSE ${column} END`
+}
+
 async function latestStatuses(db: PgDb, variant: ReconciliationVariant): Promise<Map<string, StatusRow>> {
   const store = RECONCILIATION_STORES[variant]
+  const key = await storedKeySql(db, variant, store.key)
   const rows = (await db
     .prepare(
-      `SELECT DISTINCT ON (${store.key}) ${store.key} AS ek, status, to_char(fin_ts(created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at,
-              CASE WHEN confirmed_at = '' THEN '' ELSE to_char(fin_ts(confirmed_at, true), 'YYYY-MM-DD"T"HH24:MI:SS') END AS confirmed_at
-       FROM ${store.messages} ORDER BY ${store.key}, id DESC`,
+      `SELECT DISTINCT ON (ek) ek, status, created_at, confirmed_at FROM (
+         SELECT ${key} AS ek, id, status, to_char(fin_ts(created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at,
+                CASE WHEN confirmed_at = '' THEN '' ELSE to_char(fin_ts(confirmed_at, true), 'YYYY-MM-DD"T"HH24:MI:SS') END AS confirmed_at
+         FROM ${store.messages}) m
+       ORDER BY ek, id DESC`,
     )
     .all()) as StatusRow[]
   return new Map(rows.map((row) => [String(row.ek), row]))
@@ -417,10 +434,49 @@ async function latestStatuses(db: PgDb, variant: ReconciliationVariant): Promise
 /** Current debt term per entity key (latest row wins; "" = cleared). */
 async function latestDeadlines(db: PgDb, variant: ReconciliationVariant): Promise<Map<string, string>> {
   const store = RECONCILIATION_STORES[variant]
+  const key = await storedKeySql(db, variant, store.key)
   const rows = (await db
-    .prepare(`SELECT DISTINCT ON (${store.key}) ${store.key} AS ek, payment_deadline FROM ${store.deadlines} ORDER BY ${store.key}, id DESC`)
+    .prepare(`SELECT DISTINCT ON (ek) ek, payment_deadline FROM (SELECT ${key} AS ek, id, payment_deadline FROM ${store.deadlines}) d ORDER BY ek, id DESC`)
     .all()) as Array<{ ek: string; payment_deadline: string }>
   return new Map(rows.filter((row) => isIsoDay(row.payment_deadline)).map((row) => [String(row.ek), row.payment_deadline]))
+}
+
+/** «Кол-во заказов» / «Прошло дней после заказа» as Linko counts them on both Сверка pages: every order but a
+ * cancelled one (an unconfirmed one too; only the chosen statuses when the order-status filter is set), by shop
+ * (variant client) or by the account the order was booked on (variant account: the order's own account, else its
+ * shop's current account, deleted or not, else the shop id), with the local day of the latest. */
+async function orderStats(db: PgDb, s: FinanceSchema, variant: ReconciliationVariant, statuses: string[], asOf: string): Promise<Map<string, { count: number; last: string | null }>> {
+  if (!s.has("orders") || !s.col("orders", "client_id")) return new Map()
+  let key = "o.client_id::text"
+  let join = ""
+  if (variant === "account") {
+    const shops = (await db.prepare("SELECT to_regclass('financial_account_markets') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+    if (shops?.ok) join = "LEFT JOIN financial_account_markets fam ON fam.client_id = o.client_id"
+    const parts = [s.col("orders", "financial_account_id") ? "o.financial_account_id" : "", join ? "fam.financial_account_id" : "", "o.client_id"].filter(Boolean)
+    key = `'acc:' || COALESCE(${parts.join(", ")})::text`
+  }
+  const rows = (await db
+    .prepare(
+      `SELECT ${key} AS ek, COUNT(*) AS n, to_char(MAX(fin_ts(o.created_at, true)), 'YYYY-MM-DD') AS last
+       FROM orders o ${join}
+       WHERE o.client_id IS NOT NULL AND ${statuses.length ? "o.status = ANY(@statuses::text[])" : "o.status <> 'Отменен'"}
+         AND fin_ts(o.created_at, true)::date <= @asOf::date
+       GROUP BY 1`,
+    )
+    .all({ statuses, asOf })) as Array<{ ek: string; n: number | string; last: string | null }>
+  return new Map(rows.map((row) => [row.ek, { count: Number(row.n), last: row.last || null }]))
+}
+
+/** «Прошло дней после оплаты» by realization: Linko still dates a payment by the day it was entered, it only leaves
+ * out a payment not yet accepted into a cashbox (the ledger's realization mode would date it by its acceptance).
+ * Per movement key (a shop, or "acc:<id>" for money booked on an account). */
+async function acceptedPaymentDays(db: PgDb, s: FinanceSchema, base: string, variant: ReconciliationVariant, asOf: string): Promise<Map<string, string>> {
+  const sql = `${movementCte(variant, s, { mode: "created", lean: true, orderScope: null })}
+    SELECT mv.ek, to_char(MAX(mv.ts::date), 'YYYY-MM-DD') AS last
+    FROM mv WHERE mv.ek IS NOT NULL AND mv.col = 'payment' AND NOT mv.pending AND mv.ts::date <= @to::date
+    GROUP BY mv.ek`
+  const rows = (await db.prepare(sql).all({ base, to: asOf })) as Array<{ ek: string; last: string | null }>
+  return new Map(rows.filter((row) => row.last).map((row) => [String(row.ek), String(row.last)]))
 }
 
 function daysSince(dayIso: string | null, today: string): number | null {
@@ -523,10 +579,6 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
         clientTypes: params.clientTypes,
         clientCreatedFrom: params.clientCreatedFrom,
         clientCreatedTo: params.clientCreatedTo,
-        orderDaysMin: params.orderDaysMin,
-        orderDaysMax: params.orderDaysMax,
-        paymentDaysMin: params.paymentDaysMin,
-        paymentDaysMax: params.paymentDaysMax,
         pageSize: 0,
       },
       db,
@@ -534,6 +586,9 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
     latestStatuses(db, variant),
     latestDeadlines(db, variant),
   ])
+  // The days since the last order / payment are filtered below on what the page shows (see orderStats, acceptedPaymentDays).
+  const ordersOf = await orderStats(db, s, variant, orderStatuses, asOf)
+  const paidOn = params.mode === "realization" ? await acceptedPaymentDays(db, s, (await loadCurrencyContext(db)).base, variant, asOf) : null
   // The SQL default of rows without a currency is the real base currency (the list's is the app currency when one is chosen).
   // Accounts: by the account each movement was booked on (as the account balances), so an account's money is its
   // shops' plus what was booked on the account itself, as in Linko.
@@ -563,11 +618,9 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
     const splitKeys = [...memberIds.map(String), ...(variant === "account" && balanceRow.key.startsWith("acc:") ? [balanceRow.key] : [])]
     if (!splitKeys.length) continue
     const money: Record<string, ReconciliationMoney> = Object.fromEntries(codes.map((code) => [code, emptyMoney()]))
-    let orders = 0
     for (const splitKey of splitKeys) {
       const entry = split.get(splitKey)
       if (!entry) continue
-      orders += entry.orders
       for (const [code, value] of entry.currencies) if (money[code]) addMoney(money[code], value)
     }
     const exact = Object.fromEntries(codes.map((code) => [code, { ...money[code] }]))
@@ -575,13 +628,23 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
     for (const code of codes) {
       money[code] = { cash: roundMoney(money[code].cash), bank: roundMoney(money[code].bank), total: roundMoney(money[code].total) }
       if (!money[code].total) continue
-      const converted = convertAmount(money[code].total, code, list.baseCurrency, rates)
+      // Like Linko, the unrounded amount is converted (-100.123456 USD × 10 000 = -1 001 234.56, not -1 001 235).
+      const converted = convertAmount(exact[code].total, code, list.baseCurrency, rates)
       if (converted === null) missing.add(code)
       else total += converted
     }
     const status = statuses.get(balanceRow.key)
-    const lastOrder = (balanceRow.info.last_order as string | null) || null
-    const lastPayment = (balanceRow.info.last_payment as string | null) || null
+    const counted = ordersOf.get(balanceRow.key)
+    const orders = counted?.count ?? 0
+    const lastOrder = counted?.last ?? null
+    let lastPayment = (balanceRow.info.last_payment as string | null) || null
+    if (paidOn) {
+      lastPayment = null
+      for (const splitKey of splitKeys) {
+        const day = paidOn.get(splitKey)
+        if (day && (!lastPayment || day > lastPayment)) lastPayment = day
+      }
+    }
     const row: StoreReconciliationRow = {
       key: balanceRow.key,
       id: balanceRow.id,
@@ -614,6 +677,7 @@ export async function getStoreReconciliationList(params: StoreReconciliationPara
   }
 
   // Page filters the shared list does not know.
+  rows = rows.filter((row) => inRange(row.orderDays, params.orderDaysMin, params.orderDaysMax) && inRange(row.paymentDays, params.paymentDaysMin, params.paymentDaysMax))
   const wantedStatuses = params.messageStatuses ?? []
   if (wantedStatuses.length) rows = rows.filter((row) => wantedStatuses.includes(row.status ?? "is_null"))
   if (params.deadlineFrom || params.deadlineTo) {

@@ -134,11 +134,19 @@ export function DateRangePicker({
   highlightPreset = true,
   variant = "default",
   onChange,
+  openOnBeginMonth = false,
+  onClear,
+  independentMonths = false,
 }: {
   begin: string
   end: string
   onApply: (begin: string, end: string) => void
   onClose: () => void
+  /** The × empties the field (the reference's «Очистить») instead of only closing the picker. */
+  onClear?: () => void
+  /** Default variant: each month has both arrows and moves on its own, the right one showing the range's end month
+   * (the reference's filter calendar). Without it the two months move together. */
+  independentMonths?: boolean
   placement?: "below" | "above"
   /** overrides the default anchor classes (used where the reference opens the picker at an exact offset) */
   positionClassName?: string
@@ -148,13 +156,15 @@ export function DateRangePicker({
   variant?: "default" | "builder"
   /** Called with the range on every pick (a preset, a day): the builders print the period while it is chosen. */
   onChange?: (begin: string, end: string) => void
+  /** true: the left month is the range's first month (the shop drawer's «Баланс»), not the one before it. */
+  openOnBeginMonth?: boolean
 }) {
   const { t, language } = useLanguage()
   const weekdays = weekdayLabels(language, WEEKDAYS)
   const builder = variant === "builder"
   const presets: readonly Preset[] = builder ? BUILDER_PRESETS : PRESETS
   const initial = fromIso(begin)
-  const [view, setView] = useState({ year: initial.getFullYear(), month: initial.getMonth() - 1 })
+  const [view, setView] = useState({ year: initial.getFullYear(), month: initial.getMonth() - (openOnBeginMonth ? 0 : 1) })
   const [start, setStart] = useState<Date | null>(fromIso(begin))
   const [stop, setStop] = useState<Date | null>(fromIso(end))
   const [hover, setHover] = useState<Date | null>(null)
@@ -185,6 +195,18 @@ export function DateRangePicker({
     const d = new Date(current.year, current.month + delta, 1)
     return { year: d.getFullYear(), month: d.getMonth() }
   })
+
+  // independentMonths: the right month shows the range's end, the left one the month before; each moves alone.
+  const monthOf = (date: Date, delta = 0) => {
+    const d = new Date(date.getFullYear(), date.getMonth() + delta, 1)
+    return { year: d.getFullYear(), month: d.getMonth() }
+  }
+  const [months, setMonths] = useState(() => {
+    const last = fromIso(end || begin)
+    return { left: monthOf(last, -1), right: monthOf(last) }
+  })
+  const shiftOne = (side: "left" | "right", delta: number) =>
+    setMonths((current) => ({ ...current, [side]: monthOf(new Date(current[side].year, current[side].month, 1), delta) }))
 
   function pick(date: Date) {
     setClicked(null)
@@ -261,6 +283,7 @@ export function DateRangePicker({
                 const [s, e] = presetRange(item)
                 choose(s, e)
                 setView({ year: s.getFullYear(), month: s.getMonth() })
+                if (independentMonths) setMonths({ left: monthOf(e, -1), right: monthOf(e) })
               }}
               className={`h-[35px] whitespace-nowrap rounded-[2px] px-[14px] text-left text-[12px] ${activePreset === item ? "bg-[#98a1b7] text-white" : "bg-[#ecf0f1] text-[#2c3e50]"}`}
             >
@@ -270,7 +293,13 @@ export function DateRangePicker({
           })}
         </div>
         <div className="absolute left-[15px] top-[283px] flex gap-[10px]">
-          <button type="button" onClick={onClose} aria-label={t("Отмена")} className="flex h-[25px] w-[60px] items-center justify-center rounded-[3px] bg-[#5d6474]">
+          <button
+            type="button"
+            onClick={onClear ?? onClose}
+            aria-label={onClear ? t("Очистить") : t("Отмена")}
+            title={onClear ? t("Очистить") : undefined}
+            className="flex h-[25px] w-[60px] items-center justify-center rounded-[3px] bg-[#5d6474]"
+          >
             <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
           </button>
           <button
@@ -283,12 +312,25 @@ export function DateRangePicker({
             <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
           </button>
         </div>
-        <div className="absolute left-[150px] top-0">
-          <Month year={normalized[0].getFullYear()} month={normalized[0].getMonth()} start={start} end={stop} hover={hover} onPick={pick} onHover={setHover} onPrev={() => shift(-1)} weekdays={weekdays} />
-        </div>
-        <div className="absolute left-[450px] top-0">
-          <Month year={normalized[1].getFullYear()} month={normalized[1].getMonth()} start={start} end={stop} hover={hover} onPick={pick} onHover={setHover} onNext={() => shift(1)} weekdays={weekdays} />
-        </div>
+        {independentMonths ? (
+          <>
+            <div className="absolute left-[150px] top-0">
+              <Month year={months.left.year} month={months.left.month} start={start} end={stop} hover={hover} onPick={pick} onHover={setHover} onPrev={() => shiftOne("left", -1)} onNext={() => shiftOne("left", 1)} weekdays={weekdays} />
+            </div>
+            <div className="absolute left-[450px] top-0">
+              <Month year={months.right.year} month={months.right.month} start={start} end={stop} hover={hover} onPick={pick} onHover={setHover} onPrev={() => shiftOne("right", -1)} onNext={() => shiftOne("right", 1)} weekdays={weekdays} />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="absolute left-[150px] top-0">
+              <Month year={normalized[0].getFullYear()} month={normalized[0].getMonth()} start={start} end={stop} hover={hover} onPick={pick} onHover={setHover} onPrev={() => shift(-1)} weekdays={weekdays} />
+            </div>
+            <div className="absolute left-[450px] top-0">
+              <Month year={normalized[1].getFullYear()} month={normalized[1].getMonth()} start={start} end={stop} hover={hover} onPick={pick} onHover={setHover} onNext={() => shift(1)} weekdays={weekdays} />
+            </div>
+          </>
+        )}
       </div>
     </>
   )

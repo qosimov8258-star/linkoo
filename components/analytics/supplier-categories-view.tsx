@@ -7,7 +7,7 @@ import { CashSnackbar, useCanManage, type SnackbarMessage } from "@/components/a
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
 import { importKey, postJson, repeatedInFile, type PreparedRow } from "@/lib/excel-row-import"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { ConfirmDelete, EmptyState, ErrorAlert, HoverActions, LineField, ListToolbar, Modal, SaveLink, grayHead, listRow } from "./catalog-ui"
+import { ConfirmDelete, EmptyState, ErrorAlert, HoverActions, LineField, ListToolbar, Modal, SaveButton, grayHead, listRow } from "./catalog-ui"
 import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "./excel-row-import"
 import type { SupplierCategory as Category } from "./supplier-categories-data"
 
@@ -48,6 +48,18 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
     void load()
   }, [load])
 
+  // Linko's «Добавить тип поставщика» is ?openCreateDialog=true in the address (the supplier form's ⊕ opens this page so).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("openCreateDialog") === "true") setDialog({ kind: "create" })
+  }, [])
+  const createInAddress = (open: boolean) => {
+    const params = new URLSearchParams(window.location.search)
+    if (open) params.set("openCreateDialog", "true")
+    else if (params.has("openCreateDialog")) params.set("openCreateDialog", "false")
+    else return
+    window.history.replaceState(null, "", `${window.location.pathname}?${params}`)
+  }
+
   const importSpec: ExcelImportSpec<{ name: string }> = {
     templateName: "supplier-categories-template",
     columns: [{ field: "name", header: "Наименование", aliases: ["Название", "Наименование категории", "Категория", "Категории", "Name"] }],
@@ -68,21 +80,25 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
 
   const body = (
     <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
-      <div className="-mb-[3px] mt-[3px]">
+      <div className="-mb-[2.3px] mt-[3px]">
         <ListToolbar
           addLabel={t("Добавить категорию поставщика")}
-          onAdd={() => setDialog({ kind: "create" })}
+          onAdd={() => {
+            createInAddress(true)
+            setDialog({ kind: "create" })
+          }}
           extra={canImport ? <ExcelImportLink className="pt-[8px]" onClick={() => setImportOpen(true)} /> : undefined}
         />
       </div>
       <div className={`${grayHead} grid-cols-1`}>
-        <button type="button" onClick={() => setOrdering(ordering === "" ? "asc" : ordering === "asc" ? "desc" : "")} className="flex items-center gap-[10px] text-left font-bold">
+        <button type="button" onClick={() => setOrdering(ordering === "" ? "asc" : ordering === "asc" ? "desc" : "")} className="flex items-center gap-[10px] text-left font-semibold">
           {t("Категории")}
           {ordering === "asc" ? <ArrowDown className="h-4 w-4 text-white/60" /> : ordering === "desc" ? <ArrowUp className="h-4 w-4 text-white/60" /> : null}
         </button>
       </div>
-      {rows.map((category) => (
-        <div key={category.id} className={`${listRow} grid-cols-1 font-semibold`}>
+      {rows.map((category, index) => (
+        // Linko's dotted rule is an image under the row (the text stays 16 px down) and the last row has none.
+        <div key={category.id} className={`${listRow} grid-cols-1 font-semibold ${index === rows.length - 1 ? "border-b-0" : "pt-[2px]"}`}>
           <span>{category.name}</span>
           <HoverActions onEdit={() => setDialog({ kind: "update", category })} onDelete={() => setDialog({ kind: "delete", category })} />
         </div>
@@ -93,8 +109,12 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
         <CategoryFormDialog
           key={dialog.kind === "update" ? `update-${dialog.category.id}` : "create"}
           category={dialog.kind === "update" ? dialog.category : undefined}
-          onClose={() => setDialog(null)}
+          onClose={() => {
+            if (dialog.kind === "create") createInAddress(false)
+            setDialog(null)
+          }}
           onSaved={() => {
+            if (dialog.kind === "create") createInAddress(false)
             setDialog(null)
             setNotice({ text: "Успешно сохранено", tone: "success" })
             void load()
@@ -160,8 +180,9 @@ function CategoryFormDialog({ category, onClose, onSaved }: { category?: Categor
       <Modal
         title={category ? t("Изменить тип поставщика") : t("Добавить тип поставщика")}
         onClose={onClose}
-        bodyClassName="min-h-[100px] pl-[30px] pr-[52px] pb-[10px] pt-[15px]"
-        footer={<SaveLink disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveLink>}
+        // Linko: the field spans the dialog less 30 px a side, its line 4 px lower; «Сохранить» is the green button.
+        bodyClassName="min-h-[100px] px-[30px] pb-[10px] pt-[18px]"
+        footer={<SaveButton disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
       >
         <LineField label={t("Наименование категории")} required value={name} onChange={setName} />
       </Modal>

@@ -171,7 +171,8 @@ export function LinkoActDialog({
   title: string
   from: string
   to: string
-  withCalendar?: boolean
+  /** true: a small calendar over the period (supplier); "after": a calendar right after it (branch). */
+  withCalendar?: boolean | "after"
   downloadDisabled?: boolean
   onPeriod: (from: string, to: string) => void
   onDownload: () => void
@@ -180,9 +181,9 @@ export function LinkoActDialog({
 }) {
   const { t } = useLanguage()
   return (
-    // Modal as in Linko: only × closes it.
+    // Modal as in Linko: only × closes it; vertically centred while it fits (my-auto).
     <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-[60px]">
-      <div role="dialog" aria-modal="true" aria-label={title} className="w-full max-w-[1000px] rounded-[2px] bg-white shadow-[0_19px_60px_rgba(0,0,0,0.3),0_15px_20px_rgba(0,0,0,0.22)]">
+      <div role="dialog" aria-modal="true" aria-label={title} className="my-auto w-full max-w-[1000px] rounded-[2px] bg-white shadow-[0_19px_60px_rgba(0,0,0,0.3),0_15px_20px_rgba(0,0,0,0.22)]">
         <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[20px]">
           <h2 className="text-[13px] font-bold uppercase text-[#333]">{title}</h2>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#666] hover:text-black">
@@ -190,9 +191,10 @@ export function LinkoActDialog({
           </button>
         </header>
         <div className="flex items-center justify-between gap-3 px-[30px] py-[10px]">
-          <div className="flex w-[260px] flex-col items-start">
-            {withCalendar && <CalendarDays aria-hidden className="mb-[2px] h-[14px] w-[14px] text-[#bdbdbd]" />}
-            <BuilderPeriod from={from} to={to} onApply={onPeriod} align="left" textClassName="!h-[24px] !pl-0 text-[13px]" className="w-full" />
+          <div className={`flex w-[260px] ${withCalendar === "after" ? "flex-row items-center gap-[8px]" : "flex-col items-start"}`}>
+            {withCalendar === true && <CalendarDays aria-hidden className="mb-[2px] h-[14px] w-[14px] text-[#bdbdbd]" />}
+            <BuilderPeriod from={from} to={to} onApply={onPeriod} align="left" textClassName="!h-[24px] !pl-0 text-[13px]" className={withCalendar === "after" ? "min-w-0 flex-1" : "w-full"} />
+            {withCalendar === "after" && <CalendarDays aria-hidden className="h-[16px] w-[16px] shrink-0 text-[#757575]" />}
           </div>
           <button
             type="button"

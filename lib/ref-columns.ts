@@ -1,5 +1,11 @@
 /** Column widths measured from the reference app, keyed by route. */
 export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: number; insetRight?: number }> = {
+  // Поставщики (#/provider): xs2 Id, xs5 Наименование, xs3 Категория, xs2 Дата создания from x=58 (Id 58, 313.3, 931.7, 1302.7).
+  "/analytics/suppliers": {
+    "n": 4,
+    "cols": "minmax(0,255.3fr) minmax(0,618.3fr) minmax(0,371fr) minmax(0,247.3fr)",
+    "inset": 22
+  },
   "/analytics/expected-payments": {
     "n": 7,
     "cols": "123.3px 230.7px 230.7px 115.3px 231px 230px 231px",
@@ -7,7 +13,7 @@ export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: numb
   },
   "/analytics/price-formation": {
     "n": 6,
-    "cols": "469.3px 230.7px 230.7px 115.3px 230.6px 126px",
+    "cols": "minmax(0,502fr) minmax(0,247fr) minmax(0,124fr) minmax(0,247fr) minmax(0,247fr) minmax(0,124fr)",
     "inset": 22
   },
   "/analytics/surveys": {
@@ -18,13 +24,12 @@ export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: numb
   },
   "/analytics/survey-plans": {
     "n": 2,
-    "cols": "700px minmax(0,1fr)",
+    "cols": "minmax(0,1fr) minmax(0,1fr)",
     "inset": 22
   },
   "/analytics/draft-orders": {
     "n": 8,
-    "cols": "123px 116px 230px 116px 230px 231px 230px minmax(0,1fr)",
-    "inset": 22
+    "cols": "minmax(0,1fr) minmax(0,1fr) minmax(0,2fr) minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr)"
   },
   "/clients": {
     "n": 9,
@@ -56,7 +61,7 @@ export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: numb
   },
   "/analytics/returns": {
     "n": 9,
-    "cols": "59.3px 241.2px 133.2px 133.2px 154.8px 165.6px 165.6px 165.6px 165.6px"
+    "cols": "minmax(0,61.58fr) minmax(0,259.16fr) minmax(0,142.94fr) minmax(0,142.94fr) minmax(0,166.18fr) minmax(0,177.8fr) minmax(0,177.8fr) minmax(0,177.8fr) minmax(0,177.8fr)"
   },
   "/analytics/refusals": {
     "n": 5,
@@ -68,8 +73,7 @@ export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: numb
   },
   "/analytics/client-bonuses": {
     "n": 4,
-    "cols": "123px 692px 231px minmax(0,1fr)",
-    "inset": 22
+    "cols": "minmax(0,1fr) minmax(0,6fr) minmax(0,2fr) minmax(0,3fr)"
   },
   "/analytics/salary-planning": {
     "n": 5,
@@ -78,7 +82,7 @@ export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: numb
   },
   "/analytics/kpi-tasks": {
     "n": 6,
-    "cols": "123.3px 230.7px 461.3px 230.7px 230.7px minmax(0,1fr)",
+    "cols": "calc((100% - 8px) / 12 + 8px) minmax(0,2fr) minmax(0,4fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr)",
     "inset": 22
   },
   "/analytics/tasks": {
@@ -96,11 +100,6 @@ export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: numb
   "/analytics/internal-transfers": {
     "n": 8,
     "cols": "103px 206px 206px 206px 103px 103px 206px minmax(0,1fr)"
-  },
-  "/analytics/inventory-management": {
-    "n": 7,
-    "cols": "123px 231px 231px 230px 231px 239px minmax(0,1fr)",
-    "inset": 22
   },
   "/analytics/expected-expenses": {
     "n": 7,

@@ -11,7 +11,8 @@ import { BalanceFilterChip, BalanceFilterDialog, FilterCardOptionSelect, countAc
 import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useLookup } from "@/components/analytics/balance/use-balance"
-import { BranchDetailDialog, BranchTransactionDialog, type BranchOption } from "@/components/analytics/branch-balance-dialogs"
+import { BranchActDialog } from "@/components/analytics/branch-balance-act"
+import { BranchTransactionDialog, type BranchOption } from "@/components/analytics/branch-balance-dialogs"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { isIsoDay, monthEndIso, monthStartIso } from "@/lib/finance/dates"
@@ -208,7 +209,8 @@ export function BranchBalanceView() {
     if (organization) params.set("organization", organization)
     if (search) params.set("search", search)
     if (paging.page > 1) params.set("page", String(paging.page))
-    if (paging.pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(paging.pageSize))
+    // Linko keeps pageSize in the address even at its default (the menu link opens ?pageSize=25).
+    params.set("pageSize", String(paging.pageSize))
     if (ordering.length) params.set("ordering", ordering.join(","))
     if (detail) params.set("dynamicList", detail.key)
     // Demo: openAddDialog = "Добавить" (green +), openCreateDialog = "Добавить расход" (red −).
@@ -287,7 +289,7 @@ export function BranchBalanceView() {
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="relative flex flex-wrap items-center gap-5 border-t border-[#efefef] px-[10px] pb-[8px] pt-[15px]">
+        <section className="relative flex flex-wrap items-center gap-5 border-t border-[#efefef] px-[10px] mt-[7px] py-0">
           <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
 
           <label style={{ left: "calc(50% - 90px)" }} className="absolute w-[180px] border-b border-[#e0e0e0] pb-1.5">
@@ -363,13 +365,15 @@ export function BranchBalanceView() {
         <FilterCardOptionSelect label={t("Организация")} value={draftOrganization} onChange={setDraftOrganization} options={organizationOptions.map((item) => ({ value: item.name, label: item.name }))} />
       </BalanceFilterDialog>
 
-      {detail && <BranchDetailDialog entityKey={detail.key} name={detail.name} onClose={() => setDetail(null)} />}
+      {/* Linko: the name opens the branch act of the page's period. */}
+      {detail && <BranchActDialog entityKey={detail.key} name={detail.name} from={period.from} to={period.to} onClose={() => setDetail(null)} />}
 
       {create && (
         <BranchTransactionDialog
           kind={create.kind}
           branchId={create.branchId}
           branches={branchOptions}
+          organizations={organizationOptions.map((item) => item.name)}
           onClose={() => setCreate(null)}
           onSaved={() => {
             setCreate(null)

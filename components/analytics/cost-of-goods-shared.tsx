@@ -37,14 +37,15 @@ export function CheckIcon({ ok, title }: { ok: boolean; title?: string }) {
   )
 }
 
-/** "Поставка №12" / "Списание №4" … linked to the document page when it opens by id. */
-export function DocumentLink({ docType, docId }: Pick<NetCostDocument, "docType" | "docId">) {
+/** "Поставка №12" / "Списание №4" … linked to the document page when it opens by id. docId 0 = no numbered
+ * document (a stage's «Активность»): the label alone. */
+export function DocumentLink({ docType, docId, href }: Pick<NetCostDocument, "docType" | "docId" | "href">) {
   const { t } = useLanguage()
-  const label = `${t(NET_COST_SOURCE_LABELS[docType] ?? docType)} №${docId}`
+  const label = `${t(NET_COST_SOURCE_LABELS[docType] ?? docType)}${docId ? ` №${docId}` : ""}`
   const page = NET_COST_DOC_LINKS[docType]
-  if (!page) return <span>{label}</span>
+  if (!href && !page) return <span>{label}</span>
   return (
-    <Link href={`${page}?id=${docId}`} className="font-semibold text-[#1E4A9A] hover:underline">
+    <Link href={href ?? `${page}?id=${docId}`} className="font-semibold text-[#1E4A9A] hover:underline">
       {label}
     </Link>
   )

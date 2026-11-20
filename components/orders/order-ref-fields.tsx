@@ -31,12 +31,15 @@ export function RefSelect({
   onClear,
   required,
   alwaysFloat,
+  emptyText,
   className = "",
 }: {
   label: string
   value: string
   /** Keep the label floated even while empty (the reference's group-payment "Ответственный персонал"). */
   alwaysFloat?: boolean
+  /** Shown as a greyed entry while there are no options (Linko's «Не найдено»). */
+  emptyText?: string
   /** Shown instead of `value` (e.g. a translated option label). */
   display?: string
   options: { value: string; label: string }[]
@@ -60,6 +63,7 @@ export function RefSelect({
       </svg>
       <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
         <option value="" />
+        {!options.length && emptyText && <option disabled>{emptyText}</option>}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

@@ -9,15 +9,17 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import type { TrackingDay } from "@/lib/tracking-types"
 
 import { AgentDayPanel } from "./agent-day-panel"
-import { ClientDrawer, FieldRecordDialog, LocationLockDialog, OptimizeDialog, OrderSummaryDialog } from "./agents-tracking-dialogs"
+import { FieldRecordDialog, LocationLockDialog, OptimizeDialog, OrderSummaryDialog } from "./agents-tracking-dialogs"
 
 // An agent's day with its dialogs: the drawer of the visit reports (agent-visit-drawer.tsx) and the agent's page of
 // Анализ маршрутов (components/clients/agent-route-view.tsx). The day comes from GET /api/tracking/agents/<id>/day.
+// A client of the day opens Linko's full shop card through the host (`onOpenClient`, `clientHref`): the drawer swaps the
+// day for it (Linko's drawer=shop of drawer_agent_visit, the card's X brings the day back), the agent's page shows it
+// in its agents list's place.
 
 type Dialog =
   | { kind: "order"; id: number }
   | { kind: "record"; record: "refusal" | "photo_report"; id: number }
-  | { kind: "client"; id: number }
   | { kind: "optimize" }
   | { kind: "lock" }
 
@@ -32,6 +34,8 @@ export function AgentDayView({
   closeOnEscape = false,
   planHeader,
   onDayChange,
+  onOpenClient,
+  clientHref,
 }: {
   employeeId: number
   name?: string
@@ -42,6 +46,10 @@ export function AgentDayView({
   planHeader?: (shown: { day: string; data: TrackingDay | null }) => ReactNode
   /** The shown day changed (the page's agent list follows it). */
   onDayChange?: (day: string) => void
+  /** A client of the day: the host shows its shop card. */
+  onOpenClient: (clientId: number) => void
+  /** The address of a client's shop card (the client's name is then a link). */
+  clientHref?: (clientId: number) => string
 }) {
   const { t } = useLanguage()
   const router = useRouter()
@@ -72,7 +80,7 @@ export function AgentDayView({
     }
   }, [employeeId, day, key, t])
 
-  // Escape closes the open dialog first, then the drawer.
+  // Escape closes the open dialog first, then the drawer (the shop card replaces this view: only its X closes it).
   useEffect(() => {
     if (dialog || !closeOnEscape) return
     const onKey = (event: KeyboardEvent) => {
@@ -84,7 +92,13 @@ export function AgentDayView({
 
   const loading = state.key !== key
   const current = state.data
-  const openClient = useCallback((clientId: number) => setDialog({ kind: "client", id: clientId }), [])
+  const openClient = useCallback(
+    (clientId: number) => {
+      setDialog(null)
+      onOpenClient(clientId)
+    },
+    [onOpenClient],
+  )
   const selectableIds = useMemo(() => (current?.clients ?? []).flatMap((client) => (client.clientId !== null ? [client.clientId] : [])), [current])
   const plannedOptions = useMemo(
     () => (current?.clients ?? []).filter((client) => client.planned && client.clientId !== null).map((client) => ({ id: client.clientId as number, label: client.clientName })),
@@ -124,6 +138,7 @@ export function AgentDayView({
         onEditLock={() => setDialog({ kind: "lock" })}
         actions={{
           onOpenClient: openClient,
+          clientHref,
           onOpenOrder: (id) => setDialog({ kind: "order", id }),
           onOpenRecord: (record, id) => setDialog({ kind: "record", record, id }),
         }}
@@ -154,7 +169,6 @@ export function AgentDayView({
       )}
       {dialog?.kind === "record" && <FieldRecordDialog kind={dialog.record} id={dialog.id} onClose={() => setDialog(null)} onOpenClient={openClient} />}
       {dialog?.kind === "order" && <OrderSummaryDialog orderId={dialog.id} onClose={() => setDialog(null)} onNavigate={(href) => router.push(href)} />}
-      {dialog?.kind === "client" && <ClientDrawer clientId={dialog.id} onClose={() => setDialog(null)} onNavigate={(href) => router.push(href)} />}
     </>
   )
 }

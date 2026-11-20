@@ -140,6 +140,7 @@ export function KpiDialogFrame({
   fullScreen = false,
   footerInset = 0,
   footerPadRight = 10,
+  centered = false,
 }: {
   title: ReactNode
   width?: number | string
@@ -153,6 +154,8 @@ export function KpiDialogFrame({
   footerInset?: number
   /** Right padding of the footer actions. */
   footerPadRight?: number
+  /** Vertically centred in the window (the reference's KPI lock dialog) instead of near the top. */
+  centered?: boolean
 }) {
   const { t } = useLanguage()
   // The reference dialogs close only by their X / actions: neither Escape nor a click on the backdrop dismisses them.
@@ -178,7 +181,7 @@ export function KpiDialogFrame({
   )
   if (fullScreen) return <div className="fixed inset-0 z-[110] bg-white">{frame}</div>
   return (
-    <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/[0.54] px-4 pb-10 pt-16">
+    <div className={`fixed inset-0 z-[110] flex justify-center overflow-y-auto bg-black/[0.54] px-4 ${centered ? "items-center py-4" : "items-start pb-10 pt-16"}`}>
       {frame}
     </div>
   )

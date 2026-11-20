@@ -183,12 +183,16 @@ type OrderMeta = {
   bucket: DebtBucket
   /** Balance per currency of the financial account the order is booked on (below zero = owes). */
   accountBalance: Record<string, number>
+  /** That financial account ("acc:<id>" and its name); null when the shop has none (the shop stands for itself). */
+  account: { key: string; name: string } | null
 }
 
-/** `pending`: Linko's own remainder of an imported order not handed over yet (В процессе, Есть на складе, Не
+/** `linkoBalance`: Linko's own remainder of an imported order whatever its status (its total_balance, less what was paid
+ * on it here since the import): the order dialog's «Остаток».
+ * `pending`: Linko's own remainder of an imported order not handed over yet (В процессе, Есть на складе, Не
  * подтвержден) — no debt counts it, but Linko's client dialog (sales/order/?market&debt=true: every status but
  * Отменен) lists the order with it. */
-type Part = { currency: string; total: number; paid: number; allocated: number; remaining: number; pending?: number }
+type Part = { currency: string; total: number; paid: number; allocated: number; remaining: number; pending?: number; linkoBalance?: number }
 
 type UnexplainedLine = { currency: string; date: string; passedDays: number; bucket: DebtBucket; remaining: number }
 
@@ -354,7 +358,10 @@ async function buildModel(db: PgDb): Promise<Model> {
   // Account key → balance per currency, and each shop's account (the account rows list the shops summed into them).
   const accountBalance = new Map<string, Record<string, number>>()
   const accountOfShop = new Map<number, string>()
+  // Names of the financial accounts ("acc:<id>" rows only: an INN group or a lone shop is not an account of its own).
+  const accountName = new Map<string, string>()
   for (const row of accounts.rows) {
+    if (row.key.startsWith("acc:")) accountName.set(row.key, row.name)
     accountBalance.set(row.key, Object.fromEntries(Object.entries(row.currencies).map(([code, value]) => [code, roundMoney(value.end_balance)])))
     for (const id of row.members ?? (row.id !== null ? [row.id] : [])) accountOfShop.set(id, row.key)
   }
@@ -370,6 +377,7 @@ async function buildModel(db: PgDb): Promise<Model> {
     const released = RELEASED.has(nameKey(row.status))
     const realizationDay = released ? (row.realization_day ?? createdDay) : ""
     const passedDays = daysBetween(realizationDay || createdDay || today, today)
+    const accountKey = row.financial_account_id ? `acc:${Number(row.financial_account_id)}` : (accountOfShop.get(clientId) ?? clientKey)
     const meta: OrderMeta = {
       id: Number(row.id),
       clientName: row.client ?? "",
@@ -390,7 +398,8 @@ async function buildModel(db: PgDb): Promise<Model> {
       paymentDay: row.payment_day ?? "",
       passedDays,
       bucket: bucketOf(passedDays, config),
-      accountBalance: accountBalance.get(row.financial_account_id ? `acc:${Number(row.financial_account_id)}` : (accountOfShop.get(clientId) ?? clientKey)) ?? {},
+      accountBalance: accountBalance.get(accountKey) ?? {},
+      account: accountName.has(accountKey) ? { key: accountKey, name: accountName.get(accountKey) ?? "" } : null,
     }
     orders.set(meta.id, meta)
     client.orders.push(meta)
@@ -464,6 +473,7 @@ async function buildModel(db: PgDb): Promise<Model> {
         // Linko's remainder is in the order's currency; another currency part of it is settled.
         const own = !entry.currency || entry.currency === code
         part.remaining = own ? roundMoney(entry.remaining) : 0
+        part.linkoBalance = own ? roundMoney(entry.own) : 0
         if (own && !entry.released && entry.listed) part.pending = roundMoney(entry.own)
         part.allocated = roundMoney(Math.max(0, part.total - part.paid - (entry.released ? part.remaining : (part.pending ?? 0))))
         fixed += part.remaining
@@ -606,6 +616,7 @@ function orderRow(order: OrderMeta, part: Part, client: ClientState): OrderDebtO
     orderId: order.id,
     currency: part.currency,
     client: { key: client.info.key, id: client.info.id, name: client.info.id !== null ? client.info.name : order.clientName },
+    account: order.account?.name ? order.account : { key: client.info.key, name: client.info.id !== null ? client.info.name : order.clientName },
     status: order.status,
     agent: order.agent,
     deliveryMan: order.deliveryMan,
@@ -740,6 +751,10 @@ function clientRows(selection: Selection, withWrong: boolean): OrderDebtClientRo
 
 type Comparable = string | number
 
+// Text order of Linko's database collation: Latin before Cyrillic, digits before letters, case, spaces and punctuation
+// ignored at the first level («145 abc» < «19 А…» < «1 бв…» < «abd» < «Абв…»).
+const TEXT_ORDER = new Intl.Collator("en", { ignorePunctuation: true })
+
 function compare(a: Comparable, b: Comparable): number {
   if (typeof a === "number" && typeof b === "number") return a - b
   const x = String(a)
@@ -747,7 +762,7 @@ function compare(a: Comparable, b: Comparable): number {
   // Empty text goes last in both directions.
   if (!x && y) return Number.POSITIVE_INFINITY
   if (x && !y) return Number.NEGATIVE_INFINITY
-  return x.localeCompare(y, "ru")
+  return TEXT_ORDER.compare(x, y)
 }
 
 function sortRows<R>(rows: R[], ordering: string, value: (row: R, field: string) => Comparable, tie: (a: R, b: R) => number): R[] {
@@ -822,7 +837,7 @@ export async function listOrderDebts(query: OrderDebtQuery): Promise<OrderDebtLi
     const paged = paginate(rows, query.page, query.pageSize)
     return { ...base, count: rows.length, page: paged.page, pageSize: paged.pageSize, clients: [], orders: paged.rows }
   }
-  const rows = sortRows(clientRows(selection, query.withWrongDebt), query.ordering || "id", clientValue, (a, b) => nameKey(a.name).localeCompare(nameKey(b.name), "ru") || a.key.localeCompare(b.key))
+  const rows = sortRows(clientRows(selection, query.withWrongDebt), query.ordering || "id", clientValue, (a, b) => TEXT_ORDER.compare(nameKey(a.name), nameKey(b.name)) || a.key.localeCompare(b.key))
   const paged = paginate(rows, query.page, query.pageSize)
   return { ...base, count: rows.length, page: paged.page, pageSize: paged.pageSize, clients: paged.rows, orders: [] }
 }
@@ -885,7 +900,7 @@ export async function getOrderDebtDetail(orderId: number): Promise<OrderDebtOrde
     : []
   return {
     order: { ...orderRow(order, first, client), zone: order.zone || client.info.zone, delivery: order.delivery, product: order.product },
-    parts: parts.map((part) => ({ currency: part.currency, total: part.total, paid: part.paid, allocated: part.allocated, remaining: part.remaining })),
+    parts: parts.map((part) => ({ currency: part.currency, total: part.total, paid: part.paid, allocated: part.allocated, remaining: part.remaining, balance: part.linkoBalance ?? part.remaining })),
     items: items.map((item) => {
       const quantity = num(item.quantity)
       const price = num(item.price)

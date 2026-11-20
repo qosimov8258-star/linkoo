@@ -3,14 +3,16 @@
 import { useEffect, useMemo, useState } from "react"
 
 import { formatUnitTotals } from "@/components/analytics/internal-transfers-shared"
-import { formatMoney } from "@/lib/finance/currency"
+import { formatSupplyAmount } from "@/lib/amount-precision"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 /**
- * The reference's "ДОБАВЛЕНИЕ ПРОДУКТОВ" (the supply form's "добавить из списка"): the whole product catalogue with
- * a quantity (in boxes or units) and a price input per row; saving adds every row with a quantity to the supply.
- * The catalogue is listed in this company's own order: the products' "Порядковый номер" (numbered ones first),
- * then by name.
+ * The reference's "ДОБАВЛЕНИЕ ПРОДУКТОВ" (the supply form's "добавить из списка"): the products of the supply's
+ * organization (Linko's all_balance_supply?division=…) with a group, quantity and price input per row; the supply's
+ * lines come prefilled. Saving puts the rows the user changed into the supply (one line per product); the rows left
+ * as they were keep the supply's own lines. The page, its size and the search are in the address (pdPage,
+ * pdPageSize, pdSearch). The catalogue is listed in this company's own order: the products' "Порядковый номер"
+ * (numbered ones first), then by name.
  */
 
 type PickerProduct = { name: string; unit: string; type: string; brand: string; barcode: string; cost: number; boxUnit: string; boxAmount: number; orderNumber: number | null }
@@ -26,6 +28,19 @@ const GRID = "grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)
 
 const number = (value: string) => Number(value.replace(/\s/g, "").replace(",", ".")) || 0
 const fmt = (value: number, digits = 3) => (Math.round(value * 10 ** digits) / 10 ** digits).toLocaleString("ru-RU", { maximumFractionDigits: digits })
+
+/** Reads / writes a query parameter of the address (Linko keeps the picker's paging there). */
+function urlParam(name: string): string | null {
+  return typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get(name)
+}
+function setUrlParams(values: Record<string, string | null>) {
+  const url = new URL(window.location.href)
+  for (const [name, value] of Object.entries(values)) {
+    if (value === null) url.searchParams.delete(name)
+    else url.searchParams.set(name, value)
+  }
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`)
+}
 
 /** "Порядковый номер" as a sort key: a whole number, else null (unnumbered products come after the numbered ones). */
 function sortNumber(value: unknown): number | null {
@@ -71,15 +86,19 @@ function HeaderSelect({ left, width, label, value, options, onChange }: { left: 
 
 export function SupplierProductPicker({
   currency,
+  organization = "",
   stock,
   initial,
   onClose,
   onSave,
 }: {
   currency: string
+  /** The supply's organization: only its products are listed (Linko's division filter); "" lists every product. */
+  organization?: string
   stock: Record<string, { stock: number; barcode: string }>
   initial: { product: string; qty: number; cost: number }[]
   onClose: () => void
+  /** The rows the user changed (with a quantity): each replaces the supply's lines of that product. */
   onSave: (items: { product: string; qty: number; cost: number }[]) => void
 }) {
   const { t } = useLanguage()
@@ -87,26 +106,47 @@ export function SupplierProductPicker({
   const [loading, setLoading] = useState(true)
   const [type, setType] = useState("")
   const [brand, setBrand] = useState("")
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(25)
+  const [query, setQuery] = useState(() => urlParam("pdSearch") ?? "")
+  const [page, setPage] = useState(() => Math.max(1, Number(urlParam("pdPage")) || 1))
+  const [pageSize, setPageSize] = useState(() => ([10, 25, 50, 100].includes(Number(urlParam("pdPageSize"))) ? Number(urlParam("pdPageSize")) : 25))
   const [rows, setRows] = useState<Record<string, RowState>>({})
+  /** The rows as the supply filled them: a row left like this keeps the supply's own lines on save. */
+  const [startRows, setStartRows] = useState<Record<string, RowState>>({})
+  useEffect(() => {
+    setUrlParams({ pdPageSize: String(pageSize), pdPage: page > 1 ? String(page) : null, pdSearch: query.trim() ? query : null })
+  }, [page, pageSize, query])
+  // Closing the list drops its parameters from the address.
+  useEffect(() => () => setUrlParams({ pdPageSize: null, pdPage: null, pdSearch: null }), [])
 
   useEffect(() => {
     let cancelled = false
     void fetch("/api/products")
       .then((response) => (response.ok ? response.json() : []))
-      .then((data: { name: string; unit: string; type: string; brand: string; barcode: string; cost: number; boxUnit?: string; boxAmount?: number; deleted?: boolean; isInventory?: boolean; orderNumber?: string }[]) => {
+      .then((data: { name: string; unit: string; type: string; brand: string; barcode: string; cost: number; boxUnit?: string; boxAmount?: number; deleted?: boolean; organization?: string; orderNumber?: string }[]) => {
         if (cancelled) return
-        setProducts(
-          data
-            .filter((item) => !item.deleted && !item.isInventory)
-            .map((item) => ({ name: item.name, unit: item.unit, type: item.type, brand: item.brand, barcode: item.barcode, cost: item.cost ?? 0, boxUnit: item.boxUnit ?? "", boxAmount: item.boxAmount ?? 0, orderNumber: sortNumber(item.orderNumber) }))
-            .sort(byOwnOrder),
-        )
+        const listed = data
+          .filter((item) => !item.deleted && (!organization || (item.organization ?? "") === organization))
+          .map((item) => ({ name: item.name, unit: item.unit, type: item.type, brand: item.brand, barcode: item.barcode, cost: item.cost ?? 0, boxUnit: item.boxUnit ?? "", boxAmount: item.boxAmount ?? 0, orderNumber: sortNumber(item.orderNumber) }))
+          .sort(byOwnOrder)
+        setProducts(listed)
+        // The supply's lines prefill their rows (a product on several lines: their quantities added up, the first price).
+        const boxes = new Map(listed.map((item) => [item.name, item.boxAmount]))
+        const totals = new Map<string, { qty: number; cost: number }>()
+        for (const item of initial) {
+          const current = totals.get(item.product)
+          totals.set(item.product, { qty: (current?.qty ?? 0) + item.qty, cost: current?.cost ?? item.cost })
+        }
         const start: Record<string, RowState> = {}
-        for (const item of initial) start[item.product] = { box: "", qty: group(String(item.qty).replace(".", ",")), price: group(String(item.cost).replace(".", ",")) }
+        for (const [product, line] of totals) {
+          const boxAmount = boxes.get(product) ?? 0
+          start[product] = {
+            box: boxAmount > 0 ? fmt(line.qty / boxAmount, 5).replace(/\s/g, "") : "",
+            qty: group(String(line.qty).replace(".", ",")),
+            price: group(String(line.cost).replace(".", ",")),
+          }
+        }
         setRows(start)
+        setStartRows(start)
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -129,10 +169,18 @@ export function SupplierProductPicker({
   const stateOf = (item: PickerProduct): RowState => rows[item.name] ?? { box: "", qty: "", price: "0" }
   const patch = (item: PickerProduct, next: Partial<RowState>) => setRows((all) => ({ ...all, [item.name]: { ...stateOf(item), ...next } }))
 
+  // Rows are kept by name: a name the catalogue holds twice counts once.
+  const counted = new Set<string>()
   const chosen = products.flatMap((item) => {
+    if (counted.has(item.name)) return []
+    counted.add(item.name)
     const state = rows[item.name]
     const qty = state ? number(state.qty) : 0
     return qty > 0 ? [{ item, qty, price: number(state.price) }] : []
+  })
+  const changed = chosen.filter((row) => {
+    const before = startRows[row.item.name]
+    return !before || number(before.qty) !== row.qty || number(before.price) !== row.price
   })
   const total = chosen.reduce((sum, row) => sum + row.qty * row.price, 0)
   // One total per unit: kilograms and pieces are never added up.
@@ -243,7 +291,7 @@ export function SupplierProductPicker({
                 <span className="ml-[11px] shrink-0 leading-[16px]">{currency}</span>
               </div>
               <span className="pr-[8px] text-right font-semibold leading-[16px]">
-                {formatMoney(qty * price, 2)} {currency}
+                {formatSupplyAmount(qty * price, 2)} {currency}
               </span>
               <span className="pr-[8px] text-right leading-[16px]">-</span>
               <span className="text-right leading-[16px]">{info ? `${info.stock.toLocaleString("ru-RU")} ${item.unit}` : `0 ${item.unit}`}</span>
@@ -255,7 +303,7 @@ export function SupplierProductPicker({
 
       <footer className="flex h-[57px] shrink-0 items-center justify-between border-t border-[#e0e0e0]">
         <div className="pb-[5px] pl-[30px] text-[16px] text-black">
-          {t("Общая сумма")}: <b>{formatMoney(total, 2)} {currency}</b>
+          {t("Общая сумма")}: <b>{formatSupplyAmount(total, 2)}</b>
           <span className="ml-[26px]">
             {t("Общее кол-во")} <b>{totalQty}</b>
           </span>
@@ -263,7 +311,7 @@ export function SupplierProductPicker({
         <button
           type="button"
           onClick={() => {
-            onSave(chosen.map((row) => ({ product: row.item.name, qty: row.qty, cost: row.price })))
+            onSave(changed.map((row) => ({ product: row.item.name, qty: row.qty, cost: row.price })))
             onClose()
           }}
           className="mr-[10px] h-9 px-[16px] pb-[5px] text-[13px] font-semibold uppercase text-[#129fdd]"

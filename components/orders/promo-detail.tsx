@@ -1,7 +1,9 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
+import { askDelete } from "@/lib/ask-confirm"
+import { notify } from "@/lib/notify"
 import { refDate } from "@/lib/ref-date"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -47,6 +49,19 @@ export type PromoRef = {
   calc_in_box?: boolean
   give_bonus_only_once?: boolean
   bonus_least_condition?: boolean
+  bonus_each_condition_separately?: boolean
+  give_in_box?: boolean
+  give_only_for_max_remain?: boolean
+  bonus_by_max_remain?: boolean
+  check_by_order_price?: boolean
+  product_box_amount_from?: string | number | null
+  product_box_amount_to?: string | number | null
+  product_weight_from?: string | number | null
+  product_weight_to?: string | number | null
+  bonus_fund?: string | number | null
+  created_date?: string
+  division?: Named | null
+  currency?: Named | null
   is_condition_set?: boolean
   is_approved?: boolean
   show_advert?: boolean
@@ -79,11 +94,31 @@ function Check() {
   )
 }
 
-function IconButton({ path, label }: { path: string; label: string }) {
+function IconButton({ path, label, onClick, disabled }: { path: string; label: string; onClick?: () => void; disabled?: boolean }) {
   return (
-    <span title={label} aria-label={label} className="flex h-6 w-6 items-center justify-center">
+    <button type="button" title={label} aria-label={label} onClick={onClick} disabled={disabled} className={`flex h-6 w-6 items-center justify-center ${onClick ? "" : "cursor-default"}`}>
       <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]"><path d={path} /></svg>
-    </span>
+    </button>
+  )
+}
+
+/** Linko's bodyTitle chip of the card's first row (a bold value in it). */
+function Chip({ children }: { children: ReactNode }) {
+  return <div className="mb-[12px] mr-[8px] inline-block rounded-[8px] border border-[#e4e9ee] bg-[#f7f9fb] px-[12px] py-[6px] text-[13px] leading-[17px] text-[#333] [&_b]:font-semibold">{children}</div>
+}
+
+/** Linko's partTitle: a hairline, then the small grey uppercase heading. */
+const PART_TITLE = "mt-[14px] w-full border-t border-[#e4e9ee] pt-[12px] text-[11px] font-bold uppercase tracking-[0.5px] text-[#8a97a3]"
+const AUTORENEW = "M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+const CARD = "M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"
+const CHECK_CIRCLE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+
+/** The white glyph of a Linko header button. */
+function ButtonIcon({ path }: { path: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden>
+      <path d={path} />
+    </svg>
   )
 }
 
@@ -100,14 +135,14 @@ function ProductTable({ head, rows, withAmount, footer }: { head: ReactNode; row
         <div className="flex h-[34px] items-center border-b border-[#e6eaee] bg-[#f8fafb] px-[15px] text-[11px] font-medium uppercase tracking-[0.4px] text-[#8a94a0]">
           <span className="w-[48px]">ID</span>
           <span className="flex-1">{t("НАИМЕНОВАНИЕ")}</span>
-          {withAmount ? <span className="w-[116px]">{t("КОЛ-ВО")}</span> : null}
+          {withAmount ? <span className="w-[100px]">{t("КОЛ-ВО")}</span> : null}
         </div>
         <div className="px-[15px] py-[6px]">
           {rows.map((row, index) => (
             <div key={index} className="flex min-h-[33px] items-center border-b border-[#eef1f4] text-[13px] text-[#333] last:border-b-0">
               <span className="w-[48px] text-[#8a94a0]">№{index + 1}</span>
               <span className="flex-1 py-[6px]">{row.name}</span>
-              {withAmount ? <span className="w-[116px]">{row.amount}</span> : null}
+              {withAmount ? <span className="w-[100px]">{row.amount}</span> : null}
             </div>
           ))}
         </div>
@@ -117,8 +152,27 @@ function ProductTable({ head, rows, withAmount, footer }: { head: ReactNode; row
   )
 }
 
-export function PromoDetail({ promo, onClose }: { promo: PromoRef; onClose?: () => void }) {
+export function PromoDetail({ promo, onClose, onDeleted }: { promo: PromoRef; onClose?: () => void; onDeleted?: () => void }) {
   const { t, language } = useLanguage()
+  const [deleting, setDeleting] = useState(false)
+
+  // «Отменить»: Linko's delete confirmation (the promotion's name), then the promotion is removed from the list.
+  async function remove() {
+    if (deleting || !(await askDelete(promo.name ?? ""))) return
+    setDeleting(true)
+    try {
+      const response = await fetch(`/api/ref-records/promo/${promo.id}`, { method: "DELETE" })
+      if (response.ok) onDeleted?.()
+      else {
+        const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+        notify(t(typeof body.error === "string" && body.error ? body.error : "Не удалось сохранить изменения на сервере"))
+      }
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setDeleting(false)
+    }
+  }
   const products = promo.products ?? []
   const buy = products.filter((item) => String(item.type) === "1")
   const gifts = products.filter((item) => String(item.type) === "2")
@@ -163,19 +217,29 @@ export function PromoDetail({ promo, onClose }: { promo: PromoRef; onClose?: () 
   ].filter((row) => row.values.length > 0)
   const clientTypes = names(promo.market_types)
 
+  // Linko's first row of chips, in its order (for every promotion type).
   const flags: ReactNode[] = []
-  if (asNumber(promo.product_amount_from) || asNumber(promo.product_amount_to)) {
-    flags.push(<span key="qf">{t("Количество от")}: <b>{plain(promo.product_amount_from)} {t("ед.")}</b></span>)
-    flags.push(<span key="qt">{t("Количество до")}: <b>{plain(promo.product_amount_to)} {t("ед.")}</b></span>)
-  }
-  if (asNumber(promo.order_price_from) || asNumber(promo.order_price_to)) {
-    flags.push(<span key="pf">{t("При заказе от")}: <b>{plain(promo.order_price_from)}</b></span>)
-    flags.push(<span key="pt">{t("При заказе до")}: <b>{plain(promo.order_price_to)}</b></span>)
-    flags.push(<b key="ps">({t("Сумма выбранных продуктов")})</b>)
-  }
-  if (isBonus && promo.calc_in_box) flags.push(<span key="box">{t("Считать в блоке")}: <Check /></span>)
-  if (isBonus && promo.bonus_least_condition) flags.push(<span key="least">{t("За наименьшее из бонусов")}: <Check /></span>)
-  if (isBonus && promo.give_bonus_only_once) flags.push(<span key="once">{t("Подарок один раз за заказ")}: <Check /></span>)
+  const has = (value: unknown) => value !== null && value !== undefined && value !== ""
+  if (has(promo.product_amount_from)) flags.push(<Chip key="qf">{t("Количество от")}: <b>{plain(promo.product_amount_from)} {t("ед.")}</b></Chip>)
+  if (has(promo.product_amount_to)) flags.push(<Chip key="qt">{t("Количество до")}: <b>{plain(promo.product_amount_to)} {t("ед.")}</b></Chip>)
+  if (has(promo.product_box_amount_from)) flags.push(<Chip key="bf">{t("От")}: <b>{plain(promo.product_box_amount_from)} {t("блок")}</b></Chip>)
+  if (has(promo.product_box_amount_to)) flags.push(<Chip key="bt">{t("До")}: <b>{plain(promo.product_box_amount_to)} {t("блок")}</b></Chip>)
+  if (asNumber(promo.order_price_from)) flags.push(<Chip key="pf">{t("При заказе от")}: <b>{plain(promo.order_price_from)}</b></Chip>)
+  if (asNumber(promo.order_price_to)) flags.push(<Chip key="pt">{t("При заказе до")}: <b>{plain(promo.order_price_to)}</b></Chip>)
+  if (asNumber(promo.order_price_from) || asNumber(promo.order_price_to)) flags.push(<Chip key="ps"><b>({t(promo.check_by_order_price ? "Сумма всего заказа" : "Сумма выбранных продуктов")})</b></Chip>)
+  if (asNumber(promo.product_weight_from)) flags.push(<Chip key="wf">{t("Вес от")}: <b>{plain(promo.product_weight_from)}</b></Chip>)
+  if (asNumber(promo.product_weight_to)) flags.push(<Chip key="wt">{t("Вес до")}: <b>{plain(promo.product_weight_to)}</b></Chip>)
+  if (asNumber(promo.bonus_fund)) flags.push(<Chip key="fund">{t("Фонд")}: <b>{plain(promo.bonus_fund)}{isBonus ? ` ${t("шт.")}` : ""}</b></Chip>)
+  const checks: [boolean | undefined, string][] = [
+    [promo.bonus_each_condition_separately, "Будем давать только один продукт для одного условия (Например: 10+1):"],
+    [promo.calc_in_box, "Считать в блоке:"],
+    [promo.give_in_box, "Считать в блоке (Подарок):"],
+    [promo.bonus_least_condition, "За наименьшее из бонусов:"],
+    [promo.give_only_for_max_remain, "Только продукт с наибольшим остатком из выбранных:"],
+    [promo.bonus_by_max_remain, "Добавить по остатку:"],
+    [promo.give_bonus_only_once, "Подарок один раз за заказ:"],
+  ]
+  for (const [on, label] of checks) if (on) flags.push(<Chip key={label}>{t(label)}<span className="ml-[6px]"><Check /></span></Chip>)
 
   const valueHead = promo.type === "ball" ? "Балл" : sumKind
   const buyWithAmount = Boolean(promo.is_condition_set) || buy.some((item) => asNumber(item.amount) > 0)
@@ -186,76 +250,85 @@ export function PromoDetail({ promo, onClose }: { promo: PromoRef; onClose?: () 
     <div className="-mx-[15px] bg-[#f2f5f8] py-[20px]" onClick={(event) => event.stopPropagation()}>
       <div className="rounded-[4px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
         <div className="flex items-start justify-between px-[30px] pt-[22px]">
-          <button type="button" onClick={onClose} className="text-left text-[18px] font-semibold leading-[24px] text-[#333]">
+          <button type="button" onClick={onClose} className="text-left text-[18px] font-bold leading-[24px] text-[#333]">
             № {promo.id} | {promo.name}
           </button>
           <div className="flex items-center gap-[14px] pr-[2px]">
             {isCashback ? (
               <>
-                <span className="flex h-[30px] items-center gap-2 rounded-[4px] bg-[#6fcf7f] px-[14px] text-[13px] font-semibold text-white">{t("Пересчитать доп.условия")}</span>
-                <span className="flex h-[30px] items-center gap-2 rounded-[4px] bg-[#f5806b] px-[14px] text-[13px] font-semibold text-white">{t(promo.is_approved ? "Снять подтверждения" : "Подтвердить")}</span>
+                <span className="flex h-[30px] items-center gap-2 rounded-[4px] bg-[#6fcf7f] px-[14px] text-[13px] font-semibold text-white"><ButtonIcon path={AUTORENEW} />{t("Пересчитать доп.условия")}</span>
+                <span className="flex h-[30px] items-center gap-2 rounded-[4px] bg-[#f5806b] px-[14px] text-[13px] font-semibold text-white"><ButtonIcon path={CARD} />{t(promo.is_approved ? "Снять подтверждения" : "Подтвердить")}</span>
               </>
             ) : null}
             <span className="flex h-[30px] items-center gap-[8px] rounded-[4px] px-[14px] text-[13px] font-semibold text-white" style={{ background: BLUE }}>
-              <Check />
+              <ButtonIcon path={CHECK_CIRCLE} />
               {t("Предлагать агентам")}
             </span>
             <span className="ml-[16px] flex items-center gap-[30px]">
-              <IconButton path={COPY} label={t("Копировать")} />
+              <IconButton path={COPY} label={t("Дублируйте этот акции")} />
               <IconButton path={EDIT} label={t("Изменить")} />
-              <IconButton path={DELETE} label={t("Удалить")} />
+              <IconButton path={DELETE} label={t("Отменить")} onClick={() => void remove()} disabled={deleting} />
             </span>
           </div>
         </div>
-        {flags.length ? <div className="flex flex-wrap items-center gap-x-[8px] gap-y-1 px-[30px] pt-[14px] text-[13px] text-[#333]">{flags}</div> : null}
+        {flags.length ? <div className="flex flex-wrap items-center px-[30px] pt-[14px]">{flags}</div> : null}
 
-        <div className="mt-[14px] bg-[#f2f5f8] px-[30px] py-[14px] text-[13px] text-[#333]">
-          <div className="flex items-start justify-between gap-6">
+        {/* Linko's «details» band: the type and audience, the dates stacked on the right. */}
+        <div className={`mx-[30px] ${flags.length ? "mt-[2px]" : "mt-[14px]"} flex items-start justify-between gap-[24px] rounded-[10px] border border-[#e4e9ee] bg-[#f7f9fb] px-[20px] py-[16px] text-[13px] leading-[1.5] text-[#333]`}>
+          <div className="min-w-0 flex-auto">
             <div>
-              <b className="text-[16px] font-semibold" style={{ color: BLUE }}>{typeLabel}</b>
+              <b className="text-[16px] font-bold" style={{ color: BLUE }}>{typeLabel}</b>
               <span> | {audience}</span>
               {isCashback ? <span>| {t(promo.cashback_type === "order" ? "От суммы заказа" : "От суммы оплаты")}</span> : null}
             </div>
-            <div className="flex shrink-0 gap-[30px] text-[13px] text-[#333]">
-              <span>{t("Начало акции")}: <b className="text-[#8a94a0]">{formatDateText(refDate(promo.begin_date), language)}</b></span>
-              <span>{t("Завершение акции")}: <b className="text-[#8a94a0]">{formatDateText(refDate(promo.till_date), language)}</b></span>
-            </div>
-          </div>
           {clientTypes.length ? (
-            <div className="mt-[12px]">
-              <b>{t("Действует для клиентов")}:</b>
-              <div className="mt-[8px]">{t("Для типов")} :&nbsp;&nbsp;<b>{clientTypes.join(", ")}</b></div>
+            <div>
+              <div className={PART_TITLE}>{t("Действует для клиентов")}:</div>
+              <div className="mt-[5px]"><span className="mr-[6px] text-[#6b7885]">{t("Для типов")} :</span><b className="font-semibold">{clientTypes.join(", ")}</b></div>
             </div>
           ) : null}
           {conditions.length ? (
-            <div className="mt-[12px]">
-              <b>{t("Условия акции")}:</b>
+            <div>
+              <div className={PART_TITLE}>{t("Условия акции")}:</div>
               {conditions.map((row) => (
-                <div key={row.label} className="mt-[8px]">{t(row.label)} :&nbsp;&nbsp;<b>{row.values.join(", ")}</b></div>
+                <div key={row.label} className="mt-[5px]"><span className="mr-[6px] text-[#6b7885]">{t(row.label)} :</span><b className="font-semibold">{row.values.join(", ")}</b></div>
               ))}
             </div>
           ) : null}
-          {!clientTypes.length && !conditions.length ? <div className="h-[30px]" /> : null}
+          </div>
+          <div className="flex shrink-0 gap-[24px] text-[12px] text-[#8a97a3]">
+            <div>
+              {t("Начало акции")}:
+              <span className="mt-[2px] block text-[14px] font-semibold text-[#333]">{formatDateText(refDate(promo.begin_date), language)}</span>
+            </div>
+            <div>
+              {t("Завершение акции")}:
+              <span className="mt-[2px] block text-[14px] font-semibold text-[#333]">{formatDateText(refDate(promo.till_date), language)}</span>
+            </div>
+          </div>
         </div>
 
         <div className="px-[30px] pb-[26px] pt-[20px]">
           {isCashback ? (
             <div className="text-[13px] text-[#333]">
-              <div>{t("Основной процент кэшбэка")}:</div>
-              <b className="mt-1 block text-[16px]">{plain(promo.cashback_percent)} %</b>
+              <div className="mb-[14px] text-[15px] font-bold">{t("Основной процент кэшбэка")}:&nbsp; {plain(promo.cashback_percent)} %</div>
               {(promo.cashback_conditions ?? []).length ? (
-                <div className="mt-[16px] max-w-[640px]">
-                  <b className="text-[14px]">{t("Дополнительные условия")}</b>
-                  <div className="mt-[10px] grid grid-cols-2 border-b border-[#e6eaee] pb-[8px] text-[12px] font-semibold text-[#8a94a0]">
-                    <span>{t("Начиная с накопленной суммы")}</span>
-                    <span>{t("Дополнительный процент")}</span>
-                  </div>
-                  {(promo.cashback_conditions ?? []).map((row, index) => (
-                    <div key={index} className="grid h-[34px] grid-cols-2 items-center border-b border-[#eef1f4]">
-                      <span>{plain(row.limit_from)}</span>
-                      <span>{plain(row.percent)} %</span>
+                <div className="mt-[28px]">
+                  <div className="mb-[14px] text-[15px] font-bold">{t("Дополнительные условия")}</div>
+                  <div className="mt-[12px] overflow-hidden rounded-[10px] border border-[#e4e9ee]">
+                    <div className="flex items-center gap-[8px] border-b border-[#e4e9ee] bg-[#f7f9fb] px-[15px] pb-[8px] pt-[10px] text-[11px] uppercase tracking-[0.5px] text-[#8a97a3]">
+                      <span className="min-w-0 flex-1">{t("Начиная с накопленной суммы")}</span>
+                      <span className="min-w-0 flex-1">{t("Дополнительный процент")}</span>
                     </div>
-                  ))}
+                    <div className="px-[15px] pb-[12px] pt-[6px]">
+                      {(promo.cashback_conditions ?? []).map((row, index) => (
+                        <div key={index} className="flex items-center gap-[8px] border-b border-dotted border-[#efefef] py-[8px] last:border-b-0">
+                          <span className="min-w-0 flex-1">{plain(row.limit_from)}</span>
+                          <span className="min-w-0 flex-1">{plain(row.percent)} %</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -265,8 +338,8 @@ export function PromoDetail({ promo, onClose }: { promo: PromoRef; onClose?: () 
                 head={
                   <>
                     <h4 className="text-[13px] font-semibold uppercase tracking-[0.5px] text-[#333]">{t("ТОВАРЫ ДЛЯ ЗАКУПА")}</h4>
-                    {promo.calc_in_box ? <div className="mt-[10px] text-[13px] text-[#333]">{t("Считать в блоке")} <Check /></div> : null}
-                    {promo.bonus_least_condition ? <div className="mt-[10px] text-[13px] text-[#333]">{t("За наименьшее из бонусов")} <Check /></div> : null}
+                    {promo.calc_in_box ? <div className="-mb-[12px] mt-[12px]"><Chip>{t("Считать в блоке")}<span className="ml-[6px]"><Check /></span></Chip></div> : null}
+                    {promo.bonus_least_condition ? <div className="-mb-[12px] mt-[12px]"><Chip>{t("За наименьшее из бонусов")}<span className="ml-[6px]"><Check /></span></Chip></div> : null}
                   </>
                 }
                 rows={buy.map((item) => ({ name: productName(item), amount: plain(item.amount) }))}
@@ -277,7 +350,7 @@ export function PromoDetail({ promo, onClose }: { promo: PromoRef; onClose?: () 
                 head={
                   <>
                     <h4 className="text-[13px] font-semibold uppercase tracking-[0.5px] text-[#333]">{t("ТОВАР В ПОДАРОК")}</h4>
-                    {promo.give_bonus_only_once ? <div className="mt-[10px] text-[13px] text-[#333]">{t("Подарок один раз за заказ")} <Check /></div> : null}
+                    {promo.give_bonus_only_once ? <div className="-mb-[12px] mt-[12px]"><Chip>{t("Подарок один раз за заказ")}<span className="ml-[6px]"><Check /></span></Chip></div> : null}
                   </>
                 }
                 rows={gifts.map((item) => ({ name: productName(item), amount: plain(item.amount) }))}
@@ -285,23 +358,25 @@ export function PromoDetail({ promo, onClose }: { promo: PromoRef; onClose?: () 
               />
             </div>
           ) : promo.is_apply_all ? (
-            <p className="py-[6px] text-center text-[13px] font-semibold text-[#333]">
-              {t("Скидка действует всем товарам по")}{plain(promo.discount)}
-            </p>
+            <div className="rounded-[10px] border border-[#d6e0f7] bg-[#eef2fb] px-[20px] py-[14px] text-center text-[13px] font-semibold text-[#33415c]">
+              {t("Скидка действует всем товарам по")}{plain(promo.discount)} {promo.discount_type !== "static" ? "%" : (promo.currency?.name ?? "")}
+            </div>
           ) : buy.length ? (
-            <div className="text-[13px] text-[#333]">
-              <div className="grid grid-cols-[110px_1fr_340px] border-b border-[#e6eaee] pb-[12px] font-semibold">
-                <span>№</span>
-                <span>{t("Товар")}</span>
-                <span>{t(valueHead)}</span>
+            <div className="overflow-hidden rounded-[10px] border border-[#e4e9ee] text-[13px] text-[#333]">
+              <div className="flex items-center gap-[8px] border-b border-[#e4e9ee] bg-[#f7f9fb] px-[15px] pb-[8px] pt-[10px] text-[11px] uppercase tracking-[0.5px] text-[#8a97a3]">
+                <span className="w-[40px] shrink-0">№</span>
+                <span className="min-w-0 flex-1">{t("Товар")}</span>
+                <span className="w-[100px] shrink-0">{t(valueHead)}</span>
               </div>
-              {buy.map((item, index) => (
-                <div key={index} className="grid min-h-[44px] grid-cols-[110px_1fr_340px] items-center border-b border-[#eef1f4] last:border-b-0">
-                  <span>{index + 1}</span>
-                  <span>{productName(item)}</span>
-                  <span>{plain(item.amount)}</span>
-                </div>
-              ))}
+              <div className="px-[15px] pb-[12px] pt-[6px]">
+                {buy.map((item, index) => (
+                  <div key={index} className="flex items-center gap-[8px] border-b border-dotted border-[#efefef] py-[8px] last:border-b-0">
+                    <span className="w-[40px] shrink-0 text-[#8a97a3]">{index + 1}</span>
+                    <span className="min-w-0 flex-1 truncate">{productName(item)}</span>
+                    <span className="w-[100px] shrink-0">{plain(item.amount)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
         </div>

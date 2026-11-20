@@ -2,39 +2,51 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 
-import { LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
+import { LineField, Modal, SaveLink } from "@/components/analytics/catalog-ui"
 import { CashSnackbar, useCanManage, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { DictionaryDeleteDialog } from "@/components/analytics/dictionaries-shared"
 import { ExcelImportLink, ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
-import { AddLink, EmptyRows, RowActions, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
+import { AddLink, EmptyRows, PAGE_SIZES, RowActions, SettingsToolbar, SortHead, kitHead, kitRow, toggleOrdering } from "@/components/analytics/settings-list-kit"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { importKey, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-// "Тип отказа" (demo #/type-failure, Settings → Тип отказа; API market/rejection_type/).
+// "Тип отказа" (Linko #/type-failure, Settings → Тип отказа; API market/rejection_type/).
 // "+ добавить", search, paginator and the grid № | Наименование | Решение (newest first) with
-// hover ✎ / 🗑; the dialog has Название тип отказа ★ and Решение ★, delete asks for confirmation.
-// "Импорт с Excel" (ours, not in the demo): Наименование + Решение per row through POST /api/refusal-types.
+// hover ✎ / 🗑; the dialog has Название тип отказа ★ and Решение ★ (Linko's 4-row text area), delete asks for
+// confirmation. As Linko: the dialogs open without focusing a field and ignore Escape (× closes them); the
+// headers write ?ordering=id,name,… (click order, a second click makes a key descending, a third drops it) but
+// Linko's API ignores it, so the rows keep their order; the list state and the dialogs live in the URL
+// (?search ?ordering ?page ?pageSize ?openCreateDialog=true, ?refusalType=<id>&openUpdateDialog=true |
+// openConfirmDialog=true — Linko's /type-failure/<id>?openUpdateDialog=true).
+// "Импорт с Excel" (ours, not in Linko: kept by the 2026-10-30 decision that restored the Excel imports):
+// Наименование + Решение per row through POST /api/refusal-types.
 
 type RefusalType = { id: number; name: string; resolution: string }
 
 const API = "/api/refusal-types"
+const ORDER_FIELDS = ["id", "name", "solution"]
+/** The add dialog is measured at its first height (15 px taller than it ends up), the edit dialog at its real one. */
+const ADD_DIALOG_OPEN_HEIGHT = 372
 
 // Reference grid: 12 xs columns inside the 30px gutters (№ 3 | Наименование 4 | Решение 5).
 const COLUMNS = "3fr 4fr 5fr 0fr"
+
+type DialogState = { kind: "create" } | { kind: "update"; id: number } | { kind: "confirm"; id: number } | null
 
 export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage()
   const canEdit = useCanWrite()
   const [items, setItems] = useState<RefusalType[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [ready, setReady] = useState(false)
   const [query, setQuery] = useState("")
+  const [ordering, setOrdering] = useState<string[]>([])
   const [paging, setPaging] = useState({ page: 1, pageSize: 25 })
-  const [editing, setEditing] = useState<RefusalType | null>(null)
+  const [dialog, setDialog] = useState<DialogState>(null)
   const [draft, setDraft] = useState({ name: "", resolution: "" })
   const [touched, setTouched] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState<RefusalType | null>(null)
   const [notice, setNotice] = useState<SnackbarMessage | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const canImport = useCanManage(["clients.manage"])
@@ -53,6 +65,66 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     load()
   }, [load])
+
+  // The URL state, read once on mount (the server render has no query).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    setQuery(params.get("search") ?? "")
+    setOrdering((params.get("ordering") ?? "").split(",").filter((key) => ORDER_FIELDS.includes(key.replace(/^-/, ""))))
+    const size = Number(params.get("pageSize"))
+    const page = Number(params.get("page"))
+    setPaging({ page: Number.isInteger(page) && page > 1 ? page : 1, pageSize: PAGE_SIZES.includes(size) ? size : 25 })
+    const id = Number(params.get("refusalType"))
+    if (params.get("openCreateDialog") === "true") setDialog({ kind: "create" })
+    else if (Number.isInteger(id) && id > 0 && params.get("openUpdateDialog") === "true") setDialog({ kind: "update", id })
+    else if (Number.isInteger(id) && id > 0 && params.get("openConfirmDialog") === "true") setDialog({ kind: "confirm", id })
+    setReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    const params = new URLSearchParams()
+    if (query) params.set("search", query)
+    if (ordering.length) params.set("ordering", ordering.join(","))
+    if (paging.page > 1) params.set("page", String(paging.page))
+    if (paging.pageSize !== 25) params.set("pageSize", String(paging.pageSize))
+    if (dialog?.kind === "create") params.set("openCreateDialog", "true")
+    if (dialog && dialog.kind !== "create") {
+      params.set("refusalType", String(dialog.id))
+      params.set(dialog.kind === "update" ? "openUpdateDialog" : "openConfirmDialog", "true")
+    }
+    const search = params.toString()
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}${search ? `?${search}` : ""}`)
+  }, [ready, query, ordering, paging, dialog])
+
+  // A dialog opened from the URL takes the entry's values once the list has them (an unknown id opens nothing).
+  const editing = useMemo<RefusalType | null>(() => {
+    if (dialog?.kind === "create") return { id: 0, name: "", resolution: "" }
+    if (dialog?.kind === "update") return items.find((item) => item.id === dialog.id) ?? null
+    return null
+  }, [dialog, items])
+  const deleting = dialog?.kind === "confirm" ? (items.find((item) => item.id === dialog.id) ?? null) : null
+  const editingId = editing?.id
+  useEffect(() => {
+    if (editingId === undefined) return
+    setDraft({ name: editing?.name ?? "", resolution: editing?.resolution ?? "" })
+    setTouched(false)
+    // Only when another entry (or the add form) is opened, not on every list reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId, dialog?.kind])
+  useEffect(() => {
+    if (loaded && dialog && dialog.kind !== "create" && !items.some((item) => item.id === dialog.id)) setDialog(null)
+  }, [loaded, dialog, items])
+
+  // Linko's confirm dialog ignores Escape too; the shared one closes on it from a window listener, so it is held back here.
+  useEffect(() => {
+    if (!deleting) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") event.stopImmediatePropagation()
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [deleting])
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -85,21 +157,15 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
     fallbackError: "Не удалось сохранить тип отказа",
   }
 
-  function open(item?: RefusalType) {
-    setEditing(item ?? { id: 0, name: "", resolution: "" })
-    setDraft(item ? { name: item.name, resolution: item.resolution } : { name: "", resolution: "" })
-    setTouched(false)
-  }
-
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (saving) return
+    if (saving || !editing) return
     setTouched(true)
     if (!draft.name.trim() || !draft.resolution.trim()) return
     setSaving(true)
     try {
-      const response = await fetch(editing?.id ? `${API}/${editing.id}` : API, {
-        method: editing?.id ? "PUT" : "POST",
+      const response = await fetch(editing.id ? `${API}/${editing.id}` : API, {
+        method: editing.id ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: draft.name.trim(), resolution: draft.resolution.trim() }),
       })
@@ -108,7 +174,7 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
         setNotice({ text: t(data.error || "Не удалось сохранить тип отказа"), tone: "error" })
         return
       }
-      setEditing(null)
+      setDialog(null)
       setNotice({ text: "Успешно сохранено", tone: "success" })
       load()
     } catch {
@@ -117,6 +183,8 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
       setSaving(false)
     }
   }
+
+  const sort = (field: string) => setOrdering((current) => toggleOrdering(current, field))
 
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
@@ -134,11 +202,14 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
           left={
             canEdit || canImport ? (
               <>
-                {canEdit && <AddLink onClick={() => open()}>{t("добавить")}</AddLink>}
+                {canEdit && <AddLink onClick={() => setDialog({ kind: "create" })}>{t("добавить")}</AddLink>}
                 {canImport && <ExcelImportLink className="h-[36px] pt-[3px] leading-[36px]" onClick={() => setImportOpen(true)} />}
               </>
             ) : undefined
           }
+          // Linko: the search starts 360 px into the card and is 300 px wide.
+          searchClassName="left-[360.3px] top-[20px]"
+          searchWidth={300}
           query={query}
           onQuery={(value) => {
             setQuery(value)
@@ -156,18 +227,25 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
         />
 
         <div className={`${kitHead} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
-          <span>№</span>
-          <span className="pl-[8px]">{t("Наименование")}</span>
-          <span className="pl-[8px]">{t("Решение")}</span>
+          <span>
+            <SortHead label="№" field="id" ordering={ordering} onSort={sort} className="!font-semibold" />
+          </span>
+          <span className="pl-[8px]">
+            <SortHead label={t("Наименование")} field="name" ordering={ordering} onSort={sort} className="!font-semibold" />
+          </span>
+          <span className="pl-[8px]">
+            <SortHead label={t("Решение")} field="solution" ordering={ordering} onSort={sort} className="!font-semibold" />
+          </span>
           <span />
         </div>
         {pageRows.map((item) => (
           <div key={item.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
             <span>{item.id}</span>
-            <span className="pr-4">{item.name}</span>
-            <span className="pr-4">{item.resolution}</span>
+            {/* Linko's cells are padded 8 px, so the text sits under its header. */}
+            <span className="px-[8px]">{item.name}</span>
+            <span className="px-[8px]">{item.resolution}</span>
             <span />
-            {canEdit && <RowActions onEdit={() => open(item)} onDelete={() => setDeleting(item)} />}
+            {canEdit && <RowActions right={74.6} onEdit={() => setDialog({ kind: "update", id: item.id })} onDelete={() => setDialog({ kind: "confirm", id: item.id })} />}
           </div>
         ))}
         {loaded && rows.length === 0 && <EmptyRows />}
@@ -176,21 +254,21 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
       {editing && (
         <Modal
           title={editing.id ? t("Изменить тип отказа") : t("Добавить тип отказа")}
-          onClose={() => setEditing(null)}
+          onClose={() => setDialog(null)}
           width={450}
-          anchorTop={263.5} // the reference's dialog sits 8px above the exact center
-          bodyClassName="min-h-[240px] px-[30px] pt-[42px]"
+          escapeCloses={false}
+          // Linko centres the dialog by the height it has when it opens: the add dialog sits 7.5 px above the centre.
+          anchorTop={editing.id ? false : Math.max(80, Math.round((window.innerHeight - ADD_DIALOG_OPEN_HEIGHT) / 2))}
+          bodyClassName="min-h-[239px] px-[30px] pt-[42px]"
           footer={
-            <SaveButton disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>
+            <SaveLink disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>
               {t("Сохранить")}
-            </SaveButton>
+            </SaveLink>
           }
         >
-          <LineField label={t("Название тип отказа")} required autoFocus value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+          <LineField label={t("Название тип отказа")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
           {touched && !draft.name.trim() && <p className="mt-1 text-[12px] text-[#e57373]">{t("Обязательное поле")}</p>}
-          <div className="mt-[12px]">
-            <LineField label={t("Решение")} required value={draft.resolution} onChange={(value) => setDraft({ ...draft, resolution: value })} />
-          </div>
+          <AreaField label={t("Решение")} required value={draft.resolution} onChange={(value) => setDraft({ ...draft, resolution: value })} />
           {touched && !draft.resolution.trim() && <p className="mt-1 text-[12px] text-[#e57373]">{t("Обязательное поле")}</p>}
         </Modal>
       )}
@@ -200,9 +278,9 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
           api={API}
           id={deleting.id}
           name={deleting.name}
-          onClose={() => setDeleting(null)}
+          onClose={() => setDialog(null)}
           onDeleted={() => {
-            setDeleting(null)
+            setDialog(null)
             setNotice({ text: "Успешно удалено", tone: "success" })
             load()
           }}
@@ -224,5 +302,30 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
 
       <CashSnackbar message={notice} onClose={closeNotice} />
     </main>
+  )
+}
+
+/** Linko's «Решение»: a 4-row text area (Enter starts a new line) under a label that rises once it has focus or text;
+ * the underline sits 3 px under the 80 px area. */
+function AreaField({ label, value, onChange, required }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
+  const [focused, setFocused] = useState(false)
+  const floating = focused || value !== ""
+  return (
+    <div className="relative pt-[25.5px]">
+      <span className={`pointer-events-none absolute left-0 font-semibold ${floating ? "top-[8px] text-[10px] leading-3" : "top-[31px] text-[13px] leading-4"}`}>
+        {label}
+        {required && <span className="font-semibold text-[#e57373]"> *</span>}
+      </span>
+      <textarea
+        rows={4}
+        value={value}
+        aria-label={label}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className="block h-[80px] w-full resize-none bg-transparent text-[13px] font-semibold leading-[20px] text-[#333] outline-none"
+      />
+      <div className="mt-[3px] h-px bg-[#d5dae1]" />
+    </div>
   )
 }

@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { forbiddenResponse } from "@/lib/field-activity/actor"
 import { parseBalanceKind, parseStatementQuery } from "@/lib/finance/api"
 import { getStatement } from "@/lib/finance/ledger"
+import { withActDetails } from "@/lib/finance-client-act"
 import { hasPermission } from "@/lib/rbac"
 import { notSignedInResponse } from "@/lib/validation"
 
@@ -25,5 +26,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ enti
 
   const statement = await getStatement(kind, parsed.data)
   if (!statement) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
-  return NextResponse.json(statement)
+  // The client / account act shows each transaction's delivery man and the order a payment was made for.
+  return NextResponse.json(kind === "client" || kind === "account" ? await withActDetails(statement) : statement)
 }

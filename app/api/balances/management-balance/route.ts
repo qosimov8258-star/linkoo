@@ -11,5 +11,5 @@ export async function GET(request: Request) {
 
   const parsed = parseManagementBalanceQuery(request.url)
   if (parsed.error) return parsed.error
-  return NextResponse.json(await getManagementBalanceReport(parsed.data))
+  return NextResponse.json(await getManagementBalanceReport(parsed.data, undefined, { employeeId: reader.user.employeeId ?? null, username: reader.user.username }))
 }

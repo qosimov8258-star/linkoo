@@ -20,6 +20,8 @@ import { AppCurrencyProvider, type AppCurrencyInfo } from '@/lib/app-currency-co
 import { AppCurrencyDom } from '@/components/ref/app-currency-dom'
 import { getDb } from '@/lib/db'
 import { loadCurrencyContext } from '@/lib/finance/context'
+import { AmountPrecisionProvider } from '@/components/ref/amount-precision-provider'
+import { loadAmountPrecision } from '@/lib/amount-precision-server'
 import './globals.css'
 
 // Set (and overwritten) by proxy.ts on every request it handles.
@@ -91,6 +93,8 @@ export default async function RootLayout({
   await redirectStaleSession()
   // Настройки → Валюта приложения: the currency selects and amounts of every page follow it.
   const appCurrency = await readAppCurrency()
+  // Настройки → Округление сумм: the decimals every amount of every page is printed with (lib/amount-precision.ts).
+  const amountPrecision = await loadAmountPrecision()
 
   return (
     <html lang={language} className="bg-background">
@@ -105,11 +109,13 @@ export default async function RootLayout({
       <body className="font-sans">
         <LanguageProvider initialLanguage={language}>
           <AppCurrencyProvider value={appCurrency}>
-            <div className="min-h-screen bg-[#f2f5f8]">
-              <TopNav />
-              {children}
-              <BrandCornerLogo />
-            </div>
+            <AmountPrecisionProvider value={amountPrecision}>
+              <div className="min-h-screen bg-[#f2f5f8]">
+                <TopNav />
+                {children}
+                <BrandCornerLogo />
+              </div>
+            </AmountPrecisionProvider>
             <SessionGuard />
             <DomTranslator />
             <AppCurrencyDom />

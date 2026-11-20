@@ -1,12 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { ChevronDown, ChevronUp } from "lucide-react"
 import { Fragment, type KeyboardEvent } from "react"
 
 import { currencyLabel, formatMoney, roundMoney } from "@/lib/finance/currency"
 import { formatDayMonth } from "@/lib/finance/dates"
-import type { ManagementLine, ManagementSection } from "@/lib/finance/types"
+import type { ManagementLine } from "@/lib/finance/types"
 import { MANAGEMENT_NO_BRANCH, type ManagementReport, type ManagementReportBranch } from "@/lib/finance-management-balance-types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -31,11 +30,13 @@ export function balanceOnLabel(iso: string, t: Translate, language: string): str
   return t("Баланс на {date}").replace("{date}", formatDayMonth(iso, language))
 }
 
-/** Demo colored formatter: >0 green, <0 red (bold); reversed for liabilities, neutral for the rate. */
-function differenceClass(value: number, section: ManagementSection["key"]): string {
-  if (section === "rate" || !value) return ""
-  const good = section === "passives" ? value < 0 : value > 0
-  return good ? "font-semibold text-[#48a34b]" : "font-semibold text-[#E27676]"
+/** Linko's filled triangle of a section row: ▾ closed, ▴ open. */
+function SectionArrow({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 10 5" aria-hidden className={`h-[5px] w-[10px] fill-[#1E4A9A] ${open ? "rotate-180" : ""}`}>
+      <path d="M0 0h10L5 5z" />
+    </svg>
+  )
 }
 
 const cell = "whitespace-nowrap border border-[#dcdcdc] px-[9px] tabular-nums"
@@ -81,42 +82,43 @@ export function ManagementBranchCard({
           </thead>
           <tbody>
             {branch.sections.map((section) => {
-              const expandable = section.lines.length > 0
-              const open = expandable && isOpen(section.key)
+              // Linko: every row (also Собственный капитал / Курс, which have no lines) toggles its arrow; the
+              // amounts are bold and black (no colours, also in Разница).
+              const open = isOpen(section.key)
               return (
                 <Fragment key={section.key}>
                   <tr
-                    onClick={expandable ? () => onToggle(section.key) : undefined}
-                    onKeyDown={expandable ? onKey(section.key) : undefined}
-                    tabIndex={expandable ? 0 : undefined}
-                    aria-expanded={expandable ? open : undefined}
-                    className={`bg-[#edf1fd] ${expandable ? "cursor-pointer outline-none hover:bg-[#e3e9fb] focus-visible:bg-[#e3e9fb]" : ""}`}
+                    onClick={() => onToggle(section.key)}
+                    onKeyDown={onKey(section.key)}
+                    tabIndex={0}
+                    aria-expanded={open}
+                    className="cursor-pointer bg-[#edf1fd] outline-none hover:bg-[#e3e9fb] focus-visible:bg-[#e3e9fb]"
                   >
                     <td className="border border-[#dcdcdc] px-[9px] py-[9px] font-semibold text-[#333]">
-                      <span className="inline-flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-[10px]">
                         {t(section.label)}
-                        {expandable && (open ? <ChevronUp className="h-4 w-4 text-[#1E4A9A]" /> : <ChevronDown className="h-4 w-4 text-[#1E4A9A]" />)}
+                        <SectionArrow open={open} />
                       </span>
                     </td>
-                    <td className={`${cell} py-[9px]`}>{formatMoney(section.begin_balance)}</td>
-                    <td className={`${cell} py-[9px]`}>{formatMoney(section.end_balance)}</td>
-                    <td className={`${cell} py-[9px] ${differenceClass(section.difference, section.key)}`}>{formatMoney(section.difference)}</td>
+                    <td className={`${cell} py-[9px] font-semibold text-[#333]`}>{formatMoney(section.begin_balance)}</td>
+                    <td className={`${cell} py-[9px] font-semibold text-[#333]`}>{formatMoney(section.end_balance)}</td>
+                    <td className={`${cell} py-[9px] font-semibold text-[#333]`}>{formatMoney(section.difference)}</td>
                   </tr>
                   {open &&
                     section.lines.map((line) => (
-                      <tr key={`${line.key}|${line.label}|${line.currency}`} className="border-b border-dashed border-slate-200">
-                        <td className="px-9 py-2.5 text-slate-600">
+                      <tr key={`${line.key}|${line.label}|${line.currency}`} className="bg-white text-[#333]">
+                        <td className="border border-[#dcdcdc] px-[9px] py-[9px]">
                           {line.href ? (
-                            <Link href={line.href} className="text-[#1E4A9A] hover:underline">
+                            <Link href={line.href} className="text-[#333] hover:underline">
                               {managementLineLabel(line, t)}
                             </Link>
                           ) : (
                             managementLineLabel(line, t)
                           )}
                         </td>
-                        <td className={`${cell} py-2.5`}>{formatMoney(line.begin_balance)}</td>
-                        <td className={`${cell} py-2.5`}>{formatMoney(line.end_balance)}</td>
-                        <td className={`${cell} py-2.5 ${differenceClass(line.difference, section.key)}`}>{formatMoney(line.difference)}</td>
+                        <td className={`${cell} py-[9px]`}>{formatMoney(line.begin_balance)}</td>
+                        <td className={`${cell} py-[9px]`}>{formatMoney(line.end_balance)}</td>
+                        <td className={`${cell} py-[9px]`}>{formatMoney(line.difference)}</td>
                       </tr>
                     ))}
                 </Fragment>

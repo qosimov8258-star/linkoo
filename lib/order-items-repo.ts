@@ -28,6 +28,11 @@ export type OrderItem = {
   boxUnit?: string
   /** Quantity already returned by the client (the "Возврат" column of the order card). */
   returnQuantity?: number
+  /** A bonus line Linko's promotion added (the card's green «(бонус)»; order_items.is_bonus, copied by
+   * scripts/linko-sync/import-order-promotions.mjs — Mezon itself adds no bonus lines). */
+  isBonus?: boolean
+  /** The line's id in Linko for a copied order (order_items.linko_order_product_id): the «№» of its quick return. */
+  linkoId?: number
 }
 
 export type OrderItemWithOrder = OrderItem & {
@@ -68,17 +73,27 @@ export async function listOrderItems(orderId: number): Promise<OrderItem[]> {
   await ensureReturnColumns()
   const rows = (await db
     .prepare(
-      `SELECT i.*, COALESCE(p.article, '') AS article, COALESCE(p.box_amount, 0) AS box_amount, COALESCE(p.box_unit, '') AS box_unit, COALESCE(i.return_quantity, 0) AS return_quantity
+      `SELECT i.*, COALESCE(p.article, '') AS article, COALESCE(p.box_amount, 0) AS box_amount, COALESCE(p.box_unit, '') AS box_unit, COALESCE(i.return_quantity, 0) AS return_quantity,
+              COALESCE(i.is_bonus, 0) AS is_bonus
        FROM order_items i LEFT JOIN products p ON p.id = i.product_id WHERE i.order_id = ? ORDER BY i.id ASC`,
     )
-    .all(orderId)) as Array<ItemRow & { article: string; box_amount: number; box_unit: string; return_quantity: number }>
-  return rows.map((row) => ({ ...rowToOrderItem(row), article: row.article, boxAmount: Number(row.box_amount), boxUnit: row.box_unit, returnQuantity: Number(row.return_quantity) }))
+    .all(orderId)) as Array<ItemRow & { article: string; box_amount: number; box_unit: string; return_quantity: number; is_bonus: number; linko_order_product_id?: number | null }>
+  return rows.map((row) => ({
+    ...rowToOrderItem(row),
+    article: row.article,
+    boxAmount: Number(row.box_amount),
+    boxUnit: row.box_unit,
+    returnQuantity: Number(row.return_quantity),
+    isBonus: Number(row.is_bonus) === 1,
+    ...(row.linko_order_product_id ? { linkoId: Number(row.linko_order_product_id) } : {}),
+  }))
 }
 
 async function ensureReturnColumns(): Promise<void> {
   await getDb().exec(`
     ALTER TABLE products ADD COLUMN IF NOT EXISTS box_unit TEXT NOT NULL DEFAULT '';
     ALTER TABLE order_items ADD COLUMN IF NOT EXISTS return_quantity DOUBLE PRECISION NOT NULL DEFAULT 0;
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS is_bonus INTEGER NOT NULL DEFAULT 0;
   `)
 }
 

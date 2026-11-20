@@ -1,10 +1,10 @@
 "use client"
 
 import { X } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { RefAppliedFilter, compareText } from "@/components/ref/list-kit"
+import { RefAppliedFilter, RefNothingFound } from "@/components/ref/list-kit"
 
 import { csvCell } from "@/lib/csv"
 import { readExcelRows } from "@/lib/excel-import"
@@ -12,16 +12,20 @@ import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { inAppCurrency, useAppCurrencyInfo } from "@/lib/app-currency-context"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { compareBandCurrencies, normCurrency } from "@/lib/finance/currency"
-import { parseAnyDate, parseAnyDay } from "@/lib/finance/dates"
+import { AmountSum, roundAmount } from "@/lib/amount-precision"
+import { compareBandCurrencies, formatMoney, normCurrency, roundMoney } from "@/lib/finance/currency"
+import { parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
+import type { OrderFilterData } from "@/lib/order-filter-data"
 
 import { AddOrderDialog } from "./add-order-dialog"
 import { OrderDetailCard } from "./order-detail"
+import { OrderDeliveryDialog, type DeliveryDates } from "./order-delivery-dialog"
 import { OrderGroupPayment } from "./order-group-payment"
-import { ORDER_ICON, ORDER_STATUS_ICON } from "./order-status-icons"
-import { EdoMenu, InvoiceNumberDialog, SERIES_STORAGE_KEY, SeriesDialog, useUrlParams } from "./orders-extra-dialogs"
+import { ORDER_ICON, OrderIcon, OrderStatusIcon } from "./order-status-icons"
+import { EdoMenu, InvoiceNumberDialog, useUrlParams } from "./orders-extra-dialogs"
+import { OrderSeriesAutoDialog, OrderSeriesEditLink, useOrderSeriesAutoRequest } from "./order-series"
 import { BulkEditDialog, NoSelectionPopover, PAY_PERMISSIONS, RowCheckbox, SelectedTotalsDialog, type BulkEditValues } from "./orders-selection"
-import { EMPTY_ORDER_FILTERS, OrderFilterPanel, countOrderFilters, matchesOrderFilters, type OrderFilters } from "./order-filter-panel"
+import { EMPTY_ORDER_FILTERS, ORDER_FILTER_KEYS, OrderFilterPanel, countOrderFilters, matchesOrderFilters, needsFilterData, orderRest, statusCodeOf, type OrderFilters } from "./order-filter-panel"
 import { ORDER_STATUS_REF_LABEL, orderApiErrorText, orderOrganization, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
 
 export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {}) {
@@ -33,11 +37,18 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
   const [loadError, setLoadError] = useState("")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  // Linko keeps pageSize=25 in the URL once it is there; its «clear filter» goes to the bare #/order.
+  const [pageSizeInUrl, setPageSizeInUrl] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const [query, setQuery] = useState("")
+  // Linko's column sort: its `ordering` key (market__name, -total_price …), kept in the URL.
+  const [ordering, setOrdering] = useState("")
+  const [filterData, setFilterData] = useState<OrderFilterData | null>(null)
   const [selected, setSelected] = useState<Order | null>(null)
   const [checkedIds, setCheckedIds] = useState<number[]>([])
   const [filterOpen, setFilterOpen] = useState(false)
+  // Linko's «Применить» writes openFilterDialog=false&page=1&pageSize=… (kept until the ⊗ clears the filter).
+  const [filterApplied, setFilterApplied] = useState(false)
   const [filters, setFilters] = useState<OrderFilters>(EMPTY_ORDER_FILTERS)
   const [notice, setNotice] = useState("")
   const [addOpen, setAddOpen] = useState(false)
@@ -49,43 +60,69 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
   const [bulkEditOpen, setBulkEditOpen] = useState(false)
   const [onlyIds, setOnlyIds] = useState<number[] | null>(null)
   const [importOpen, setImportOpen] = useState(false)
-  const [seriesOpen, setSeriesOpen] = useState(false)
+  // null: never opened; false: closed with ✕ (Linko then keeps openExpirationDateDialog=false in the address).
+  const [seriesOpen, setSeriesOpen] = useState<boolean | null>(null)
+  // The card's av_timer, as Linko: the order becomes the ticked one (?select=<id>) and the auto distribution opens.
+  useOrderSeriesAutoRequest(
+    useCallback((ids: number[]) => {
+      setCheckedIds(ids)
+      setSeriesOpen(true)
+    }, []),
+  )
   const [invoiceNumOpen, setInvoiceNumOpen] = useState(false)
   const [edoOpen, setEdoOpen] = useState(false)
+  // Linko's «ВЫПОЛНИТЬ» confirmation of «Передать» / «Доставлен» (openDelivery=true in its address).
+  const [deliveryOpen, setDeliveryOpen] = useState(false)
+  const [deliverySaving, setDeliverySaving] = useState(false)
   const detailRowRef = useRef<HTMLDivElement>(null)
-  const [statusTouched, setStatusTouched] = useState(false)
+  const today = useMemo(() => todayIso(), [])
   const activeFilterCount = countOrderFilters(filters) + (onlyIds ? 1 : 0)
-  const statusFilter = filters.select.status ?? []
-  const tab = TAB_LABELS.find((label) => sameSet(TAB_STATUSES[label], statusFilter)) ?? null
-  const badgeStatus = statusFilter.length === 1 && tab === null ? statusFilter[0] : null
+  // The status codes of the URL (status=0-1-5); no status key = Linko's bare #/order, which shows the «Все» tab.
+  const statusKey = filters.status ?? ""
+  const statusCodes = useMemo(() => statusKey.split("-").filter(Boolean), [statusKey])
+  const tab = TAB_LABELS.find((label) => sameSet(TAB_STATUSES[label], statusCodes)) ?? null
+  const badgeStatus = statusCodes.length === 1 && tab === null ? statusCodes[0] : null
 
-  const filtered = useMemo(
-    () =>
-      orders
-        .filter((row) => `${row.id} ${row.client} ${row.marketName ?? ""} ${row.agent}`.toLowerCase().includes(query.toLowerCase()))
-        .filter((row) => matchesOrderFilters(row, filters, app.code))
-        .filter((row) => !onlyIds || onlyIds.includes(row.id)),
-    [orders, query, filters, onlyIds, app.code],
-  )
-  const [sort, setSort] = useState<{ head: string; desc: boolean } | null>(null)
-  const sortedRows = useMemo(() => {
-    if (!sort) return filtered
-    const value = (row: Order): string => {
-      switch (sort.head) {
-        case "№": return String(row.id)
-        case "Клиент": return row.client
-        case "Тип": return row.type
-        case "Дата создания": return row.createdAt || row.created
-        case "Дата доставки": return row.delivery
-        case "Агент": return row.agent
-        case "Сумма заказа": return row.amount
-        case "Баланс": return row.balance
-        case "Статус": return row.status
-        default: return ""
-      }
+  // Linko's filter data (option lists, what each order's lines and shop hold) is loaded once the panel opens or an
+  // applied filter needs it.
+  const wantsFilterData = filterOpen || needsFilterData(filters)
+  useEffect(() => {
+    if (!wantsFilterData || filterData) return
+    let cancelled = false
+    fetch("/api/orders/filter-data")
+      .then((response) => (response.ok ? (response.json() as Promise<OrderFilterData>) : null))
+      .then((data) => {
+        if (!cancelled && data) setFilterData(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
-    return [...filtered].sort((a, b) => (sort.desc ? -1 : 1) * compareText(value(a), value(b)))
-  }, [filtered, sort])
+  }, [wantsFilterData, filterData])
+
+  const filtered = useMemo(() => {
+    // Linko's search (Django SearchFilter): every word must be part of the order № or the shop's name.
+    const terms = query.toLowerCase().split(/[\s,]+/).filter(Boolean)
+    return orders
+      .filter((row) => terms.every((term) => String(row.id).includes(term) || (row.marketName || row.client).toLowerCase().includes(term)))
+      .filter((row) => matchesOrderFilters(row, filters, app.code, { data: filterData, today }))
+      .filter((row) => !onlyIds || onlyIds.includes(row.id))
+  }, [orders, query, filters, onlyIds, app.code, filterData, today])
+  const sortedRows = useMemo(() => {
+    const field = ordering.replace(/^-/, "")
+    const sortKey = SORT_KEYS[field]
+    if (!sortKey) return filtered
+    const desc = ordering.startsWith("-")
+    // Linko sorts on its server (PostgreSQL, en_US collation: Latin before Cyrillic, punctuation ignored; empty values
+    // last going up and first going down); rows with the same value keep the list's order.
+    return [...filtered].sort((a, b) => {
+      const x = sortKey(a)
+      const y = sortKey(b)
+      if (x === null || y === null) return x === y ? 0 : (x === null ? 1 : -1) * (desc ? -1 : 1)
+      const result = typeof x === "number" && typeof y === "number" ? x - y : SORT_COLLATOR.compare(String(x), String(y))
+      return desc ? -result : result
+    })
+  }, [filtered, ordering])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pageStart = (Math.min(page, pageCount) - 1) * pageSize
   const pageRows = sortedRows.slice(pageStart, pageStart + pageSize)
@@ -107,25 +144,31 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     return { rows, skipped }
   }, [selectedRows])
   const totals = useMemo(() => {
-    // Like the reference's band (sales/order/total, exclude_cancelled): every listed order but the cancelled ones,
-    // unconfirmed ones included; per currency of the orders (also when it adds up to 0: «Возвраты: 0 SUM , 0 USD»)
-    // the exact sum of their lines, what was returned of them (pending returns too) and the difference.
-    const counted = (selecting ? selectedRows : filtered).filter((row) => row.status !== "Отменен")
+    // Like the reference's band (sales/order/total, exclude_cancelled): every listed order but the cancelled ones
+    // (they count with «Показать отмененные заказы», Linko's exclude=true), unconfirmed ones included; per currency of
+    // the orders (also when it adds up to 0: «Возвраты: 0 SUM , 0 USD») the exact sum of their lines, what was returned
+    // of them (pending returns too) and the difference.
+    const counted = (selecting ? selectedRows : filtered).filter((row) => filters.exclude || row.status !== "Отменен")
     const orderTotals = new Map<string, number>()
     const returnTotals = new Map<string, number>()
     // With an app currency (Настройки → Валюта приложения) every amount is added up in it.
     const add = (totals: Map<string, number>, currency: string, value: number) =>
       app.code ? addTotal(totals, app.code, inAppCurrency(app, value, currency) ?? 0) : addTotal(totals, bandCurrency(currency), value)
+    // «Факт» adds up each order's own fact (its lines less its returns), as Linko's total_fact_price does, not the
+    // two totals above: those are rounded to a number already and lose the fifth decimal of a band of billions.
+    const fact = new Map<string, number>()
     for (const row of counted) {
       const amount = parseAmount(row.amount)
       if (!amount) continue
       add(orderTotals, amount.currency, row.linesTotal ?? amount.number)
       add(returnTotals, amount.currency, row.returnPrice ?? 0)
+      add(fact, amount.currency, row.linesTotal ?? amount.number)
+      add(fact, amount.currency, -(row.returnPrice ?? 0))
     }
-    const fact = new Map<string, number>()
-    for (const [currency, amount] of orderTotals) addTotal(fact, currency, amount - (returnTotals.get(currency) ?? 0))
-    return { orders: renderTotals(orderTotals), returns: renderTotals(returnTotals), fact: renderTotals(fact) }
-  }, [filtered, selectedRows, selecting, app])
+    // Linko's band of ticked orders prints the amounts without the « , » between currencies; an empty list prints none.
+    if (!counted.length && !selecting) return { orders: null, returns: null, fact: null }
+    return { orders: renderTotals(orderTotals, selecting), returns: renderTotals(returnTotals, selecting), fact: renderTotals(fact, selecting) }
+  }, [filtered, selectedRows, selecting, app, filters.exclude])
   const unconfirmedCount = orders.filter((row) => row.status === "Не подтвержден").length
   const requestedCount = orders.filter((row) => row.status === "В процессе").length
   const readyCount = orders.filter((row) => row.status === "Есть на складе").length
@@ -175,11 +218,12 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, orders])
 
-  // Opening an order pushes its URL, so the browser's Back button returns to the list.
+  // Opening an order pushes its URL and keeps the list's query (Linko's #/order/1592?pageSize=25&status=0-1-5), so the
+  // browser's Back button returns to the same list.
   useEffect(() => {
     if (!selected) return
     const target = `/analytics/sales/${selected.id}`
-    if (window.location.pathname !== target) window.history.pushState(null, "", target)
+    if (window.location.pathname !== target) window.history.pushState(null, "", target + window.location.search)
   }, [selected?.id])
 
   useEffect(() => {
@@ -192,17 +236,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders])
 
-  // Esc collapses the expanded order unless one of its dialogs is open
-  useEffect(() => {
-    if (!selected) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || document.querySelector("[data-order-overlay]")) return
-      setSelected(null)
-      window.history.replaceState(null, "", "/analytics/sales")
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [selected])
+  // Esc does not collapse the expanded order (Linko keeps #/order/<id> open); Back or the row closes it.
 
   // Deep link from the client card: /analytics/sales?openOrderDialog=true&openShop=<id>
   useEffect(() => {
@@ -212,18 +246,25 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     const urlPage = Number(params.get("page"))
     if (Number.isFinite(urlPage) && urlPage > 1) setPage(urlPage)
     const urlPageSize = Number(params.get("pageSize"))
-    if ([10, 25, 50, 100].includes(urlPageSize)) setPageSize(urlPageSize)
-    // The reference's menu opens the list as ?status=0-1-5 (Активные), 2 (Доставляется), 3 (Доставленные) or empty (Все).
-    const statusParam = params.get("status")
-    if (statusParam !== null) {
-      const byCode: Record<string, string[]> = { "0-1-5": TAB_STATUSES["Активные"], "2": TAB_STATUSES["Доставляется"], "3": TAB_STATUSES["Доставленные"], "": TAB_STATUSES["Все"] }
-      const labels = byCode[statusParam] ?? []
-      setFilters((current) => ({ ...current, select: { ...current.select, status: labels } }))
-      setStatusTouched(true)
+    if (PAGE_SIZES.includes(urlPageSize)) setPageSize(urlPageSize)
+    if (params.has("pageSize")) setPageSizeInUrl(true)
+    // Linko's list state lives in the URL: the status codes (the menu opens ?status=0-1-5 = Активные, 2 = Доставляется,
+    // 3 = Доставленные, empty = Все; the header badges 5 / 0 / 1), every filter key, the search and the sort.
+    const fromUrl: OrderFilters = {}
+    for (const key of ORDER_FILTER_KEYS) {
+      const value = params.get(key)
+      // An empty value (?status= of the «Все» tab, ?select=) is dropped on load, as Linko rewrites #/order?status= to #/order.
+      if (value) fromUrl[key] = value
     }
-    if (flag("showCheckboxes") || ids.length) setSelectMode(true)
+    if (Object.keys(fromUrl).length) setFilters(fromUrl)
+    if (params.get("search")) setQuery(params.get("search") ?? "")
+    const urlOrdering = params.get("ordering") ?? ""
+    if (SORT_KEYS[urlOrdering.replace(/^-/, "")]) setOrdering(urlOrdering)
+    // Ticked orders alone (select=) show «Выбрано: N» without the check boxes, as Linko.
+    if (flag("showCheckboxes")) setSelectMode(true)
     if (ids.length) setCheckedIds(ids)
     if (flag("openFilterDialog")) setFilterOpen(true)
+    if (params.get("openFilterDialog") === "false") setFilterApplied(true)
     if (flag("openGroupPaymentDialog")) setBulkPayOpen(true)
     if (flag("openOrderSummaryDialog")) setTotalsOpen(true)
     // The bulk actions need ticked orders; without any the reference shows its "pick at least one order" popover.
@@ -233,8 +274,10 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
       else setNoSelection(key)
     }
     bulk("openMultiEdit", "edit", () => setBulkEditOpen(true))
-    bulk("openExpirationDateDialog", "series", () => setSeriesOpen(true))
+    // The auto distribution opens without ticked orders too («Выберите заказ из списка»), as Linko.
+    if (flag("openExpirationDateDialog")) setSeriesOpen(true)
     bulk("openInvoiceNumberDialog", "invoice", () => setInvoiceNumOpen(true))
+    bulk("openDelivery", "bulk", () => setDeliveryOpen(true))
     if (flag("openOrderDialog") || flag("openCreateDialog")) {
       const shop = Number(params.get("openShop"))
       setInitialShopId(Number.isFinite(shop) && shop > 0 ? shop : undefined)
@@ -244,18 +287,21 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
 
   useUrlParams(
     {
-      status: statusTouched && tab ? { Активные: "0-1-5", Доставляется: "2", Доставленные: "3", Все: null }[tab] : null,
+      ...Object.fromEntries(ORDER_FILTER_KEYS.map((key) => [key, filters[key] ?? null])),
+      search: query || null,
+      ordering: ordering || null,
       showCheckboxes: selectMode ? "true" : null,
       select: checkedIds.length ? checkedIds.join("-") : null,
-      openFilterDialog: filterOpen ? "true" : null,
+      openFilterDialog: filterOpen ? "true" : filterApplied ? "false" : null,
       openGroupPaymentDialog: bulkPayOpen ? "true" : null,
       openOrderSummaryDialog: totalsOpen ? "true" : null,
       openMultiEdit: bulkEditOpen || noSelection === "edit" ? "true" : null,
-      openExpirationDateDialog: seriesOpen || noSelection === "series" ? "true" : null,
+      openExpirationDateDialog: seriesOpen === null ? null : String(seriesOpen),
       openInvoiceNumberDialog: invoiceNumOpen || noSelection === "invoice" ? "true" : null,
+      openDelivery: deliveryOpen ? "true" : null,
       openCreateDialog: addOpen ? "true" : null,
-      page: page > 1 ? String(page) : null,
-      pageSize: pageSize !== 25 ? String(pageSize) : null,
+      page: page > 1 || filterApplied ? String(page) : null,
+      pageSize: pageSizeInUrl || pageSize !== 25 ? String(pageSize) : null,
     },
     addOpen ? [] : ["openOrderDialog", "openShop"],
   )
@@ -277,7 +323,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
   }
 
   function exportCsv() {
-    const rows = checkedIds.length ? filtered.filter((row) => checkedIds.includes(row.id)) : filtered
+    const rows = orders.filter((row) => checkedIds.includes(row.id))
     const csv = [HEADS.map((head) => csvCell(t(head))).join(";")]
       .concat(rows.map((row) => [row.id, row.client, row.type, t(createdText(row)), delivererOf(row), t(displayDay(row.delivery)), row.agent, row.amount, row.balance, t(row.status)].map(csvCell).join(";")))
       .join("\n")
@@ -300,8 +346,8 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
 
   async function applyBulkEdit(values: BulkEditValues, showAfter: boolean) {
     const ids = [...checkedIds]
-    const patchFor = (row: Order): Partial<Order> => {
-      const patch: Partial<Order> = {}
+    const patchFor = (row: Order): OrderPatch => {
+      const patch: OrderPatch = {}
       if (values.created) {
         patch.created = formatCreated(values.created, row.created)
         // The server reads createdAt as local (Tashkent) time and stores UTC: keep the order's local time of day.
@@ -312,12 +358,15 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
         patch.paymentDate = values.paid
         patch.dueDate = values.paid
       }
+      // «Дата передачи» is Linko's accepted_time, the order's realization day.
+      if (values.transfer) patch.acceptedDate = values.transfer
       if (values.realization) {
         const delivery = values.delivery ? values.delivery : parseAnyDay(row.delivery)
         if (delivery) patch.acceptedDate = delivery
       }
       if (values.deliverer) patch.deliveryMan = values.deliverer
       if (values.expeditor) patch.expeditor = values.expeditor
+      if (values.picker) patch.collector = values.picker
       if (values.agent) patch.agent = values.agent
       // The order's warehouse reference (resolved and stock-checked by the server), not a free-text name.
       if (values.warehouse) patch.warehouse = values.warehouse
@@ -357,17 +406,18 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     setCheckedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
   }
 
-  async function passToDelivery() {
-    await moveChecked("В пути", "заказ(ов) передано в доставку")
+  /** «ДА» of the «ВЫПОЛНИТЬ» dialog: the ticked orders of this tab move on, with the transfer / delivery day if set. */
+  async function confirmDelivery(dates: DeliveryDates) {
+    const status = tab === "Доставляется" ? "Доставлено" : "В пути"
+    setDeliverySaving(true)
+    await moveChecked(status, status === "В пути" ? "заказ(ов) передано в доставку" : "заказ(ов) отмечено доставленными", deliveryIds, dates)
+    setDeliverySaving(false)
+    setDeliveryOpen(false)
   }
 
-  async function markDelivered() {
-    await moveChecked("Доставлено", "заказ(ов) отмечено доставленными")
-  }
-
-  /** Moves the ticked orders to `status`: `done` is the Russian key of the count message. */
-  async function moveChecked(status: string, done: string) {
-    const ids = [...checkedIds]
+  /** Moves the orders `ids` to `status` (with the transfer / delivery day when given): `done` is the Russian key of the
+   * count message. */
+  async function moveChecked(status: string, done: string, ids: number[], dates: DeliveryDates = {}) {
     setCheckedIds([])
     // The server checks each transition and the stock; only what it accepted changes here.
     const results = await Promise.all(
@@ -376,7 +426,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
           const response = await fetch(`/api/orders/${id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status }),
+            body: JSON.stringify({ status, ...(dates.transferDate ? { acceptedDate: dates.transferDate } : {}), ...(dates.deliveryDate ? { delivery: dates.deliveryDate } : {}) }),
           })
           const body = (await response.json().catch(() => null)) as (Order & { error?: string; agentLimit?: AgentLimitExceeded; productRestriction?: ProductRestrictionRefusal }) | null
           return response.ok && body ? { id, order: body } : { id, error: orderApiErrorText(body, t, "Не удалось сохранить изменения на сервере") }
@@ -395,7 +445,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     )
   }
 
-  async function updateOrder(id: number, patch: Partial<Order>): Promise<boolean> {
+  async function updateOrder(id: number, patch: OrderPatch): Promise<boolean> {
     try {
       const response = await fetch(`/api/orders/${id}`, {
         method: "PATCH",
@@ -459,38 +509,56 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
           errors.push(`${row.client}: ${t("Не удалось импортировать заказы")}`)
         }
       }
-      setOrders((current) => [...created, ...current])
+      // Newest first, as the list is ordered (Linko's id desc).
+      setOrders((current) => [...[...created].sort((x, y) => y.id - x.id), ...current])
       flash(errors.length ? `${t("Импортировано заказов:")} ${created.length}. ${t("Ошибки")}: ${errors.slice(0, 3).join("; ")}` : `${t("Импортировано заказов:")} ${created.length}`)
     })()
   }
 
-  const setStatusFilter = (labels: string[]) => {
-    setFilters((current) => ({ ...current, select: { ...current.select, status: labels } }))
+  /** A tab or a header badge: Linko replaces the status codes and drops the ticked orders (select=). */
+  const setStatusFilter = (codes: string[]) => {
+    setFilters((current) => ({ ...current, status: codes.join("-") }))
+    setCheckedIds([])
     setPage(1)
   }
 
+  /** A column header: Linko's ordering goes up, down, then off. */
+  const toggleOrdering = (head: string) => {
+    const field = HEAD_ORDERING[head]
+    if (!field) return
+    setOrdering((current) => (current === field ? `-${field}` : current === `-${field}` ? "" : field))
+    setPage(1)
+  }
+
+  // The ticked orders the «ВЫПОЛНИТЬ» dialog names: those of the list shown (Linko leaves out a ticked order of another
+  // tab), in the order they were ticked.
+  const deliveryIds = checkedIds.filter((id) => filtered.some((row) => row.id === id))
+  const openDelivery = () => setDeliveryOpen(true)
   const bulkAction =
     tab === "Активные"
-      ? { label: t("Передать"), path: ICON.truck, onClick: passToDelivery }
+      ? { label: t("Передать"), path: ICON.truck, onClick: openDelivery }
       : tab === "Доставляется"
-        ? { label: t("Доставлен"), path: ICON.clipboard, onClick: markDelivered }
+        ? { label: t("Доставлен"), path: ICON.clipboard, onClick: openDelivery }
         : null
 
   const actionDefs = {
-    select: { key: "select", path: selectMode ? ICON.visibilityOff : ICON.checklist, title: t("Выбрать из списка"), color: "#5d6474", onClick: () => setSelectMode((value) => !value) },
+    select: { key: "select", path: selectMode ? ICON.visibilityOff : ICON.checklist, title: selectMode ? t("Спрятать флажки") : t("Выбрать из списка"), color: "#5d6474", onClick: () => setSelectMode((value) => !value) },
     sync: { key: "sync", path: ICON.sync, title: t("Обновить список"), color: "#5d6474", onClick: reloadOrders },
     print: { key: "print", raw: true, path: ICON.print, title: t("Распечатать выбранное"), color: "#666", onClick: () => requireSelection("print", () => window.print()) },
-    download: { key: "download", path: ICON.download, title: t("Скачать"), color: "#666", onClick: exportCsv },
+    // Linko's «Скачать» needs ticked orders too («Выберите хотя бы один заказ !» without any).
+    download: { key: "download", path: ICON.download, title: t("Скачать"), color: "#666", onClick: () => requireSelection("download", exportCsv) },
     edit: { key: "edit", path: ICON.edit, title: t("Изменить выбранные заказы"), color: "#666", onClick: () => requireSelection("edit", () => setBulkEditOpen(true)) },
-    series: { key: "series", raw: true, path: ICON.history, title: t("Авто распределение по сериям"), color: "#666", onClick: () => requireSelection("series", () => setSeriesOpen(true)) },
+    series: { key: "series", raw: true, path: ICON.history, title: t("Авто распределение по сериям"), color: "#666", onClick: () => setSeriesOpen(true) },
     invoice: { key: "invoice", raw: true, path: ICON.textA, title: t("Нумерация счет фактуры"), color: "#666", onClick: () => requireSelection("invoice", () => setInvoiceNumOpen(true)) },
     edo: { key: "edo", raw: true, path: ICON.send, title: t("Отправить EDO"), color: "#666", onClick: () => requireSelection("edo", () => setEdoOpen((value) => !value)) },
     more: { key: "more", path: ICON.more, title: "", color: "#5d6474", onClick: () => setMoreOpen((value) => !value) },
     clear: { key: "clear", path: ICON.minusBox, title: t("Снять выделение"), color: "#333", onClick: () => { setCheckedIds([]); setMoreOpen(false) } },
   }
+  // Linko's toolbar: with ticked orders the green «Передать» / «Доставлен» comes before ⋮ and «Снять выделение».
   const toolbarActions = selecting
-    ? [actionDefs.sync, actionDefs.print, actionDefs.download, actionDefs.edit, actionDefs.series, actionDefs.invoice, actionDefs.edo, actionDefs.more, actionDefs.clear]
+    ? [actionDefs.sync, actionDefs.print, actionDefs.download, actionDefs.edit, actionDefs.series, actionDefs.invoice, actionDefs.edo]
     : [actionDefs.select, actionDefs.sync, actionDefs.print, actionDefs.download, actionDefs.edit, actionDefs.series, actionDefs.invoice, actionDefs.edo]
+  const toolbarTail = selecting ? [actionDefs.more, actionDefs.clear] : []
 
   return (
     <main className="min-h-screen bg-[#f2f5f8] px-7 pb-7 font-sans text-[13px] text-[#333]">
@@ -507,12 +575,13 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
               { path: ICON.clock, count: requestedCount, status: "В процессе", tip: t("Отфильтровать по запрошенным заказам") },
               { path: ICON.store, count: readyCount, status: "Есть на складе", tip: t("Отфильтровать по доступным заказам") },
             ].map((badge) => {
-              const active = badgeStatus === ORDER_STATUS_REF_LABEL[badge.status]
+              // Linko's badges write status=5 / 0 / 1.
+              const active = badgeStatus === statusCodeOf(badge.status)
               return (
                 <Tip key={badge.status} text={badge.tip} side="right">
                   <button
                     type="button"
-                    onClick={() => setStatusFilter([ORDER_STATUS_REF_LABEL[badge.status]])}
+                    onClick={() => setStatusFilter([statusCodeOf(badge.status)])}
                     className="relative flex h-12 w-[58px] items-center justify-start pl-[28px]"
                   >
                     <svg viewBox="0 0 24 24" className={`h-6 w-6 ${active ? "fill-[#71ce87]" : "fill-[#5d6474]"}`}><path d={badge.path} /></svg>
@@ -555,7 +624,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
       <section className="shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="relative flex h-10 rounded-[2px] bg-white">
           {TAB_LABELS.map((label) => (
-            <button key={label} type="button" onClick={() => { setStatusFilter(TAB_STATUSES[label]); setStatusTouched(true) }} className="h-10 w-1/4 pt-[2px] text-[13px] font-medium text-black">
+            <button key={label} type="button" onClick={() => setStatusFilter(TAB_STATUSES[label])} className="h-10 w-1/4 pt-[2px] text-[13px] font-medium text-black">
               {t(label)}
             </button>
           ))}
@@ -584,23 +653,41 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
             <OrderFilterPanel
               orders={orders}
               filters={filters}
-              onChange={(next) => { setFilters(next); setPage(1) }}
-              onApply={() => setFilterOpen(false)}
+              data={filterData}
+              today={today}
+              onApply={(next) => {
+                // Linko's «Применить» replaces the filter keys of the URL, drops the ticked orders and closes the panel.
+                setFilters(next)
+                setCheckedIds([])
+                setPage(1)
+                setFilterOpen(false)
+                setFilterApplied(true)
+                setPageSizeInUrl(true)
+              }}
               onClose={() => setFilterOpen(false)}
             />
           )}
-          <div className={`h-[50px] items-center pr-[5px] ${filterOpen ? "hidden" : "flex"}`}>
+          <div className="flex h-[50px] items-center pr-[5px]">
             {selecting ? (
               <div className="w-[347px] shrink-0 pl-[5px] text-[13px] font-bold text-[#333]">{t("Выбрано:")} {selectedRows.length}</div>
             ) : (
               <div className="shrink-0" style={{ width: "calc(326.5px + max(0px, 100vw - 1296px) * 0.25)" }}>
                 {activeFilterCount > 0 ? (
                   <RefAppliedFilter
+                    // Linko's bar fills its column (a quarter of the row) less the 31 px before the search.
+                    width="calc(100% - 31px)"
                     count={activeFilterCount}
                     onEdit={() => setFilterOpen(true)}
                     onClear={() => {
+                      // Linko's ⊗ goes to the bare #/order: no filter, search, sort or check boxes.
                       setFilters(EMPTY_ORDER_FILTERS)
                       setOnlyIds(null)
+                      setQuery("")
+                      setOrdering("")
+                      setSelectMode(false)
+                      setCheckedIds([])
+                      setPageSizeInUrl(false)
+                      setFilterApplied(false)
                       setPage(1)
                     }}
                   />
@@ -617,7 +704,8 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
               </div>
             )}
             {!selecting && (
-              <div className="relative flex items-center self-start" style={{ width: "calc(285.5px + max(0px, 100vw - 1296px) * 0.0711)" }}>
+              // Linko's search is 300 px wide at every window width, its magnifier 274 px from the start.
+              <div className="relative flex w-[300px] shrink-0 items-center self-start">
                 <input
                   value={query}
                   onChange={(event) => { setQuery(event.target.value); setPage(1) }}
@@ -631,22 +719,33 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
               <div className="relative mr-[11px]">
                 <select
                   value={pageSize}
-                  onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}
+                  onChange={(event) => { setPageSize(Number(event.target.value)); setPageSizeInUrl(true); setPage(1) }}
                   className="h-12 w-[56px] appearance-none bg-transparent text-[13px] text-[#333] outline-none"
                 >
-                  {[10, 25, 50, 100].map((size) => <option key={size}>{size}</option>)}
+                  {PAGE_SIZES.map((size) => <option key={size}>{size}</option>)}
                 </select>
                 <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[16px] top-3 h-6 w-6 fill-[#ddd]"><path d="M7 10l5 5 5-5z" /></svg>
               </div>
-              <span className="relative top-[1.5px] whitespace-nowrap">{pageStart + 1 > filtered.length ? 0 : pageStart + 1} - {Math.min(pageStart + pageSize, filtered.length)}  {t("из")}  {filtered.length}</span>
+              {/* Linko prints «1 - 0 из 0» for an empty list. */}
+              <span className="relative top-[1.5px] whitespace-nowrap">{pageStart + 1} - {Math.min(pageStart + pageSize, filtered.length)}  {t("из")}  {filtered.length}</span>
               <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} aria-label={t("Назад")} className="pl-[10px] pr-[5px] disabled:opacity-100">
                 <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
               </button>
               <button type="button" disabled={page >= pageCount} onClick={() => setPage((current) => current + 1)} aria-label={t("Вперед")}>
                 <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-12l5 4-5 4V8z" /></svg>
               </button>
-              {toolbarActions.map((action, index) => (
-                <Tip key={action.key} text={action.title} side="left" raw={"raw" in action} className={index === 0 ? "ml-5" : ""}>
+              {[...toolbarActions, ...(bulkAction ? [bulkAction] : []), ...toolbarTail].map((action, index) => "onClick" in action && "label" in action ? (
+                // Above the sticky table header (z-20). Linko's button keeps its caption («Передать» / «Доставлен») inside from
+                // a 1530 px wide window; narrower, the button shrinks and the caption drops onto the header row.
+                <span key="bulk" className="relative z-30 flex">
+                  <button type="button" onClick={() => requireSelection("bulk", action.onClick)} className="relative flex h-[30px] w-[105.5px] items-center justify-center rounded-[5px] bg-[#71ce87] pl-[12px] hover:brightness-95 min-[1530px]:w-auto min-[1530px]:pl-[12px]">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white min-[1530px]:h-[18px] min-[1530px]:w-[18px]"><path d={action.path} /></svg>
+                    <span className="pointer-events-none absolute left-[17px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white min-[1530px]:static min-[1530px]:pl-[8px] min-[1530px]:pr-[16px]">{action.label}</span>
+                  </button>
+                  {noSelection === "bulk" && <NoSelectionPopover onClose={() => setNoSelection(null)} />}
+                </span>
+              ) : (
+                <Tip key={action.key} text={action.title} side={action.key === "series" ? "bottom" : "left"} raw={"raw" in action} className={index === 0 ? "ml-5" : ""}>
                   <button type="button" aria-label={action.title} {...("raw" in action ? { "data-no-translate": "" } : {})} onClick={action.onClick} className="flex h-12 w-12 items-center justify-center">
                     <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: action.color }}><path d={action.path} /></svg>
                   </button>
@@ -674,23 +773,12 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                   )}
                 </Tip>
               ))}
-              {bulkAction && (
-                // Above the sticky table header (z-20). Linko's button keeps its caption («Передать» / «Доставлен») inside from
-                // a 1530 px wide window; narrower, the button shrinks and the caption drops onto the header row.
-                <span className="relative z-30 flex">
-                  <button type="button" onClick={() => requireSelection("bulk", bulkAction.onClick)} className="relative flex h-[30px] w-[105.5px] items-center justify-center rounded-[5px] bg-[#71ce87] pl-[12px] hover:brightness-95 min-[1530px]:w-auto min-[1530px]:pl-[12px]">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white min-[1530px]:h-[18px] min-[1530px]:w-[18px]"><path d={bulkAction.path} /></svg>
-                    <span className="pointer-events-none absolute left-[17px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white min-[1530px]:static min-[1530px]:pl-[8px] min-[1530px]:pr-[16px]">{bulkAction.label}</span>
-                  </button>
-                  {noSelection === "bulk" && <NoSelectionPopover onClose={() => setNoSelection(null)} />}
-                </span>
-              )}
             </div>
           </div>
 
           <div className="overflow-x-auto min-[1130px]:overflow-visible">
             <div className="min-w-[1100px]">
-              <div className={`sticky top-[50px] z-20 h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white ${filterOpen ? "hidden" : "flex"}`}>
+              <div className="sticky top-[50px] z-20 flex h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white">
                 {selectMode && (
                   <div className="relative h-full w-[20px] shrink-0">
                     <button
@@ -705,9 +793,9 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                 )}
                 {HEADS.map((head, index) => (
                   <div key={head} style={{ width: `${COL_PCT[index]}%` }} className="px-2 leading-[18px]">
-                    <button type="button" onClick={() => setSort((current) => (current?.head === head ? (current.desc ? null : { head, desc: true }) : { head, desc: false }))} className={`max-h-[36px] overflow-hidden text-left font-semibold hover:opacity-80 ${index === 0 || index === COL_PCT.length - 1 ? "" : "pr-[30px]"}`}>
+                    <button type="button" onClick={() => toggleOrdering(head)} className={`max-h-[36px] overflow-hidden text-left font-semibold hover:opacity-80 ${index === 0 || index === COL_PCT.length - 1 ? "" : "pr-[30px]"}`}>
                       {t(head)}
-                      {sort?.head === head ? <span className="ml-1 text-[10px]">{sort.desc ? "▼" : "▲"}</span> : null}
+                      {ordering.replace(/^-/, "") === HEAD_ORDERING[head] ? <span className="ml-1 text-[10px]">{ordering.startsWith("-") ? "▼" : "▲"}</span> : null}
                     </button>
                   </div>
                 ))}
@@ -717,7 +805,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
               ) : loadError ? (
                 <div className="px-4 py-16 text-center text-red-600">{loadError}</div>
               ) : pageRows.length === 0 ? (
-                <div className="px-4 py-16 text-center text-slate-500">{t("Ничего не найдено")}</div>
+                <RefNothingFound />
               ) : (
                 pageRows.map((row) =>
                   selected?.id === row.id ? (
@@ -733,6 +821,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                       returned={row.returnPrice ?? 0}
                       selectMode={selectMode}
                       checked={checkedIds.includes(row.id)}
+                      today={today}
                       onToggle={() => toggleChecked(row.id)}
                       onOpen={() => setSelected(row)}
                     />
@@ -745,15 +834,14 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
       </section>
 
       {totalsOpen && <SelectedTotalsDialog orders={selectedRows} onClose={() => setTotalsOpen(false)} />}
+      <OrderSeriesEditLink onNotify={flash} />
       {seriesOpen && (
-        <SeriesDialog
+        <OrderSeriesAutoDialog
+          ids={checkedIds}
           onClose={() => setSeriesOpen(false)}
-          onSave={(mode) => {
-            try {
-              window.localStorage.setItem(SERIES_STORAGE_KEY, mode)
-            } catch {}
+          onSaved={() => {
             setSeriesOpen(false)
-            flash(t("Сохранено"))
+            flash(t("Успешно изменено"))
           }}
         />
       )}
@@ -769,6 +857,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
         />
       )}
       {bulkEditOpen && <BulkEditDialog count={selectedRows.length} onClose={() => setBulkEditOpen(false)} onApply={applyBulkEdit} />}
+      {deliveryOpen && <OrderDeliveryDialog ids={deliveryIds} saving={deliverySaving} onClose={() => setDeliveryOpen(false)} onConfirm={(dates) => void confirmDelivery(dates)} />}
 
       {addOpen && (
         <AddOrderDialog initialShopId={initialShopId} onClose={closeAddDialog} onCreated={orderCreated} />
@@ -875,13 +964,44 @@ function ImportDialog({ onClose, onSave }: { onClose: () => void; onSave: (file:
 }
 
 const TAB_LABELS = ["Активные", "Доставляется", "Доставленные", "Все"] as const
+/** Linko's tab values: the status codes of ?status= (0 В процессе, 1 Есть на складе, 5 Не подтвержден, 2 В пути, 3 Доставлено). */
 const TAB_STATUSES: Record<(typeof TAB_LABELS)[number], string[]> = {
-  "Активные": ["В процессе", "Есть на складе", "Не подтвержден"],
-  "Доставляется": ["Передан доставщику"],
-  "Доставленные": ["Доставлен"],
+  "Активные": ["0", "1", "5"],
+  "Доставляется": ["2"],
+  "Доставленные": ["3"],
   "Все": [],
 }
+/** Linko's page sizes. */
+const PAGE_SIZES = [10, 25, 50, 100, 200, 500, 1000, 2000]
 const HEADS = ["№", "Клиент", "Тип", "Дата создания", "Доставщик", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"]
+/** Linko's ordering key of each column header. */
+const HEAD_ORDERING: Record<string, string> = {
+  "№": "id",
+  "Клиент": "market__name",
+  "Тип": "market__market_type__name",
+  "Дата создания": "created_date",
+  "Доставщик": "delivery_man__first_name",
+  "Дата доставки": "date_delivery",
+  "Агент": "user__first_name",
+  "Сумма заказа": "total_price",
+  "Баланс": "market_internal_balance",
+  "Статус": "status",
+}
+/** The value each ordering sorts by (null = empty, PostgreSQL's NULL). */
+const SORT_KEYS: Record<string, (row: Order) => string | number | null> = {
+  id: (row) => row.id,
+  market__name: (row) => row.marketName || row.client || null,
+  market__market_type__name: (row) => row.type || null,
+  created_date: (row) => parseAnyDate(row.createdAt, true) ?? parseAnyDay(row.created),
+  delivery_man__first_name: (row) => row.deliveryMan || null,
+  date_delivery: (row) => parseAnyDay(row.delivery),
+  user__first_name: (row) => row.agent || null,
+  total_price: (row) => row.totalPrice ?? parseAmount(row.amount)?.number ?? null,
+  market_internal_balance: (row) => parseAmount(row.balance ?? "")?.number ?? null,
+  status: (row) => Number(statusCodeOf(row.status) || 9),
+}
+/** PostgreSQL's en_US collation as Linko's server sorts names: Latin before Cyrillic, punctuation and spaces ignored. */
+const SORT_COLLATOR = new Intl.Collator("en", { ignorePunctuation: true })
 /** Column widths (%) of the reference list: every cell is padded 0.5rem, the last one is centred. */
 const COL_PCT = [7, 16, 14, 10, 12, 8, 8, 10, 9, 6]
 
@@ -920,8 +1040,6 @@ function TopButton({ icon, text, onClick, green }: { icon: string; text: string;
   )
 }
 
-const STATUS_ICON = ORDER_STATUS_ICON
-
 /** Re-dates "07 сент. 20:03" / "09 янв. 2025 15:25" keeping the time of day. */
 function formatCreated(iso: string, previous: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
@@ -931,31 +1049,57 @@ function formatCreated(iso: string, previous: string) {
   return `${match[3]} ${SHORT_MONTHS[Number(match[2]) - 1]} ${year}${time}`
 }
 
-const formatNumber = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+/** Linko's numberFormat: the decimals of Настройки → Округление сумм (three when not set). */
+const formatNumber = (value: number) => formatMoney(value)
 
-function IconButton({ path, color }: { path: string; color: string }) {
+/** Whole days from `today` to `day` (moment's diff: > 0 ahead, 0 today, < 0 passed; NaN without a day). */
+function daysUntil(day: string | undefined, today: string): number {
+  if (!day) return Number.NaN
+  return Math.trunc((Date.parse(`${day.slice(0, 10)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000)
+}
+
+/** Linko's payment icon (OrderStatus): coloured by the promised payment date while something is owed (any rest above 0
+ * at the money precision) — grey while it is ahead, orange on the day, red once it has passed or when none was
+ * promised —, green when paid, grey without a hint when overpaid; its hint names the date and the amount. A cancelled
+ * order has none. */
+function PaymentIcon({ row, today }: { row: Order; today: string }) {
+  const { t } = useLanguage()
+  if (row.status === "Отменен") return null
+  const rest = roundAmount(orderRest(row))
+  const owes = rest > 0
+  const days = daysUntil(row.paymentDate, today)
+  const currency = row.currency || row.amount.trim().split(/\s+/).pop() || ""
+  const amount = `${formatNumber(roundMoney(rest))} ${currency}`
+  const date = row.paymentDate ? t(displayDay(row.paymentDate)) : ""
+  let color = "#b7bbb7"
+  let tip: string[] = []
+  if (owes) {
+    color = days > 0 ? "#b7bbb7" : days === 0 ? "#f0ad4e" : "#e57373"
+    if (days > 0) tip = [`${t("Оплата ожидается")}: ${date}`, `${t("Ожидаемый платеж")}: ${amount}`]
+    else if (days === 0) tip = [t("Оплата ожидается сегодня"), `${t("Сумма")}: ${amount}`]
+    else if (days < 0) tip = [`${t("Оплата ожидалась")}: ${date}`, `${t("Долг")}: ${amount}`]
+  } else if (rest === 0) {
+    color = "#81c784"
+    tip = [t("Оплачено")]
+  }
   return (
-    <span className="inline-flex h-[30px] w-[30px] items-center justify-center p-[5px]">
-      <svg viewBox="0 0 24 24" className="h-5 w-5" style={{ fill: color }}><path d={path} /></svg>
-    </span>
+    <OrderIcon
+      path={row.payMethod === "bank" || (!row.payMethod && row.paymentType === "bank") ? ICON.bank : ICON.cash}
+      color={color}
+      tip={tip.length ? tip.map((line) => <span key={line} className="block">{line}</span>) : undefined}
+    />
   )
 }
 
 /** `returned`: the order's accepted client returns (Продажи → Возвраты), in the order currency. */
-function OrderRow({ row, returned, selectMode, checked, onToggle, onOpen }: { row: Order; returned: number; selectMode: boolean; checked: boolean; onToggle: () => void; onOpen: () => void }) {
+function OrderRow({ row, returned, selectMode, checked, today, onToggle, onOpen }: { row: Order; returned: number; selectMode: boolean; checked: boolean; today: string; onToggle: () => void; onOpen: () => void }) {
   const { t } = useLanguage()
-  const status = STATUS_ICON[row.status] ?? { path: ICON.warning, color: "#757575" }
   // The client balance as the server sends it, one amount per currency (never relabelled into another currency).
   const balanceSign = parseAmount(row.balance ?? "")?.number ?? 0
   const balanceClass = row.negative || balanceSign < 0 ? "font-semibold text-[#e27676]" : balanceSign > 0 ? "font-semibold text-[#48a34b]" : "text-black"
   const acceptedDay = parseAnyDay(row.acceptedDate)
   const accepted = acceptedDay && acceptedDay !== parseAnyDay(row.delivery) ? t(displayDay(acceptedDay)) : ""
   const returnPrice = returned
-  // Paid / remaining come from the cash ledger (GET /api/orders): red while something is still
-  // owed, green once paid, grey for an order that is no debt (cancelled, not confirmed).
-  const unpaid = (row.orderBalance ?? 0) > 0.005
-  const payColor = row.orderBalance === undefined ? "#bdbdbd" : unpaid ? "#e57373" : "#81c784"
-  const payIcon = row.payMethod === "bank" ? ICON.bank : ICON.cash
   const weight = row.weight ?? 0
   const cell = "px-2 leading-[16.25px]"
   return (
@@ -965,7 +1109,21 @@ function OrderRow({ row, returned, selectMode, checked, onToggle, onOpen }: { ro
           <p className="ml-[10px] mt-[-17px] rotate-90 text-[28px] font-semibold">%</p>
         </div>
       )}
-      <div onClick={onOpen} className={`-mx-[30px] flex min-h-[50px] cursor-pointer items-center px-[30px] py-[7px] hover:bg-[#f2f5f8] ${checked ? "bg-[#f2f5f8]" : ""}`}>
+      <div onClick={onOpen} className={`relative -mx-[30px] flex min-h-[50px] cursor-pointer items-center px-[30px] py-[7px] hover:bg-[#f2f5f8] ${checked ? "bg-[#f2f5f8]" : ""}`}>
+        {/* Linko's row is a link to #/order/<id> with the list's query: a plain click opens the order in place, a
+            middle / ctrl / ⌘ click or «Открыть в новой вкладке» opens it in a new tab. */}
+        <a
+          href={`/analytics/sales/${row.id}`}
+          aria-label={`№ ${row.id}`}
+          onClick={(event) => {
+            if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) event.preventDefault()
+            else event.stopPropagation()
+          }}
+          onMouseDown={withListQuery}
+          onFocus={withListQuery}
+          onContextMenu={withListQuery}
+          className="absolute inset-0"
+        />
         {selectMode && (
           <div className="relative h-full w-[20px] shrink-0">
             <span className="absolute -left-[10px] top-1/2 -translate-y-1/2"><RowCheckbox checked={checked} onChange={onToggle} label={String(row.id)} /></span>
@@ -998,33 +1156,43 @@ function OrderRow({ row, returned, selectMode, checked, onToggle, onOpen }: { ro
         </div>
         <div style={{ width: `${COL_PCT[7]}%` }} className={cell}>
           <span className="ml-[3px] inline-block">
-            {row.amount}
+            {groupedDigits(row.amount)}
             {returnPrice > 0 && <><br /><span className="text-[#e57373]">-{formatNumber(returnPrice)}</span></>}
           </span>
         </div>
         <div style={{ width: `${COL_PCT[8]}%` }} className={cell}>
-          <span className={balanceClass}>{row.balance || "—"}</span>
+          <span className={balanceClass}>{groupedDigits(row.balance) || "—"}</span>
         </div>
-        <div style={{ width: `${COL_PCT[9]}%` }} className="flex items-center justify-start">
-          <IconButton path={status.path} color={status.color} />
-          <IconButton path={payIcon} color={payColor} />
-          {row.invoiceActive && <IconButton path={ICON.checkCircle} color="#2196f3" />}
-          <IconButton path={ICON.receipt} color={row.invoiceActive ? "#5868f0" : "transparent"} />
+        <div style={{ width: `${COL_PCT[9]}%` }} className="relative flex items-center justify-start">
+          <OrderStatusIcon status={row.status} />
+          <PaymentIcon row={row} today={today} />
+          {row.shipmentStatus === "filled" && <OrderIcon path={ICON.checkCircle} color="#2196f3" tip={t("Заполнено")} />}
+          <OrderIcon
+            path={ICON.receipt}
+            color={row.invoiceActive ? "#5868f0" : "transparent"}
+            tip={row.invoiceActive ? <><span className="block">{t("Номер счет фактура")}: {row.invoiceNumber || ""}</span><span className="block">{t("Дата счет фактура")}: {row.invoiceDate ? t(displayDay(row.invoiceDate)) : ""}</span></> : undefined}
+          />
         </div>
       </div>
     </div>
   )
 }
 
+/** The row link keeps the list's current query (Linko's #/order/1592?pageSize=25&status=0-1-5). */
+function withListQuery(event: { currentTarget: HTMLAnchorElement }) {
+  const link = event.currentTarget
+  link.href = link.pathname + window.location.search
+}
+
 /** Reference-style dark tooltip (react-tooltip look) shown on hover. */
-function Tip({ text, side, raw = false, className = "", children }: { text: string; side: "left" | "right"; /** The reference leaves some hints in Russian in every language. */ raw?: boolean; className?: string; children: React.ReactNode }) {
+function Tip({ text, side, raw = false, className = "", children }: { text: string; side: "left" | "right" | "bottom"; /** The reference leaves some hints in Russian in every language. */ raw?: boolean; className?: string; children: React.ReactNode }) {
   return (
     <span className={`group/tip relative inline-flex ${className}`}>
       {children}
       {text && <span
         role="tooltip"
         {...(raw ? { "data-no-translate": "" } : {})}
-        className={`pointer-events-none absolute top-1/2 z-50 hidden -translate-y-1/2 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-normal leading-[17px] text-white opacity-90 group-hover/tip:block ${side === "left" ? "right-full mr-[12px]" : "left-full ml-[5px]"}`}
+        className={`pointer-events-none absolute z-50 hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-normal leading-[17px] text-white opacity-90 group-hover/tip:block ${side === "bottom" ? "left-1/2 top-full mt-[10px] -translate-x-1/2" : `top-1/2 -translate-y-1/2 ${side === "left" ? "right-full mr-[12px]" : "left-full ml-[5px]"}`}`}
       >
         {text}
       </span>}
@@ -1039,10 +1207,17 @@ function parseAmount(value: string) {
   return Number.isFinite(number) ? { number, currency: match[2] } : null
 }
 
+/** "1 234 567 890,5 SUM" with no-break spaces between the digit groups, as Linko's numberFormat prints amounts: a long
+ * amount wraps before its currency only. */
+const groupedDigits = (value: string | undefined) => (value ?? "").replace(/(\d) (?=\d)/g, "$1\u00a0")
+
 /** Order amounts spell euro "Euro" or "EUR": one key per currency in the band. */
 const bandCurrency = (currency: string) => normCurrency(currency)
 
 /** The order's deliverer, else the client's ("Ответственный доставщик"). */
+/** What PATCH /api/orders/[id] takes: order fields, and «Сборщик» by name. */
+type OrderPatch = Partial<Order> & { collector?: string }
+
 /** An order as /api/orders sends it (payableRest: what the cash desk still accepts, lib/orders-repo.ts withLedgerDues). */
 type ListedOrder = Order
 
@@ -1076,19 +1251,28 @@ export function displayDay(value: string): string {
   return match ? `${match[3]} ${SHORT_MONTHS[Number(match[2]) - 1] ?? ""} ${match[1]}` : value
 }
 
+/** The exact running sums behind each band map (AmountSum): float additions of a few hundred totals drift a unit in
+ * the last decimal the band prints, the reference's server sum does not. */
+const bandSums = new WeakMap<Map<string, number>, Map<string, AmountSum>>()
+
 function addTotal(totals: Map<string, number>, currency: string, value: number) {
-  if (currency && Number.isFinite(value)) totals.set(currency, (totals.get(currency) ?? 0) + value)
+  if (!currency || !Number.isFinite(value)) return
+  let sums = bandSums.get(totals)
+  if (!sums) bandSums.set(totals, (sums = new Map()))
+  const sum = sums.get(currency) ?? new AmountSum()
+  sums.set(currency, sum.add(value))
+  totals.set(currency, sum.value())
 }
 
 /** "1 234 SUM , 0 USD": one sum per currency of the orders (never added up across currencies, zeros shown as Linko
  * does), "0" when there is no order. */
-function renderTotals(totals: Map<string, number>) {
-  // Linko's band order: SUM, Euro, USD.
+function renderTotals(totals: Map<string, number>, plain = false) {
+  // Linko's band order: SUM, Euro, USD; with ticked orders the amounts stand apart without the « , ».
   const shown = [...totals.entries()].sort(([a], [b]) => compareBandCurrencies(a, b))
   if (!shown.length) return <span>0</span>
   return shown.map(([currency, number], index, all) => (
-    <span key={currency} className={index < all.length - 1 ? "mr-[5px]" : ""}>
-      {formatNumber(number)} {currency}{index < all.length - 1 ? " ," : ""}
+    <span key={currency} className={index < all.length - 1 ? (plain ? "mr-[15px]" : "mr-[5px]") : ""}>
+      {formatNumber(number)} {currency}{index < all.length - 1 && !plain ? " ," : ""}
     </span>
   ))
 }

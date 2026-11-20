@@ -102,7 +102,7 @@ function Radio({ checked, onChange, label, small, info }: { checked: boolean; on
 
 function InfoDot({ className = "" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" className={`inline-block h-[22px] w-[22px] shrink-0 rounded-full fill-[#5c7ae0] shadow-[0_0_0_2px_rgba(92,122,224,0.25)] ${className}`} aria-hidden>
+    <svg viewBox="0 0 24 24" className={`inline-block h-[22px] w-[22px] shrink-0 rounded-full bg-[#5c7ae0] shadow-[0_0_0_2px_rgba(92,122,224,0.25)] ${className}`} aria-hidden>
       <path fill="#fff" d="M11 7h2v2h-2zm0 4h2v6h-2z" />
     </svg>
   )
@@ -285,9 +285,6 @@ export function PromoForm({
             {conditionsFor(c.type).map((item) => (
               <CheckBox key={item} checked={c.conditions.includes(item)} onChange={() => toggleCondition(item)} label={t(item)} />
             ))}
-          </div>
-          <div className="mt-[22px]">
-            <CheckBox checked={value.active} onChange={(next) => onChange({ ...value, active: next })} label={t("Активная акция")} />
           </div>
         </aside>
 

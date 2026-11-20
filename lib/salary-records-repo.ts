@@ -52,7 +52,7 @@ type Row = {
   indicators: string
 }
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 declare global {
   var __linkoSalaryRecordsSchema: { version: number; ready: Promise<void> } | undefined
@@ -94,6 +94,19 @@ function ensureSchema(): Promise<void> {
           `CREATE TABLE IF NOT EXISTS salary_credits (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL, type TEXT NOT NULL,
             currency TEXT NOT NULL DEFAULT '', amount DOUBLE PRECISION NOT NULL DEFAULT 0, created_date TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '')`,
+        )
+        // The KPI balances of a record's month as the reference stored them at its «Перерасчет KPI» (its staff/salary/<id>/
+        // "balances"): per employee, KPI and reached level (a multi-level KPI has a row per level) the level, plan, sales, returns, fact, forecast, daily plan and bonus.
+        // The row card of the list shows them; scripts/linko-sync/import-salary-cards.mjs fills them.
+        await tx.exec(
+          `CREATE TABLE IF NOT EXISTS salary_kpi_balances (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL,
+            kpi_id INTEGER NOT NULL, kpi_name TEXT NOT NULL DEFAULT '', plan_type TEXT NOT NULL DEFAULT '',
+            level INTEGER, level_from DOUBLE PRECISION, level_to DOUBLE PRECISION, calculation_type TEXT NOT NULL DEFAULT '',
+            plan DOUBLE PRECISION NOT NULL DEFAULT 0, sales DOUBLE PRECISION, returns DOUBLE PRECISION, fact DOUBLE PRECISION,
+            bonus DOUBLE PRECISION NOT NULL DEFAULT 0, forecast DOUBLE PRECISION, daily_plan DOUBLE PRECISION, daily_sales DOUBLE PRECISION,
+            daily_returns DOUBLE PRECISION, daily_fact DOUBLE PRECISION, last_date TEXT, linko_id INTEGER,
+            UNIQUE (user_id, month, year, kpi_id, level))`,
         )
       }),
     ).catch((error: unknown) => {
@@ -212,7 +225,8 @@ async function userInfo(userId: number) {
 }
 
 async function touchLastDate(db: ReturnType<typeof getDb>, month: number, year: number) {
-  const now = new Date().toISOString().replace("Z", "")
+  // Local (Asia/Tashkent) time like the reference's last_date and the branch KPI recalculation, not UTC.
+  const now = nowLocalIso()
   await db
     .prepare(
       `INSERT INTO salary_last_dates (month, year, last_date) VALUES (?, ?, ?)

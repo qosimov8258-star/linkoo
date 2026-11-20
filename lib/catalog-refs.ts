@@ -94,7 +94,7 @@ export const KNOWN_REFS: ReadonlyArray<Omit<CatalogRef, "history">> = [
 
 /** Columns that look like references but are not (see the header). */
 const NOT_REFS = new Set(["invoice_incoming_items.name", "orders.product", "supplier_incoming_logs.details"])
-const OWN_TABLES = new Set(["products", "raw_materials", "product_images", "product_limits"])
+const OWN_TABLES = new Set(["products", "raw_materials", "product_images", "product_limits", "product_attribute_assignments"])
 
 /** Section labels (Russian i18n keys) of the referencing tables. */
 const TABLE_LABELS: Record<string, string> = {
@@ -102,6 +102,9 @@ const TABLE_LABELS: Record<string, string> = {
   supplier_returns: "Возврат поставщику",
   write_offs: "Списание",
   internal_transfers: "Передачи между складами",
+  // Not a table: the «Отгрузка» documents among internal_transfers (source 'shipment', a production shift session's
+  // output handed over, lib/production-sessions-repo.ts), counted on their own (catalogUsage).
+  production_shipment: "Отгрузка",
   suppliers: "Поставщики",
   production_inventories: "Инвентаризация производства",
   production_movements: "Производство",
@@ -263,18 +266,22 @@ export async function catalogUsage(db: PgDb, item: { kind: CatalogKind; id: numb
   const owns = await catalogOwnsName(db, item.kind, item.id, item.name, item.deleted)
   const params = { kind: item.kind, id: item.id, itemKey: `${item.kind}:${item.id}`, old: item.name, owns }
   const counts = new Map<string, number>()
+  const add = (table: string, count: number) => {
+    if (count > 0) counts.set(table, (counts.get(table) ?? 0) + count)
+  }
   for (const ref of await catalogReferenceColumns(db)) {
     if (ref.history) continue
-    let sql: string
-    if (ref.type === "id") {
-      if (ref.idKind !== item.kind) continue
-      sql = `SELECT COUNT(*) AS n FROM ${q(ref.table)} WHERE ${q(ref.column)} = @id::integer`
-    } else {
-      sql = `SELECT COUNT(*) AS n FROM ${q(ref.table)} WHERE ${rowFilter(ref)}${usageCondition(ref)}`
-    }
-    const row = (await db.prepare(sql).get(params)) as { n: string | number } | undefined
-    const count = Number(row?.n ?? 0)
-    if (count > 0) counts.set(ref.table, (counts.get(ref.table) ?? 0) + count)
+    if (ref.type === "id" && ref.idKind !== item.kind) continue
+    const where = ref.type === "id" ? `${q(ref.column)} = @id::integer` : `${rowFilter(ref)}${usageCondition(ref)}`
+    // An «Отгрузка» (internal_transfers source 'shipment') is no «Передача между складами» (the transfer list hides
+    // it): it is counted under its own label ("production_shipment"), as warehouseUsage does. The source column is
+    // read through to_jsonb: an older schema may lack it (then every row is an ordinary transfer).
+    const shipment = ref.table === "internal_transfers" ? `COALESCE(to_jsonb(${q(ref.table)})->>'source', '') = 'shipment'` : "false"
+    const row = (await db
+      .prepare(`SELECT COUNT(*) FILTER (WHERE NOT (${shipment})) AS n, COUNT(*) FILTER (WHERE ${shipment}) AS shipments FROM ${q(ref.table)} WHERE ${where}`)
+      .get(params)) as { n: string | number; shipments: string | number } | undefined
+    add(ref.table, Number(row?.n ?? 0))
+    add("production_shipment", Number(row?.shipments ?? 0))
   }
   return [...counts].map(([table, count]) => ({ table, label: catalogRefLabel(table), count }))
 }

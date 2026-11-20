@@ -6,8 +6,10 @@ import { fieldRecordFacets, listFieldRecords, recordListQueryOf } from "@/lib/fi
 
 // GET /api/field-activity/photo-reports — the mobile app's photo reports (field_photo_reports)
 // with their before / after photos, newest first, for the page "Фотоотчеты": ?from&to (local
-// days, optional) &employeeId &clientId (comma lists) &status=pending,rejected,accepted &q &page
-// &pageSize (1..500) &before (the previous page's nextCursor, instead of page) &facets=true.
+// days, optional) &employeeId &clientId &supervisorId &clientTypeId &branchId &brandId &id (comma
+// lists) &branch &channel &inn &category (texts) &withEquipment &status=pending,rejected,accepted
+// &q (store or employee name) &page &pageSize (1..500) &before (the previous page's nextCursor,
+// instead of page) &facets=true.
 // → {count, page, pageSize, hasMore, nextCursor, rows: FieldRecordRow[], facets?, ownEmployeeId}. A reader
 // restricted to their own data sees only their employee's reports (and their supervised agents');
 // ownEmployeeId names their own employee, whose reports they may not review (null for a full scope).

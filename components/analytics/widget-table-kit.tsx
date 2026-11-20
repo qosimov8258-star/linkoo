@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState, type ReactNode } from "react"
+import { amountDigits, printDigits } from "@/lib/amount-precision"
 import { endOfMonth, formatRangeLabel, rangeForPeriod, startOfMonth, toISODate, type PeriodKey } from "@/lib/dashboard-date-range"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -16,9 +17,9 @@ export function useWidgetPeriod(initial: PeriodKey = "МЕСЯЦ") {
 }
 
 /** Amount with the reference's thousands separator (nbsp) and up to 3 decimals. */
+/** Linko's numberFormat: three decimals, or those of Настройки → Округление сумм when set. */
 export function formatAmount(value: number) {
-  const rounded = Math.round(value * 1000) / 1000
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(rounded).replace(/[   ]/g, " ")
+  return printDigits(value, amountDigits(3)).replace(/[   ]/g, " ")
 }
 
 /** Green for a positive, red for a negative, plain for zero (table cells). */

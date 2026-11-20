@@ -3,24 +3,49 @@ import { z } from "zod"
 
 import { requireFieldActor, requireFieldReader, scopedEmployeeIds } from "@/lib/field-activity/actor"
 import { badQuery, fieldRoute } from "@/lib/field-activity/http"
-import { fieldRecordFacets, listFieldRecords, recordListQueryOf } from "@/lib/field-activity/record-lists"
+import { fieldRecordFacets, listFieldRecords, recordListQueryOf, type FieldRecordOrder } from "@/lib/field-activity/record-lists"
+import { RECORD_LIST_MAX_PAGE_SIZE } from "@/lib/field-activity/record-list-types"
 import { createOfficeRefusal } from "@/lib/field-activity/visits-repo"
 import { parseJsonBody } from "@/lib/validation"
 
 // GET /api/field-activity/refusals — the mobile app's visit refusals (field_refusals), newest
 // first, for the Продажи page "Отказы": ?from&to (local days, optional) &employeeId &clientId
-// &refusalTypeId (comma lists) &q &page &pageSize (1..500) &before (the previous page's
-// nextCursor, instead of page) &facets=true.
+// &refusalTypeId (comma lists) &q &page &pageSize (1..2000, Linko's page size menu) &before (the previous page's
+// nextCursor, instead of page) &ordering (Linko's header sort: id | createdDate | name | market | comment, "-" for
+// descending; not with before) &facets=true.
 // → {count, page, pageSize, hasMore, nextCursor, rows: FieldRecordRow[], facets?}. A reader restricted to
 // their own data sees only their employee's refusals.
+
+/** Linko's «25 ▾» menu of the Отказы page goes up to 2000 rows a page. */
+const MAX_PAGE_SIZE = 2000
+const ORDER_KEYS: readonly FieldRecordOrder["key"][] = ["id", "createdDate", "name", "market", "comment"]
+
+function orderingOf(value: string | null): { ok: true; value?: FieldRecordOrder } | { ok: false; field: string; error: string } {
+  const text = (value ?? "").trim()
+  if (!text) return { ok: true }
+  const desc = text.startsWith("-")
+  const key = (desc ? text.slice(1) : text) as FieldRecordOrder["key"]
+  return ORDER_KEYS.includes(key) ? { ok: true, value: { key, desc } } : { ok: false, field: "ordering", error: "Неверное значение" }
+}
+
 export async function GET(request: NextRequest) {
   const reader = await requireFieldReader()
   if (reader.error) return reader.error
-  const query = recordListQueryOf("refusal", request.nextUrl.searchParams, reader.scope)
+  const params = new URLSearchParams(request.nextUrl.searchParams)
+  // The shared list parser stops at RECORD_LIST_MAX_PAGE_SIZE; this page also takes Linko's 1000 / 2000.
+  const wanted = (params.get("pageSize") ?? "").trim()
+  const bigPage = /^\d{1,4}$/.test(wanted) && Number(wanted) > RECORD_LIST_MAX_PAGE_SIZE && Number(wanted) <= MAX_PAGE_SIZE ? Number(wanted) : 0
+  if (bigPage) params.set("pageSize", String(RECORD_LIST_MAX_PAGE_SIZE))
+  const query = recordListQueryOf("refusal", params, reader.scope)
   if (!query.ok) return badQuery(query)
-  const { filter, page, pageSize, before, facets } = query.value
+  const order = orderingOf(params.get("ordering"))
+  if (!order.ok) return badQuery(order)
+  const { filter, page, before, facets } = query.value
+  const pageSize = bigPage || query.value.pageSize
+  // A cursor follows the default order (newest first): with a header sort only numbered pages make sense.
+  if (before && order.value) return badQuery({ field: "ordering", error: "Неверное значение" })
   return fieldRoute(async () => {
-    const result = await listFieldRecords("refusal", filter, { limit: pageSize, offset: (page - 1) * pageSize, before })
+    const result = await listFieldRecords("refusal", filter, { limit: pageSize, offset: (page - 1) * pageSize, before, order: order.value })
     return NextResponse.json({
       ...result,
       page,

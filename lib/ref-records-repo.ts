@@ -239,6 +239,13 @@ const promoCreate = z
     if (value.end < value.start) ctx.addIssue({ code: "custom", message: "Дата завершения раньше даты начала", path: ["end"] })
     if (value.config && value.config.type !== value.type) ctx.addIssue({ code: "custom", message: "Неверное значение", path: ["config", "type"] })
   })
+  // The moment it was created (the server's, Asia/Tashkent): the list's «Дата создания» filter, like Linko's created_date.
+  .transform((value) => ({ ...value, createdAt: nowLocalIso() }))
+
+/** «Изменение» of the selected promotions (Linko's bulk update: «Изменить дату начала / завершение акции»). */
+const promoUpdate = z
+  .strictObject({ start: planDay.optional(), end: planDay.optional() })
+  .refine((value) => value.start !== undefined || value.end !== undefined, "Неверные данные")
 
 /** The promotion's currency is one of Валюты (by the name the form shows). */
 async function promoCheck(data: Record<string, unknown>): Promise<ApiIssue | null> {
@@ -285,9 +292,11 @@ type KindApi = {
 }
 
 const API: Partial<Record<RefKind, KindApi>> = {
-  "draft-order": {},
+  // «Интеграция»: a draft order is only deleted (its card's trash, orders.manage), never created or changed here.
+  "draft-order": { remove: true },
   gear: {},
-  promo: { create: promoCreate, check: promoCheck },
+  // «Отменить» of a promotion card deletes it (soft, like every record here).
+  promo: { create: promoCreate, check: promoCheck, update: promoUpdate, remove: true },
   mailing: { create: mailingCreate, maxBytes: MAILING_MAX_BYTES },
   bonus: { create: bonusCreate, update: bonusUpdate, keyedByClient: true },
 }

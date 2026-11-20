@@ -22,8 +22,9 @@ import {
 
 // Dialogs of "Прайс-листы": the create / update form (demo PriceListSettingCreateForm, c94 module
 // 4410: Наименование*, Валюта*, Порядок, "Связать прайс-лист" → Прайс лист + Метод расчета + one
-// field per method key; plus Активный / По умолчанию для заказа) and the delete confirm (a refused
-// delete shows "Удаление невозможно из-за связи с другими данными" and where the list is used).
+// field per method key) in Linko's centred dialog with a green «Сохранить»; the stored Активный / По умолчанию для
+// заказа flags are sent back unchanged (Linko's form has no field for them). The delete confirm (a refused delete shows
+// "Удаление невозможно из-за связи с другими данными" and where the list is used).
 
 type Draft = {
   name: string
@@ -131,13 +132,13 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
     <CashModal
       title={priceListId ? t("Изменить прайс-лист") : t("Добавить прайс-лист")}
       onClose={onClose}
-      top={64}
       size="md"
       closeInset={15}
+      footerButtons="filled"
       footer={
         <>
           {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <PrimaryButton busy={busy} disabled={!loaded} onClick={() => void submit()}>
+          <PrimaryButton tone="green" busy={busy} disabled={!loaded} onClick={() => void submit()}>
             {t("Сохранить")}
           </PrimaryButton>
         </>
@@ -162,9 +163,6 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
           <FormField label={t("Порядок")} semibold className="-mt-[12px]" error={errors.position}>
             <input value={draft.position} inputMode="numeric" onChange={(event) => set({ position: event.target.value.replace(/[^\d-]/g, "") })} className={inputClass} />
           </FormField>
-          {check(t("Активный"), draft.isActive, (isActive) => set({ isActive }))}
-          {check(t("По умолчанию для заказа"), draft.isDefaultForOrder, (isDefaultForOrder) => set({ isDefaultForOrder }))}
-          {(errors.isActive || errors.isDefaultForOrder) && <p className="-mt-2 text-[12px] text-[#e57373]">{errors.isActive || errors.isDefaultForOrder}</p>}
           {check(t("Связать прайс-лист"), draft.isConnected, (isConnected) => set({ isConnected }))}
           {draft.isConnected && (
             <div className="flex flex-col gap-4 border-l-2 border-[#1E4A9A]/30 pl-4">
@@ -259,7 +257,6 @@ export function PriceListDeleteDialog({
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-[13px] text-[#586174]">{t("Прайс-лист можно сделать неактивным: он пропадёт из списков выбора, цены сохранятся.")}</p>
         </div>
       )}
     </ConfirmDialog>

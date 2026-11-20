@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, X } from "lucide-react"
 
 import { formatMoney } from "@/lib/finance/currency"
@@ -161,6 +161,14 @@ export function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: str
 export function RowMenu({ children }: { children: (close: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
+  // Linko's (material-ui) menu is as wide as its items, rounded up to 56px steps, 168px at least.
+  useLayoutEffect(() => {
+    const element = menu.current
+    if (!open || !element) return
+    element.style.width = ""
+    element.style.width = `${Math.max(168, Math.ceil(element.scrollWidth / 56) * 56)}px`
+  }, [open])
   useEffect(() => {
     if (!open) return
     const onDown = (event: MouseEvent) => {
@@ -177,7 +185,9 @@ export function RowMenu({ children }: { children: (close: () => void) => ReactNo
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 top-0 z-[30] w-[168px] rounded-[2px] bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">{children(() => setOpen(false))}</div>
+        <div ref={menu} className="absolute right-0 top-0 z-[30] w-max min-w-[168px] rounded-[2px] bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          {children(() => setOpen(false))}
+        </div>
       )}
     </div>
   )

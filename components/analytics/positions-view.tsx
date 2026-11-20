@@ -16,9 +16,9 @@ import {
   kitRow,
   sortRows,
   toggleOrdering,
-  useListControls,
   usePaged,
 } from "@/components/analytics/settings-list-kit"
+import { queryInt, useLinkoUrlState } from "@/components/orders/linko-url-state"
 import { importKey, postJson, repeatedInFile, type PreparedRow } from "@/lib/excel-row-import"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -28,10 +28,19 @@ import { notify } from "@/lib/notify"
 // newest first, Id and Дата создания sortable (multi-key like the demo's ?ordering=id,created_date),
 // ✎ / 🗑 appear on row hover. Dialog = one required field "Наименование". "Импорт с Excel" (ours, not in the
 // demo) creates the positions of a file through POST /api/job-positions (lib/excel-row-import.ts).
+// Like Linko the address keeps the list (ordering, page, pageSize, search) and the dialogs: #/post?openCreateDialog=true,
+// #/post/49?openUpdateDialog=true / openDeleteDialog=true → /analytics/positions[/49]?…; a closed dialog stays "=false".
 
 type Position = { id: number; name: string; date: string; createdAt: string }
 
-const COLUMNS = "240.5fr 607.5fr 427fr"
+/** Linko's 12-column row (30px side padding): Id 2 / Наименование 6 / Дата создания 4, text 8px into its column. */
+const COLUMNS = "calc(30px + (100% - 60px) / 6) calc((100% - 60px) / 2) minmax(0, 1fr)"
+/** The row pencil / bin sit 12px into the 12th column. */
+const ACTIONS_LEFT = "calc(41px + (100% - 60px) * 11 / 12)"
+/** Linko's search: a quarter into the toolbar (17px side padding, 8px column padding), at most 300px wide. */
+const SEARCH = "left-[calc(25px_+_(100%_-_34px)_/_4)] top-[20px] !w-[min(300px,calc((100%_-_34px)_/_4_-_16px))]"
+const BASE = "/analytics/positions"
+const ORDERINGS = new Set(["id", "-id", "created_date", "-created_date"])
 
 function PositionDialog({ position, onClose, onSaved }: { position: Position | null; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
@@ -79,15 +88,25 @@ function PositionDialog({ position, onClose, onSaved }: { position: Position | n
   )
 }
 
-export function PositionsView({ embedded = false }: { embedded?: boolean }) {
+export function PositionsView({ embedded = false, initialId = null }: { embedded?: boolean; initialId?: number | null }) {
   const { t, language } = useLanguage()
   const [positions, setPositions] = useState<Position[] | null>(null)
-  const [dialog, setDialog] = useState<{ position: Position | null } | null>(null)
-  const [deleting, setDeleting] = useState<Position | null>(null)
-  const [ordering, setOrdering] = useState<string[]>([])
   const [importOpen, setImportOpen] = useState(false)
   const canImport = useCanManage(["settings.manage"])
-  const controls = useListControls()
+  const { state: url, update: updateUrl } = useLinkoUrlState(BASE, { id: initialId ? String(initialId) : null, query: {} })
+  const ordering = (url.query.ordering ?? "").split(",").filter((key, index, all) => ORDERINGS.has(key) && all.findIndex((other) => other.replace(/^-/, "") === key.replace(/^-/, "")) === index)
+  const setOrdering = (next: string[]) => updateUrl({ query: { ordering: next.join(",") } })
+  const controls = {
+    query: url.query.search ?? "",
+    setQuery: (value: string) => updateUrl({ query: { search: value, page: null } }),
+    page: queryInt(url.query.page, 1, 1_000_000),
+    setPage: (value: number) => updateUrl({ query: { page: value > 1 ? value : null } }),
+    pageSize: queryInt(url.query.pageSize, 25),
+    setPageSize: (value: number) => updateUrl({ query: { pageSize: value, page: null } }),
+  }
+  const current = url.id ? positions?.find((position) => String(position.id) === url.id) : undefined
+  const dialog = url.query.openCreateDialog === "true" ? { position: null } : url.query.openUpdateDialog === "true" && current ? { position: current } : null
+  const deleting = url.query.openDeleteDialog === "true" ? current ?? null : null
 
   const load = useCallback(async () => {
     try {
@@ -135,7 +154,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
       notify(`${t(data.error || "Не удалось удалить должность")}${usage ? ` (${usage})` : ""}`)
       return
     }
-    setDeleting(null)
+    updateUrl({ id: null, query: { openDeleteDialog: "false" } })
     await load()
   }
 
@@ -144,12 +163,13 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
       <SettingsToolbar
         left={
           <>
-            <AddLink onClick={() => setDialog({ position: null })}>{t("добавить должность")}</AddLink>
+            <AddLink onClick={() => updateUrl({ query: { openCreateDialog: "true" } })}>{t("добавить должность")}</AddLink>
             {canImport && <ExcelImportLink className="h-[36px] pt-[3px] leading-[36px]" onClick={() => setImportOpen(true)} />}
           </>
         }
         query={controls.query}
         onQuery={controls.setQuery}
+        searchClassName={SEARCH}
         pager={{
           pageSize: controls.pageSize,
           onPageSize: controls.setPageSize,
@@ -162,15 +182,15 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
       />
       <div className={kitHead} style={{ gridTemplateColumns: COLUMNS }}>
         <span className="pl-[30px]"><SortHead className="!font-semibold" label="Id" field="id" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} /></span>
-        <span>{t("Наименование")}</span>
-        <SortHead className="!font-semibold" label={t("Дата создания")} field="created_date" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} />
+        <span className="pl-[8px]">{t("Наименование")}</span>
+        <SortHead className="!font-semibold pl-[8px]" label={t("Дата создания")} field="created_date" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} />
       </div>
       {paged.rows.map((position) => (
         <div key={position.id} className={kitRow} style={{ gridTemplateColumns: COLUMNS }}>
           <span className="pl-[30px]">{position.id}</span>
-          <span className="pr-4">{position.name}</span>
-          <span>{formatDateText(position.date, language)}</span>
-          <RowActions onEdit={() => setDialog({ position })} onDelete={() => setDeleting(position)} />
+          <span className="pl-[8px] pr-4">{position.name}</span>
+          <span className="pl-[8px]">{formatDateText(position.date, language)}</span>
+          <RowActions left={ACTIONS_LEFT} onEdit={() => updateUrl({ id: String(position.id), query: { openUpdateDialog: "true" } })} onDelete={() => updateUrl({ id: String(position.id), query: { openDeleteDialog: "true" } })} />
         </div>
       ))}
       {positions && paged.rows.length === 0 && <EmptyRows />}
@@ -179,11 +199,11 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         <PositionDialog
           key={dialog.position?.id ?? "new"}
           position={dialog.position}
-          onClose={() => setDialog(null)}
-          onSaved={() => { setDialog(null); void load() }}
+          onClose={() => updateUrl({ query: dialog.position ? { openUpdateDialog: "false" } : { openCreateDialog: "false" } })}
+          onSaved={() => { updateUrl({ query: dialog.position ? { openUpdateDialog: "false" } : { openCreateDialog: "false" } }); void load() }}
         />
       )}
-      {deleting && <ConfirmDeleteDialog name={deleting.name} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
+      {deleting && <ConfirmDeleteDialog name={deleting.name} onConfirm={() => void remove(deleting)} onClose={() => updateUrl({ query: { openDeleteDialog: "false" } })} />}
       {importOpen && (
         <ExcelRowImportDialog
           spec={importSpec}

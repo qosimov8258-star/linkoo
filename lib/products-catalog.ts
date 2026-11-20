@@ -169,12 +169,19 @@ export const DEFAULT_LIST_QUERY: CatalogListQuery = { tab: "", search: "", order
 const jsonArray = (column: string) =>
   `COALESCE(CASE WHEN pg_input_is_valid(${column}, 'jsonb') THEN CASE WHEN jsonb_typeof(${column}::jsonb) = 'array' THEN ${column}::jsonb END END, '[]'::jsonb)`
 
+/** Sort key of a text column as Linko's database collation orders it: case, spaces and punctuation ignored
+ * («"OLIVIA" …» among the O's, «Салонный  фильтр  (Malibu…» by its letters), digits before Latin before Cyrillic;
+ * an empty value is NULL, so it comes last ascending and first descending (Postgres' default, like Linko's). */
+const textKey = (column: string) => `NULLIF(lower(regexp_replace(COALESCE(${column}, ''), '[^[:alnum:]]', '', 'g')), '') COLLATE "C"`
+
 const ORDER_SQL: Record<string, string> = {
-  name: "fin_key(t.name)",
-  barcode: "lower(t.barcode)",
-  vendor_code: "lower(t.article)",
-  type: "fin_key(t.type)",
-  division__name: "fin_key(t.organization)",
+  name: textKey("t.name"),
+  barcode: `(CASE WHEN t.barcode ~* '^\\s*не установлен' THEN NULL ELSE NULLIF(lower(btrim(t.barcode)), '') END) COLLATE "C"`,
+  vendor_code: textKey("t.article"),
+  // Linko orders by the type's name (the product's own type: a child type stored in t.type, else t.subcategory's).
+  type: textKey("COALESCE(NULLIF(btrim(t.subcategory), ''), t.type)"),
+  // Linko's API ignores ordering=division__name (the list stays newest first); sorting by the name here is deliberate.
+  division__name: textKey("t.organization"),
   created_date: "t.id",
   stock_number: "(CASE WHEN btrim(t.order_number) ~ '^[0-9]{1,15}$' THEN btrim(t.order_number)::bigint END)",
   id: "t.id",
@@ -187,31 +194,53 @@ function listWhere(kind: CatalogKind, query: CatalogListQuery, params: Record<st
   where.push(query.tab === "4" ? "COALESCE(t.deleted, 0) = 1" : "COALESCE(t.deleted, 0) = 0")
   // Linko's raw materials kept as products (stock items) are listed under Сырье, not here.
   if (kind === "product") where.push("COALESCE(t.is_raw, 0) = 0")
-  // Inventory has its own tab: "Все" is sellable + off-sale items only, as in the reference.
-  if (query.tab !== "2" && query.tab !== "4") where.push(`COALESCE(t.${columns.isInventory}, 0) = 0`)
+  // "Инвентари" is a filter: Linko's "Все" (757), "Можно продавать" (624) and "Сняты с продажи" (133, its is_gear=False
+  // is ignored) list the inventory items too (checked 2026-11-20).
   if (query.tab === "1") where.push("t.can_sell = 1")
   if (query.tab === "2") where.push(`t.${columns.isInventory} = 1`)
-  if (query.tab === "3") where.push(`t.can_sell = 0 AND COALESCE(t.${columns.isInventory}, 0) = 0`)
+  if (query.tab === "3") where.push("t.can_sell = 0")
   if (f.canSell === "1") where.push("t.can_sell = 1")
   if (f.canSell === "2") where.push("t.can_sell = 0")
-  if (f.typeParent) {
-    params.typeParent = f.typeParent
-    where.push("fin_key(t.type) = fin_key(@typeParent)")
-  }
+  // Тип продукта / Подкатегория: product_types ids (Linko's typeParent=306), or names from an older link. A parent takes
+  // its children too, as Linko's does; a product of a child type keeps that name in t.type (Linko's product has one
+  // type), one with both in t.type / t.subcategory.
+  const typeId = (value: string) => (/^\d{1,9}$/.test(value.trim()) ? Number(value.trim()) : null)
   if (f.typeChild) {
-    params.typeChild = f.typeChild
-    where.push("fin_key(t.subcategory) = fin_key(@typeChild)")
+    const id = typeId(f.typeChild)
+    params.typeChild = id ?? f.typeChild
+    const child = id !== null ? "(SELECT fin_key(name) FROM product_types WHERE id = @typeChild)" : "fin_key(@typeChild)"
+    where.push(`(fin_key(t.type) = ${child} OR fin_key(t.subcategory) = ${child})`)
+  } else if (f.typeParent) {
+    const id = typeId(f.typeParent)
+    params.typeParent = id ?? f.typeParent
+    where.push(
+      id !== null
+        ? "fin_key(t.type) IN (SELECT fin_key(name) FROM product_types WHERE id = @typeParent OR parent_id = @typeParent)"
+        : "(fin_key(t.type) = fin_key(@typeParent) OR fin_key(t.type) IN (SELECT fin_key(c.name) FROM product_types c JOIN product_types p ON p.id = c.parent_id WHERE fin_key(p.name) = fin_key(@typeParent)))",
+    )
   }
-  const anyOf = (name: string, column: string, values: string[]) => {
+  // A directory id (Linko's measurement=17, brand=85, division=59) matches that row's own spelling only («шт» and «ШТ»
+  // are two measurements there); a name (a value only items carry, an older link) matches case-insensitively.
+  const anyOf = (name: string, column: string, values: string[], directory?: string) => {
     if (!values.length) return
-    params[name] = values.map(catalogKey)
-    where.push(`fin_key(${column}) = ANY(@${name}::text[])`)
+    const ids = directory ? values.map((value) => (/^\d{1,9}$/.test(value.trim()) ? Number(value.trim()) : null)).filter((id): id is number => id !== null) : []
+    const names = values.filter((value) => !directory || !/^\d{1,9}$/.test(value.trim())).map(catalogKey)
+    const parts: string[] = []
+    if (ids.length) {
+      params[`${name}Ids`] = ids
+      parts.push(`btrim(COALESCE(${column}, '')) IN (SELECT btrim(d.name) FROM ${directory} d WHERE d.id = ANY(@${name}Ids::integer[]))`)
+    }
+    if (names.length) {
+      params[name] = names
+      parts.push(`fin_key(${column}) = ANY(@${name}::text[])`)
+    }
+    where.push(`(${parts.join(" OR ")})`)
   }
-  anyOf("units", "t.unit", f.measurement)
-  anyOf("brands", "t.brand", f.brand)
-  anyOf("suppliers", "t.supplier", f.provider)
+  anyOf("units", "t.unit", f.measurement, "units_of_measure")
+  anyOf("brands", "t.brand", f.brand, "brands")
+  anyOf("suppliers", "t.supplier", f.provider, "suppliers")
   anyOf("colors", "t.color", f.color)
-  anyOf("organizations", "t.organization", f.division)
+  anyOf("organizations", "t.organization", f.division, "organizations")
   if (f.isMML) where.push("t.only_mml = 1")
   if (f.isGear) where.push(`t.${columns.isInventory} = 1`)
   if (f.isPerfectStore) where.push("t.perfect_store = 1")
@@ -226,7 +255,8 @@ function listWhere(kind: CatalogKind, query: CatalogListQuery, params: Record<st
   const needle = catalogKey(query.search)
   if (needle) {
     params.needle = needle
-    where.push(`(strpos(fin_key(t.name), @needle) > 0 OR strpos(fin_key(t.full_name), @needle) > 0 OR strpos(lower(t.barcode), @needle) > 0
+    // Linko's search reads the name, barcodes, article and code — not the full name («coca» finds 7 products there).
+    where.push(`(strpos(fin_key(t.name), @needle) > 0 OR strpos(lower(t.barcode), @needle) > 0
       OR strpos(lower(t.article), @needle) > 0 OR strpos(lower(t.integration_code), @needle) > 0)`)
   }
   if (query.ids.length) {
@@ -250,9 +280,15 @@ export async function listCatalog(kind: CatalogKind, query: CatalogListQuery): P
   const args = () => (Object.keys(params).length ? [params] : [])
   const countRow = (await db.prepare(`SELECT COUNT(*) AS n FROM ${CATALOG_TABLE[kind]} t WHERE ${where}`).get(...args())) as { n: string | number } | undefined
   const count = Number(countRow?.n ?? 0)
-  const desc = query.ordering.startsWith("-")
-  const orderKey = ORDER_SQL[query.ordering.replace(/^-/, "")]
-  const order = orderKey ? `${orderKey} ${desc ? "DESC" : "ASC"} NULLS LAST, t.id DESC` : "t.id DESC"
+  // ordering: one column or several, comma-separated ("vendor_code,-created_date"); ties fall back to the newest first.
+  const order = [
+    ...query.ordering
+      .split(",")
+      .map((entry) => ({ sql: ORDER_SQL[entry.trim().replace(/^-/, "")], desc: entry.trim().startsWith("-") }))
+      .filter((entry) => entry.sql)
+      .map((entry) => `${entry.sql} ${entry.desc ? "DESC" : "ASC"}`),
+    "t.id DESC",
+  ].join(", ")
   let paging = ""
   if (query.pageSize > 0) {
     params.limit = query.pageSize
@@ -308,5 +344,19 @@ export async function getCatalogDetail(kind: CatalogKind, id: number): Promise<C
     ...item,
     images: images.map((image) => ({ id: Number(image.id), isPrimary: int(image.is_primary), createdAt: image.created_at })),
     limits: await itemLimits(db, item),
+    attributes: kind === "product" ? await itemAttributes(db, id) : {},
+  }
+}
+
+/** «Характеристика» values of a product: {attribute id: value} (product_attribute_assignments). */
+async function itemAttributes(db: PgDb, id: number): Promise<Record<string, string>> {
+  if (!(await tableExists(db, "product_attribute_assignments"))) return {}
+  const row = (await db.prepare("SELECT values_json FROM product_attribute_assignments WHERE product_id = @id").get({ id })) as { values_json: string } | undefined
+  try {
+    const value = JSON.parse(row?.values_json ?? "{}") as unknown
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== ""))
+  } catch {
+    return {}
   }
 }

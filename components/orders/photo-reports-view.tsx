@@ -1,14 +1,17 @@
 "use client"
 
-import { Check, Download, Filter, Minus, Search, X } from "lucide-react"
+import { Download } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { FilterCardOptionSelect } from "@/components/analytics/balance/filter-bar"
 import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { ClientDrawer } from "@/components/clients/clients-view"
+import { keepShopDrawerParams } from "@/components/clients/shop-drawer-url"
+import { KitMultiSelect, KitRangeField, KitSingleSelect, type KitOption } from "@/components/orders/field-filter-kit"
 import { RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
 import { csvText } from "@/lib/csv"
 import {
   PHOTO_REPORT_STATUSES,
+  type FieldOption,
   type FieldRecordFacets,
   type FieldRecordPage,
   type FieldRecordRow,
@@ -21,68 +24,202 @@ import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
 
-// "Фотоотчеты" (Продажи): the photo reports the agents send from the mobile app with their
-// before / after photos — the field data of Активность / Отслеживание (lib/field-activity,
-// GET /api/field-activity/photo-reports). The filter card is the reference's: Дата создания, Супервайзер, Создал,
-// Бренд, Категория фотоотчета, Филиалы, Категория канала, Тип клиента, Магазин, ИНН магазина, Магазин с
-// оборудованием — every one applied on the server (Бренд stays disabled: a report records no products here);
-// a field employee sees their own reports. Принять / Отклонить set the
-// review status (PATCH …/photo-reports/[id]/status, clients.manage); clicking the shown state
-// again sets it back to "Ожидает". A scoped reader's own reports (ownEmployeeId of the list) only
-// show their state: an agent never reviews their own report.
+// "Фотоотчеты" (Продажи): the photo reports the agents send from the mobile app with their before / after photos —
+// the field data of Активность / Отслеживание (lib/field-activity, GET /api/field-activity/photo-reports). It follows
+// the reference's page (#/reports):
+//   * its state lives in the link with the reference's names (fromDate, toDate, status, search, initiator, supervisor,
+//     brand, merchType, branch, channelCategory, marketTypeParent, market, marketInn, withGear, pageSize,
+//     openFilterDialog, imageReport / report / openShop), so a reload, Back and a shared link keep it;
+//   * 25 reports per request, the next ones load by themselves when the list is scrolled to its end;
+//   * the cards stand in the reference's masonry columns (6, 4 from 1300 px, 3 from 700 px, 1 from 500 px): the store
+//     and the employee are links that show only that store's / employee's reports, Принять / Отклонить always set that
+//     status ("Успешно изменено"), a photo opens the viewer next to the store card;
+//   * every filter select picks several values and searches as you type; «Поиск» searches the store and employee
+//     names when Enter is pressed.
+// A field employee sees their own reports (and their supervised agents'); a scoped reader's own reports only show
+// their state: an agent never reviews their own report.
 
-const TABS = [
+type Status = "pending" | "rejected" | "approved" | "all"
+
+const TABS: ReadonlyArray<readonly [string, Status]> = [
   ["Ожидает", "pending"],
   ["Не принят", "rejected"],
-  ["Принят", "accepted"],
+  ["Принят", "approved"],
   ["Все", "all"],
-] as const
+]
 
-const COLUMNS = 6
-/** Reports per request ("Загрузить еще..." loads the next ones). */
-const PAGE_SIZE = 60
+/** The reference's status words in the link → the review states of the field data. */
+const API_STATUS: Record<Exclude<Status, "all">, PhotoReportStatus> = { pending: "pending", rejected: "rejected", approved: "accepted" }
+
+/** Reports per request (the reference's pageSize). */
+const PAGE_SIZE = 25
 /** Reports per request of the Excel export (it walks every page of the filter). */
 const EXPORT_PAGE_SIZE = 500
 
-const dotted = (iso: string) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}` : "")
+/** Link state of the page (the reference's query of #/reports). Empty dates: no period. */
+type PageState = {
+  fromDate: string
+  toDate: string
+  status: Status
+  search: string
+  initiator: number[]
+  initiatorName: string
+  supervisor: number[]
+  brand: number[]
+  merchType: string[]
+  branch: number[]
+  channelCategory: string[]
+  marketTypeParent: number[]
+  market: number[]
+  marketName: string
+  marketInn: string[]
+  withGear: "" | "true" | "false"
+  pageSize: number
+  openFilterDialog: boolean
+  imageReport: number
+  report: number
+  openShop: number
+}
 
-/** The current month in the business time zone (Asia/Tashkent). */
-function currentMonth() {
+/** The filter's own part of the state (what the «Фильтр» card edits). */
+type FilterValues = Pick<
+  PageState,
+  "fromDate" | "toDate" | "initiator" | "supervisor" | "brand" | "merchType" | "branch" | "channelCategory" | "marketTypeParent" | "market" | "marketInn" | "withGear"
+>
+
+/** Keys the reference counts on «Фильтр / N» (every filter key but fromDate and search). */
+const COUNTED: ReadonlyArray<keyof PageState> = ["toDate", "initiator", "supervisor", "brand", "merchType", "branch", "channelCategory", "marketTypeParent", "market", "marketInn", "withGear"]
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
+
+function idList(value: string | null): number[] {
+  return [...new Set((value ?? "").split("-").map((part) => Number(part.trim())).filter((id) => Number.isSafeInteger(id) && id > 0))]
+}
+const idText = (ids: number[]) => ids.join("-")
+const positive = (value: string | null) => {
+  const number = Number(value)
+  return Number.isSafeInteger(number) && number > 0 ? number : 0
+}
+
+function defaultPeriod() {
   const today = todayIso()
-  return { begin: monthStartIso(today), end: monthEndIso(today) }
+  return { fromDate: monthStartIso(today), toDate: monthEndIso(today) }
 }
 
-type Period = { begin: string; end: string }
-/** The card's choices: ids and names as the server takes them ("" = all). */
-type CardFilters = {
-  supervisorId: string
-  employeeId: string
-  category: string
-  branch: string
-  channel: string
-  clientTypeId: string
-  clientId: string
-  inn: string
-  withEquipment: "" | "true" | "false"
+/** The link → the page state. A link with no state at all is the menu's: the current month, 25 per page. */
+function readState(search: string): PageState {
+  const params = new URLSearchParams(search)
+  const bare = ![...params.keys()].some((key) => STATE_KEYS.has(key))
+  const period = bare ? defaultPeriod() : { fromDate: params.get("fromDate") ?? "", toDate: params.get("toDate") ?? "" }
+  const fromDate = ISO_DAY.test(period.fromDate) ? period.fromDate : ""
+  const toDate = ISO_DAY.test(period.toDate) ? period.toDate : fromDate
+  const status = params.get("status")
+  const gear = params.get("withGear")
+  return {
+    fromDate,
+    toDate: fromDate ? toDate : "",
+    status: status === "pending" || status === "rejected" || status === "approved" ? status : "all",
+    search: (params.get("search") ?? "").trim(),
+    initiator: idList(params.get("initiator")),
+    initiatorName: params.get("initiatorName") ?? "",
+    supervisor: idList(params.get("supervisor")),
+    brand: idList(params.get("brand")),
+    merchType: params.getAll("merchType").map((value) => value.trim()).filter(Boolean),
+    branch: idList(params.get("branch")),
+    channelCategory: params.getAll("channelCategory").map((value) => value.trim()).filter(Boolean),
+    marketTypeParent: idList(params.get("marketTypeParent")),
+    market: idList(params.get("market")),
+    marketName: params.get("marketName") ?? "",
+    marketInn: (params.get("marketInn") ?? "").split("-").map((value) => value.trim()).filter(Boolean),
+    withGear: gear === "true" || gear === "false" ? gear : "",
+    pageSize: positive(params.get("pageSize")) || PAGE_SIZE,
+    openFilterDialog: params.get("openFilterDialog") === "true",
+    imageReport: positive(params.get("imageReport")),
+    report: positive(params.get("report")),
+    openShop: positive(params.get("openShop")),
+  }
 }
-const NO_FILTERS: CardFilters = { supervisorId: "", employeeId: "", category: "", branch: "", channel: "", clientTypeId: "", clientId: "", inn: "", withEquipment: "" }
 
-type Query = { period: Period; status: PhotoReportStatus | "all"; filters: CardFilters; search: string }
+const STATE_KEYS = new Set([
+  "fromDate",
+  "toDate",
+  "status",
+  "search",
+  "initiator",
+  "initiatorName",
+  "supervisor",
+  "brand",
+  "merchType",
+  "branch",
+  "channelCategory",
+  "marketTypeParent",
+  "market",
+  "marketName",
+  "marketInn",
+  "withGear",
+  "pageSize",
+  "openFilterDialog",
+  "imageReport",
+  "report",
+  "openShop",
+])
 
-function queryParams(query: Query, before: string | null, pageSize: number): URLSearchParams {
-  const params = new URLSearchParams({ pageSize: String(pageSize) })
-  if (before) params.set("before", before)
-  if (query.period.begin) params.set("from", query.period.begin)
-  if (query.period.end) params.set("to", query.period.end)
-  if (query.status !== "all") params.set("status", query.status)
-  for (const [name, value] of Object.entries(query.filters)) if (value) params.set(name, value)
-  if (query.search) params.set("q", query.search)
-  return params
+/** The page state → the link's query (only what is set, as the reference writes it). */
+function stateQuery(state: PageState): string {
+  const params = new URLSearchParams()
+  if (state.fromDate) params.set("fromDate", state.fromDate)
+  if (state.toDate) params.set("toDate", state.toDate)
+  if (state.status !== "all") params.set("status", state.status)
+  if (state.search) params.set("search", state.search)
+  if (state.initiator.length) params.set("initiator", idText(state.initiator))
+  if (state.initiatorName) params.set("initiatorName", state.initiatorName)
+  if (state.supervisor.length) params.set("supervisor", idText(state.supervisor))
+  if (state.brand.length) params.set("brand", idText(state.brand))
+  for (const value of state.merchType) params.append("merchType", value)
+  if (state.branch.length) params.set("branch", idText(state.branch))
+  for (const value of state.channelCategory) params.append("channelCategory", value)
+  if (state.marketTypeParent.length) params.set("marketTypeParent", idText(state.marketTypeParent))
+  if (state.market.length) params.set("market", idText(state.market))
+  if (state.marketName) params.set("marketName", state.marketName)
+  if (state.marketInn.length) params.set("marketInn", state.marketInn.join("-"))
+  if (state.withGear) params.set("withGear", state.withGear)
+  params.set("pageSize", String(state.pageSize))
+  if (state.openFilterDialog) params.set("openFilterDialog", "true")
+  if (state.imageReport) params.set("imageReport", String(state.imageReport))
+  if (state.report) params.set("report", String(state.report))
+  if (state.openShop) params.set("openShop", String(state.openShop))
+  // The open store card keeps its own tab / sub-tab / period parameters (components/clients/shop-drawer-url.ts).
+  if (state.openShop) keepShopDrawerParams(params)
+  // The reference's router writes the keys in alphabetical order (its menu: ?fromDate=…&pageSize=25&toDate=…).
+  params.sort()
+  return params.toString()
+}
+
+/** The list request of a state (everything but the dialogs). */
+function listQuery(state: PageState): string {
+  const params = new URLSearchParams()
+  if (state.fromDate) params.set("from", state.fromDate)
+  if (state.toDate) params.set("to", state.toDate)
+  if (state.status !== "all") params.set("status", API_STATUS[state.status])
+  if (state.search) params.set("q", state.search)
+  if (state.initiator.length) params.set("employeeId", state.initiator.join(","))
+  if (state.supervisor.length) params.set("supervisorId", state.supervisor.join(","))
+  if (state.brand.length) params.set("brandId", state.brand.join(","))
+  for (const value of state.merchType) params.append("category", value)
+  if (state.branch.length) params.set("branchId", state.branch.join(","))
+  for (const value of state.channelCategory) params.append("channel", value)
+  if (state.marketTypeParent.length) params.set("clientTypeId", state.marketTypeParent.join(","))
+  if (state.market.length) params.set("clientId", state.market.join(","))
+  for (const value of state.marketInn) params.append("inn", value)
+  if (state.withGear) params.set("withEquipment", state.withGear)
+  return params.toString()
 }
 
 /** One page of the filter: the newest reports, or (`before`) the ones after the previous page's nextCursor. */
-async function loadPage(query: Query, before: string | null, pageSize: number, facets: boolean, signal?: AbortSignal): Promise<FieldRecordPage> {
-  const params = queryParams(query, before, pageSize)
+async function loadPage(query: string, before: string | null, pageSize: number, facets: boolean, signal?: AbortSignal): Promise<FieldRecordPage> {
+  const params = new URLSearchParams(query)
+  params.set("pageSize", String(pageSize))
+  if (before) params.set("before", before)
   if (facets) params.set("facets", "true")
   const response = await fetch(`/api/field-activity/photo-reports?${params.toString()}`, { cache: "no-store", signal })
   const body = (await response.json().catch(() => null)) as (FieldRecordPage & { error?: string }) | null
@@ -90,29 +227,108 @@ async function loadPage(query: Query, before: string | null, pageSize: number, f
   return body
 }
 
-function PhotoSlot({ photo, badge, showBadge = true, t }: { photo?: FieldPhoto; badge: "до" | "после"; showBadge?: boolean; t: (key: string) => string }) {
+const isStatus = (value: unknown): value is PhotoReportStatus => (PHOTO_REPORT_STATUSES as readonly unknown[]).includes(value)
+
+const dotted = (iso: string) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}` : "")
+
+/** The reference's masonry breakpoints by window width: 6 columns, 4 up to 1300 px, 3 up to 700 px, 1 up to 500 px. */
+function columnCount(width: number) {
+  if (width <= 500) return 1
+  if (width <= 700) return 3
+  if (width <= 1300) return 4
+  return 6
+}
+
+/** A photo slot: the picture, or (a file that is missing or fails to load) the reference's "not found" box. */
+type Slot = { photo: FieldPhoto | null }
+
+/**
+ * The reference's photo groups of a report: each named group (Polka, DMP, …) has at most one before and one after
+ * picture; the before pictures of all groups form one list and the after pictures another, and the i-th row of the card
+ * shows the i-th of each list under the i-th group name. A report from the mobile app has no names: its i-th before /
+ * after photos are the i-th row. The groups the import brought without files are slots with a missing picture.
+ */
+function photoRows(report: FieldRecordRow) {
+  const before = report.photos.filter((photo) => photo.slot === "before")
+  const after = report.photos.filter((photo) => photo.slot === "after")
+  const groups = report.photoTypes ?? []
+  if (!groups.length) {
+    const count = Math.max(before.length, after.length)
+    return {
+      names: Array.from({ length: count }, () => ""),
+      before: before.map((photo): Slot => ({ photo })),
+      after: after.map((photo): Slot => ({ photo })),
+    }
+  }
+  let beforeIndex = 0
+  let afterIndex = 0
+  const beforeSlots: Slot[] = []
+  const afterSlots: Slot[] = []
+  for (const group of groups) {
+    if (group.before > 0) beforeSlots.push({ photo: before[beforeIndex++] ?? null })
+    if (group.after > 0) afterSlots.push({ photo: after[afterIndex++] ?? null })
+  }
+  return { names: groups.map((group) => group.name), before: beforeSlots, after: afterSlots }
+}
+
+const CHECK_CIRCLE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+const REMOVE_CIRCLE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"
+const FILTER_LIST = "M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"
+const HIGHLIGHT_OFF = "M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
+
+function NotFoundBox({ t }: { t: (key: string) => string }) {
+  return <div className="flex h-[200px] w-full cursor-pointer items-center justify-center overflow-hidden rounded-[8px] border border-[#dde1e5] px-[6px] text-center text-[11px] text-[#888]">{t("Изображение не найдено")}</div>
+}
+
+function PhotoColumn({ slot, first, badge, onOpen, t }: { slot: Slot | undefined; first: boolean; badge: "до" | "после"; onOpen: (photo: FieldPhoto) => void; t: (key: string) => string }) {
+  const [broken, setBroken] = useState(false)
   return (
-    <div className="relative flex h-[200px] flex-1 items-center justify-center overflow-hidden rounded-[6px] border border-[#d9dde3] px-[6px] text-center text-[12px] leading-[14px] text-[#777]">
-      {photo ? (
-        <a href={photo.url} target="_blank" rel="noreferrer" className="absolute inset-0">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photo.url} alt={t(badge)} loading="lazy" className="h-full w-full object-cover" />
-        </a>
-      ) : (
-        t("Изображение не найдено")
+    <div className={`relative flex w-full flex-col ${first ? "gap-[10px]" : ""}`}>
+      {first && (
+        <div>
+          <div className="absolute left-0 top-[10px] z-[2] w-fit rounded-[8px] bg-[#333]/80 px-[8px] py-[2px] text-[11px] font-semibold text-white">{t(badge)}</div>
+        </div>
       )}
-      {showBadge ? <span className="absolute left-[2px] top-[2px] rounded-full bg-[#555] px-[8px] py-[1px] text-[11px] font-semibold text-white">{t(badge)}</span> : null}
+      {slot && (
+        <div className="relative">
+          {slot.photo && !broken ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={slot.photo.url} alt="" loading="lazy" onError={() => setBroken(true)} onClick={() => slot.photo && onOpen(slot.photo)} className="block h-auto w-full cursor-pointer overflow-hidden rounded-[8px] object-contain" />
+          ) : (
+            <NotFoundBox t={t} />
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-const isStatus = (value: unknown): value is PhotoReportStatus => (PHOTO_REPORT_STATUSES as readonly unknown[]).includes(value)
+function ReviewButton({ active, color, path, label, disabled, onClick }: { active: boolean; color: string; path: string; label: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+      style={{ background: active ? color : "#929292" }}
+      className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[5px] outline-none active:opacity-70 disabled:cursor-default"
+    >
+      <svg viewBox="0 0 24 24" className="mb-[4px] h-[18px] w-[18px] fill-white" aria-hidden>
+        <path d={path} />
+      </svg>
+    </button>
+  )
+}
 
 function Card({
   report,
   canReview,
   busy,
   onSet,
+  onStore,
+  onEmployee,
+  onOpenPhoto,
   t,
 }: {
   report: FieldRecordRow
@@ -120,91 +336,228 @@ function Card({
   canReview: boolean
   busy: boolean
   onSet: (status: PhotoReportStatus) => void
+  onStore: () => void
+  onEmployee: () => void
+  onOpenPhoto: (photo: FieldPhoto) => void
   t: (key: string) => string
 }) {
   const { language } = useLanguage()
-  const before = report.photos.filter((photo) => photo.slot === "before")
-  const after = report.photos.filter((photo) => photo.slot === "after")
-  // Named photo groups (Polka, DMP, … of an imported report): the reference lists the group names in order and puts
-  // the i-th before / after pair under the i-th name; names left over follow the last pair.
-  const groups = report.photoTypes ?? []
-  const groupBefore = groups.reduce((sum, group) => sum + group.before, 0)
-  const groupAfter = groups.reduce((sum, group) => sum + group.after, 0)
-  const pairs = Math.max(1, before.length, after.length, groupBefore, groupAfter)
-  const rows = Math.max(pairs, groups.length)
-  const locked = !canReview || busy
+  const rows = photoRows(report)
+  const storeName = report.clientName || `#${report.clientId}`
+  const employeeName = report.employeeName || `#${report.employeeId}`
   return (
-    <section className="mb-[20px] rounded-[2px] bg-white px-[10px] pb-[14px] pt-[12px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-      <h3 className="mb-[10px] text-center text-[15px] font-medium text-[#333]">{report.clientName || `#${report.clientId}`}</h3>
-      <div className="flex items-start gap-[8px]">
-        <button type="button" disabled={locked} aria-label={t("Принять")} aria-pressed={report.status === "accepted"} onClick={() => onSet("accepted")} className={`flex h-[32px] w-[32px] items-center justify-center rounded-[4px] ${report.status === "accepted" ? "bg-[#48a34b]" : "bg-[#7d7d7d]"} text-white ${canReview ? "disabled:opacity-60" : "cursor-default"}`}><Check className="h-[18px] w-[18px]" /></button>
-        <div className="min-w-0 flex-1 text-center text-[12px] leading-[19px] text-[#777]">
-          <div className="text-[14px] text-[#888]">{report.employeeName || `#${report.employeeId}`}</div>
-          <div>{formatDateText(report.at, language, { withTime: true })}</div>
-          {report.comment ? <div className="text-[#222]">{report.comment}</div> : null}
+    <section className="relative mb-[10px] w-full rounded-[8px] bg-white p-[10px] text-center shadow-[0_2px_8px_0_rgba(99,99,99,0.2)]">
+      {busy && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[8px] bg-white/[0.74]">
+          <span className="h-6 w-6 animate-spin rounded-full border-2 border-[#1E4A9A] border-t-transparent" />
         </div>
-        <button type="button" disabled={locked} aria-label={t("Отклонить")} aria-pressed={report.status === "rejected"} onClick={() => onSet("rejected")} className={`flex h-[32px] w-[32px] items-center justify-center rounded-[4px] ${report.status === "rejected" ? "bg-[#e57373]" : "bg-[#7d7d7d]"} text-white ${canReview ? "disabled:opacity-60" : "cursor-default"}`}><Minus className="h-[18px] w-[18px]" /></button>
-      </div>
-      {Array.from({ length: rows }).map((_, index) => (
-        <div key={index} className="mt-[6px]">
-          {groups[index] ? <div className="text-center text-[12px] leading-[19px] text-[#777]">{groups[index].name}</div> : null}
-          {index < pairs ? (
-            <div className="mt-[8px] flex gap-[11px]">
-              <PhotoSlot photo={before[index]} badge="до" showBadge={!groups.length || index === 0} t={t} />
-              <PhotoSlot photo={after[index]} badge="после" showBadge={!groups.length || index === 0} t={t} />
+      )}
+      <a href={`?market=${report.clientId}&marketName=${encodeURIComponent(storeName)}`} onClick={(event) => { event.preventDefault(); onStore() }} className="text-[14px] font-semibold text-[#333] hover:text-[#1E4A9A]">
+        {storeName}
+      </a>
+      <div className="mt-[5px] flex w-full items-start justify-between">
+        <div className="flex w-full flex-col items-center gap-[5px]">
+          <div className="mt-[5px] flex w-full items-start justify-between">
+            <ReviewButton active={report.status === "accepted"} color="#1E4A9A" path={CHECK_CIRCLE} label={t("Принять")} disabled={!canReview || busy} onClick={() => onSet("accepted")} />
+            <div className="flex w-max min-w-0 flex-col items-center gap-[5px]">
+              <a href={`?initiator=${report.employeeId}&initiatorName=${encodeURIComponent(employeeName)}`} onClick={(event) => { event.preventDefault(); onEmployee() }} className="text-[13px] font-semibold text-[#999] hover:text-[#1E4A9A]">
+                {employeeName}
+              </a>
+              <span className="text-[11px] text-[#999]">{formatDateText(report.at, language, { withTime: true })}</span>
             </div>
-          ) : null}
+            <ReviewButton active={report.status === "rejected"} color="#fa8072" path={REMOVE_CIRCLE} label={t("Отклонить")} disabled={!canReview || busy} onClick={() => onSet("rejected")} />
+          </div>
+          {report.comment ? <span className="text-[11px] text-[#333]">{report.comment}</span> : null}
         </div>
-      ))}
+      </div>
+      <div>
+        {rows.names.map((name, index) => (
+          <div key={index}>
+            <span className="text-[11px] text-[#999]">{name}</span>
+            <div className="flex h-full w-full items-start justify-between gap-[10px]">
+              {rows.before.length > 0 && <PhotoColumn slot={rows.before[index]} first={index === 0} badge="до" onOpen={onOpenPhoto} t={t} />}
+              {rows.after.length > 0 && <PhotoColumn slot={rows.after[index]} first={index === 0} badge="после" onOpen={onOpenPhoto} t={t} />}
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   )
 }
 
+/** The reference's photo viewer beside the store card: ‹ › through the report's photos, −/+ zoom, rotation,
+ * «Предыдущий магазин» / «Следующий магазин» through the list, and Принят / Не принят on the «Ожидает» tab. */
+function PhotoViewer({
+  report,
+  photoId,
+  previous,
+  next,
+  pendingTab,
+  canReview,
+  busy,
+  onPhoto,
+  onPrevious,
+  onNext,
+  onReview,
+  t,
+}: {
+  report: FieldRecordRow | null
+  photoId: number
+  previous: FieldRecordRow | null
+  next: FieldRecordRow | null
+  pendingTab: boolean
+  canReview: boolean
+  busy: boolean
+  onPhoto: (photoId: number) => void
+  onPrevious: () => void
+  onNext: () => void
+  onReview: (status: PhotoReportStatus) => void
+  t: (key: string) => string
+}) {
+  const [rotation, setRotation] = useState(0)
+  const [zoom, setZoom] = useState(1)
+  // The reference's report images: the after pictures, then the before ones.
+  const photos = report ? [...report.photos.filter((photo) => photo.slot === "after"), ...report.photos.filter((photo) => photo.slot === "before")] : []
+  const found = photos.findIndex((photo) => photo.id === photoId)
+  const index = found >= 0 ? found : 0
+  const photo = photos[index]
+  const move = (step: number) => {
+    const target = photos[index + step]
+    if (!target) return
+    setZoom(1)
+    onPhoto(target.id)
+  }
+  const roundButton = "flex h-[40px] w-[40px] select-none items-center justify-center rounded-full bg-black/60 text-[24px] text-white"
+  return (
+    <div className="fixed bottom-0 left-0 right-0 top-0 z-[1000] flex items-start justify-center overflow-y-auto bg-black/75 md:right-[580px]" role="dialog" aria-modal="true" aria-label={t("Фото")}>
+      <div className="my-auto">
+        {photos.length > 1 && index > 0 && (
+          <button type="button" aria-label={t("Назад")} onClick={() => move(-1)} className="absolute left-0 top-1/2 z-10 flex h-[70px] w-[70px] -translate-y-1/2 items-center justify-center">
+            <svg viewBox="0 0 24 24" className="h-[65px] w-[65px] fill-white" aria-hidden><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg>
+          </button>
+        )}
+        {previous && (
+          <button type="button" title={previous.clientName} onClick={() => { setZoom(1); onPrevious() }} className="absolute left-0 top-[100px] z-10 flex h-[30px] -translate-y-1/2 items-center gap-[8px] rounded-[2px] bg-[#1E4A9A] pl-[10px] pr-[16px] text-[13px] font-semibold text-white">
+            <svg viewBox="0 0 24 24" className="mb-[4px] h-[18px] w-[18px] fill-white" aria-hidden><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg>
+            {t("Предыдущий магазин")}
+          </button>
+        )}
+        {photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photo.url} alt="" style={{ transform: `rotate(${rotation}deg) scale(${zoom})`, transition: "transform 0.5s ease" }} className="mx-auto block max-h-[90vh] max-w-[90vw]" />
+        ) : (
+          <div className="h-[16px] w-[16px]" />
+        )}
+        <button type="button" aria-label={t("Повернуть")} title={t("Повернуть")} onClick={() => setRotation((value) => (value + 90) % 360)} className="absolute right-[20%] top-[2%] z-10 flex h-[40px] w-[40px] items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-[35px] w-[35px] fill-white" aria-hidden>
+            <path d="M7.47 21.49C4.2 19.93 1.86 16.76 1.5 13H0c.51 6.16 5.66 11 11.95 11 .23 0 .44-.02.66-.03L8.8 20.15l-1.33 1.34zM12.05 0c-.23 0-.44.02-.66.04l3.81 3.81 1.33-1.33C19.8 4.07 22.14 7.24 22.5 11H24c-.51-6.16-5.66-11-11.95-11zM16 14h2V8c0-1.11-.9-2-2-2h-6v2h6v6zm-8 2V4H6v2H4v2h2v8c0 1.1.89 2 2 2h8v2h2v-2h2v-2H8z" />
+          </svg>
+        </button>
+        {next && (
+          <button type="button" title={next.clientName} onClick={() => { setZoom(1); onNext() }} className="absolute right-[8px] top-[100px] z-10 flex h-[30px] -translate-y-1/2 items-center gap-[8px] rounded-[2px] bg-[#1E4A9A] pl-[16px] pr-[10px] text-[13px] font-semibold text-white">
+            {t("Следующий магазин")}
+            <svg viewBox="0 0 24 24" className="mb-[4px] h-[18px] w-[18px] fill-white" aria-hidden><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
+          </button>
+        )}
+        <div className="absolute bottom-[12%] left-1/2 z-10 flex -translate-x-1/2 gap-[10px]">
+          <button type="button" aria-label={t("Уменьшить")} onClick={() => setZoom((value) => Math.max(value - 0.1, 0.5))} className={roundButton}>−</button>
+          <button type="button" aria-label={t("Увеличить")} onClick={() => setZoom((value) => Math.min(value + 0.1, 3))} className={roundButton}>+</button>
+        </div>
+        {photos.length > 1 && index < photos.length - 1 && (
+          <button type="button" aria-label={t("Вперед")} onClick={() => move(1)} className="absolute right-0 top-1/2 z-10 flex h-[70px] w-[70px] -translate-y-1/2 items-center justify-center">
+            <svg viewBox="0 0 24 24" className="h-[65px] w-[65px] fill-white" aria-hidden><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
+          </button>
+        )}
+        {pendingTab && report && canReview && (
+          <div className="absolute bottom-[10%] right-0 z-10 flex items-center gap-[10px]">
+            <button type="button" disabled={busy} onClick={() => onReview("accepted")} className="flex h-[34px] items-center gap-[8px] rounded-[2px] bg-[#71ce87] px-[16px] text-[13px] font-semibold text-white disabled:opacity-60">
+              <svg viewBox="0 0 24 24" className="mb-[4px] h-[18px] w-[18px] fill-white" aria-hidden><path d={CHECK_CIRCLE} /></svg>
+              {t("Принят")}
+            </button>
+            <button type="button" disabled={busy} onClick={() => onReview("rejected")} className="flex h-[34px] items-center gap-[8px] rounded-[2px] bg-[#fa8072] px-[16px] text-[13px] font-semibold text-white disabled:opacity-60">
+              <svg viewBox="0 0 24 24" className="mb-[4px] h-[18px] w-[18px] fill-white" aria-hidden><path d={REMOVE_CIRCLE} /></svg>
+              {t("Не принят")}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const optionList = (list: FieldOption[] | undefined): KitOption[] => (list ?? []).map((item) => ({ value: String(item.id), label: item.name }))
+const textOptions = (list: string[] | undefined): KitOption[] => (list ?? []).map((item) => ({ value: item, label: item }))
+const ids = (values: string[]) => values.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)
+
 export function PhotoReportsView() {
   const { t, language } = useLanguage()
-  const [tab, setTab] = useState<(typeof TABS)[number][0]>("Все")
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [query, setQuery] = useState("")
-  const [search, setSearch] = useState("")
-  const [period, setPeriod] = useState<Period>(currentMonth)
-  const [draft, setDraft] = useState<Period>(period)
-  const [filters, setFilters] = useState<CardFilters>(NO_FILTERS)
-  const [draftFilters, setDraftFilters] = useState<CardFilters>(NO_FILTERS)
-  const setDraftField = (name: keyof CardFilters) => (value: string) => setDraftFilters((current) => ({ ...current, [name]: value }))
+  // The page state is the link's (read after mount: the server render has no window).
+  const [state, setState] = useState<PageState | null>(null)
+  const [draft, setDraft] = useState<FilterValues | null>(null)
+  const [searchText, setSearchText] = useState("")
   const [rows, setRows] = useState<FieldRecordRow[]>([])
   const [count, setCount] = useState(0)
-  // Keyset paging: "Загрузить еще..." asks for the reports after the previous page's nextCursor
-  // (of that same filter), so reports that arrive meanwhile cannot shift the pages.
-  const [more, setMore] = useState<{ query: Query; cursor: string } | null>(null)
+  // Keyset paging: the next request asks for the reports after the previous page's nextCursor (of that same filter),
+  // so reports that arrive meanwhile cannot shift the pages.
+  const [more, setMore] = useState<{ query: string; cursor: string } | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [facets, setFacets] = useState<FieldRecordFacets | null>(null)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [columns, setColumns] = useState(6)
+  const [notice, setNotice] = useState("")
+  // A report opened from a link that is not among the loaded cards (the viewer asks for it alone).
+  const [linked, setLinked] = useState<FieldRecordRow | null>(null)
   const canReview = useCanManage(["clients.manage"])
   // The reader's own employee for a narrow field scope (its reports are not reviewable), else null.
   const [ownEmployeeId, setOwnEmployeeId] = useState<number | null>(null)
   const [busyIds, setBusyIds] = useState<ReadonlySet<number>>(() => new Set())
   const busyRef = useRef(new Set<number>())
+  const sentinel = useRef<HTMLDivElement>(null)
 
-  // The search goes to the server (it spans every page), a moment after typing stops.
+  // Link → state on mount and on Back / Forward; a bare link (the menu's) gets the default period written into it.
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearch(query.trim()), 300)
-    return () => window.clearTimeout(timer)
-  }, [query])
+    const sync = () => {
+      const next = readState(window.location.search)
+      setState(next)
+      setSearchText(next.search)
+      const query = stateQuery(next)
+      if (window.location.search.slice(1) !== query) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${query}${window.location.hash}`)
+    }
+    sync()
+    window.addEventListener("popstate", sync)
+    return () => window.removeEventListener("popstate", sync)
+  }, [])
 
-  const status = TABS.find(([label]) => label === tab)?.[1] ?? "all"
-  const current = useMemo<Query>(() => ({ period, status, filters, search }), [period, status, filters, search])
+  useEffect(() => {
+    const update = () => setColumns(columnCount(window.innerWidth))
+    update()
+    window.addEventListener("resize", update)
+    return () => window.removeEventListener("resize", update)
+  }, [])
+
+  /** A new state: written into the link as a new history entry (or replacing the current one). */
+  const navigate = useCallback((next: PageState, replace = false) => {
+    setState(next)
+    setSearchText(next.search)
+    const url = `${window.location.pathname}?${stateQuery(next)}${window.location.hash}`
+    if (replace) window.history.replaceState(window.history.state, "", url)
+    else window.history.pushState(window.history.state, "", url)
+  }, [])
+
+  const query = useMemo(() => (state ? listQuery(state) : null), [state])
+  const pageSize = state?.pageSize ?? PAGE_SIZE
   // A new filter (or search) starts again from its newest reports.
-  const cursor = more && more.query === current ? more.cursor : null
+  const cursor = more && more.query === query ? more.cursor : null
   // The filter options come with the first answer only (a later filter change does not ask again).
   const facetsLoaded = useRef(false)
 
-  // A new filter starts again from its first page; "Загрузить еще..." appends the next one.
   useEffect(() => {
+    if (query === null) return
     const controller = new AbortController()
     const needFacets = !facetsLoaded.current
     setLoading(true)
-    loadPage(current, cursor, PAGE_SIZE, needFacets, controller.signal)
+    loadPage(query, cursor, pageSize, needFacets, controller.signal)
       .then((body) => {
         setRows((previous) => {
           if (!cursor) return body.rows
@@ -234,31 +587,69 @@ export function PhotoReportsView() {
     return () => controller.abort()
     // `t` only translates the error text; a language switch must not reload the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, cursor])
+  }, [query, cursor, pageSize])
 
-  const columns = useMemo(() => {
-    const result: FieldRecordRow[][] = Array.from({ length: COLUMNS }, () => [])
-    rows.forEach((row, index) => result[index % COLUMNS].push(row))
+  // The reference loads the next reports by itself once the end of the list scrolls into view.
+  useEffect(() => {
+    const node = sentinel.current
+    if (!node || loading || !nextCursor || query === null) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setMore({ query, cursor: nextCursor })
+    }, { rootMargin: "200px" })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [loading, nextCursor, query])
+
+  // The report of the viewer when a link opens one that is not among the loaded cards.
+  const reportId = state?.report ?? 0
+  const loadedReport = rows.find((row) => row.id === reportId) ?? null
+  useEffect(() => {
+    if (!reportId || loadedReport || loading) return
+    const controller = new AbortController()
+    loadPage(`id=${reportId}`, null, 1, false, controller.signal)
+      .then((body) => setLinked(body.rows[0] ?? null))
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [reportId, loadedReport, loading])
+
+  const masonry = useMemo(() => {
+    const result: FieldRecordRow[][] = Array.from({ length: columns }, () => [])
+    rows.forEach((row, index) => result[index % columns].push(row))
     return result
-  }, [rows])
-  const activeFilters = 1 + Object.values(filters).filter(Boolean).length
-
-  const changeFilter = useCallback((apply: () => void) => {
-    apply()
-    setMore(null)
-  }, [])
+  }, [rows, columns])
 
   // The list a review answer lands in: the filter (or the loaded cards) may change while it is saved.
-  const shown = useRef({ query: current, rows })
+  const shown = useRef({ query, rows })
   useEffect(() => {
-    shown.current = { query: current, rows }
-  }, [current, rows])
+    shown.current = { query, rows }
+  }, [query, rows])
 
-  /** The report's new status: patched in place, or dropped from a tab it no longer belongs to
-   * (as the tabs filter by status). Nothing when another filter's list has been loaded since. */
-  function showStatus(id: number, next: PhotoReportStatus, asked: Query) {
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(""), 4000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  // Closing the store card closes the photo viewer with it (the reference's imageReport=0&openShop=false). A stable
+  // callback: the card reloads the store whenever it gets a new one.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+  const closeShop = useCallback(() => {
+    const now = stateRef.current
+    if (now) navigate({ ...now, imageReport: 0, openShop: 0 })
+  }, [navigate])
+
+  if (!state) return <RefPage><RefHeader title={t("Фотоотчеты")} /></RefPage>
+  const current = state
+
+  /** The report's new status: patched in place, or dropped from a tab it no longer belongs to (as the tabs filter by
+   * status). Nothing when another filter's list has been loaded since. */
+  function showStatus(id: number, next: PhotoReportStatus, asked: string | null) {
+    setLinked((value) => (value && value.id === id ? { ...value, status: next } : value))
     if (shown.current.query !== asked || !shown.current.rows.some((row) => row.id === id)) return
-    if (asked.status !== "all" && next !== asked.status) {
+    if (current.status !== "all" && next !== API_STATUS[current.status]) {
       setRows((previous) => previous.filter((row) => row.id !== id))
       setCount((value) => Math.max(0, value - 1))
     } else {
@@ -266,13 +657,12 @@ export function PhotoReportsView() {
     }
   }
 
-  /** Принять / Отклонить; the shown state clicked again goes back to "Ожидает" (pending). */
-  async function review(report: FieldRecordRow, pressed: PhotoReportStatus) {
+  /** Принять / Отклонить: the reference always sets the pressed status (pressing the shown one again keeps it). */
+  async function review(report: FieldRecordRow, target: PhotoReportStatus) {
     if (!canReview || report.employeeId === ownEmployeeId || busyRef.current.has(report.id)) return
     busyRef.current.add(report.id)
     setBusyIds(new Set(busyRef.current))
-    const target: PhotoReportStatus = report.status === pressed ? "pending" : pressed
-    const asked = current
+    const asked = query
     try {
       const response = await fetch(`/api/field-activity/photo-reports/${report.id}/status`, {
         method: "PATCH",
@@ -286,41 +676,79 @@ export function PhotoReportsView() {
         showStatus(report.id, body.status, asked)
         return
       }
-      if (!response.ok || !isStatus(body?.status)) throw new Error(body?.error || "Не удалось сохранить")
+      if (!response.ok || !isStatus(body?.status)) throw new Error(body?.error || "Изменение невозможно из-за связи с другими данными")
       showStatus(report.id, body.status, asked)
+      setNotice(t("Успешно изменено"))
     } catch (cause) {
-      notify(t((cause as Error).message || "Не удалось сохранить"))
+      notify(t((cause as Error).message || "Изменение невозможно из-за связи с другими данными"))
     } finally {
       busyRef.current.delete(report.id)
       setBusyIds(new Set(busyRef.current))
     }
   }
 
-  function applyFilter() {
-    if (draft.begin && draft.end && draft.begin > draft.end) {
-      notify(t("Дата начала позже даты окончания"))
-      return
-    }
-    changeFilter(() => {
-      setPeriod(draft)
-      setFilters(draftFilters)
+  /** A filter change: the list starts again from its first page. */
+  function apply(next: PageState) {
+    setMore(null)
+    navigate(next)
+  }
+
+  function openFilter() {
+    setDraft({
+      fromDate: current.fromDate,
+      toDate: current.toDate,
+      initiator: current.initiator,
+      supervisor: current.supervisor,
+      brand: current.brand,
+      merchType: current.merchType,
+      branch: current.branch,
+      channelCategory: current.channelCategory,
+      marketTypeParent: current.marketTypeParent,
+      market: current.market,
+      marketInn: current.marketInn,
+      withGear: current.withGear,
     })
-    setFilterOpen(false)
+    navigate({ ...current, openFilterDialog: true })
+  }
+
+  function closeFilter() {
+    setDraft(null)
+    navigate({ ...current, openFilterDialog: false })
+  }
+
+  function applyFilter() {
+    const values = draft ?? current
+    // The names next to «Фильтр» belong to the store / employee links: a filter of other ones drops them.
+    const sameInitiator = values.initiator.length === current.initiator.length && values.initiator.every((id) => current.initiator.includes(id))
+    const sameMarket = values.market.length === current.market.length && values.market.every((id) => current.market.includes(id))
+    setDraft(null)
+    apply({
+      ...current,
+      ...values,
+      initiatorName: sameInitiator ? current.initiatorName : "",
+      marketName: sameMarket ? current.marketName : "",
+      openFilterDialog: false,
+    })
+  }
+
+  /** The store / employee links of a card: the reference's link carries only that store (employee) and its name. */
+  function linkTo(next: Partial<PageState>) {
+    apply({ ...readState("?pageSize=" + PAGE_SIZE), fromDate: "", toDate: "", ...next })
   }
 
   async function exportCsv() {
-    if (exporting) return
+    if (exporting || query === null) return
     setExporting(true)
     try {
       // Every report of the filter, not only the loaded cards.
       const all: FieldRecordRow[] = []
       for (let before: string | null = null; ; ) {
-        const body = await loadPage(current, before, EXPORT_PAGE_SIZE, false)
+        const body = await loadPage(query, before, EXPORT_PAGE_SIZE, false)
         all.push(...body.rows)
         if (!body.hasMore || !body.nextCursor || !body.rows.length) break
         before = body.nextCursor
       }
-      const statusLabel = (value: string) => t(TABS.find(([, code]) => code === value)?.[0] ?? value)
+      const statusLabel = (value: string) => t(TABS.find(([, code]) => code !== "all" && API_STATUS[code] === value)?.[0] ?? value)
       const csv = csvText([
         [t("Магазин"), t("Создал"), t("Дата"), t("Комментарий"), t("Статус")],
         ...all.map((row) => [row.clientName, row.employeeName, formatDateText(row.at, language, { withTime: true }), row.comment, statusLabel(row.status)]),
@@ -338,75 +766,155 @@ export function PhotoReportsView() {
     }
   }
 
+  const filterCount = COUNTED.filter((key) => {
+    const value = current[key]
+    return Array.isArray(value) ? value.length > 0 : Boolean(value)
+  }).length
+  const tabLabel = TABS.find(([, code]) => code === current.status)?.[0] ?? "Все"
+  const viewerReport = state.report ? (loadedReport ?? (linked?.id === state.report ? linked : null)) : null
+  const viewerIndex = viewerReport ? rows.findIndex((row) => row.id === viewerReport.id) : -1
+  const previousReport = viewerIndex > 0 ? rows[viewerIndex - 1] : null
+  const nextReport = viewerIndex >= 0 ? (rows[viewerIndex + 1] ?? null) : null
+  const viewerOpen = state.imageReport > 0 && state.report > 0
+
+  function openPhoto(report: FieldRecordRow, photo: FieldPhoto) {
+    navigate({ ...current, imageReport: photo.id, report: report.id, openShop: report.clientId })
+  }
+
+  function stepStore(target: FieldRecordRow | null) {
+    if (!target) return
+    const first = [...target.photos.filter((photo) => photo.slot === "after"), ...target.photos.filter((photo) => photo.slot === "before")][0]
+    navigate({ ...current, imageReport: first?.id ?? 1, report: target.id, openShop: target.clientId })
+    // The next store at the end of the loaded cards: the list loads its next reports.
+    const index = rows.findIndex((row) => row.id === target.id)
+    if (index === rows.length - 1 && nextCursor && query !== null) setMore({ query, cursor: nextCursor })
+  }
+
+  const setDraftValue = <K extends keyof FilterValues>(key: K, value: FilterValues[K]) => setDraft((values) => (values ? { ...values, [key]: value } : values))
+  const filterValues = draft ?? current
+  const viewerOwnReport = viewerReport ? viewerReport.employeeId === ownEmployeeId : false
+
   return (
     <RefPage>
       <RefHeader title={t("Фотоотчеты")}>
         <button onClick={() => void exportCsv()} disabled={exporting} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60"><Download className="h-4 w-4" />{t("Скачать Excel")}</button>
       </RefHeader>
-      <section className="overflow-hidden bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-        <RefTabs labels={TABS.map(([label]) => label)} value={tab} onChange={(value) => changeFilter(() => setTab(value as typeof tab))} />
-        <div className="flex h-[50px] items-center gap-5 px-[10px]">
-          <button onClick={() => { setDraft(period); setDraftFilters(filters); setFilterOpen(true) }} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Filter className="h-4 w-4" />{t("Фильтр")} / {activeFilters}</button>
-          <span className="text-[12px] font-bold text-[#1E4A9A]">{dotted(period.begin)} - {dotted(period.end)}</span>
-          <div className="relative mx-auto w-[260px]"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-[#d0d0d0] py-1 text-[13px] font-semibold outline-none placeholder:text-black" /><Search className="absolute right-1 top-1 hidden h-4 w-4 text-slate-400" /></div>
-          <span className="text-[13px]">{t("Фотоотчеты")}: <b className="text-[16px] font-medium">{count} {t("шт")}</b></span>
+      <section className="overflow-hidden rounded-b-[8px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <RefTabs labels={TABS.map(([label]) => label)} value={tabLabel} onChange={(value) => apply({ ...current, status: TABS.find(([label]) => label === value)?.[1] ?? "all" })} />
+        <div className="flex h-[50px] items-center justify-between px-[10px]">
+          <div className="relative mr-[50px] shrink-0">
+            <button type="button" onClick={openFilter} className="flex h-[34px] items-center gap-[8px] rounded-[2px] bg-[#1E4A9A] pl-[14px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+              <svg viewBox="0 0 24 24" className="mb-[4px] h-[18px] w-[18px] fill-white" aria-hidden><path d={FILTER_LIST} /></svg>
+              {t("Фильтр")}{filterCount > 0 ? ` / ${filterCount}` : ""}
+            </button>
+            <span className="absolute left-full top-0 flex h-full items-center whitespace-nowrap px-[10px] text-[13px] font-semibold text-[#1E4A9A]">
+              {(current.initiatorName || current.marketName) && <span className="mr-[5px]">{[current.initiatorName, current.marketName].filter(Boolean).join(" ")}</span>}
+              {current.fromDate ? `${dotted(current.fromDate)} - ${dotted(current.toDate || current.fromDate)}` : ""}
+            </span>
+          </div>
+          <form
+            className="relative w-[256px] shrink-0"
+            onSubmit={(event) => {
+              event.preventDefault()
+              apply({ ...current, search: searchText.trim() })
+            }}
+          >
+            <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t("Поиск")} aria-label={t("Поиск")} className="h-[45px] w-full border-b border-[#e0e0e0] bg-transparent pt-[12px] text-[13px] font-semibold outline-none placeholder:font-semibold placeholder:text-black focus:border-[#1E4A9A]" />
+          </form>
+          <span className="shrink-0 text-[13px] text-[#333]">{t("Фотоотчеты")}: <span className="text-[16px] font-semibold">{count} {t("шт")}</span></span>
         </div>
       </section>
-      <div className="mt-[10px] grid gap-[22px]" style={{ gridTemplateColumns: `repeat(${COLUMNS}, minmax(0, 1fr))` }}>
-        {columns.map((column, index) => (
-          <div key={index}>
+      <div className="mt-[10px] -ml-[10px] flex">
+        {masonry.map((column, index) => (
+          <div key={index} className="min-w-0 flex-1 pl-[10px]">
             {column.map((report) => (
-              <Card key={report.id} report={report} canReview={canReview && report.employeeId !== ownEmployeeId} busy={busyIds.has(report.id)} onSet={(pressed) => void review(report, pressed)} t={t} />
+              <Card
+                key={report.id}
+                report={report}
+                canReview={canReview && report.employeeId !== ownEmployeeId}
+                busy={busyIds.has(report.id)}
+                onSet={(status) => void review(report, status)}
+                onStore={() => linkTo({ market: [report.clientId], marketName: report.clientName || `#${report.clientId}` })}
+                onEmployee={() => linkTo({ initiator: [report.employeeId], initiatorName: report.employeeName || `#${report.employeeId}` })}
+                onOpenPhoto={(photo) => openPhoto(report, photo)}
+                t={t}
+              />
             ))}
           </div>
         ))}
       </div>
-      {/* No photo report: Linko shows nothing under the card («Фотоотчеты: 0 шт» says it). */}
-      {loading && <div className="py-6 text-center text-[13px] text-[#666]">{t("Загрузка...")}</div>}
-      {!loading && nextCursor && (
-        <button type="button" onClick={() => setMore({ query: current, cursor: nextCursor })} className="mx-auto mb-6 block h-[30px] rounded-[5px] bg-[#1E4A9A] px-4 text-[13px] font-semibold text-white hover:brightness-95">
-          {t("Загрузить еще...")}
-        </button>
+      <div ref={sentinel} className="h-px" />
+      {/* No photo report: the reference shows nothing under the card («Фотоотчеты: 0 шт» says it). */}
+      {loading && (
+        <div className="flex justify-center pb-[50px] pt-[10px]">
+          <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#1E4A9A] border-t-transparent" role="status" aria-label={t("Загрузка...")} />
+        </div>
       )}
-      {filterOpen && (
-        // The reference's card: four columns, the label inside each select, a full-width green «Применить».
-        <div className="fixed inset-x-0 bottom-0 top-[50px] z-[100] overflow-y-auto bg-black/10" onClick={() => setFilterOpen(false)}>
-          <section className="mx-[30px] mt-[117px] bg-white p-[30px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between">
-              <h2 className="text-[13px] font-semibold text-[#333]">{t("Фильтр")}</h2>
-              <button type="button" onClick={() => setFilterOpen(false)} aria-label={t("Закрыть")} className="text-[#333]"><X className="h-6 w-6" /></button>
-            </div>
-            <div className="mt-[22px] grid grid-cols-1 gap-x-[22px] gap-y-[18px] px-[20px] md:grid-cols-4">
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-semibold text-black">{t("Дата создания")}</span>
-                <div className="flex h-[26px] items-center gap-1 border-b border-[#d5dae1] text-[13px]">
-                  <input type="date" min="2000-01-01" max="2100-12-31" value={draft.begin} onChange={(event) => setDraft((value) => ({ ...value, begin: event.target.value }))} className="min-w-0 flex-1 bg-transparent outline-none" />
-                  <span>-</span>
-                  <input type="date" min="2000-01-01" max="2100-12-31" value={draft.end} onChange={(event) => setDraft((value) => ({ ...value, end: event.target.value }))} className="min-w-0 flex-1 bg-transparent outline-none" />
-                </div>
+      {current.openFilterDialog && (
+        // The reference's card: fixed under the tabs, four columns, a full-width green «Применить».
+        <>
+          <div className="fixed inset-0 z-[49] cursor-pointer bg-black/10" onClick={closeFilter} />
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              applyFilter()
+            }}
+            className="fixed left-[30px] right-[37px] top-[168px] z-[50] max-h-[calc(100vh-178px)] overflow-y-auto bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"
+          >
+            <div className="relative flex flex-col px-[30px] py-[20px]">
+              <h3 className="mb-[20px] text-[14px] font-semibold text-[#333]">{t("Фильтр")}</h3>
+              <button type="button" onClick={closeFilter} aria-label={t("Закрыть")} className="absolute right-[10px] top-[10px] flex h-[44px] w-[44px] items-center justify-center">
+                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]" aria-hidden><path d={HIGHLIGHT_OFF} /></svg>
+              </button>
+              <div className="grid grid-cols-1 gap-x-[10px] gap-y-[15px] px-[20px] py-[10px] md:grid-cols-4">
+                <KitRangeField label="Дата создания" begin={filterValues.fromDate} end={filterValues.toDate} onChange={(begin, end) => setDraft((values) => (values ? { ...values, fromDate: begin, toDate: end } : values))} />
+                <KitMultiSelect label="Супервайзер" options={optionList(facets?.supervisors)} value={filterValues.supervisor.map(String)} onChange={(next) => setDraftValue("supervisor", ids(next))} />
+                <KitMultiSelect label="Создал" options={optionList(facets?.employees)} value={filterValues.initiator.map(String)} onChange={(next) => setDraftValue("initiator", ids(next))} />
+                <KitMultiSelect label="Бренд" options={optionList(facets?.brands)} value={filterValues.brand.map(String)} onChange={(next) => setDraftValue("brand", ids(next))} />
+                <KitMultiSelect label="Категория фотоотчета" options={textOptions(facets?.categories)} value={filterValues.merchType} onChange={(next) => setDraftValue("merchType", next)} />
+                <KitMultiSelect label="Филиалы" options={optionList(facets?.branches)} value={filterValues.branch.map(String)} onChange={(next) => setDraftValue("branch", ids(next))} />
+                <KitMultiSelect label="Категория канала" options={textOptions(facets?.channels)} value={filterValues.channelCategory} onChange={(next) => setDraftValue("channelCategory", next)} />
+                <KitMultiSelect label="Тип клиента" options={optionList(facets?.clientTypes)} value={filterValues.marketTypeParent.map(String)} onChange={(next) => setDraftValue("marketTypeParent", ids(next))} />
+                <KitMultiSelect label="Магазин" options={optionList(facets?.clients)} value={filterValues.market.map(String)} onChange={(next) => setDraftValue("market", ids(next))} />
+                <KitMultiSelect label="ИНН магазина" options={textOptions(facets?.inns)} value={filterValues.marketInn} onChange={(next) => setDraftValue("marketInn", next)} />
+                <KitSingleSelect
+                  label="Магазин с оборудованием"
+                  value={filterValues.withGear}
+                  onChange={(value) => setDraftValue("withGear", value === "true" || value === "false" ? value : "")}
+                  options={[
+                    { value: "true", label: t("Да") },
+                    { value: "false", label: t("Нет") },
+                  ]}
+                />
               </div>
-              <FilterCardOptionSelect label={t("Супервайзер")} value={draftFilters.supervisorId} onChange={setDraftField("supervisorId")} options={(facets?.supervisors ?? []).map((item) => ({ value: String(item.id), label: item.name }))} />
-              <FilterCardOptionSelect label={t("Создал")} value={draftFilters.employeeId} onChange={setDraftField("employeeId")} options={(facets?.employees ?? []).map((item) => ({ value: String(item.id), label: item.name }))} />
-              {/* A photo report records no products here, so there is no brand to filter by. */}
-              <FilterCardOptionSelect label={t("Бренд")} value="" onChange={() => undefined} options={(facets?.brands ?? []).map((name) => ({ value: name, label: name }))} disabled />
-              <FilterCardOptionSelect label={t("Категория фотоотчета")} value={draftFilters.category} onChange={setDraftField("category")} options={(facets?.categories ?? []).map((name) => ({ value: name, label: name }))} />
-              <FilterCardOptionSelect label={t("Филиалы")} value={draftFilters.branch} onChange={setDraftField("branch")} options={(facets?.branches ?? []).map((name) => ({ value: name, label: name }))} />
-              <FilterCardOptionSelect label={t("Категория канала")} value={draftFilters.channel} onChange={setDraftField("channel")} options={(facets?.channels ?? []).map((name) => ({ value: name, label: name }))} />
-              <FilterCardOptionSelect label={t("Тип клиента")} value={draftFilters.clientTypeId} onChange={setDraftField("clientTypeId")} options={(facets?.clientTypes ?? []).map((item) => ({ value: String(item.id), label: item.name }))} />
-              <FilterCardOptionSelect label={t("Магазин")} value={draftFilters.clientId} onChange={setDraftField("clientId")} options={(facets?.clients ?? []).map((item) => ({ value: String(item.id), label: item.name }))} />
-              <FilterCardOptionSelect label={t("ИНН магазина")} value={draftFilters.inn} onChange={setDraftField("inn")} options={(facets?.inns ?? []).map((inn) => ({ value: inn, label: inn }))} />
-              <FilterCardOptionSelect
-                label={t("Магазин с оборудованием")}
-                value={draftFilters.withEquipment}
-                onChange={(value) => setDraftFilters((current) => ({ ...current, withEquipment: value === "true" || value === "false" ? value : "" }))}
-                options={[
-                  { value: "true", label: t("Да") },
-                  { value: "false", label: t("Нет") },
-                ]}
-              />
+              <button type="submit" className="mt-[10px] h-[36px] w-full rounded-[2px] bg-[#71ce87] text-[13px] font-semibold text-white hover:brightness-95">{t("Применить")}</button>
             </div>
-            <button type="button" onClick={applyFilter} className="mt-[22px] h-9 w-full rounded-[3px] bg-[#71ce87] text-[13px] font-semibold text-white">{t("Применить")}</button>
-          </section>
+          </form>
+        </>
+      )}
+      {viewerOpen && (
+        <PhotoViewer
+          key={state.report}
+          report={viewerReport}
+          photoId={state.imageReport}
+          previous={previousReport}
+          next={nextReport}
+          pendingTab={current.status === "pending"}
+          canReview={canReview && !viewerOwnReport}
+          busy={viewerReport ? busyIds.has(viewerReport.id) : false}
+          onPhoto={(photoId) => navigate({ ...current, imageReport: photoId }, true)}
+          onPrevious={() => stepStore(previousReport)}
+          onNext={() => stepStore(nextReport)}
+          onReview={(status) => viewerReport && void review(viewerReport, status)}
+          t={t}
+        />
+      )}
+      {state.openShop > 0 && (
+        <ClientDrawer key={state.openShop} clientId={state.openShop} onClose={closeShop} editHref={`/clients?openShop=${state.openShop}&openUpdateDialog=true`} />
+      )}
+      {notice && (
+        <div role="status" className="fixed bottom-6 left-1/2 z-[1100] -translate-x-1/2 rounded-[2px] bg-[#323232] px-6 py-[14px] text-[14px] text-white shadow-lg">
+          {notice}
         </div>
       )}
     </RefPage>

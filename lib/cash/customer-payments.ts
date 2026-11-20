@@ -73,7 +73,7 @@ import { invalidFieldResponse } from "@/lib/validation"
 // cash_management_entries for the same money), so /api/balances/client and
 // /api/balances/cashbox follow automatically.
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 // Order fields the demo shows on "Ожидаемые оплаты" (due date, payment type,
 // organization, delivery man) — empty until an order writer fills them.
@@ -90,6 +90,24 @@ CREATE TABLE IF NOT EXISTS customer_payment_resends (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS customer_payment_resends_payment_idx ON customer_payment_resends (payment_id);
+-- Microseconds of the payment moment beyond its second (Linko's created_date; scripts/linko-sync/import-payment-moments.mjs):
+-- payments of the same second are listed by them, as Linko does.
+ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS created_micros INTEGER;
+-- The list shows the financial account a payment is booked on (lib/financial-accounts-repo.ts keeps these tables).
+CREATE TABLE IF NOT EXISTS financial_accounts (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT '',
+  agent TEXT NOT NULL DEFAULT '',
+  type TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS financial_account_markets (
+  client_id INTEGER PRIMARY KEY,
+  financial_account_id INTEGER NOT NULL
+);
+ALTER TABLE financial_accounts ADD COLUMN IF NOT EXISTS deleted INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS financial_account_id INTEGER;
 `
 
 declare global {
@@ -130,9 +148,15 @@ const BRANCH = "COALESCE(NULLIF(fin_place(p.branch), ''), NULLIF(fin_place(cb.br
 const DEBT_CUR = "COALESCE(fin_cur(p.currency), @base::text)"
 const CASH_CUR = "COALESCE(fin_cur(NULLIF(p.real_currency, '')), fin_cur(p.currency), @base::text)"
 
+// Linko's «Клиент» is the financial account the payment is booked on (financial_account_id, else its shop's account); a
+// payment booked on an account without a shop has no shop (no INN, no responsible agent), so it is not matched by name.
+const ACCOUNT = "COALESCE(NULLIF(fa.name, ''), p.client)"
+
 const FROM = `FROM customer_payments p
-  LEFT JOIN (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1) ck ON p.client_id IS NULL AND ck.k = fin_key(p.client)
+  LEFT JOIN (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1) ck ON p.client_id IS NULL AND p.financial_account_id IS NULL AND ck.k = fin_key(p.client)
   LEFT JOIN clients c ON c.id = COALESCE(p.client_id, ck.id)
+  LEFT JOIN financial_account_markets fam ON fam.client_id = c.id
+  LEFT JOIN financial_accounts fa ON fa.id = COALESCE(p.financial_account_id, fam.financial_account_id, c.financial_account_id)
   LEFT JOIN (SELECT fin_key(name) AS k, MIN(id) AS id FROM cashboxes GROUP BY 1) kb ON p.cashbox_id IS NULL AND btrim(p.kassa) <> '' AND kb.k = fin_key(p.kassa)
   LEFT JOIN cashboxes cb ON cb.id = COALESCE(p.cashbox_id, kb.id)
   LEFT JOIN cashboxes acb ON acb.id = p.agent_cashbox_id
@@ -143,7 +167,7 @@ const WHERE = `p.is_deleted = 0
   AND (NOT @notAccept::boolean OR p.accepted <> 1)
   AND (@search::text = ''
        OR (@searchId::bigint > 0 AND (p.id = @searchId::bigint OR p.doc_no = @searchId::bigint))
-       OR strpos(fin_key(p.client), @search::text) > 0 OR strpos(fin_key(COALESCE(c.inn, '')), @search::text) > 0
+       OR strpos(fin_key(${ACCOUNT}), @search::text) > 0 OR strpos(fin_key(COALESCE(c.inn, '')), @search::text) > 0
        OR strpos(fin_key(p.comment), @search::text) > 0 OR strpos(fin_key(p.created_by), @search::text) > 0)
   AND (@from::text = '' OR ${PAY_TS}::date >= NULLIF(@from::text, '')::date)
   AND (@to::text = '' OR ${PAY_TS}::date <= NULLIF(@to::text, '')::date)
@@ -159,6 +183,8 @@ const WHERE = `p.is_deleted = 0
   AND (cardinality(@cashboxes::int[]) = 0 OR cb.id = ANY(@cashboxes::int[]))
   AND (cardinality(@zones::text[]) = 0 OR fin_key(fin_place(COALESCE(c.zone, ''))) = ANY(@zones::text[]))
   AND (cardinality(@clients::int[]) = 0 OR COALESCE(p.client_id, ck.id) = ANY(@clients::int[]))
+  AND (cardinality(@accounts::int[]) = 0 OR fa.id = ANY(@accounts::int[]))
+  AND (@paymentType::text = '' OR COALESCE(NULLIF(fin_pt(p.icon), ''), 'cash') = @paymentType::text)
   AND (cardinality(@createdBy::text[]) = 0 OR fin_key(p.created_by) = ANY(@createdBy::text[]))
   AND (cardinality(@acceptedBy::text[]) = 0 OR fin_key(p.accepted_by) = ANY(@acceptedBy::text[]))
   AND (cardinality(@agents::text[]) = 0 OR fin_key(COALESCE(c.agent, '')) = ANY(@agents::text[]))
@@ -191,6 +217,8 @@ function whereParams(query: CustomerPaymentsQuery, cc: CurrencyContext) {
     cashboxes: ids(query.cashboxIds),
     zones: keys(query.zones),
     clients: ids(query.clientIds),
+    accounts: ids(query.accountIds),
+    paymentType: query.paymentType === "cash" || query.paymentType === "bank" ? query.paymentType : "",
     createdBy: keys(query.createdBy),
     acceptedBy: keys(query.acceptedBy),
     agents: keys(query.responsibleAgents),
@@ -202,7 +230,7 @@ function whereParams(query: CustomerPaymentsQuery, cc: CurrencyContext) {
 
 const ORDERING: Record<string, string> = {
   id: "p.id",
-  client: "fin_key(p.client)",
+  client: `fin_key(${ACCOUNT})`,
   user: "fin_key(p.created_by)",
   created_date: PAY_TS,
   accepted_time: ACC_TS,
@@ -212,12 +240,15 @@ const ORDERING: Record<string, string> = {
 }
 
 function orderBy(ordering: string | undefined): string {
-  // Unsorted, the reference lists the newest payment first by its date, payments of the same moment by number.
-  if (!String(ordering ?? "").trim()) return `${PAY_TS} DESC NULLS LAST, p.id ASC`
+  // Unsorted, the reference lists the newest payment first by its date (to the microsecond), payments of the same moment
+  // by number.
+  if (!String(ordering ?? "").trim()) return `${PAY_TS} DESC NULLS LAST, COALESCE(p.created_micros, 0) DESC, p.id ASC`
   const value = String(ordering ?? "").trim()
   const desc = value.startsWith("-")
-  const expr = ORDERING[value.replace(/^-/, "")] ?? "p.id"
-  return `${expr} ${desc ? "DESC" : "ASC"} NULLS LAST, p.id ${desc ? "DESC" : "ASC"}`
+  const key = value.replace(/^-/, "")
+  const expr = ORDERING[key] ?? "p.id"
+  const dir = desc ? "DESC" : "ASC"
+  return `${expr} ${dir} NULLS LAST, ${key === "created_date" ? `COALESCE(p.created_micros, 0) ${dir}, ` : ""}p.id ${dir}`
 }
 
 type ListRow = {
@@ -261,7 +292,7 @@ type ListRow = {
   deleted_by: string
 }
 
-const LIST_SELECT = `SELECT p.id, p.doc_no, COALESCE(p.client_id, ck.id) AS client_id, p.client, c.inn, p.created_by,
+const LIST_SELECT = `SELECT p.id, p.doc_no, COALESCE(p.client_id, ck.id) AS client_id, ${ACCOUNT} AS client, c.inn, p.created_by,
     COALESCE(to_char(${PAY_TS}, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS date,
     COALESCE(to_char(${ACC_TS}, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS accepted_at,
     p.accepted_by, p.invoice_date, c.agent AS responsible_agent, fin_place(p.organization) AS organization, ${BRANCH} AS branch,
@@ -378,9 +409,10 @@ export async function customerPaymentTotals(query: CustomerPaymentsQuery): Promi
     .sort((a, b) => order(a.currency) - order(b.currency) || a.currency.localeCompare(b.currency))
     .map((item) => ({
       ...item,
-      total: roundMoney(item.total, 3),
-      cashboxes: item.cashboxes.map((entry) => ({ ...entry, total: roundMoney(entry.total, 3) })),
-      agentCashboxes: item.agentCashboxes.map((entry) => ({ ...entry, total: roundMoney(entry.total, 3) })),
+      // The decimals of Настройки → Округление сумм (Linko prints these cards with its numberFormat).
+      total: roundMoney(item.total),
+      cashboxes: item.cashboxes.map((entry) => ({ ...entry, total: roundMoney(entry.total) })),
+      agentCashboxes: item.agentCashboxes.map((entry) => ({ ...entry, total: roundMoney(entry.total) })),
     }))
   return { baseCurrency: cc.base, totals }
 }
@@ -633,7 +665,7 @@ export async function customerPaymentOptions(): Promise<CustomerPaymentOptions> 
   const db = getDb()
   await ensureSchema(db)
   const cc = await currencyContext(db)
-  const [base, cashboxes, clients, stored, users, employees, statuses] = await Promise.all([
+  const [base, cashboxes, clients, stored, users, employees, statuses, accounts] = await Promise.all([
     getClientBalanceOptions(db),
     db.prepare("SELECT id, name, currency, payment_type, branch FROM cashboxes ORDER BY order_number NULLS LAST, id").all() as Promise<
       Array<{ id: number; name: string; currency: string; payment_type: string; branch: string }>
@@ -647,6 +679,7 @@ export async function customerPaymentOptions(): Promise<CustomerPaymentOptions> 
       Array<{ id: number; first_name: string; last_name: string; position: string }>
     >,
     db.prepare("SELECT DISTINCT status FROM orders").all() as Promise<Array<{ status: string }>>,
+    db.prepare(`SELECT id, name FROM financial_accounts WHERE COALESCE(deleted, 0) = 0 ORDER BY fin_key(name), id LIMIT ${MAX_ROWS}`).all() as Promise<Array<{ id: number; name: string }>>,
   ])
   const staff = employees.map((row) => ({ id: row.id, name: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(), position: row.position ?? "" }))
   return {
@@ -667,6 +700,7 @@ export async function customerPaymentOptions(): Promise<CustomerPaymentOptions> 
       branch: placeName(row.branch),
     })),
     clients: clients.map((row) => ({ id: row.id, name: row.name })),
+    accounts: accounts.map((row) => ({ id: row.id, name: row.name })),
     users: uniqueSorted([...stored.map((row) => row.created_by), ...users.map((row) => row.display_name), ...staff.map((row) => row.name)]),
     acceptedBy: uniqueSorted(stored.map((row) => row.accepted_by)),
     agents: base.agents,
@@ -952,12 +986,16 @@ export function parseCustomerPaymentsQuery(url: string): Parsed<CustomerPayments
   const status = search.get("status") ?? ""
   if (status && !CONFIRMATIONS.has(status)) return { error: bad("status", "confirmed | requested | rejected | auto") }
   const flag = search.get("notAccept")
+  const paymentType = search.get("paymentType") ?? ""
+  if (!["", "cash", "bank"].includes(paymentType)) return { error: bad("paymentType", "cash | bank") }
   return {
     data: {
       tab: tab as CustomerPaymentTab,
       search: search.get("search")?.trim() || undefined,
       ...dates.values,
       invoice: invoice as CustomerPaymentsQuery["invoice"],
+      accountIds: idList(search, "account"),
+      paymentType: paymentType as CustomerPaymentsQuery["paymentType"],
       branches: textList(search, "branch"),
       deliveryMen: textList(search, "deliveryMan"),
       organizations: textList(search, "organization"),

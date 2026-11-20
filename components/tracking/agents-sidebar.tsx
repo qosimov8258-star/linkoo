@@ -7,7 +7,7 @@ import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { TrackingAgentRow } from "@/lib/tracking-types"
 
-import { GROUP_TABS, agentColor, batteryColor, formatLongDay, monthTitle, shiftDay, type TrackingGroup } from "./agents-tracking-data"
+import { GROUP_TABS, batteryColor, formatLongDay, monthTitle, shiftDay, type TrackingGroup } from "./agents-tracking-data"
 
 // Right sidebar of Отслеживание in list mode: date navigator (with a calendar), role tabs,
 // agent search, and the online / offline agents of the day.
@@ -28,7 +28,7 @@ export function Battery({ level }: { level: number | null }) {
         </span>
         <span className="h-[5px] w-[2px] rounded-r-sm bg-[#999]" />
       </span>
-      <span className="text-[10px] text-[#666]">{value}%</span>
+      <span className="text-[13px] leading-[16px] text-[#333]">{value}%</span>
     </span>
   )
 }
@@ -98,22 +98,23 @@ function DayCalendar({ value, onPick, onClose }: { value: string; onPick: (day: 
   )
 }
 
-function AgentRow({ agent, selected, online, onOpen }: { agent: TrackingAgentRow; selected: boolean; online: boolean; onOpen: () => void }) {
+function AgentRow({ agent, selected, online, color, onOpen }: { agent: TrackingAgentRow; selected: boolean; online: boolean; color: string; onOpen: () => void }) {
   const { language } = useLanguage()
   const last = agent.location?.lastActivityAt ?? null
   return (
+    // Linko's row: the colour dot 10px from the edge, the status bar at 30px, the text from 45px; a long name wraps.
     <button
       type="button"
       onClick={onOpen}
-      className={`flex h-[45px] w-full items-center gap-[8px] pl-[12px] pr-[14px] text-left transition-colors hover:bg-[#f2f4f7] ${selected ? "bg-[#ececec]" : ""}`}
+      className={`relative flex min-h-[45px] w-full items-center gap-[8px] border-t border-[#efefef] py-[2px] pl-[45px] pr-[20px] text-left transition-colors hover:bg-[#f2f5f8] ${selected ? "bg-[#f2f5f8]" : ""}`}
     >
-      <span className="h-[10px] w-[10px] shrink-0 rounded-full" style={{ background: agentColor(agent.employeeId) }} />
-      <span className="h-[30px] w-[3px] shrink-0" style={{ background: online ? "#3ac977" : "#999" }} />
+      <span className="absolute left-[10px] top-[calc(50%-5px)] h-[10px] w-[10px] rounded-full" style={{ background: color }} />
+      <span className="absolute left-[30px] top-1/2 -mt-[15px] h-[30px] w-[3px]" style={{ background: online ? "#3ac977" : "#999" }} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-bold text-[#333]">{agent.name}</span>
-        <span className="block truncate text-[11px] italic text-[#777]">{last ? formatDateText(last, language, { withTime: true }) : "—"}</span>
+        <span className="block break-words text-[13px] font-bold leading-[15px] text-[#333]">{agent.name}</span>
+        <span className="block truncate text-[13px] italic leading-[16px] text-[#333]">{last ? formatDateText(last, language, { withTime: true }) : "—"}</span>
       </span>
-      <span className="shrink-0 text-[12px] text-[#444]">
+      <span className="shrink-0 text-[13px] text-[#333]">
         {agent.done} / {agent.todo}
         {agent.unplanned > 0 && <span className="text-[#ee667d]"> + {agent.unplanned}</span>}
       </span>
@@ -122,22 +123,44 @@ function AgentRow({ agent, selected, online, onOpen }: { agent: TrackingAgentRow
   )
 }
 
-function Section({ title, agents, online, selectedId, onSelect, emptyText }: { title: string; agents: TrackingAgentRow[]; online: boolean; selectedId: number | null; onSelect: (id: number) => void; emptyText: string }) {
+function Section({
+  title,
+  agents,
+  online,
+  selectedId,
+  onSelect,
+  emptyText,
+  colorOf,
+}: {
+  title: string
+  agents: TrackingAgentRow[]
+  online: boolean
+  selectedId: number | null
+  onSelect: (id: number) => void
+  emptyText: string
+  colorOf: (employeeId: number) => string
+}) {
   const { t } = useLanguage()
+  // Linko leaves the «Онлайн агенты» title out while nobody is online (only the robot shows).
+  const titled = !(online && agents.length === 0)
   return (
-    <section className="border-t border-[#e8e8e8]">
-      <div className="flex items-center justify-between px-[15px] py-[12px]">
-        <span className="text-[13px] font-semibold">{t(title)}</span>
-        <span className="text-[13px] font-bold">{agents.length}</span>
-      </div>
+    <section className={titled ? "border-t border-[#efefef]" : ""}>
+      {titled && (
+        <div className="flex h-[45px] items-center justify-between pl-[5%] pr-[30px]">
+          <span className="text-[13px] font-semibold">{t(title)}</span>
+          <span className="text-[13px] font-bold">{agents.length}</span>
+        </div>
+      )}
       {agents.length === 0 ? (
-        <div className="flex flex-col items-center px-4 pb-[18px]">
+        <div className="flex flex-col items-center px-[40px] pb-[25px] pt-[16px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/robot-empty.png" alt="" className="w-[100px]" />
-          <p className="-mt-[4px] text-center text-[13px] text-[#777]">{t(emptyText)}</p>
+          <img src="/robot-empty.png" alt="" className="w-[120px]" />
+          <p className="mt-[8px] text-center text-[13px] text-[#666]">{t(emptyText)}</p>
         </div>
       ) : (
-        agents.map((agent) => <AgentRow key={agent.employeeId} agent={agent} online={online} selected={agent.employeeId === selectedId} onOpen={() => onSelect(agent.employeeId)} />)
+        agents.map((agent) => (
+          <AgentRow key={agent.employeeId} agent={agent} online={online} color={colorOf(agent.employeeId)} selected={agent.employeeId === selectedId} onOpen={() => onSelect(agent.employeeId)} />
+        ))
       )}
     </section>
   )
@@ -156,6 +179,7 @@ export function AgentsSidebar({
   error,
   selectedId,
   onSelect,
+  colorOf,
 }: {
   date: string
   onDate: (day: string) => void
@@ -169,6 +193,7 @@ export function AgentsSidebar({
   error: string
   selectedId: number | null
   onSelect: (employeeId: number) => void
+  colorOf: (employeeId: number) => string
 }) {
   const { t, language } = useLanguage()
   const [calendar, setCalendar] = useState(false)
@@ -199,7 +224,8 @@ export function AgentsSidebar({
         )}
       </div>
 
-      <div className="flex h-[38px] shrink-0 items-stretch bg-[#5d6474]">
+      {/* Linko's tab bar: grey, white icons, the picked one dark grey over a small white notch. */}
+      <div className="flex h-[40px] shrink-0 items-stretch bg-[#ccc]">
         {GROUP_TABS.map(({ id, label }) => {
           const Icon = GROUP_ICONS[id]
           const active = group === id
@@ -211,10 +237,10 @@ export function AgentsSidebar({
               title={t(label)}
               aria-label={t(label)}
               aria-pressed={active}
-              className={`relative flex flex-1 items-center justify-center text-white transition-opacity ${active ? "opacity-100" : "opacity-60 hover:opacity-90"}`}
+              className={`relative flex flex-1 items-center justify-center ${active ? "text-[#666]" : "text-white hover:text-[#eee]"}`}
             >
               <Icon className="h-5 w-5" />
-              {active && <span className="absolute bottom-0 left-1/2 h-0 w-0 -translate-x-1/2 border-x-[6px] border-b-[6px] border-x-transparent border-b-white" />}
+              {active && <span className="absolute bottom-0 left-1/2 h-0 w-0 -translate-x-1/2 border-x-[4px] border-b-[6px] border-x-transparent border-b-white" />}
             </button>
           )
         })}
@@ -252,8 +278,8 @@ export function AgentsSidebar({
           <p className="px-[20px] py-[16px] text-center text-[#777]">{t("Загрузка...")}</p>
         ) : (
           <>
-            <Section title="Онлайн агенты" agents={online} online selectedId={selectedId} onSelect={onSelect} emptyText="Онлайн агенты не найдены..." />
-            <Section title="Офлайн агенты" agents={offline} online={false} selectedId={selectedId} onSelect={onSelect} emptyText="Офлайн агенты не найдены..." />
+            <Section title="Онлайн агенты" agents={online} online selectedId={selectedId} onSelect={onSelect} emptyText="Онлайн агенты не найдены..." colorOf={colorOf} />
+            <Section title="Офлайн агенты" agents={offline} online={false} selectedId={selectedId} onSelect={onSelect} emptyText="Офлайн агенты не найдены..." colorOf={colorOf} />
           </>
         )}
       </div>

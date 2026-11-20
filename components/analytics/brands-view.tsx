@@ -1,6 +1,6 @@
 "use client"
 
-import { MoreVertical, Pencil, Trash2 } from "lucide-react"
+import { MoreVertical } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
@@ -14,7 +14,6 @@ import {
   DICT_HEAD,
   DICT_ROW,
   DictionaryPage,
-  DictionaryRowActions,
   DictionaryToolbar,
   SortHeader,
   dictionaryListUrl,
@@ -53,8 +52,10 @@ function BrandsGrid() {
   const created = (brand: Brand) => (brand.createdAt ? formatCategoryDate(brand.createdAt, language) : brand.createdDate)
   const sort = (next: string) => update({ ordering: next, page: 1 })
 
-  const cols = "grid-cols-[109.3px_202.5px_303.7px_303.8px_1fr]"
-  const headerCell = "px-0 font-semibold"
+  // Linko's Bootstrap row xs-1 / 2 / 3 / 3 / 2 / 1 (⋮) of the 30 px inset row; cells padded 8 px, the first only on
+  // the right.
+  const cols = "grid-cols-[8.3333%_16.6667%_25%_25%_16.6667%_1fr]"
+  const headerCell = "px-2 font-semibold"
 
   return (
     <DictionaryPage>
@@ -63,7 +64,7 @@ function BrandsGrid() {
       <div className="overflow-x-auto">
         <div className="min-w-[760px]">
           <div className={`${DICT_HEAD} ${cols}`}>
-            <SortHeader as="div" label="Id" field="id" ordering={state.ordering} onSort={sort} className={headerCell} />
+            <SortHeader as="div" label="Id" field="id" ordering={state.ordering} onSort={sort} className="pr-2 font-semibold" />
             <SortHeader as="div" label={t("Фото")} field="image" ordering={state.ordering} onSort={sort} className={headerCell} />
             <SortHeader as="div" label={t("Наименование")} field="name" ordering={state.ordering} onSort={sort} className={headerCell} />
             <SortHeader as="div" label={t("Организация")} field="division" ordering={state.ordering} onSort={sort} className={headerCell} />
@@ -79,14 +80,14 @@ function BrandsGrid() {
             ) : (
               rows.map((brand) => (
                 <div key={brand.id} className={`${DICT_ROW} ${cols}`}>
-                  <div className="pb-[7px] pt-[9px] pr-4">{brand.id}</div>
-                  <div className="pb-[7px] pt-[9px] pr-4">
+                  <div className="pb-[7px] pt-[9px] pr-2">{brand.id}</div>
+                  <div className="px-2 pb-[7px] pt-[9px]">
                     {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
                     {brand.photoUrl && <img src={brand.photoUrl} alt="" className="h-5 w-10 object-contain" />}
                   </div>
-                  <div className="break-words pb-[7px] pt-[9px] pr-4">{brand.name}</div>
-                  <div className="break-words pb-[7px] pt-[9px] pr-4">{brand.organization || t("Не указано")}</div>
-                  <div className="whitespace-nowrap pb-[7px] pt-[9px] pr-4">{created(brand)}</div>
+                  <div className="break-words px-2 pb-[7px] pt-[9px]">{brand.name}</div>
+                  <div className="break-words px-2 pb-[7px] pt-[9px]">{brand.organization || t("Не указано")}</div>
+                  <div className="whitespace-nowrap px-2 pb-[7px] pt-[9px]">{created(brand)}</div>
                   <div className="absolute right-[36px] top-[7px]">
                     {canEdit && (
                       <RowMenu

@@ -19,7 +19,7 @@ import { ReorderLevelTable } from "@/components/analytics/reorder-level-table"
 import { useStockOptions, useUrlState } from "@/components/analytics/stock-move-filters"
 import { RI, RefHeader } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
-import type { RecommendedListResult, RecommendedUnit } from "@/lib/stock-recommended"
+import type { RecommendedListResult } from "@/lib/stock-recommended"
 
 // "Рекомендованный запас" (demo #/recommended-stock, chunk c138): "Показать
 // фильтр" (Склад, Организация, Тип продукта, Подкатегория, По брендам, period),
@@ -105,7 +105,9 @@ function ReorderLevelContent() {
   const periodWord = (iso: string) => {
     const [y, m, d] = iso.split("-")
     const months = PERIOD_MONTHS[language === "ru" || language === "uz" ? language : "en"]
-    return `${d} ${months[Number(m) - 1]} ${y}`
+    // Linko's date field capitalizes every word («01 Сент. 2026»).
+    const month = months[Number(m) - 1]
+    return `${d} ${month.charAt(0).toUpperCase()}${month.slice(1)} ${y}`
   }
 
   return (
@@ -138,7 +140,7 @@ function ReorderLevelContent() {
         </div>
         <div className="relative w-[410px] shrink-0">
           <button type="button" onClick={openFilter} className="absolute left-0 top-[25px] w-[200px] text-right text-[13px] font-bold text-[#1E4A9A]" title={t("Диапазон дат")} data-no-translate>
-            {periodWord(state.from)} - {periodWord(state.to)}
+            {periodWord(state.from)} – {periodWord(state.to)}
           </button>
           <label className="absolute left-[210px] top-[9.5px] block h-[36px] w-[200px] border-b border-[#e8e8e8]">
             <span className="pointer-events-none absolute left-0 top-[12px] text-[13px] font-semibold leading-[16.3px] text-black">{t("Показать по типу ед.")}{state.unit !== "measurement" ? `: ${t(REORDER_UNITS.find((unit) => unit.id === state.unit)?.label ?? "")}` : ""}</span>
@@ -175,7 +177,6 @@ function ReorderLevelContent() {
           {t("Не удалось выполнить запрос")}: {t(downloadError)}
         </p>
       )}
-      {state.unit === "box" && <UnitNote unit={state.unit} />}
 
       {(data?.count ?? 0) > state.pageSize && (
         <section className="flex justify-end bg-white px-[20px] py-2">
@@ -229,18 +230,11 @@ function ReorderLevelContent() {
         </div>
       )}
       {data && !list.error && rows.length > 0 && (
-        <ReorderLevelTable rows={rows} ordering={state.ordering} unit={state.unit} onOrderingChange={(next) => update({ ordering: next || null, page: null })} loading={list.loading} />
+        <ReorderLevelTable rows={rows} ordering={state.ordering} onOrderingChange={(next) => update({ ordering: next || null, page: null })} loading={list.loading} />
       )}
       </div>
 
       <ReorderFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} state={state} options={options} optionsError={optionsError} onApply={applyFilter} />
     </main>
   )
-}
-
-/** "Блок": the catalog has no units-per-block yet, so the numbers stay in pieces. */
-function UnitNote({ unit }: { unit: RecommendedUnit }) {
-  const { t } = useLanguage()
-  if (unit !== "box") return null
-  return <p className="px-4 pb-2 text-[13px] text-[#b7791f] sm:px-6 md:px-9">{t("Количество в блоке не задано в справочнике — показано в штуках")}</p>
 }

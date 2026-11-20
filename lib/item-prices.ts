@@ -14,11 +14,12 @@ import { normCurrency } from "@/lib/finance/currency"
 // mode), supplier incomings "Переоценка", price formation, the product dialogs, Прайс-листы and
 // Переоценка.
 //
-// setItemPrices() upserts entries of ONE item and recomputes the derived columns
-//   price_min / price_max = min / max of every positive cash and nonCash price of the item, each
-//                           converted into the BASE currency with the current rates (an entry's
-//                           currency, else its price list's currency; prices in a currency without
-//                           a rate are left out), so a USD list never sits next to a SUM list;
+// setItemPrices() upserts entries of ONE item and moves the derived columns
+//   price_min / price_max = like Linko's product min_price / max_price: the lowest and the highest
+//                           price the item was ever written (cash and nonCash, a zero included), each
+//                           converted into the BASE currency with the rates of the day of the write
+//                           (an entry's currency, else its price list's currency; prices in a currency
+//                           without a rate are left out). A later change does not narrow them;
 //   price_updated_date    = "17 окт. 2026" (local day; products only, or wherever the column exists).
 // Every price is 0 ≤ x ≤ MAX_PRICE (contract: money |x| ≤ 1e13); anything else is a RangeError
 // "Некорректная цена" that the callers turn into a 400.
@@ -185,8 +186,36 @@ function toBase(value: number, currency: string, context: PriceCurrencyContext):
   return rate && Number.isFinite(rate) && rate > 0 ? Math.round(value * rate * 1e6) / 1e6 : null
 }
 
+/** Prices one write gave the item (cash and nonCash of every changed entry, zeros included), in the base currency. */
+function writtenPrices(entries: ItemPriceEntry[], changes: ItemPriceChange[], context: PriceCurrencyContext): number[] {
+  const prices: number[] = []
+  for (const change of changes) {
+    if (change.remove) continue
+    const entry = findItemPrice(entries, change.priceList)
+    if (!entry) continue
+    const listCurrency = context.listCurrency.get(priceListKey(entry.name))
+    const cashCurrency = normCurrency(entry.currency || listCurrency, context.base)
+    const nonCashCurrency = normCurrency(entry.nonCashCurrency || entry.currency || listCurrency, context.base)
+    for (const [value, currency] of [
+      [entry.cash, cashCurrency],
+      [entry.nonCash, nonCashCurrency],
+    ] as const) {
+      if (!(value >= 0)) continue
+      const converted = toBase(value, currency, context)
+      if (converted !== null) prices.push(converted)
+    }
+  }
+  return prices
+}
+
+/** A stored price_updated_date that names a day (the item was priced before). */
+function isPricedDate(value: string | null | undefined): boolean {
+  const text = String(value ?? "").trim()
+  return Boolean(text) && text !== "Не установлена"
+}
+
 /**
- * Derived price_min / price_max: every positive cash / nonCash price of the item. With a currency
+ * Min / max of every positive cash / nonCash price of the item (current prices only). With a currency
  * context the prices are converted into the base currency first (cash: the entry's currency, else
  * the list's; non-cash: nonCashCurrency, else the cash currency); prices of a currency without a
  * known rate are left out. Without a context the raw values are compared (one-currency callers).
@@ -292,6 +321,8 @@ export async function setItemPrices(
     "name",
     "price_lists",
     columns.has("price_updated_date") ? "price_updated_date" : "NULL AS price_updated_date",
+    columns.has("price_min") ? "price_min" : "NULL AS price_min",
+    columns.has("price_max") ? "price_max" : "NULL AS price_max",
     columns.has("deleted") ? "deleted" : "0 AS deleted",
     ...(legacy ? ["price_list", "cash_price", columns.has("non_cash_price") ? "non_cash_price" : "NULL AS non_cash_price"] : []),
   ]
@@ -301,6 +332,8 @@ export async function setItemPrices(
         name: string
         price_lists: string | null
         price_updated_date: string | null
+        price_min: number | string | null
+        price_max: number | string | null
         deleted: number | string | null
         price_list?: string | null
         cash_price?: string | null
@@ -322,7 +355,13 @@ export async function setItemPrices(
     entries = applyChange(entries, change)
   }
 
-  const { priceMin, priceMax } = priceBounds(entries, options.context ?? (await cachedPriceCurrencyContext(db)))
+  // Linko's bounds: the stored ones widened by the prices of this write (an item never priced starts from them).
+  const written = writtenPrices(entries, changes, options.context ?? (await cachedPriceCurrencyContext(db)))
+  const priced = before !== "[]" || isPricedDate(row.price_updated_date) || Number(row.price_max) > 0
+  const storedMin = Number(row.price_min) || 0
+  const storedMax = Number(row.price_max) || 0
+  const priceMin = written.length ? (priced ? Math.min(storedMin, ...written) : Math.min(...written)) : storedMin
+  const priceMax = written.length ? (priced ? Math.max(storedMax, ...written) : Math.max(...written)) : storedMax
   const json = JSON.stringify(entries)
   const changed = json !== before
   let priceUpdatedDate = row.price_updated_date ?? ""

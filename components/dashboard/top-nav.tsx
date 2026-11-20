@@ -21,6 +21,8 @@ import {
 } from "lucide-react"
 
 import { analyticsReports } from "@/lib/analytics-catalog"
+import { passwordPolicyFor } from "@/lib/auth-policy"
+import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { AccountDropdown, ChangePasswordDialog, ROLE_LABELS, type AccountUser } from "./account-dropdown"
@@ -44,8 +46,8 @@ type MenuProps = {
 
 type NavItem = {
   label: string
-  /** Landing page of the tab (used where there is no hover menu, e.g. on phones). */
-  href: string
+  /** Page a click on the tab opens, as the reference's tab links (with its default period / page size). */
+  href: (today: string) => string
   icon: LucideIcon
   matches: (pathname: string) => boolean
   menu: ComponentType<MenuProps>
@@ -74,49 +76,49 @@ const NAV_ICONS: Record<string, string> = {
 const navItems: NavItem[] = [
   {
     label: "Аналитика",
-    href: "/analytics",
+    href: (today) => `/?beginDate=${today}&endDate=${today}&typeDate=ownDate`,
     icon: BarChart3,
     matches: (pathname) => pathname === "/analytics" || pathname.startsWith("/analytics/"),
     menu: AnalyticsMenu,
   },
   {
     label: "Клиенты",
-    href: "/clients",
+    href: () => "/clients?pageSize=25",
     icon: Users,
     matches: (pathname) => pathname === "/clients" || pathname.startsWith("/clients/"),
     menu: ClientsMenu,
   },
   {
     label: "Продажи",
-    href: "/analytics/sales",
+    href: () => "/analytics/sales?pageSize=25&status=0-1-5",
     icon: Video,
     matches: (pathname) => matchesHrefs(pathname, salesHrefs),
     menu: SalesMenu,
   },
   {
     label: "Персонал",
-    href: "/tracking",
+    href: () => "/tracking?view=agents",
     icon: UserRound,
     matches: (pathname) => pathname.startsWith("/tracking") || matchesHrefs(pathname, personnelHrefs),
     menu: PersonnelMenu,
   },
   {
     label: "Склад",
-    href: "/analytics/stock-level",
+    href: () => "/analytics/stock-level?pageSize=25",
     icon: Warehouse,
     matches: (pathname) => matchesHrefs(pathname, warehouseHrefs),
     menu: WarehouseMenu,
   },
   {
     label: "Финансы",
-    href: "/analytics/cash-management",
+    href: () => "/analytics/cash-management?pageSize=25",
     icon: BriefcaseBusiness,
     matches: (pathname) => matchesHrefs(pathname, financeHrefs),
     menu: FinanceMenu,
   },
   {
     label: "Производство",
-    href: "/analytics/production",
+    href: () => "/analytics/production-batches?pageSize=25",
     icon: Factory,
     matches: (pathname) => pathname.startsWith("/analytics/production"),
     menu: ProductionMenu,
@@ -239,6 +241,17 @@ export function navSectionLabel(pathname: string): string | null {
   return isAnalytics ? "Аналитика" : null
 }
 
+/**
+ * Top-nav tab lit for a page: the menu the page's link sits in (Склад for every page of the Склад menu, Финансы for
+ * its balances …), else navSectionLabel (the dashboard and the reports → Аналитика; settings pages → none).
+ */
+export function navTabLabel(pathname: string): string | null {
+  // A page in two menus (KPI план филиалов: Персонал and Финансы) lights the first one, the section the reference names
+  // for it.
+  const menu = navItems.find((item) => item.label !== "Аналитика" && item.matches(pathname))
+  return menu?.label ?? navSectionLabel(pathname)
+}
+
 /** Branch picked in the account menu: `linko-branch` (id, read by the API) + `linko-branch-name` (label of the menu button). */
 function writeBranchCookies(id: number | undefined, name: string) {
   const maxAge = id ? 60 * 60 * 24 * 365 : 0
@@ -296,8 +309,11 @@ export function TopNav() {
   const navButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const menuWrapperRef = useRef<HTMLDivElement>(null)
   const [menuLeft, setMenuLeft] = useState(0)
+  // Pointer type of the last press on a tab ("mouse", "pen", "touch"; "" for a keyboard click).
+  const tabPointer = useRef("")
 
-  const activeItem = [...navItems].reverse().find((item) => item.matches(pathname))
+  // The section of the page shown (Склад for Остаток, Перемещения …): its tab stays lit in a lighter blue.
+  const currentSection = navTabLabel(pathname)
   const desktopMenu = navItems.find((item) => item.label === openMenu)
 
   // Each mega-menu has its own natural width, so it can't be positioned with
@@ -316,14 +332,13 @@ export function TopNav() {
 
       const headerRect = header.getBoundingClientRect()
       const buttonRect = button.getBoundingClientRect()
-      const margin = 8
-      const maxLeft = Math.max(margin, headerRect.width - wrapper.offsetWidth - margin)
-      // Wide menus sit centred under the bar, narrow ones hang off their own button.
-      let desired = (headerRect.width - wrapper.offsetWidth) / 2
-      if (openMenu === "Клиенты") desired = buttonRect.left - headerRect.left - 19
-      if (openMenu === "Производство") desired = buttonRect.right - headerRect.left - wrapper.offsetWidth
-      const left = Math.min(Math.max(desired, margin), maxLeft)
-      setMenuLeft(left)
+      // The reference's placement: centred under the bar, but kept between "ends under the tab's right edge" and
+      // "starts at the tab's left edge" (and then 20px further left); always 8px clear of both window edges.
+      const width = wrapper.offsetWidth
+      const buttonLeft = buttonRect.left - headerRect.left
+      let left = Math.min(Math.max((headerRect.width - width) / 2, buttonRect.right - headerRect.left - width), buttonLeft)
+      if (left === buttonLeft) left -= 20
+      setMenuLeft(Math.max(Math.min(left, headerRect.width - width - 8), 8))
     }
 
     recompute()
@@ -385,7 +400,7 @@ export function TopNav() {
       .then((data: (Partial<AccountUser> & { mustChangePassword?: boolean }) | null) => {
         if (cancelled || !data?.username) return
         const role = data.role === "admin" || data.role === "manager" ? data.role : "viewer"
-        setAccount({ displayName: data.displayName || data.username, username: data.username, role })
+        setAccount({ displayName: data.displayName || data.username, username: data.username, role, employeeId: typeof data.employeeId === "number" ? data.employeeId : null })
         // A password set by an administrator, the first (seeded) password or a
         // legacy weak one must be replaced before working on: the dialog opens
         // by itself and cannot be dismissed until the password is changed.
@@ -444,7 +459,7 @@ export function TopNav() {
   return (
     <header ref={headerRef} className="sticky top-0 z-40 bg-[#0D2350] text-white shadow-[0_5px_10px_2px_rgba(13,35,80,0.35)]">
       <div className="flex h-[50px] items-center px-4 xl:pl-6 xl:pr-[29px]">
-        <div ref={brandRef} className="relative mr-auto shrink-0 lg:mr-3">
+        <div ref={brandRef} className="relative mr-auto shrink-0">
           <button
             type="button"
             onClick={() => setBrandMenuOpen((current) => !current)}
@@ -492,9 +507,16 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="ml-[91px] min-[1440px]:ml-[calc(50vw-697.87px)] max-[1439px]:ml-[max(20px,calc(50vw-582.37px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
-          {navItems.map(({ label }) => {
+        {/* As in the reference, the tabs sit halfway between the logo and the account block (two equal spacers); the
+            Mezon logo is 60px wider than the reference's, so from xl the tabs move 30px left of that middle and keep the
+            reference's positions. Below 1100 px (from lg, 1024) the items are a little tighter (padding and icon gap), so
+            the Russian menu and the account block fit: at 1024 they ran to 1049 px and widened every page. */}
+        <div className="hidden flex-1 lg:block" />
+
+        <nav ref={navRef} className="hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex xl:-ml-[30px] xl:mr-[30px]">
+          {navItems.map(({ label, href }) => {
             const isOpen = openMenu === label
+            const isCurrent = label === currentSection
 
             return (
               <button
@@ -503,9 +525,15 @@ export function TopNav() {
                   navButtonRefs.current[label] = el
                 }}
                 type="button"
+                onPointerDown={(event) => {
+                  tabPointer.current = event.pointerType
+                }}
                 onClick={() => {
                   cancelClose()
-                  setOpenMenu(label)
+                  // Like the reference, a click opens the tab's own page; a tap (touch screens have no hover) opens its menu.
+                  if (tabPointer.current === "touch") setOpenMenu(label)
+                  else navigate(href(todayIso()))
+                  tabPointer.current = ""
                 }}
                 onMouseEnter={() => {
                   cancelClose()
@@ -515,10 +543,13 @@ export function TopNav() {
                 onFocus={() => setOpenMenu(label)}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
-                className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
+                aria-current={isCurrent ? "location" : undefined}
+                className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] max-[1099px]:gap-[3px] max-[1099px]:pl-[3px] max-[1099px]:pr-[3px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
                     ? "bg-[#1E4A9A] shadow-[inset_0_-3px_0_#C9962B] hover:bg-[#1E4A9A]"
-                    : "hover:bg-[#17346B]"
+                    : isCurrent
+                      ? "bg-[#1E4A9A] hover:bg-[#2456AE]"
+                      : "hover:bg-[#17346B]"
                 } focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -661,7 +692,7 @@ export function TopNav() {
                     onClick={() => setMobileSection((current) => (current === label ? null : label))}
                     aria-expanded={expanded}
                     className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-semibold transition-colors ${
-                      activeItem?.label === label ? "bg-[#1E4A9A]" : "hover:bg-white/10"
+                      currentSection === label ? "bg-[#1E4A9A]" : "hover:bg-white/10"
                     } focus-visible:outline-2 focus-visible:outline-white`}
                   >
                     <Icon className="h-5 w-5" />
@@ -729,6 +760,7 @@ export function TopNav() {
       {passwordOpen && (
         <ChangePasswordDialog
           username={account?.username ?? ""}
+          policy={account ? passwordPolicyFor(account) : "standard"}
           required={passwordRequired}
           onChanged={() => {
             if (passwordRequired) setReloadAfterPassword(true)

@@ -27,17 +27,29 @@ import { TasksImportDialog } from "./tasks-import"
 // "Задачи" (/analytics/tasks), the reference app's "#/task-management/": tabs В процессе / Выполнено /
 // Завершенный / Все, the filter (opens on the current month of "Дата задачи"), search, server-side
 // paging, the task drawer (?task=<id>), "Добавить" / "Импортировать". The view state lives in the
-// URL (status, search, page, pageSize, responsible, createdBy, client, createdFrom, createdTo,
-// taskFrom, taskTo, task), so a reload or a shared link shows the same list.
+// URL under Linko's names (status, search, page, pageSize, responsibleUser, createdBy, market — ids
+// joined by "-" —, fromDate / toDate = Период создания, fromDateSecond / toDateSecond = Период задачи,
+// and task), so a reload or a shared link shows the same list.
 
 type ViewState = TaskFilterValue & { tab: TaskTab; search: string; page: number; pageSize: number; task: number | null }
 
 const LIST_KEYS = ["responsible", "createdBy", "client"] as const
 const DAY_KEYS = ["createdFrom", "createdTo", "taskFrom", "taskTo"] as const
 
+/** Linko's address names of the filter fields. */
+const URL_KEYS = {
+  responsible: "responsibleUser",
+  createdBy: "createdBy",
+  client: "market",
+  createdFrom: "fromDate",
+  createdTo: "toDate",
+  taskFrom: "fromDateSecond",
+  taskTo: "toDateSecond",
+} as const
+
 const ids = (raw: string | null) =>
   (raw ?? "")
-    .split(",")
+    .split(/[-,]/)
     .map((part) => part.trim())
     .filter((part) => /^\d{1,10}$/.test(part))
 const day = (raw: string | null) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? "") ? (raw as string) : "")
@@ -48,39 +60,37 @@ function stateOf(params: URLSearchParams, today: string): ViewState {
   const tabText = params.get("status") ?? ""
   const tab = (TASK_TABS.some((item) => item.key === tabText) ? tabText : "all") as TaskTab
   const [monthFrom, monthTo] = monthRange(today)
-  const hasTaskPeriod = params.has("taskFrom") || params.has("taskTo")
+  const hasTaskPeriod = params.has(URL_KEYS.taskFrom) || params.has(URL_KEYS.taskTo)
   const size = positive(params.get("pageSize"), TASK_DEFAULT_PAGE_SIZE)
   return {
     tab,
     search: (params.get("search") ?? "").slice(0, 200),
     page: positive(params.get("page"), 1),
     pageSize: (TASK_PAGE_SIZES as readonly number[]).includes(size) ? size : TASK_DEFAULT_PAGE_SIZE,
-    responsible: ids(params.get("responsible")),
-    createdBy: ids(params.get("createdBy")),
-    client: ids(params.get("client")),
-    createdFrom: day(params.get("createdFrom")),
-    createdTo: day(params.get("createdTo")),
-    taskFrom: hasTaskPeriod ? day(params.get("taskFrom")) : monthFrom,
-    taskTo: hasTaskPeriod ? day(params.get("taskTo")) : monthTo,
+    responsible: ids(params.get(URL_KEYS.responsible)),
+    createdBy: ids(params.get(URL_KEYS.createdBy)),
+    client: ids(params.get(URL_KEYS.client)),
+    createdFrom: day(params.get(URL_KEYS.createdFrom)),
+    createdTo: day(params.get(URL_KEYS.createdTo)),
+    taskFrom: hasTaskPeriod ? day(params.get(URL_KEYS.taskFrom)) : monthFrom,
+    taskTo: hasTaskPeriod ? day(params.get(URL_KEYS.taskTo)) : monthTo,
     task: /^\d{1,10}$/.test(params.get("task") ?? "") ? Number(params.get("task")) : null,
   }
 }
 
-/** The URL of a state (defaults left out; a cleared task period is kept as empty values). */
-function paramsOf(state: ViewState, today: string): URLSearchParams {
+/** The URL of a state, as Linko writes it (pageSize and the task period always; a cleared task period is kept as
+ * empty values). */
+function paramsOf(state: ViewState): URLSearchParams {
   const params = new URLSearchParams()
   if (state.tab !== "all") params.set("status", state.tab)
   if (state.search) params.set("search", state.search)
   if (state.page > 1) params.set("page", String(state.page))
-  if (state.pageSize !== TASK_DEFAULT_PAGE_SIZE) params.set("pageSize", String(state.pageSize))
-  for (const key of LIST_KEYS) if (state[key].length) params.set(key, state[key].join(","))
-  if (state.createdFrom) params.set("createdFrom", state.createdFrom)
-  if (state.createdTo) params.set("createdTo", state.createdTo)
-  const [monthFrom, monthTo] = monthRange(today)
-  if (state.taskFrom !== monthFrom || state.taskTo !== monthTo) {
-    params.set("taskFrom", state.taskFrom)
-    params.set("taskTo", state.taskTo)
-  }
+  params.set("pageSize", String(state.pageSize))
+  for (const key of LIST_KEYS) if (state[key].length) params.set(URL_KEYS[key], state[key].join("-"))
+  if (state.createdFrom) params.set(URL_KEYS.createdFrom, state.createdFrom)
+  if (state.createdTo) params.set(URL_KEYS.createdTo, state.createdTo)
+  params.set(URL_KEYS.taskFrom, state.taskFrom)
+  params.set(URL_KEYS.taskTo, state.taskTo)
   if (state.task !== null) params.set("task", String(state.task))
   return params
 }
@@ -123,12 +133,12 @@ export function TasksView() {
   /** Writes a new state into the URL (Next.js keeps useSearchParams in sync, no server round-trip). */
   const navigate = useCallback(
     (patch: Partial<ViewState>, mode: "push" | "replace" = "replace") => {
-      const next = paramsOf({ ...state, ...patch }, today).toString()
+      const next = paramsOf({ ...state, ...patch }).toString()
       const url = `${pathname}${next ? `?${next}` : ""}`
       if (mode === "push") window.history.pushState(null, "", url)
       else window.history.replaceState(null, "", url)
     },
-    [state, pathname, today],
+    [state, pathname],
   )
 
   const apiQuery = useMemo(() => apiParamsOf(state), [state])
@@ -197,7 +207,7 @@ export function TasksView() {
   const clientOptions = useMemo(() => options.clients.map(({ id, name, hint }) => ({ id, name, hint })), [options.clients])
 
   const taskHref = (id: number) => {
-    const params = paramsOf({ ...state, task: id }, today).toString()
+    const params = paramsOf({ ...state, task: id }).toString()
     return `${pathname}?${params}`
   }
 
@@ -247,7 +257,7 @@ export function TasksView() {
         />
 
         <div className="relative flex h-[50px] items-center border-t border-[#efefef] bg-white px-[5px]">
-          <div className="w-[355px] shrink-0">
+          <div className="w-[380px] shrink-0">
             <TaskFilterControl
               value={filterValue}
               employees={employeeOptions}
@@ -283,7 +293,7 @@ export function TasksView() {
             </button>
           </form>
           <div className="ml-auto flex items-center text-[#5d6474]">
-            <div className="relative mr-[27px]">
+            <div className="relative mr-[15px]">
               <select
                 value={state.pageSize}
                 aria-label={t("Строк на странице")}
@@ -300,7 +310,7 @@ export function TasksView() {
                 <path d="M7 10l5 5 5-5z" />
               </svg>
             </div>
-            <span className="mr-2 whitespace-nowrap">
+            <span className="mr-[6px] whitespace-nowrap">
               {from} - {to} {t("из")} {count}
             </span>
             <button type="button" disabled={state.page <= 1} onClick={() => navigate({ page: state.page - 1 })} aria-label={t("Назад")} className="px-[5px]">
@@ -319,7 +329,7 @@ export function TasksView() {
         <div className="overflow-x-auto bg-white">
           <div className="min-w-[900px]">
             <div className="grid h-[50px] grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,5fr)_minmax(0,1fr)] items-center bg-[#5d6474] px-[30px] text-[13px] font-semibold text-white">
-              <div className="px-2">№</div>
+              <div className="pr-2">№</div>
               <div className="px-2">{t("Ответственный")}</div>
               <div className="px-2">{t("Дата задачи")}</div>
               <div className="px-2">{t("Магазин")}</div>
@@ -346,14 +356,14 @@ export function TasksView() {
                     key={task.id}
                     href={taskHref(task.id)}
                     onClick={(event) => openTask(event, task.id)}
-                    className={`grid min-h-[50px] grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,5fr)_minmax(0,1fr)] items-center border-b border-dashed border-[#d6d6d6] px-[30px] py-[7px] text-[13px] text-[#333] hover:bg-[#f2f5f8] ${state.task === task.id ? "bg-[#f2f5f8]" : ""}`}
+                    className={`grid min-h-[50px] grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,5fr)_minmax(0,1fr)] items-center border-b-2 border-dotted border-[#d9e0e5] px-[30px] py-[7px] text-[13px] text-[#333] hover:bg-[#f2f5f8] ${state.task === task.id ? "bg-[#f2f5f8]" : ""}`}
                   >
                     <div className="px-2">{task.id}</div>
                     <div className="truncate px-2">{task.responsible || t("Не указано")}</div>
                     <div className="px-2">{task.taskDate ? formatDateText(task.taskDate, language, { withTime: false }) : t("Не указано")}</div>
                     <div className="truncate px-2">{task.client || t("Не указано")}</div>
                     <div className="line-clamp-2 break-words px-2">{task.title}</div>
-                    <div className="flex justify-end px-2">
+                    <div className="flex justify-end pl-2">
                       <TaskStatusIcon status={task.status} />
                     </div>
                   </a>

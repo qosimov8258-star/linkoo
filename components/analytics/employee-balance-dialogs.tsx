@@ -8,6 +8,7 @@ import { LINE_INPUT, LineDate, LineField } from "@/components/ref/line-fields"
 import { nowLocalIso, todayIso } from "@/lib/finance/dates"
 import type { FinanceCurrency } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { amountDigits } from "@/lib/amount-precision"
 
 // Dialogs of the "Баланс сотрудников" page: Linko's «Штраф» / «Корректировка» of the row menu (⋮), the
 // "Пользователи" multi-select of the filter popup and a small snackbar.
@@ -25,11 +26,11 @@ export const EMPLOYEE_OPTION_LABELS: Record<EmployeeOptionType, string> = {
 
 type FieldErrors = Partial<Record<"user" | "currency" | "amount" | "date" | "form", string>>
 
-/** Demo normalizeNumber: thousands separated by spaces, comma → dot, up to 3 decimals. */
+/** Demo normalizeNumber: thousands separated by spaces, comma → dot, up to the decimals of Настройки → Округление сумм (3 when not set). */
 export function formatAmountInput(raw: string): string {
   const text = raw.replace(/\s/g, "").replace(/,/g, ".").replace(/[^\d.]/g, "")
   const [integer, ...rest] = text.split(".")
-  const fraction = rest.length ? `.${rest.join("").slice(0, 3)}` : ""
+  const fraction = rest.length ? `.${rest.join("").slice(0, amountDigits(3))}` : ""
   return `${integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}${fraction}`
 }
 

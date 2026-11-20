@@ -282,9 +282,11 @@ export async function cascadeCategoryRename(db: PgDb, kind: CategoryKind, id: nu
 /** ORDER BY of the paged list (alias c); default = name, case-insensitive, like the demo. */
 export function categoryOrderBy(ordering: string | undefined, collation: string, extra: Record<string, string> = {}): string {
   const name = `lower(c.name) COLLATE ${collation}`
+  // Names equal but for case: lower case first, as the reference lists them ("оплата за поставку", "Оплата за Поставку").
+  const exact = `c.name COLLATE ${collation}`
   const map: Record<string, string> = {
-    name: `${name} ASC, c.id ASC`,
-    "-name": `${name} DESC, c.id DESC`,
+    name: `${name} ASC, ${exact} ASC, c.id ASC`,
+    "-name": `${name} DESC, ${exact} DESC, c.id DESC`,
     id: "c.id ASC",
     "-id": "c.id DESC",
     created_date: `c.created_at ASC, c.id ASC`,

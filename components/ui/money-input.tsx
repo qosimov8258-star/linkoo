@@ -8,13 +8,14 @@ type BaseProps = Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "defaultV
 
 /**
  * An amount / price / rate field that is typed like the reference's: "85 000 000" (spaces between the
- * thousands, also when pasted), "1 234.5" (comma or point; at most `decimals` decimals). A text field, so the
+ * thousands, also when pasted), "1 234.5" (comma or point; at most `decimals` decimals, by default those of
+ * Настройки → Округление сумм, lib/number-input.ts). A text field, so the
  * browser never refuses the spaces as a number field does. `value` is the field's text (any spelling: "85000000"
  * shows as "85 000 000"); `onValueChange` gets the normalized text, which parseAmount / parseNumberInput read.
  * The caret stays where it was typed although spaces come and go.
  */
 export const MoneyInput = forwardRef<HTMLInputElement, BaseProps & { value: string | number | null | undefined; onValueChange: (value: string) => void; decimals?: number }>(
-  function MoneyInput({ value, onValueChange, decimals = 3, ...rest }, ref) {
+  function MoneyInput({ value, onValueChange, decimals, ...rest }, ref) {
     const inner = useRef<HTMLInputElement>(null)
     const caret = useRef<number | null>(null)
     useImperativeHandle(ref, () => inner.current as HTMLInputElement)
@@ -52,7 +53,7 @@ export const MoneyInput = forwardRef<HTMLInputElement, BaseProps & { value: stri
  * number, and follows the number when it changes elsewhere. `onNumberChange` gets NaN for an empty field.
  */
 export const MoneyNumberInput = forwardRef<HTMLInputElement, BaseProps & { value: number | null | undefined; onNumberChange: (value: number) => void; decimals?: number }>(
-  function MoneyNumberInput({ value, onNumberChange, decimals = 3, ...rest }, ref) {
+  function MoneyNumberInput({ value, onNumberChange, decimals, ...rest }, ref) {
     const [text, setText] = useState(() => (value === null || value === undefined || Number.isNaN(value) ? "" : normalizeNumber(String(value), decimals)))
     useEffect(() => {
       const current = parseNumberInput(text)

@@ -8,7 +8,7 @@ import { roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList, type BalanceListParams, type BalanceTypeFilter } from "@/lib/finance/ledger"
 import { sortBalanceRows } from "@/lib/finance/rows"
-import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { ensureFinanceSchema, type FinanceSchema } from "@/lib/finance/schema"
 import { MOVEMENT_COLUMNS, type BalanceListResult, type BalanceRow, type CurrencyBalance } from "@/lib/finance/types"
 import type { ClientBalanceOptions } from "@/lib/finance-client-balance-types"
 import { strictNum } from "@/lib/strict-number"
@@ -132,25 +132,49 @@ function roundBalance(balance: CurrencyBalance): CurrencyBalance {
   return Object.fromEntries(Object.entries(balance).map(([field, value]) => [field, roundMoney(value)])) as CurrencyBalance
 }
 
-/** "Показать по типам клиентов": one row per client type (key "type:<type>"). */
-function rollupTypes(rows: BalanceRow[], codes: string[]): BalanceRow[] {
-  const groups = new Map<string, BalanceRow>()
+/** Клиенты → Типы клиентов: top-level types in id order and the parent of each sub-type (by normalised name). */
+type TypeDirectory = { parents: string[]; parentOf: Map<string, string> }
+
+async function loadTypeDirectory(db: PgDb): Promise<TypeDirectory> {
+  const present = (await db.prepare("SELECT to_regclass('client_types') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!present?.ok) return { parents: [], parentOf: new Map() }
+  const rows = (await db.prepare("SELECT id, name, parent_id FROM client_types ORDER BY id").all()) as Array<{ id: number; name: string; parent_id: number | null }>
+  const byId = new Map(rows.map((row) => [Number(row.id), row]))
+  const parentOf = new Map<string, string>()
   for (const row of rows) {
-    const type = String(row.info.type ?? "")
+    const parent = row.parent_id === null ? undefined : byId.get(Number(row.parent_id))
+    if (parent) parentOf.set(nameKey(row.name), parent.name)
+  }
+  return { parents: rows.filter((row) => row.parent_id === null || !byId.has(Number(row.parent_id))).map((row) => row.name), parentOf }
+}
+
+/** "Показать по типам клиентов": one row per top-level client type (key "type:<type>") as Linko's total_by_types
+ *  lists them — every type, sub-types summed into their parent, in the directory (id) order; types only written on
+ *  clients follow by name, clients without a type last. */
+function rollupTypes(rows: BalanceRow[], codes: string[], directory: TypeDirectory): BalanceRow[] {
+  const groups = new Map<string, BalanceRow>()
+  const group = (type: string) => {
     const key = `type:${nameKey(type)}`
-    let group = groups.get(key)
-    if (!group) {
-      group = { key, id: null, name: type, info: { type, clients: 0 }, currencies: Object.fromEntries(codes.map((code) => [code, emptyBalance()])), members: [] }
-      groups.set(key, group)
+    let found = groups.get(key)
+    if (!found) {
+      found = { key, id: null, name: type, info: { type, clients: 0 }, currencies: Object.fromEntries(codes.map((code) => [code, emptyBalance()])), members: [] }
+      groups.set(key, found)
     }
-    if (row.id !== null) group.members!.push(row.id)
-    group.info.clients = Number(group.info.clients) + 1
-    for (const code of codes) addInto(group.currencies[code], row.currencies[code])
+    return found
+  }
+  for (const type of directory.parents) group(type)
+  const listed = groups.size
+  for (const row of rows) {
+    const own = String(row.info.type ?? "")
+    const target = group(directory.parentOf.get(nameKey(own)) ?? own)
+    if (row.id !== null) target.members!.push(row.id)
+    target.info.clients = Number(target.info.clients) + 1
+    for (const code of codes) addInto(target.currencies[code], row.currencies[code])
   }
   const collator = new Intl.Collator("ru", { numeric: true, sensitivity: "base" })
-  return [...groups.values()]
-    .map((group) => ({ ...group, currencies: Object.fromEntries(Object.entries(group.currencies).map(([code, balance]) => [code, roundBalance(balance)])) }))
-    .sort((a, b) => (a.name === "" ? 1 : b.name === "" ? -1 : collator.compare(a.name, b.name)))
+  const all = [...groups.values()].map((item) => ({ ...item, currencies: Object.fromEntries(Object.entries(item.currencies).map(([code, balance]) => [code, roundBalance(balance)])) }))
+  const rest = all.slice(listed).sort((a, b) => (a.name === "" ? 1 : b.name === "" ? -1 : collator.compare(a.name, b.name)))
+  return [...all.slice(0, listed), ...rest]
 }
 
 function sumRows(rows: BalanceRow[], codes: string[]): Record<string, CurrencyBalance> {
@@ -182,8 +206,12 @@ export async function getClientBalanceList(params: ClientBalanceParams, db: PgDb
   const codes = list.currencies.map((currency) => currency.code)
   let rows = list.rows
 
+  const directory = types || params.clientTypes?.length ? await loadTypeDirectory(db) : { parents: [], parentOf: new Map<string, string>() }
   const wantedTypes = (params.clientTypes ?? []).map((value) => nameKey(placeName(value)))
-  if (wantedTypes.length) rows = rows.filter((row) => wantedTypes.includes(nameKey(row.info.type)))
+  // A top-level type also finds the clients of its sub-types (Linko's «Тип клиента» = marketTypeParent).
+  const typeOf = (row: BalanceRow) => nameKey(row.info.type)
+  const parentOf = (row: BalanceRow) => nameKey(directory.parentOf.get(typeOf(row)) ?? "")
+  if (wantedTypes.length) rows = rows.filter((row) => wantedTypes.includes(typeOf(row)) || wantedTypes.includes(parentOf(row)))
   const deliveryMan = nameKey(params.deliveryMan)
   if (deliveryMan) rows = rows.filter((row) => nameKey(row.info.deliverer) === deliveryMan)
   // Nothing about visits / refusals is stored: the last visit is unknown for everybody.
@@ -197,7 +225,7 @@ export async function getClientBalanceList(params: ClientBalanceParams, db: PgDb
   rows = rows.filter((row) => matchesBalanceType(row, params.balanceType, params.balanceCurrency))
 
   if (types) {
-    rows = rollupTypes(rows, codes)
+    rows = rollupTypes(rows, codes, directory)
     const query = nameKey(params.search)
     if (query) rows = rows.filter((row) => nameKey(row.name).includes(query))
   }
@@ -243,6 +271,84 @@ function uniqueNames(values: unknown[]): string[] {
 function sorted(values: string[]): string[] {
   const collator = new Intl.Collator("ru", { numeric: true, sensitivity: "base" })
   return [...values].sort(collator.compare)
+}
+
+/** Linko's staff pickers (main/crud/for_select?group=delivery | collector | agent): the active employees whose access
+ * right (Права доступа) carries the capability of that name («Доставщик», «Инкассатор», «Агент»), by id. An
+ * employee without an access right of its own goes by the right its account signs in with, else by the right named in
+ * its position ("<access right> · <job>"). Null without the access right tables (the caller keeps its own list). */
+async function capabilityStaff(db: PgDb, s: FinanceSchema, capability: string): Promise<string[] | null> {
+  if (!s.has("access_rights") || !s.has("capabilities") || !s.col("access_rights", "capability_ids") || !s.col("employees", "access_right_id")) return null
+  const wanted = new Set(
+    ((await db.prepare("SELECT id FROM capabilities WHERE lower(btrim(name)) = lower(@name)").all({ name: capability })) as Array<{ id: number }>).map((row) => Number(row.id)),
+  )
+  const rights = (await db.prepare("SELECT id, name, capability_ids FROM access_rights").all()) as Array<{ id: number; name: string; capability_ids: string | null }>
+  const ids = new Set<number>()
+  const names = new Set<string>()
+  for (const right of rights) {
+    let list: unknown = []
+    try {
+      list = JSON.parse(right.capability_ids || "[]")
+    } catch {
+      list = []
+    }
+    if (Array.isArray(list) && list.some((id) => wanted.has(Number(id)))) {
+      ids.add(Number(right.id))
+      names.add(nameKey(right.name))
+    }
+  }
+  const withAccount = s.col("users", "employee_id") && s.col("users", "access_right_id") && s.col("users", "role")
+  const right = withAccount
+    ? "COALESCE(e.access_right_id, (SELECT CASE WHEN u.role <> 'admin' THEN u.access_right_id END FROM users u WHERE u.employee_id = e.id ORDER BY u.id LIMIT 1))"
+    : "e.access_right_id"
+  const employees = (await db
+    .prepare(`SELECT e.id, e.first_name, e.last_name, e.position, ${right} AS access_right_id FROM employees e WHERE e.active = 1 ORDER BY e.id`)
+    .all()) as Array<{ id: number; first_name: string; last_name: string; position: string; access_right_id: number | null }>
+  const known = new Set(rights.map((row) => Number(row.id)))
+  return uniqueNames(
+    employees
+      .filter((row) => {
+        const rightId = row.access_right_id === null || row.access_right_id === undefined ? null : Number(row.access_right_id)
+        if (rightId !== null && known.has(rightId)) return ids.has(rightId)
+        const parts = String(row.position ?? "").split(/\s*[|·]\s*/)
+        return parts.length > 1 && names.has(nameKey(parts[0]))
+      })
+      .map((row) => `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim()),
+  )
+}
+
+/** Linko's directory order (its database sorts names case-insensitively, Latin before Cyrillic). */
+function linkoSorted(values: string[]): string[] {
+  const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" })
+  return [...values].sort(collator.compare)
+}
+
+/** Filter options of Баланс клиентов / Долги по счетам as Linko's pickers list them: Филиалы, Зона (every zone),
+ * Организация and Тип клиента (top-level types) by name; Доставщик / Ответственные доставщики / Ответственный
+ * инкасатор / Клиенты агента = the staff with that capability, by id (capabilityStaff). */
+export async function getBalanceFilterOptions(db: PgDb = getDb()): Promise<ClientBalanceOptions> {
+  const s = await ensureFinanceSchema(db)
+  const base = await getClientBalanceOptions(db)
+  const column = async (sql: string, ok: boolean): Promise<string[]> => (ok ? ((await db.prepare(sql).all()) as Array<{ v: unknown }>).map((row) => String(row.v ?? "")) : [])
+  // Клиенты → Зоны (not a ledger table, so not in the finance schema map).
+  const zoneTable = ((await db.prepare("SELECT to_regclass('client_zones') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined)?.ok ?? false
+  const [zones, types, deliverers, collectors, agents] = await Promise.all([
+    column("SELECT name AS v FROM client_zones", zoneTable),
+    column(`SELECT name AS v FROM client_types${s.col("client_types", "parent_id") ? " WHERE parent_id IS NULL" : ""}`, s.has("client_types")),
+    capabilityStaff(db, s, "Доставщик"),
+    capabilityStaff(db, s, "Инкассатор"),
+    capabilityStaff(db, s, "Агент"),
+  ])
+  return {
+    ...base,
+    branches: linkoSorted(base.branches),
+    organizations: linkoSorted(base.organizations),
+    zones: linkoSorted(zones.length ? uniqueNames([...zones, ...base.zones]) : base.zones),
+    types: linkoSorted(types.length ? uniqueNames(types) : base.types),
+    deliverers: deliverers ?? base.deliverers,
+    collectors: collectors ?? base.collectors,
+    agents: agents ?? base.agents,
+  }
 }
 
 /** Options of the filter popup (branches and organizations keep their table order first). */

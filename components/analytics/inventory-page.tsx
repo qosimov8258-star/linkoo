@@ -6,16 +6,17 @@ import { ArrowDown, ArrowUp } from "lucide-react"
 
 import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
-import { InventoryDetailPanel } from "@/components/analytics/stock-inventory-detail"
+import { INVENTORY_DIALOG_KEYS, InventoryDetailPanel, type InventoryDialogKey } from "@/components/analytics/stock-inventory-detail"
+import { InventoryEditDialog } from "@/components/analytics/stock-inventory-edit"
 import { EMPTY_INVENTORY_FILTERS, InventoryFilterBar, InventoryFilterPanel, type InventoryFilters } from "@/components/analytics/stock-inventory-filter"
 import { InventoryFormDialog } from "@/components/analytics/stock-inventory-form"
 import { StatusLabel, formatSum, inventoryDateText, inventoryListSheet } from "@/components/analytics/stock-inventory-shared"
-import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefButton, RefHeader, RefIconButton, RefPage, RefToolbar } from "@/components/ref/list-kit"
+import { SplitDetailList } from "@/components/ref/split-detail"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
   STOCK_INVENTORY_STATUSES,
-  type StockInventoryDetail,
   type StockInventoryListResult,
   type StockInventoryOptions,
   type StockInventoryStatus,
@@ -25,9 +26,14 @@ import {
 // 4372–4759; API stock/inventory/). Toolbar: "Показать фильтр" (Склад, Создал,
 // Статус, Период создания), search, page size + "1 - 25 из N", Excel; columns
 // № | Склад | Создал | Дата создания | Комментарий | Статус | Сумма (№ and date
-// sortable); a row opens its detail in place; "Добавить" creates. Counted
-// lines become stock movements once confirmed (lib/stock core). Data:
-// /api/stock/inventories/**; the URL keeps the state.
+// sortable); a row opens its card in its place (the rows above and below stay in
+// two cards); "Добавить" creates. Counted lines become stock movements once
+// confirmed (lib/stock core). Data: /api/stock/inventories/**; the URL keeps the
+// state, the card's dialogs included, under Linko's keys (openUpdateDialog,
+// openVerifyDialog, inventoryCancelOpen, openCreateDialog; a closed one stays as
+// "false", as Linko leaves it). Like Linko's links, opening a card or a dialog and
+// paging add a browser history entry (Back closes it again); the card's id stays
+// in the URL on another page, where the card is not drawn.
 
 type ViewState = {
   search: string
@@ -36,6 +42,7 @@ type ViewState = {
   pageSize: number
   filters: InventoryFilters
   detailId: number | null
+  dialogs: Partial<Record<InventoryDialogKey, string>>
 }
 
 function positiveInt(value: string | null): number | null {
@@ -59,6 +66,7 @@ function stateFromParams(params: URLSearchParams): ViewState {
       toDate: params.get("toDate") ?? "",
     },
     detailId: positiveInt(params.get("id")),
+    dialogs: Object.fromEntries(INVENTORY_DIALOG_KEYS.flatMap((key) => (params.get(key) ? [[key, params.get(key) ?? ""]] : []))),
   }
 }
 
@@ -74,6 +82,7 @@ function stateToSearch(state: ViewState): string {
     fromDate: state.filters.fromDate,
     toDate: state.filters.toDate,
     id: state.detailId ?? "",
+    ...state.dialogs,
   })
 }
 
@@ -94,9 +103,20 @@ function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
 
 // Linko marks an ascending column (ordering=createdDate) with ↓ and a descending one with ↑.
 function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
-  if (ordering === sortKey) return <ArrowDown className="ml-2 h-3.5 w-3.5 text-[#c9ccd3]" />
-  if (ordering === `-${sortKey}`) return <ArrowUp className="ml-2 h-3.5 w-3.5 text-[#c9ccd3]" />
+  const keys = ordering.split(",").map((part) => part.trim())
+  if (keys.includes(sortKey)) return <ArrowDown className="ml-2 h-3.5 w-3.5 text-[#c9ccd3]" />
+  if (keys.includes(`-${sortKey}`)) return <ArrowUp className="ml-2 h-3.5 w-3.5 text-[#c9ccd3]" />
   return null
+}
+
+/** Linko's header sort: a click adds the column ascending, then makes it descending, then drops it; the other keys stay
+ * ("created_date,-id"). */
+function nextOrdering(ordering: string, key: string): string {
+  const keys = ordering.split(",").map((part) => part.trim()).filter(Boolean)
+  const index = keys.findIndex((part) => part.replace(/^-/, "") === key)
+  if (index < 0) return [...keys, key].join(",")
+  if (keys[index].startsWith("-")) return keys.filter((_, i) => i !== index).join(",")
+  return keys.map((part, i) => (i === index ? `-${key}` : part)).join(",")
 }
 
 export function InventoryPage() {
@@ -107,8 +127,8 @@ export function InventoryPage() {
   const [searchDraft, setSearchDraft] = useState(state.search)
   // ?openFilterDialog=true (Linko's link to the open filter) starts with the filter panel open.
   const [filterOpen, setFilterOpen] = useState(() => searchParams.get("openFilterDialog") === "true")
-  // undefined = closed, null = create, detail = edit.
-  const [form, setForm] = useState<StockInventoryDetail | null | undefined>(undefined)
+  // The create dialog (open = null); «Изменение» is ?openUpdateDialog=true of the open card.
+  const [form, setForm] = useState<null | undefined>(undefined)
   const [detailVersion, setDetailVersion] = useState(0)
   const [message, setMessage] = useState<SnackbarMessage | null>(null)
 
@@ -117,10 +137,35 @@ export function InventoryPage() {
   const data = list.data
   const rows = data?.results ?? []
 
+  // The URL follows the state: a new entry when the card, a dialog, the page or the list's filters change (Linko pushes
+  // its hash links), else (typing in the search, the first normalisation) the entry is replaced.
+  const shown = useRef<ViewState | null>(null)
+  // Set before a correction the page makes by itself (a page past the end), which must not add an entry.
+  const replaceNext = useRef(false)
   useEffect(() => {
     const search = stateToSearch(state)
-    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+    const previous = shown.current
+    const replace = replaceNext.current
+    shown.current = state
+    replaceNext.current = false
+    if (window.location.search.slice(1) === search) return
+    const withoutSearch = (value: ViewState) => stateToSearch({ ...value, search: "" })
+    const push = !replace && previous !== null && withoutSearch(previous) !== withoutSearch(state)
+    const url = `${window.location.pathname}?${search}`
+    // No state of our own: Next.js then records the entry in its router, so useSearchParams follows Back / Forward.
+    if (push) window.history.pushState(null, "", url)
+    else window.history.replaceState(null, "", url)
   }, [state])
+
+  // Back / Forward: the state follows the URL.
+  const urlSearch = searchParams.toString()
+  useEffect(() => {
+    const next = stateFromParams(new URLSearchParams(urlSearch))
+    if (!shown.current || stateToSearch(next) === stateToSearch(shown.current)) return
+    shown.current = next
+    setState(next)
+    setSearchDraft(next.search)
+  }, [urlSearch])
 
   // Search applies 400 ms after typing stops.
   useEffect(() => {
@@ -134,14 +179,19 @@ export function InventoryPage() {
   useEffect(() => {
     if (!data || list.loading || state.page <= 1) return
     const last = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
-    if (state.page > last) setState((current) => ({ ...current, page: last }))
+    if (state.page > last) {
+      replaceNext.current = true
+      setState((current) => ({ ...current, page: last }))
+    }
   }, [data, list.loading, state.page, state.pageSize])
 
   const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const setDialog = useCallback((key: InventoryDialogKey, value: string) => setState((current) => ({ ...current, dialogs: { ...current.dialogs, [key]: value } })), [])
+  const closeEdit = useCallback(() => setDialog("openUpdateDialog", "false"), [setDialog])
   const notify = useCallback((text: string, error = false) => setMessage({ text, tone: error ? "error" : "success" }), [])
   const closeSnackbar = useCallback(() => setMessage(null), [])
 
-  const sort = (key: string) => update({ ordering: state.ordering === key ? `-${key}` : state.ordering === `-${key}` ? "" : key, page: 1 })
+  const sort = (key: string) => update({ ordering: nextOrdering(state.ordering, key), page: 1 })
   const sortHeader = (key: string, label: ReactNode) => (
     <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 font-semibold">
       {label}
@@ -166,8 +216,10 @@ export function InventoryPage() {
     }
   }
 
-  // ?openInventoryCreateDialog=true opens the create dialog (reference deep link).
+  // ?openInventoryCreateDialog=true opens the create dialog (reference deep link); with &pdStock=<warehouse name>
+  // (the production stage's «Сверить») that warehouse is preselected in it.
   const wantCreate = useRef(searchParams.get("openInventoryCreateDialog") === "true")
+  const [createWarehouse, setCreateWarehouse] = useState(() => (searchParams.get("openInventoryCreateDialog") === "true" ? (searchParams.get("pdStock") ?? "").trim() : ""))
   useEffect(() => {
     if (!canEdit || !wantCreate.current) return
     wantCreate.current = false
@@ -175,14 +227,15 @@ export function InventoryPage() {
   }, [canEdit])
 
   const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / state.pageSize))
+  // Only № and Дата создания sort (on the server); the other heads are plain text (a string head would sort client-side).
   const heads = [
     <span key="n" className="-ml-2 block">{sortHeader("id", "№")}</span>,
-    t("Склад"),
-    t("Создал"),
+    <span key="w">{t("Склад")}</span>,
+    <span key="c">{t("Создал")}</span>,
     sortHeader("created_date", t("Дата создания")),
-    t("Комментарий"),
-    t("Статус"),
-    t("Сумма"),
+    <span key="m">{t("Комментарий")}</span>,
+    <span key="s">{t("Статус")}</span>,
+    <span key="p">{t("Сумма")}</span>,
   ]
   return (
     <RefPage>
@@ -190,91 +243,123 @@ export function InventoryPage() {
         {canEdit && <RefButton green icon={RI.checklist} label={t("Добавить")} onClick={() => setForm(null)} />}
       </RefHeader>
 
-      <RefCard>
-        <RefToolbar
-          filterOpen={filterOpen}
-          filterPanel={
-            <InventoryFilterPanel
-              filters={state.filters}
-              options={options.data}
-              onClose={() => setFilterOpen(false)}
-              onApply={(filters) => {
-                setFilterOpen(false)
-                update({ filters, page: 1, detailId: null })
-              }}
+      <SplitDetailList
+        rows={rows}
+        selectedKey={state.detailId}
+        rowKey={(row) => row.id}
+        toolbar={
+          <>
+            <RefToolbar
+              filterOpen={filterOpen}
+              filterPanel={
+                <InventoryFilterPanel
+                  filters={state.filters}
+                  options={options.data}
+                  onClose={() => setFilterOpen(false)}
+                  onApply={(filters) => {
+                    setFilterOpen(false)
+                    update({ filters, page: 1, detailId: null })
+                  }}
+                />
+              }
+              leftSlot={<InventoryFilterBar filters={state.filters} open={filterOpen} onOpen={() => setFilterOpen(true)} onClose={() => setFilterOpen(false)} onClear={clearFilters} />}
+              // Linko's search sits in the second quarter of the toolbar row (25% of the width + 18px).
+              linkFilter="flush"
+              fluid
+              query={searchDraft}
+              onQuery={setSearchDraft}
+              pageSize={state.pageSize}
+              onPageSize={(size) => update({ page: 1, pageSize: size })}
+              from={(state.page - 1) * state.pageSize + 1}
+              to={Math.min(state.page * state.pageSize, data?.count ?? 0)}
+              total={data?.count ?? 0}
+              page={state.page}
+              pageCount={pageCount}
+              onPage={(page) => update({ page })}
+              icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={() => data && void downloadExcel()} color="#333" />}
             />
-          }
-          leftSlot={<InventoryFilterBar filters={state.filters} open={filterOpen} onOpen={() => setFilterOpen(true)} onClose={() => setFilterOpen(false)} onClear={clearFilters} />}
-          query={searchDraft}
-          onQuery={setSearchDraft}
-          pageSize={state.pageSize}
-          onPageSize={(size) => update({ page: 1, pageSize: size, detailId: null })}
-          from={(state.page - 1) * state.pageSize + 1}
-          to={Math.min(state.page * state.pageSize, data?.count ?? 0)}
-          total={data?.count ?? 0}
-          page={state.page}
-          pageCount={pageCount}
-          onPage={(page) => update({ page, detailId: null })}
-          icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={() => data && void downloadExcel()} color="#333" />}
-        />
-
-        {list.error && (
-          <div className="flex flex-wrap items-center gap-3 bg-white px-6 py-3 text-[#e57373]">
-            <span>
-              {t("Не удалось загрузить данные")}: {t(list.error)}
-            </span>
-            <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
-              {t("Повторить")}
-            </button>
-          </div>
-        )}
-
-        <RefTable
-          cols="minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr)"
-          heads={heads}
-          headPad={30}
-          rows={rows}
-          rowKey={(row) => row.id}
-          onRowClick={(row) => update({ detailId: state.detailId === row.id ? null : row.id })}
-          rowClass={(row) => (state.detailId === row.id ? "!bg-[#eef2ff]" : "")}
-          empty={list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
-          render={(row) => [
-            row.id,
+            {list.error && (
+              <div className="flex flex-wrap items-center gap-3 bg-white px-6 py-3 text-[#e57373]">
+                <span>
+                  {t("Не удалось загрузить данные")}: {t(list.error)}
+                </span>
+                <button type="button" onClick={list.reload} className="font-semibold text-[#1E4A9A] hover:underline">
+                  {t("Повторить")}
+                </button>
+              </div>
+            )}
+          </>
+        }
+        tableProps={{
+          cols: "minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr)",
+          heads,
+          headPad: 30,
+          rowKey: (row) => row.id,
+          // A row links to its card (Linko's #/inventory/<id>); the card's header closes it.
+          onRowClick: (row) => update({ detailId: row.id }),
+          empty: list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено"),
+          render: (row) => [
+            // Linko's first cell has no left padding: the number sits under the № head.
+            <span key="id" className="-ml-2 block">
+              {row.id}
+            </span>,
             row.warehouse,
             row.createdBy || "—",
-            inventoryDateText(row, language, false),
+            inventoryDateText(row, language),
             row.comment || t("Комментариев нет"),
             <StatusLabel key="status" status={row.status} />,
-            formatSum(row.totalPrice),
-          ]}
-          expanded={(row) =>
-            state.detailId === row.id ? (
-              <div className="-mx-[15px] my-5 bg-[#f2f5f8] px-2 py-3 md:px-4">
-                <InventoryDetailPanel
-                  key={`${row.id}-${detailVersion}`}
-                  id={row.id}
-                  canEdit={canEdit}
-                  onClose={() => update({ detailId: null })}
-                  onEdit={(detail) => setForm(detail)}
-                  onChanged={list.reload}
-                  onDeleted={() => {
-                    update({ detailId: null })
-                    list.reload()
-                  }}
-                  notify={notify}
-                />
-              </div>
-            ) : null
-          }
+            // A long sum wraps inside its narrow column, as Linko's (its digit groups are joined by no-break spaces); Linko's
+            // last cell has no right padding.
+            <span key="sum" className="-mr-2 block [word-break:break-word]">
+              {formatSum(row.totalPrice)}
+            </span>,
+          ],
+        }}
+        detail={(row) => (
+          <InventoryDetailPanel
+            key={`${row.id}-${detailVersion}`}
+            id={row.id}
+            canEdit={canEdit}
+            dialogs={state.dialogs}
+            onDialog={setDialog}
+            onClose={() => update({ detailId: null })}
+            onEdit={() => setDialog("openUpdateDialog", "true")}
+            onChanged={list.reload}
+            onDeleted={() => {
+              update({ detailId: null })
+              list.reload()
+            }}
+            notify={notify}
+          />
+        )}
+      />
+
+      {canEdit && state.detailId !== null && state.dialogs.openUpdateDialog === "true" && (
+        <InventoryEditDialog
+          id={state.detailId}
+          options={options.data}
+          onClose={closeEdit}
+          onSaved={() => {
+            closeEdit()
+            notify(t("Успешно сохранено"))
+            list.reload()
+            options.reload()
+            setDetailVersion((value) => value + 1)
+          }}
         />
-      </RefCard>
+      )}
 
       {form !== undefined && (
         <InventoryFormDialog
-          inventory={form}
+          inventory={null}
           options={options.data}
-          onClose={() => setForm(undefined)}
+          initialWarehouse={form === null ? createWarehouse || undefined : undefined}
+          onClose={() => {
+            setCreateWarehouse("")
+            setForm(undefined)
+          }}
           onSaved={(saved, created, text) => {
+            setCreateWarehouse("")
             setForm(undefined)
             notify(t(text))
             list.reload()

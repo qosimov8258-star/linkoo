@@ -5,7 +5,8 @@
 //    Активность strip (market/agent/done_plan) and Анализ маршрутов (market/all_today_tasks) list exactly the active
 //    employees with it on; Отслеживание (market/way) the ones with it on — deleted ones too — that have a live location.
 //    An empty local login is filled from the card too (Linko lists those pages in login order).
-// 2. The live locations (raw agents_location: market/agents_location) → field_live_locations: the position Linko keeps
+// 2. The live locations (raw agents_location: market/agents_location, or market_way: a capture of market/way, the list
+//    of Отслеживание) → field_live_locations: the position Linko keeps
 //    per employee, its time (Tashkent wall clock → UTC) and the battery then. Linko's «last activity» in Отслеживание is
 //    this time, not the last GPS point (they differ for a few employees) nor a visit.
 //
@@ -57,7 +58,14 @@ try {
     battery DOUBLE PRECISION,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`)
-  for (const agent of raw("agents_location")) {
+  // market/agents_location (fetch.mjs), or a read-only capture of Отслеживание's market/way (market_way.json: the same
+  // position, its time and the battery as live_location / last_activity / battery) when that is the newer copy.
+  const live = hasRaw("agents_location")
+    ? raw("agents_location")
+    : hasRaw("market_way")
+      ? raw("market_way").map((row) => ({ id: row.id, location: row.live_location, location_date: row.last_activity, battery: row.battery }))
+      : []
+  for (const agent of live) {
     const lat = Number(agent.location?.lat)
     const lng = Number(agent.location?.lon)
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || !local.has(Number(agent.id))) continue

@@ -81,6 +81,17 @@ export type InventoryQuery = {
   requestTypes: InventoryRequestType[]
   requestedBy: string[]
   processedBy: string[]
+  /** Linko's id filters of the page (its main/gear* params stock, division, branch, user, market_type, requested_by,
+   * updated_by): matched through the names the rows keep. */
+  stockIds: number[]
+  divisionIds: number[]
+  branchIds: number[]
+  userIds: number[]
+  clientTypeIds: number[]
+  requestedByIds: number[]
+  processedByIds: number[]
+  /** Linko's show_deleted: only the deleted items (and their movements / reviews). */
+  onlyDeleted: boolean
 }
 
 export type Parsed<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
@@ -111,6 +122,8 @@ function pick<T extends string>(values: string[], allowed: readonly T[]): T[] {
  * &clientType* &agent* &zone* &isReviewed=true|false &showDeleted=1 &attachFrom/To &createdFrom/To &moveFrom/To
  * &updatedFrom/To (YYYY-MM-DD) &logType=create|give|take* &requestStatus=pending|confirmed|canceled*
  * &requestType=attach|detach* &requestedBy* &processedBy*. Multi values repeat or join with "~".
+ * The page sends Linko's id filters as &stockId* &divisionId* &branchId* &userId* (employee) &marketTypeId*
+ * &requestedById* &userById* and its «Показать удаленные» as &onlyDeleted=true.
  */
 export function parseInventoryQuery(url: string): Parsed<InventoryQuery> {
   const search = new URL(url).searchParams
@@ -163,6 +176,14 @@ export function parseInventoryQuery(url: string): Parsed<InventoryQuery> {
       requestTypes: pick(all("requestType"), INVENTORY_REQUEST_TYPES),
       requestedBy: texts(all("requestedBy")),
       processedBy: texts(all("processedBy")),
+      stockIds: ids(all("stockId")),
+      divisionIds: ids(all("divisionId")),
+      branchIds: ids(all("branchId")),
+      userIds: ids(all("userId")),
+      clientTypeIds: ids(all("marketTypeId")),
+      requestedByIds: ids(all("requestedById")),
+      processedByIds: ids(all("userById")),
+      onlyDeleted: ["1", "true"].includes((search.get("onlyDeleted") ?? "").trim()),
     },
   }
 }

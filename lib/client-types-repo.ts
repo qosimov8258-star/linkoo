@@ -100,7 +100,7 @@ export function parseClientTypeInput(body: unknown): ClientTypeInput | null {
 const REFERENCES = [
   { table: "clients", column: "type", kind: "name" as const },
   { table: "kpi_tasks", column: "client_type", kind: "name" as const },
-  // Surveys ("Опросник") keep the type name next to its id (lib/surveys-repo.ts).
+  // Surveys ("Опросник") keep the type name next to its id (lib/questionnaires-repo.ts).
   { table: "surveys", column: "store_type", kind: "name" as const },
   { table: "surveys", column: "client_type_id", kind: "id" as const },
 ]

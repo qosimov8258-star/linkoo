@@ -26,6 +26,7 @@ export function RestrictionDialog({
   mode,
   employeeIds,
   initialItems = [],
+  employeeName = "",
   onClose,
   onSaved,
 }: {
@@ -33,6 +34,8 @@ export function RestrictionDialog({
   mode: RestrictionDialogMode
   employeeIds: number[]
   initialItems?: RestrictionItem[]
+  /** "Изменение: <name>" like Linko's edit title. */
+  employeeName?: string
   onClose: () => void
   onSaved: (result: RestrictionApplyResult) => void
 }) {
@@ -52,6 +55,7 @@ export function RestrictionDialog({
   const included = rows.filter((row) => row.included).map((row) => row.item.id)
   const requestMode: RestrictionMode = update ? "set" : mode
   const title = update ? "Изменение" : copy.titles[mode]
+  const shownTitle = update && employeeName ? `${t(title)}: ${employeeName}` : t(title)
 
   function askSave() {
     if (!employeeIds.length) return setError(t("Выберите хотя бы одного сотрудника"))
@@ -99,9 +103,9 @@ export function RestrictionDialog({
   }
 
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label={t(title)} className="fixed inset-0 z-[100] flex flex-col bg-white text-[13px] text-[#333]">
+    <div role="dialog" aria-modal="true" aria-label={shownTitle} className="fixed inset-0 z-[100] flex flex-col bg-white text-[13px] text-[#333]">
       <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-4 pr-3 sm:pl-[30px] sm:pr-[22px]">
-        <h2 className="truncate text-[13px] font-bold uppercase">{t(title)}</h2>
+        <h2 className="truncate text-[13px] font-bold uppercase">{shownTitle}</h2>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800">
           <X className="h-6 w-6" />
         </button>
@@ -118,36 +122,39 @@ export function RestrictionDialog({
         </div>
 
         {error && (
-          <div role="alert" className="mt-4 rounded-[3px] border border-[#f44336] bg-[#ffebee] px-4 py-3 text-[#c62828]">
+          <div role="alert" className="mt-[10px] rounded-[2px] bg-[#ffebee] px-[15px] py-[10px] text-center text-[#f44336]">
             {error}
           </div>
         )}
 
         {rows.length === 0 ? (
-          <div className="mt-[35px] flex flex-col items-center text-center leading-[18px] text-[#9e9e9e]">
+          <div className="mt-[35px] flex flex-col items-center text-center leading-[18px] text-[#adadad]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/empty-basket.svg" alt="" className="mb-[20px] h-[72px] w-[72px]" />
             <p>{t(copy.nothing)}</p>
-            {!update && (
-              <button type="button" onClick={() => setPickerOpen(true)} className="mt-1 text-[#0a9bd9] hover:underline">
-                {t(copy.addLink)}
+            {/* Linko: the link "Добавить" and a grey "товар?" after it (also on the product type tab). */}
+            <p>
+              <button type="button" onClick={() => setPickerOpen(true)} className="text-[#129fdd] hover:underline">
+                {t("Добавить")}
               </button>
-            )}
+              <span className="pl-[5px]">{t("товар")}?</span>
+            </p>
           </div>
         ) : (
-          <div className="mt-[30px] max-w-[900px]">
-            <div className="grid grid-cols-[minmax(0,1fr)_96px] text-[12px] font-bold">
-              <span>{t("Наименование")}</span>
-              <span>{t("Статус")}</span>
+          // Linko's table: 40 px rows without lines, the name in 60 % of the width, cells 5 px padded.
+          <div className="mt-[30px]">
+            <div className="grid h-[40px] grid-cols-[60%_40%] items-center font-semibold">
+              <span className="px-[5px]">{t("Наименование")}</span>
+              <span className="px-[5px]">{t("Статус")}</span>
             </div>
             {rows.map((row, index) => (
-              <div key={row.item.id} className="grid min-h-[34px] grid-cols-[minmax(0,1fr)_96px] items-center border-b border-dashed border-[#eef0f4]">
-                <span className={`break-words pr-3 ${row.included ? "" : "text-[#9e9e9e]"}`}>
-                  <b className="mr-[8px]">{index + 1}.</b>
+              <div key={row.item.id} className="grid min-h-[40px] grid-cols-[60%_40%] items-center">
+                <span className={`break-words px-[5px] ${row.included ? "" : "text-[#9e9e9e]"}`}>
+                  <b className="mr-[5px]">{index + 1}.</b>
                   {row.item.name}
                   {row.item.deleted && <span className="ml-2 rounded-[3px] bg-[#ffebee] px-[6px] py-[1px] text-[11px] text-[#c62828]">{t("Удален")}</span>}
                 </span>
-                <span>
+                <span className="px-[5px]">
                   <DemoCheckbox
                     checked={row.included}
                     disabled={Boolean(row.item.deleted) && requestMode !== "remove"}
@@ -169,7 +176,7 @@ export function RestrictionDialog({
           type="button"
           onClick={askSave}
           disabled={saving}
-          className="rounded-[3px] px-[16px] py-[8px] text-[13px] font-bold uppercase text-[#0a9bd9] hover:bg-[#ececec] disabled:opacity-50"
+          className="rounded-[2px] px-[16px] py-[8px] text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#ececec] disabled:opacity-50"
         >
           {t(update ? "Изменить" : "Сохранить")}
         </button>

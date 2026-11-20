@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { ReportEmpty, ReportPage, WidgetHeader, formatShortReportDate } from "@/components/ref/report-kit"
-import { currencyLabel } from "@/lib/finance/currency"
+import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { nextSort } from "@/components/ref/sort-arrows"
 import type { PnlExpense, PnlFigures, PnlOptions, PnlRow, PnlStats } from "@/lib/pnl-stats-repo"
@@ -39,11 +39,9 @@ function defaultPeriods(today = new Date()) {
   }
 }
 
-const format = (value: number) => {
-  const rounded = Math.round(value) || 0
-  const text = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.abs(rounded))
-  return rounded < 0 ? `-${text}` : text
-}
+// Linko's numberFormat(value, "", 0): whole numbers, or the decimals of Настройки → Округление сумм when set (they
+// override the precision of the call).
+const format = (value: number) => formatMoney(value, 0)
 
 const CARD = "bg-white pb-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
 const CELL = "border-b border-r border-[#efefef] px-[17.5px] py-[7.8px] text-[13px] leading-[19.5px] text-[#333]"
@@ -66,12 +64,12 @@ function SortArrows({ active, dir, onClick }: { active: boolean; dir: "asc" | "d
 function DiffCell({ first, second, wide = false }: { first: number; second: number; wide?: boolean }) {
   const diff = second - first
   const sign = Math.round(diff)
-  const percent = first ? Math.round((diff / first) * 100) : 0
+  const percent = first ? (diff / first) * 100 : 0
   const tone = sign === 0 ? "" : sign < 0 ? "bg-[#e57373] text-white" : "bg-[#8acb8d] text-white"
   return (
     <td className={`border-b border-r border-[#efefef] p-[5px] text-[13px] font-semibold leading-[19.5px] ${tone || "text-[#333]"}`}>
       <div className={`flex items-center justify-between ${wide ? "min-w-[189px]" : ""}`}>
-        <span>{percent} %</span>
+        <span>{format(percent)} %</span>
         <span>{format(diff)}</span>
       </div>
     </td>

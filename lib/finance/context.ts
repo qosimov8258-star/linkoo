@@ -1,5 +1,6 @@
 import "server-only"
 
+import { loadAmountPrecision } from "@/lib/amount-precision-server"
 import { storedAppCurrency } from "@/lib/app-currency"
 import type { PgDb } from "@/lib/db"
 import { convertAmount, currencyLabel, normCurrency, setCurrencyNames } from "@/lib/finance/currency"
@@ -70,6 +71,8 @@ export async function loadCurrencyContext(db: PgDb): Promise<CurrencyContext> {
   const rows = (await db.prepare("SELECT id, name, code, rate, is_base FROM currencies ORDER BY is_base DESC, id").all()) as CurrencyRow[]
   // The names of Валюты are the names every screen prints (currencyLabel, lib/finance/currency.ts).
   setCurrencyNames(rows)
+  // Настройки → Округление сумм: the decimals the money routes round and print with (roundMoney / formatMoney).
+  await loadAmountPrecision(db)
   const currencies: FinanceCurrency[] = []
   for (const row of rows) {
     const code = normCurrency(row.code)

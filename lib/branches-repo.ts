@@ -142,7 +142,8 @@ function rowToBranch(row: Row, work = ""): BranchRecord {
     debtTracking: row.debt_tracking === 1,
     isMain: row.is_main === 1,
     priceList: row.price_list,
-    currency: work || toCurrency(row.currency),
+    // A branch without its own currency stays "" (Linko's card then has no «Валюта» row and its form an empty select).
+    currency: work || (row.currency?.trim() ? toCurrency(row.currency) : ""),
     locationLat: row.location_lat ?? null,
     locationLng: row.location_lng ?? null,
   }
@@ -222,15 +223,15 @@ async function resolvePriceList(db: PgDb, value: string | undefined, current?: R
   return row.name
 }
 
-/** The currency code of Валюты; empty = the base currency on create, unchanged on update.
- * A company that has no currency yet can only use its base unit. */
+/** The currency code of Валюты; empty = none on create (as in Linko: the branch works in the base currency),
+ * unchanged on update. A company that has no currency yet can only use its base unit. */
 async function resolveCurrency(db: PgDb, value: string | undefined, current?: Row): Promise<string> {
   const text = (value ?? "").trim()
-  if (current && (!text || normCurrency(text) === normCurrency(current.currency))) return current.currency
+  if (current && (!text || (current.currency?.trim() && normCurrency(text) === normCurrency(current.currency)))) return current.currency
   const context = await loadCurrencyContext(db)
   // With an app currency a branch is shown (and works) in it: sending it back keeps the stored currency.
   if (current && context.work && normCurrency(text) === context.work) return current.currency
-  if (!text) return context.work || context.base
+  if (!text) return ""
   const code = normCurrency(text)
   if (context.currencies.some((currency) => currency.code === code)) return code
   if (code === context.base) {

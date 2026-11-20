@@ -376,13 +376,16 @@ export async function getPnlStats(first: PnlPeriod, second: PnlPeriod, filters: 
     const slotsOf = (id: number): PnlPair => spent.get(id) ?? { first: 0, second: 0 }
     const rows: PnlExpense[] = []
     for (const category of categories) {
-      if (category.parent_id != null || category.exclude_from_pnl) continue
       const kids = categories.filter((child) => child.parent_id === category.id)
+      // Every category is listed under its own parent: one that has a parent is also a group of its own for its children
+      // (the reference's stats/profit_loss lists such a category as a child of its parent and, again, as a group holding
+      // its own children), while its own entries stay under its parent.
+      if (category.exclude_from_pnl || (category.parent_id != null && kids.length === 0)) continue
       const children = kids
         .filter((child) => !!child.direct === direct)
         .map((child) => ({ id: child.id, name: child.name, first: round(slotsOf(child.id).first, 2), second: round(slotsOf(child.id).second, 2) }))
         .filter((child) => child.first !== 0 || child.second !== 0)
-      const own = !!category.direct === direct ? slotsOf(category.id) : { first: 0, second: 0 }
+      const own = category.parent_id == null && !!category.direct === direct ? slotsOf(category.id) : { first: 0, second: 0 }
       if (kids.length > 0 && (own.first !== 0 || own.second !== 0)) children.unshift({ id: category.id, name: category.name, first: round(own.first, 2), second: round(own.second, 2) })
       const first = round(own.first + children.filter((child) => child.id !== category.id).reduce((sum, child) => sum + child.first, 0), 2)
       const second = round(own.second + children.filter((child) => child.id !== category.id).reduce((sum, child) => sum + child.second, 0), 2)

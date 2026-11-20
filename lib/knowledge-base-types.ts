@@ -1,7 +1,7 @@
 // Client-safe types and limits of "База знания" (Персонал → Заказ → База знания, demo
 // #/knowledge-base, API main/knowledge/). An article is a short memo (name + text + an optional
-// PDF) published to the staff whose job position (Должности) is listed in "Права доступа";
-// an empty list means every position. Only active articles are published (GET
+// PDF) published to the staff whose access right (Linko main/position/) is listed in "Права доступа";
+// an empty list means everyone. Only active articles are published (GET
 // /api/knowledge-base/feed); the admin list shows them all. Shared by the routes and the views.
 
 export const KNOWLEDGE_BASE_API = "/api/knowledge-base"
@@ -12,7 +12,7 @@ export const KNOWLEDGE_BASE_PERMISSION = "settings.manage"
 
 export const KB_NAME_MAX = 255
 export const KB_TEXT_MAX = 10_000
-/** Most positions one article can list. */
+/** Most access rights one article can list. */
 export const KB_POSITIONS_MAX = 500
 /** Largest PDF: the edge refuses request bodies over 2 MiB (middleware.ts), multipart included. */
 export const KB_FILE_MAX_BYTES = 2_000_000
@@ -24,7 +24,7 @@ export const KB_MESSAGES = {
   nameTooLong: "Не более 255 символов",
   nameTaken: "Такое название уже существует",
   textTooLong: "Не более 10 000 символов",
-  positionNotFound: "Должность не найдена",
+  positionNotFound: "Права доступа не найдены",
   tooManyPositions: "Слишком много значений",
   fileNotFound: "Файл не найден",
   fileMissing: "Выберите файл",
@@ -63,7 +63,7 @@ export type KnowledgeBaseArticle = {
   name: string
   text: string
   isActive: boolean
-  /** Job positions that see the article; [] = every position. */
+  /** Access rights that see the article; [] = everyone. */
   positions: KnowledgeBasePosition[]
   file: KnowledgeBaseFile | null
   createdAt: string
@@ -79,6 +79,9 @@ export type KnowledgeBaseFeed = {
   /** Visible articles changed after ?since (all of them without it). */
   articles: Array<Omit<KnowledgeBaseArticle, "positions" | "isActive" | "createdAt">>
 }
+
+/** GET: the access rights the "Права доступа" field offers ({id, name}[], by id like Linko's main/position/). */
+export const KNOWLEDGE_BASE_ACCESS_RIGHTS_API = "/api/knowledge-base/access-rights"
 
 export function knowledgeBaseFileUrl(id: number): string {
   return `${KNOWLEDGE_BASE_FILES_API}/${id}`

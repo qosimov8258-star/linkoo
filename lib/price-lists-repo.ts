@@ -181,12 +181,13 @@ function activeCondition(active: PriceListActive): string {
   return "TRUE"
 }
 
-/** Plain list (pickers of other pages): active lists by default, ordered by position. */
+/** Plain list (pickers of other pages): active lists by default, ordered like Linko's sales/price_list/ (by position,
+ * a list without one last, then by id). */
 export async function listPriceLists(options: { active?: PriceListActive } = {}): Promise<PriceList[]> {
   await ensurePriceListsSchema()
   const db = getDb()
   const rows = (await db
-    .prepare(`${SELECT} WHERE ${activeCondition(options.active ?? "true")} ORDER BY COALESCE(p.position, 0), p.id`)
+    .prepare(`${SELECT} WHERE ${activeCondition(options.active ?? "true")} ORDER BY p.position ASC NULLS LAST, p.id`)
     .all()) as Row[]
   return rowsToPriceLists(db, rows)
 }

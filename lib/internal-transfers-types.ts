@@ -39,6 +39,9 @@ export const TRANSFER_STATUS_LABELS: Record<TransferStatus, string> = {
   отменен: "отменен",
 }
 
+/** Status word of the transfer card: the card prints «В пути» in green (the list keeps its yellow dot). */
+export const TRANSFER_CARD_STATUS_COLORS: Record<TransferStatus, string> = { ...TRANSFER_STATUS_COLORS, "в пути": "#81c784" }
+
 /** Detail / log labels (capitalised in the demo detail), spelled like TRANSFER_STATUS_LABELS. */
 export const TRANSFER_STATUS_TITLES: Record<TransferStatus, string> = {
   ожидает: "Ожидает",
@@ -62,7 +65,8 @@ export const TRANSFER_TRANSITIONS: Record<TransferAction, { from: TransferStatus
   cancel: { from: ["ожидает", "потвержден"], to: "отменен" },
 }
 
-/** Statuses whose header and lines may still be edited (no stock effect yet). */
+/** Statuses without a stock effect yet: «Подтвержденный» of the edit form switches between them (any status may be
+ * edited; a transfer that moved keeps its status, see updateTransfer). */
 export const TRANSFER_EDITABLE: TransferStatus[] = ["ожидает", "потвержден"]
 
 /** Log actions (demo STOCK_TRANSFER_ACTION_* plus "approved"). */
@@ -103,14 +107,30 @@ export type TransferItem = {
   price: number
   /** Weight of one unit, kg. */
   weight: number
+  /** Display name of the line's series (Серия): the stock_series number, or a legacy text. */
   series: string
+  /** The stock_series row of the line (one series per line, as Linko's stock_transfer_product.series). */
+  seriesId?: number
+  /** The series was set by «Авто распределение по сериям»; «Отменить автораспределение» undoes it. */
+  seriesAuto?: boolean
+  /** With seriesAuto: the series the line had before the distribution (chosen in the form or copied from Linko),
+   * which «Отменить автораспределение» puts back. */
+  seriesPrev?: TransferSeriesPrev
   /** "100 block": the line's quantity in the product's box unit (reference display data). */
   boxLabel?: string
+  /** Read-time product facts (GET /api/internal-transfers/[id]; never stored): the product keeps an expiry
+   * (Серия column) and its box (Группа: units per box and the box unit). */
+  trackExpiry?: boolean
+  boxAmount?: number
+  boxUnit?: string
   /** Defective units (Брак): taken from the source's defects and kept as defects at the target. */
   defect?: boolean
   /** "cost": no price list, `price` is the cost of goods when the goods left. */
   priced?: "cost"
 }
+
+/** A line's series before «Авто распределение по сериям» replaced it: its stock_series id (when it had one) and name. */
+export type TransferSeriesPrev = { id?: number; series: string }
 
 export type Transfer = {
   id: number
@@ -141,7 +161,17 @@ export type Transfer = {
   cancelledAt: string
   cancelledBy: string
   updatedAt: string
+  /** "shipment": an «Отгрузка» of a production shift session («Передать на склад», sourceId = the session): it is
+   * only accepted (Приемка) or its acceptance undone (История Приемки), never edited, deleted or listed among the
+   * transfers. "" (or absent): an ordinary transfer. */
+  source?: TransferSource
+  sourceId?: number | null
 }
+
+export type TransferSource = "" | "shipment"
+
+/** Actions an «Отгрузка» (source "shipment") allows: Linko's shipment done / cancel. */
+export const SHIPMENT_ACTIONS: TransferAction[] = ["accept", "cancel_accepted"]
 
 export type TransferListResult = { count: number; page: number; pageSize: number; results: Transfer[] }
 
@@ -194,7 +224,18 @@ export type StockPickRow = {
   cost: number
   /** Price in the requested price list (0 without one). */
   price: number
+  /** The product keeps an expiry: its lines take a series (Серия). */
+  trackExpiry?: boolean
+  /** Units in one box of the product and the box unit (Группа); 0 / '' without a box. */
+  boxAmount?: number
+  boxUnit?: string
 }
+
+/** A series of a product (the Серия pickers of the transfer form; Linko's stock/series_balance/). */
+export type TransferSeriesOption = { id: number; productId: number; number: string; expirationDate: string | null; displayName: string }
+
+/** «Авто распределение по сериям»: FIFO = the earliest expiry first, LIFO = the latest. */
+export type TransferSeriesAutoType = "fifo" | "lifo"
 
 export type StockPickResult = { warehouse: string; priceList: string; rows: StockPickRow[] }
 

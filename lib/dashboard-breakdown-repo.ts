@@ -2,6 +2,7 @@ import "server-only"
 
 import { getDb } from "@/lib/db"
 import { loadCurrencyContext, workFactorSql } from "@/lib/finance/context"
+import { roundMoney } from "@/lib/finance/currency"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { orderCountedSql, ownAgentSql } from "@/lib/finance/sources"
 import { ensureOrdersSchema } from "@/lib/orders-repo"
@@ -124,10 +125,8 @@ function measureSql(measure: BreakdownMeasure): { sale: string | null; ret: stri
   }
 }
 
-const round = (value: number, digits = 2) => {
-  const factor = 10 ** digits
-  return Math.round((Number(value) || 0) * factor) / factor
-}
+/** To the decimals the dashboard prints (the reference's numberFormat: those of Настройки → Округление сумм, else three). */
+const round = (value: number) => roundMoney(Number(value) || 0)
 
 export async function getDashboardBreakdown(begin: string, end: string, group: BreakdownGroup, measure: BreakdownMeasure, salesEmployeeIds?: number[]): Promise<DashboardBreakdown> {
   const db = getDb()
@@ -171,7 +170,7 @@ export async function getDashboardBreakdown(begin: string, end: string, group: B
     const found = (await db
       .prepare(`SELECT COALESCE(NULLIF(btrim(label), ''), @unset::text) AS name, ${value} AS value FROM (${parts.join("\nUNION ALL\n")}) x GROUP BY 1`)
       .all({ ...params, unset: UNSET })) as Array<{ name: string; value: number }>
-    rows = found.map((row) => ({ name: row.name, value: round(row.value, UNITS[measure] === "kg" ? 3 : 2) })).filter((row) => row.value !== 0)
+    rows = found.map((row) => ({ name: row.name, value: round(row.value) })).filter((row) => row.value !== 0)
   }
   const byTime = group === "По дням" || group === "По неделям" || group === "По месяцам"
   rows.sort((a, b) => (byTime ? a.name.localeCompare(b.name) : b.value - a.value || a.name.localeCompare(b.name, "ru")))
@@ -183,5 +182,5 @@ export async function getDashboardBreakdown(begin: string, end: string, group: B
       .get(params)) as { n: number } | undefined
     total = akb?.n ?? 0
   }
-  return { group, measure, currency: work || base, unit: UNITS[measure], rows, total: round(total, 3) }
+  return { group, measure, currency: work || base, unit: UNITS[measure], rows, total: round(total) }
 }

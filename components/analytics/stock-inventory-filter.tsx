@@ -16,7 +16,7 @@ import {
 // Linko's inventory filter (#/inventory?openFilterDialog=true): the 310px "Фильтр" panel over the
 // list's top-left corner with Склад (one warehouse), Создал (several users), Статус (В ожидании /
 // Подтвержденный / Отменено), «Период создания» — the range picker (presets and two months) behind
-// "Укажите дату" — and "Применить". A click outside leaves it open; once applied the toolbar shows
+// "Укажите дату", with the calendar at the end of the value row — and "Применить". A click outside leaves it open; once applied the toolbar shows
 // "Фильтр: N элемента" (the period counts as two: its start and its end) with edit and clear.
 
 export type InventoryFilters = {
@@ -52,7 +52,7 @@ export function InventoryFilterBar({ filters, open, onOpen, onClose, onClear }: 
       </div>
     )
   return (
-    <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-[2px] whitespace-nowrap pl-[5px] text-[13px] text-[#1E4A9A]">
+    <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-[2px] whitespace-nowrap text-[13px] text-[#1E4A9A]">
       {t("Показать фильтр")} <ChevronDown className={`mt-[2px] h-3 w-3 transition ${open ? "rotate-180" : ""}`} />
     </button>
   )
@@ -118,8 +118,7 @@ export function InventoryFilterPanel({
       />
       <FilterDate
         words
-        className="mt-[3px]"
-        iconLeft={188}
+        iconEnd
         label={t("Период создания")}
         begin={draft.fromDate}
         end={draft.toDate}

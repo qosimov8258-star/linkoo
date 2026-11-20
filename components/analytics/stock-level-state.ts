@@ -3,8 +3,10 @@ import type { StockLevelFilters, StockLevelMode, StockLevelUnit } from "@/lib/st
 import { STOCK_LEVEL_MODES, STOCK_LEVEL_SORT_KEYS, STOCK_LEVEL_UNITS } from "@/lib/stock/level-types"
 
 // URL state of the "Остаток" page (demo keeps every filter in the hash query):
-// ?mode=&unit=&priceList=&search=&ordering=&page=&pageSize=&onlyHas=1
+// ?toggle=price|priceList&showIn=box|capacity|weight (Linko's names; the older mode= / unit= are still read)
+//  &priceList=&search=&ordering=&page=&pageSize=&onlyHas=1
 //  &warehouse=…&branch=…&type=…&subcategory=…&brand=…&supplier=…&organization=…&item=<key>
+//  &dynamicList=<product id or item key> (the «Забронировано» list of that item, as Linko)
 
 export type StockLevelState = {
   mode: StockLevelMode
@@ -17,6 +19,23 @@ export type StockLevelState = {
   filters: StockLevelFilters
   /** Item detail dialog (catalog key). */
   item: string
+  /** «Забронировано» list of this item (catalog key), Linko's ?dynamicList=<product id>. */
+  reserved: string
+}
+
+// Linko's toggle values ↔ the modes of the API.
+const TOGGLE_TO_MODE: Record<string, StockLevelMode> = { quantity: "amount", price: "net_cost", priceList: "price" }
+const MODE_TO_TOGGLE: Record<StockLevelMode, string> = { amount: "quantity", net_cost: "price", price: "priceList" }
+
+/** ?dynamicList: a bare id is a product («product:12»), anything else an item key. */
+export function reservedKeyFromParam(value: string): string {
+  const text = value.trim()
+  return /^\d+$/.test(text) ? `product:${text}` : text
+}
+
+/** The ?dynamicList value of an item key (a product's bare id, as Linko writes it). */
+export function reservedParamOfKey(key: string): string {
+  return key.replace(/^product:(\d+)$/, "$1")
 }
 
 export const STOCK_LEVEL_PAGE_SIZE = 25
@@ -29,8 +48,8 @@ export function emptyStockFilters(): StockLevelFilters {
 type ParamReader = { get(name: string): string | null; getAll(name: string): string[] }
 
 export function stockStateFromParams(params: ParamReader): StockLevelState {
-  const mode = params.get("mode") as StockLevelMode | null
-  const unit = params.get("unit") as StockLevelUnit | null
+  const mode = (TOGGLE_TO_MODE[params.get("toggle") ?? ""] ?? params.get("mode")) as StockLevelMode | null
+  const unit = (params.get("showIn") ?? params.get("unit")) as StockLevelUnit | null
   const ordering = params.get("ordering") ?? ""
   const filters = emptyStockFilters()
   for (const name of STOCK_FILTER_LISTS) filters[name] = params.getAll(name).filter((value) => value.trim())
@@ -46,13 +65,14 @@ export function stockStateFromParams(params: ParamReader): StockLevelState {
     pageSize: pageSize > 0 ? pageSize : STOCK_LEVEL_PAGE_SIZE,
     filters,
     item: params.get("item") ?? "",
+    reserved: reservedKeyFromParam(params.get("dynamicList") ?? ""),
   }
 }
 
 export function stockStateToSearch(state: StockLevelState): string {
   const params = new URLSearchParams()
-  if (state.mode !== "amount") params.set("mode", state.mode)
-  if (state.unit !== "amount") params.set("unit", state.unit)
+  if (state.mode !== "amount") params.set("toggle", MODE_TO_TOGGLE[state.mode])
+  if (state.unit !== "amount") params.set("showIn", state.unit)
   if (state.priceList) params.set("priceList", state.priceList)
   if (state.search) params.set("search", state.search)
   if (state.ordering) params.set("ordering", state.ordering)
@@ -61,6 +81,7 @@ export function stockStateToSearch(state: StockLevelState): string {
   for (const name of STOCK_FILTER_LISTS) for (const value of state.filters[name]) params.append(name, value)
   if (state.filters.onlyHas) params.set("onlyHas", "1")
   if (state.item) params.set("item", state.item)
+  if (state.reserved) params.set("dynamicList", reservedParamOfKey(state.reserved))
   return params.toString()
 }
 

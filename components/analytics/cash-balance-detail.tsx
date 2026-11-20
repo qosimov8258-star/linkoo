@@ -1,26 +1,31 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, CircleAlert, Loader2, SearchX } from "lucide-react"
+import { CalendarDays, CircleAlert, Loader2, Reply, SearchX } from "lucide-react"
 
 import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
-import { BalanceFilterButton, BalanceFilterDialog, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterButton, countActiveFilters } from "@/components/analytics/balance/filter-bar"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
-import { buildBalanceQuery, useBalanceStatement, type BalanceQuery } from "@/components/analytics/balance/use-balance"
+import { useBalanceStatement } from "@/components/analytics/balance/use-balance"
+import { buildCashQuery, useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashBalanceSummary } from "@/components/analytics/cash-balance-summary"
-import { CashTransactionsTable, cashTransactionText, internalAmount } from "@/components/analytics/cash-balance-transactions"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { CashTransactionsTable, cashOperationText } from "@/components/analytics/cash-balance-transactions"
+import { OperationPopupDialog, type DetailsPopup } from "@/components/analytics/cash-management-details"
+import { useJsonList, type CashCategory, type Named } from "@/components/analytics/cash-management-shared"
+import { RefSearchSelect } from "@/components/analytics/ref-search-select"
+import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { downloadExcelTable } from "@/lib/excel-export"
+import type { CashListResult } from "@/lib/cash/types"
 import { currencyLabel, roundMoney } from "@/lib/finance/currency"
 import { formatStatementDate } from "@/lib/finance/dates"
-import type { StatementResult, StatementRow } from "@/lib/finance/types"
+import type { StatementResult } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-// Detail of one cashbox (demo #/statistics/cashbox/:id): a full-screen
-// overlay above the list with its own filter ("Диапазон дат", "Категории
-// расходов", "Тип", "Клиент", "Только не принятые переводы"), the cashbox
-// totals whose movement cards filter by type, and the paged transactions.
-// All of it lives in the URL (?cashbox=&type=&categoryExpense=&client=…).
+// Detail of one cashbox (demo #/statistics/cashbox/:id): under the top menu, the filter row («Фильтр» with
+// "Диапазон дат", "Категории расходов", "Тип", "Клиент", "Только не принятые переводы"; «Вернуться», «Скачать»), the
+// cashbox totals (cards filter by type) and its transactions as the reference lists them (finance/transaction?cashbox=:
+// the same operations as «Управления кассой», № = the document number). All of it lives in the URL
+// (?cashbox=&type=&categoryExpense=&client=&notAcceptedTransfer=&search=…).
 
 /** Demo transaction type codes of the detail filter → ledger movement column. */
 export const CASH_TYPE_COLUMNS: Record<string, string> = {
@@ -48,7 +53,9 @@ export type CashDetailState = {
   key: string
   /** "" | "1" | "2" | "4" | "5" */
   type: string
+  /** Expense category id ("" = all). */
   category: string
+  /** Client id ("" = all). */
   client: string
   notAccepted: boolean
   search: string
@@ -69,6 +76,8 @@ function detailCurrencies(statement: StatementResult): string[] {
   return [own, ...others]
 }
 
+const dayLabel = (iso: string, language: string) => formatStatementDate(iso, language === "ru" ? "ru" : language, false)
+
 export function CashBalanceDetail({
   period,
   state,
@@ -85,11 +94,11 @@ export function CashBalanceDetail({
 }) {
   const { t, language } = useLanguage()
   const [filterOpen, setFilterOpen] = useState(false)
-  const [draft, setDraft] = useState({ type: "", category: "", client: "", notAccepted: false })
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [lastSearch, setLastSearch] = useState(state.search)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState("")
+  const [popup, setPopup] = useState<DetailsPopup | null>(null)
   if (state.search !== lastSearch) {
     // Keep the search box in sync with the URL (browser back / reset).
     setLastSearch(state.search)
@@ -97,64 +106,52 @@ export function CashBalanceDetail({
   }
 
   const column = CASH_TYPE_COLUMNS[state.type]
-  // "Только не принятые переводы" (only with Тип = Перевод с кассы): the
-  // statement API has no such flag, so the rows are fetched unpaged and
-  // filtered + paged here.
-  const onlyNotAccepted = state.notAccepted && state.type === "1"
-  const query: BalanceQuery = {
+  // The cards: the cashbox totals of the period (one statement page carries them).
+  const { data: statement, loading: summaryLoading, error: summaryError, reload: reloadSummary } = useBalanceStatement("cashbox", state.key, {
     from: period.from,
     to: period.to,
-    column: column ? [column] : undefined,
-    category: state.category,
-    counterparty: state.client,
+    page: 1,
+    pageSize: 1,
+  })
+  const listQuery = {
+    cashbox: [state.key],
+    from: period.from,
+    to: period.to,
+    type: state.type ? [state.type] : [],
+    expenseCategory: state.category ? [state.category] : [],
+    client: state.client ? [state.client] : [],
+    notAcceptedTransfer: state.notAccepted && state.type === "1",
     search: state.search,
-    order: "desc",
-    page: onlyNotAccepted ? undefined : state.page,
-    pageSize: onlyNotAccepted ? 0 : state.pageSize,
+    ordering: "-id",
   }
-  const { data: statement, loading, error, reload } = useBalanceStatement("cashbox", state.key, query)
-
-  const keepNotAccepted = (rows: StatementRow[]) => (onlyNotAccepted ? rows.filter((row) => !row.accepted) : rows)
-  const filteredRows = statement ? keepNotAccepted(statement.rows) : []
-  const count = statement ? (onlyNotAccepted ? filteredRows.length : statement.count) : 0
-  const pageRows = onlyNotAccepted ? filteredRows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize) : filteredRows
+  const list = useCashJson<CashListResult>(`/api/cash/operations?${buildCashQuery({ ...listQuery, page: state.page, pageSize: state.pageSize })}`)
+  const rows = list.data?.rows ?? []
   const name = statement?.entity.name || fallbackName
   const currencies = statement ? detailCurrencies(statement) : []
 
   const update = (patch: Partial<CashDetailState>) => onChange(period, { ...state, page: 1, ...patch })
   // Demo badge: active detail filter keys except fromDate and search (toDate always counts).
-  const filterCount = countActiveFilters({ toDate: period.to, type: state.type, categoryExpense: state.category, client: state.client })
-
-  const openFilter = () => {
-    setDraft({ type: state.type, category: state.category, client: state.client, notAccepted: state.notAccepted })
-    setFilterOpen(true)
-  }
-  const applyFilter = (next: Period) =>
-    onChange(next, { ...state, page: 1, type: draft.type, category: draft.category, client: draft.client, notAccepted: draft.type === "1" && draft.notAccepted })
-
-  const withCurrent = (options: string[], current: string) => (current && !options.includes(current) ? [current, ...options] : options)
-  const categoryOptions = withCurrent(statement?.facets.categories ?? [], draft.category)
-  const clientOptions = withCurrent(statement?.facets.counterparties ?? [], draft.client)
+  const filterCount = countActiveFilters({ toDate: period.to, type: state.type, categoryExpense: state.category, client: state.client, notAcceptedTransfer: state.notAccepted && state.type === "1" ? "1" : "" })
 
   const downloadAll = async () => {
     setDownloading(true)
     setDownloadError("")
     try {
-      const response = await fetch(`/api/balances/cashbox/statement?${buildBalanceQuery({ ...query, key: state.key, page: undefined, pageSize: 0 })}`, { cache: "no-store" })
-      const body = (await response.json().catch(() => null)) as (StatementResult & { error?: string }) | null
+      const response = await fetch(`/api/cash/operations?${buildCashQuery({ ...listQuery, page: 1, pageSize: 0 })}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (CashListResult & { error?: string }) | null
       if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
       const header = [t("№"), t("Дата"), t("Создал"), t("Описание"), t("Сумма"), t("Валюта"), t("Тип оплаты"), `${t("Сумма")} ${currencyLabel(body.baseCurrency)}`]
-      const rows = keepNotAccepted(body.rows).map((row) => [
-        row.sourceId ?? "",
+      const lines = body.rows.map((row) => [
+        row.docNo,
         formatStatementDate(row.date, language),
         row.createdBy,
-        cashTransactionText(row, t),
+        cashOperationText(row, t),
         roundMoney(row.amount),
         currencyLabel(row.currency),
-        row.paymentType === "bank" ? t("банковский счет") : t("наличные"),
-        row.currency === body.baseCurrency ? roundMoney(row.amount) : (internalAmount(row, body.baseCurrency, body.currencies)?.amount ?? ""),
+        row.cashbox.type === "bank" ? t("банковский счет") : t("наличные"),
+        row.baseAmount ?? "",
       ])
-      downloadExcelTable(`cash-balance-${(body.entity.name || state.key).replace(/[\\/:*?"<>|]+/g, "_")}`, [header, ...rows])
+      downloadExcelTable(`cash-balance-${(name || state.key).replace(/[\\/:*?"<>|]+/g, "_")}`, [header, ...lines])
     } catch (reason) {
       setDownloadError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -163,143 +160,186 @@ export function CashBalanceDetail({
   }
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
-          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
-          <span className="text-2xl font-bold text-[#586174]">{t("Баланс кассы")}</span>
-        </div>
-      </header>
-
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <BalanceFilterButton count={filterCount} from={period.from} to={period.to} onOpen={openFilter} />
-        <div className="ml-auto flex items-center gap-3">
-          <button type="button" onClick={onClose} className="flex h-11 items-center gap-2 rounded-md bg-[#1E4A9A] px-5 font-semibold text-white">
-            <ArrowLeft className="h-4 w-4" /> {t("Вернуться")}
-          </button>
-          <BalanceDownloadMenu disabled={downloading || !statement} items={[{ label: "Скачать все", onClick: () => void downloadAll() }]} />
-        </div>
-      </section>
-      {downloadError && (
-        <p className="px-6 pb-2 text-sm text-[#e57373] md:px-9">
-          {t("Не удалось выполнить запрос")}: {t(downloadError)}
-        </p>
-      )}
-
-      {!statement && loading && (
-        <div className="flex items-center justify-center gap-2 py-24 text-[#586174]">
-          <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
-        </div>
-      )}
-      {!statement && !loading && error && (
-        <div className="flex flex-col items-center gap-3 py-24 text-center text-[#586174]">
-          <CircleAlert className="h-10 w-10 text-[#e57373]" />
-          <p>
-            {t("Не удалось выполнить запрос")}: {t(error)}
-          </p>
-          <button type="button" onClick={reload} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
-            {t("Повторить")}
-          </button>
-        </div>
-      )}
-
-      {statement && (
-        <>
-          <div className="border-t border-[#efefef]">
-            <CashBalanceSummary
-              totals={statement.summary}
-              currencies={currencies}
-              loading={loading}
-              activeField={column}
-              onMetricClick={(field) => update({ type: CASH_COLUMN_TYPES[field] ?? "" })}
-            />
+    // The reference keeps its top menu above the detail (50 px) and drops the page title.
+    <div className="fixed inset-x-0 bottom-0 top-[50px] z-[80] overflow-y-auto bg-white text-[13px] text-[#333]">
+      <div className="relative px-[32px]">
+        <section className="flex flex-wrap items-center gap-4 border-b border-[#efefef] pb-[20px] pt-[10px]">
+          <BalanceFilterButton count={filterCount} from={period.from} to={period.to} onOpen={() => setFilterOpen(true)} />
+          <div className="ml-auto flex items-center gap-[10px]">
+            <button type="button" onClick={onClose} className="flex h-[34px] items-center gap-1 rounded-[5px] bg-[#1E4A9A] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+              <Reply className="h-[18px] w-[18px]" /> {t("Вернуться")}
+            </button>
+            <BalanceDownloadMenu disabled={downloading || !list.data} items={[{ label: "Скачать все", onClick: () => void downloadAll() }]} />
           </div>
+        </section>
+        {downloadError && (
+          <p className="pt-2 text-sm text-[#e57373]">
+            {t("Не удалось выполнить запрос")}: {t(downloadError)}
+          </p>
+        )}
 
-          <section className="px-6 pb-10 md:px-9">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-y border-[#efefef] py-2">
-              <b>
-                {t("Транзакции")} ({name})
-              </b>
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  update({ search: searchDraft.trim() })
-                }}
-              >
-                <input
-                  value={searchDraft}
-                  onChange={(event) => setSearchDraft(event.target.value)}
-                  placeholder={t("Поиск")}
-                  aria-label={t("Поиск")}
-                  className="h-9 w-64 border-b border-[#dbe0e8] bg-transparent outline-none focus:border-[#1E4A9A]"
-                />
-              </form>
-              <BalancePagination page={state.page} pageSize={state.pageSize} count={count} onChange={(next) => onChange(period, { ...state, ...next })} />
+        {filterOpen && <div className="fixed inset-x-0 bottom-0 top-[50px] z-20 bg-black/10" onClick={() => setFilterOpen(false)} />}
+        {filterOpen && (
+          <DetailFilter
+            period={period}
+            state={state}
+            onClose={() => setFilterOpen(false)}
+            onApply={(nextPeriod, patch) => {
+              setFilterOpen(false)
+              onChange(nextPeriod, { ...state, page: 1, ...patch })
+            }}
+          />
+        )}
+
+        {!statement && summaryLoading && (
+          <div className="flex items-center justify-center gap-2 py-24 text-[#586174]">
+            <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
+          </div>
+        )}
+        {!statement && !summaryLoading && summaryError && (
+          <div className="flex flex-col items-center gap-3 py-24 text-center text-[#586174]">
+            <CircleAlert className="h-10 w-10 text-[#e57373]" />
+            <p>
+              {t("Не удалось выполнить запрос")}: {t(summaryError)}
+            </p>
+            <button type="button" onClick={reloadSummary} className="rounded-md border border-[#1E4A9A] px-4 py-2 font-semibold text-[#1E4A9A]">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        {statement && (
+          <>
+            <div className="-mx-[32px] border-b border-[#efefef]">
+              <CashBalanceSummary
+                totals={statement.summary}
+                currencies={currencies}
+                loading={summaryLoading}
+                activeField={column}
+                onMetricClick={(field) => update({ type: CASH_COLUMN_TYPES[field] ?? "" })}
+              />
             </div>
-            {error && (
-              <p className="py-3 text-sm text-[#e57373]">
-                {t("Не удалось выполнить запрос")}: {t(error)}
-              </p>
-            )}
-            {pageRows.length ? (
-              <CashTransactionsTable rows={pageRows} baseCurrency={statement.baseCurrency} currencies={statement.currencies} loading={loading} />
-            ) : (
-              <div className="flex flex-col items-center gap-3 py-20 text-center text-[13px] text-[#666]">
-                <SearchX className="h-12 w-12 text-[#999]" />
-                {loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}
-              </div>
-            )}
-          </section>
-        </>
-      )}
 
-      <BalanceFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} from={period.from} to={period.to} onApply={applyFilter}>
-        <label className="flex flex-col gap-1">
-          <span className="text-sm text-[#586174]">{t("Категории расходов")}</span>
-          <select value={draft.category} onChange={(event) => setDraft((value) => ({ ...value, category: event.target.value }))} className="h-10 rounded-md border border-[#dbe0e8] bg-white px-3">
-            <option value="">{t("Все")}</option>
-            {categoryOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-sm text-[#586174]">{t("Тип")}</span>
-          <select value={draft.type} onChange={(event) => setDraft((value) => ({ ...value, type: event.target.value }))} className="h-10 rounded-md border border-[#dbe0e8] bg-white px-3">
-            <option value="">{t("Все")}</option>
-            {TYPE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {t(option.label)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-sm text-[#586174]">{t("Клиент")}</span>
-          <select value={draft.client} onChange={(event) => setDraft((value) => ({ ...value, client: event.target.value }))} className="h-10 rounded-md border border-[#dbe0e8] bg-white px-3">
-            <option value="">{t("Все")}</option>
-            {clientOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        {draft.type === "1" && (
-          <label className="flex items-center gap-2 self-end pb-2">
-            <input
-              type="checkbox"
-              checked={draft.notAccepted}
-              onChange={(event) => setDraft((value) => ({ ...value, notAccepted: event.target.checked }))}
-              className="h-4 w-4 accent-[#1E4A9A]"
+            <section className="pb-10">
+              <div className="flex min-h-[52px] flex-wrap items-center justify-between gap-4 border-b border-[#efefef]">
+                <b>
+                  {t("Транзакции")} {!list.loading || list.data ? <span>({name})</span> : null}
+                </b>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    update({ search: searchDraft.trim() })
+                  }}
+                >
+                  <input
+                    value={searchDraft}
+                    onChange={(event) => setSearchDraft(event.target.value)}
+                    placeholder={t("Поиск")}
+                    aria-label={t("Поиск")}
+                    className="h-[38px] w-[256px] border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none placeholder:text-[#bdbdbd] focus:border-[#1E4A9A]"
+                  />
+                </form>
+                <BalancePagination page={state.page} pageSize={state.pageSize} count={list.data?.count ?? 0} onChange={(next) => onChange(period, { ...state, ...next })} />
+              </div>
+              {list.error && (
+                <p className="py-3 text-sm text-[#e57373]">
+                  {t("Не удалось выполнить запрос")}: {t(list.error)}
+                </p>
+              )}
+              {list.loading && !list.data ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="h-6 w-6 animate-spin text-[#586174]" />
+                </div>
+              ) : rows.length ? (
+                <CashTransactionsTable rows={rows} loading={list.loading} onPopup={setPopup} />
+              ) : (
+                <div className="flex flex-col items-center gap-3 py-20 text-center text-[13px] text-[#666]">
+                  <SearchX className="h-12 w-12 text-[#999]" />
+                  {t("По вашему запросу ничего не найдено")}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+      </div>
+      {popup && <OperationPopupDialog popup={popup} onClose={() => setPopup(null)} />}
+    </div>
+  )
+}
+
+/** The detail's filter card (the reference's StatisticsFilterForm): full-width fields over the filter row. */
+function DetailFilter({
+  period: applied,
+  state: current,
+  onClose: close,
+  onApply,
+}: {
+  period: Period
+  state: CashDetailState
+  onClose: () => void
+  onApply: (period: Period, patch: Partial<CashDetailState>) => void
+}) {
+  const { t, language } = useLanguage()
+  const [draft, setDraft] = useState({ from: applied.from, to: applied.to, type: current.type, category: current.category, client: current.client, notAccepted: current.notAccepted })
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const categories = useCashJson<{ categories: CashCategory[] }>("/api/cash/categories").data?.categories ?? []
+  const clients = useJsonList<Named>("/api/clients").items
+  const expenseItems = categories.filter((item) => item.kind === "expense").map((item) => ({ value: String(item.id), label: item.name }))
+  const clientItems = clients.map((item) => ({ value: String(item.id), label: item.name }))
+  const typeItems = TYPE_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))
+  const pick = (items: Array<{ value: string; label: string }>, value: string) => (value ? [{ value, label: items.find((item) => item.value === value)?.label ?? value }] : [])
+  return (
+    <div className="absolute inset-x-[32px] top-[10px] z-30 bg-white px-[30px] pb-[20px] pt-[20px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <div className="flex h-[34px] items-center justify-between">
+        <h3 className="text-[14px] font-semibold text-[#333]">{t("Фильтр")}</h3>
+        <button type="button" onClick={close} aria-label={t("Закрыть")} className="text-[#666] hover:text-[#333]">
+          <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-current" aria-hidden>
+            <path d="M14.59 8 12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+          </svg>
+        </button>
+      </div>
+      <div className="mt-[10px] flex flex-col">
+        <div className="relative h-[60px]">
+          <span className="absolute left-0 top-[8px] text-[10px] font-bold leading-3 text-black">{t("Диапазон дат")}</span>
+          <button type="button" onClick={() => setPickerOpen((open) => !open)} className="absolute inset-x-0 top-[22px] flex h-[36px] items-center justify-between border-b border-[#e0e0e0] text-left text-[13px] text-black">
+            <span>
+              {dayLabel(draft.from, language)} – {dayLabel(draft.to, language)}
+            </span>
+            <CalendarDays className="h-[18px] w-[18px] text-[#8a90a0]" />
+          </button>
+          {pickerOpen && (
+            <DateRangePicker
+              positionClassName="left-0 top-[58px]"
+              begin={draft.from}
+              end={draft.to}
+              onClose={() => setPickerOpen(false)}
+              onApply={(from, to) => {
+                setDraft((value) => ({ ...value, from, to }))
+                setPickerOpen(false)
+              }}
             />
-            <span>{t("Только не принятые переводы")}</span>
+          )}
+        </div>
+        <RefSearchSelect label={t("Категории расходов")} items={expenseItems} selected={pick(expenseItems, draft.category)} onChange={(next) => setDraft((value) => ({ ...value, category: next[0]?.value ?? "" }))} />
+        <RefSearchSelect label={t("Тип")} items={typeItems} selected={pick(typeItems, draft.type)} onChange={(next) => setDraft((value) => ({ ...value, type: next[0]?.value ?? "" }))} searchable={false} />
+        <RefSearchSelect label={t("Клиент")} items={clientItems} selected={pick(clientItems, draft.client)} onChange={(next) => setDraft((value) => ({ ...value, client: next[0]?.value ?? "" }))} />
+        {draft.type === "1" && (
+          <label className="flex h-[40px] cursor-pointer items-center gap-[10px] text-[13px] font-semibold text-[#333]">
+            <input type="checkbox" checked={draft.notAccepted} onChange={(event) => setDraft((value) => ({ ...value, notAccepted: event.target.checked }))} className="h-[18px] w-[18px] accent-[#5d6474]" />
+            {t("Только не принятые переводы")}
           </label>
         )}
-      </BalanceFilterDialog>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          const ordered = draft.from <= draft.to ? { from: draft.from, to: draft.to } : { from: draft.to, to: draft.from }
+          onApply(ordered, { type: draft.type, category: draft.category, client: draft.client, notAccepted: draft.type === "1" && draft.notAccepted })
+        }}
+        className="mt-[10px] h-9 w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white hover:brightness-95"
+      >
+        {t("Применить")}
+      </button>
     </div>
   )
 }

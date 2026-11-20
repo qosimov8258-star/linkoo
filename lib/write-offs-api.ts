@@ -84,7 +84,13 @@ export function parseWriteOffListQuery(url: string): WriteOffListQuery | null {
   const day = (value: string | null) => (value && isIsoDay(value) ? value : "")
   return {
     search: (params.get("search") ?? "").slice(0, 200),
-    ordering: WRITE_OFF_SORT_KEYS.includes(ordering.replace(/^-/, "")) ? ordering : "",
+    // Linko sorts by several heads at once ("-created_date,id"); unknown keys are dropped.
+    ordering: ordering
+      .split(",")
+      .map((key) => key.trim())
+      .filter((key) => WRITE_OFF_SORT_KEYS.includes(key.replace(/^-/, "")))
+      .slice(0, 5)
+      .join(","),
     page: parsePageParam(params.get("page")),
     pageSize: Number.isFinite(pageSize) && pageSize >= 0 ? Math.min(5000, Math.floor(pageSize)) : 25,
     warehouse: list("warehouse"),

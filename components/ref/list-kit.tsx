@@ -1,8 +1,8 @@
 "use client"
 
-import { Fragment, isValidElement, useEffect, useMemo, useState, type ReactNode } from "react"
+import { Fragment, isValidElement, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
 
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { FavoritesButton, type FavoritesOptions } from "@/components/dashboard/favorites-drawer"
 import { usePathname } from "next/navigation"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { REF_COLUMNS } from "@/lib/ref-columns"
@@ -44,14 +44,27 @@ export function RefPage({ children }: { children: ReactNode }) {
   return <main className="min-h-screen bg-[#f2f5f8] px-7 pb-7 font-sans text-[13px] text-[#333]">{children}</main>
 }
 
-export function RefHeader({ title, children, left, titleTop }: { title: ReactNode; children?: ReactNode; left?: ReactNode; titleTop?: number }) {
+export function RefHeader({
+  title,
+  children,
+  left,
+  titleTop,
+  favorites,
+}: {
+  title: ReactNode
+  children?: ReactNode
+  left?: ReactNode
+  titleTop?: number
+  /** Opt-in behaviour of the favourites star (see FavoritesOptions): a saved-state toggle, the drawer outside the heading. */
+  favorites?: FavoritesOptions
+}) {
   const { t } = useLanguage()
   const heading = typeof title === "string" ? t(title) : title
   return (
     <div className="flex h-[60px] items-center justify-between">
       <div className="flex items-center">
         <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" />
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#1E4A9A]" {...favorites} />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           {titleTop ? <span style={{ position: "relative", top: titleTop }}>{heading}</span> : heading}
         </h1>
@@ -114,7 +127,7 @@ export function RefIconButton({ path, label, onClick, color = "#666", active, ti
   )
 }
 
-export function RefTabs({ labels, value, onChange, separate, stacked }: { labels: string[]; value: string; onChange: (value: string) => void; separate?: boolean; /** Own 40px shadowed card with the indicator below it, then a 1px gap (the salary page of the reference). */ stacked?: boolean }) {
+export function RefTabs({ labels, value, onChange, separate, stacked, noMatchHidden }: { labels: string[]; value: string; onChange: (value: string) => void; separate?: boolean; /** Own 40px shadowed card with the indicator below it, then a 1px gap (the salary page of the reference). */ stacked?: boolean; /** No indicator while `value` is none of the labels (a Linko tab value that matches no tab). */ noMatchHidden?: boolean }) {
   const { t } = useLanguage()
   const index = Math.max(0, labels.indexOf(value))
   const height = separate ? "h-[52px]" : "h-10"
@@ -140,7 +153,7 @@ export function RefTabs({ labels, value, onChange, separate, stacked }: { labels
         </button>
       ))}
       <span
-        className={`absolute left-0 z-10 h-[3px] bg-[#1E4A9A] transition-transform duration-300 ${separate ? "bottom-0" : "-bottom-[2px] shadow-[0_-3px_10px_0_#1E4A9A]"}`}
+        className={`absolute left-0 z-10 h-[3px] bg-[#1E4A9A] transition-transform duration-300 ${separate ? "bottom-0" : "-bottom-[2px] shadow-[0_-3px_10px_0_#1E4A9A]"} ${noMatchHidden && !labels.includes(value) ? "hidden" : ""}`}
         style={{ width: `${100 / labels.length}%`, transform: `translateX(${index * 100}%)` }}
       />
     </div>
@@ -184,8 +197,9 @@ export function RefToolbar({
   pageSizeMenu,
   fluid,
 }: {
-  /** The tabbed lists of the reference: the search field drifts right with the viewport (25% of the extra width). */
-  fluid?: boolean
+  /** The tabbed lists of the reference: the search field drifts right with the viewport (25% of the extra width).
+   * "position": it only drifts, keeping its width (KPI задачи). */
+  fluid?: boolean | "position"
   /** Page-size dropdown of the settings lists (10 … 2000) instead of the native select. */
   pageSizeMenu?: boolean
   /** The 24-viewBox thin chevron of the reference's KPI toolbar (default is the older, larger glyph). */
@@ -222,9 +236,13 @@ export function RefToolbar({
   // The reference's link-style toolbar ("Показать фильтр ⌄" + 285.5px search at x=354.5) is the default for "flush".
   const filterWidth = filterWidthProp ?? (linkFilter === "flush" ? 303.5 : 355)
   const searchWidth = searchWidthProp ?? (linkFilter === "flush" ? 285.5 : undefined)
+  // Below md (phones) the row wraps (filter, then search, then paging on lines of their own) instead of widening
+  // the page. Between md and lg a row that does not fit (the batches list at 768 px) puts the paging on a second
+  // line, right-aligned, instead of running past the page's edge; a row that fits stays one 50 px row. From lg up
+  // it is unchanged.
   return (
-    <div className={`relative flex h-[50px] items-center px-[5px] ${plain ? "" : "bg-white"}`}>
-      <div className={leftSlot || !hideFilter ? "shrink-0" : "hidden"} style={{ width: leftSlot || !hideFilter ? (fluid ? `calc(${filterWidth}px + max(0px, 100vw - 1296px) * 0.25)` : filterWidth) : undefined }}>
+    <div className={`relative flex h-[50px] items-center px-[5px] max-lg:h-auto max-lg:min-h-[50px] max-lg:flex-wrap max-md:py-1 ${plain ? "" : "bg-white"}`}>
+      <div className={leftSlot || !hideFilter ? "shrink-0 max-md:!w-auto" : "hidden"} style={{ width: leftSlot || !hideFilter ? (fluid ? `calc(${filterWidth}px + max(0px, 100vw - 1296px) * 0.25)` : filterWidth) : undefined }}>
         {leftSlot}
         {!leftSlot && !hideFilter && (
           linkFilter ? (
@@ -249,7 +267,7 @@ export function RefToolbar({
         )}
       </div>
       {filterOpen && <div className="absolute left-0 top-0 z-30 w-full">{filterPanel}</div>}
-      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start self-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: fluid ? `calc(${searchWidth}px + max(0px, 100vw - 1296px) * 0.0711)` : searchWidth } : undefined}>
+      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start self-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] max-md:!ml-[5px] max-md:!w-full ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: fluid === true ? `min(300px, calc(${searchWidth}px + max(0px, 100vw - 1296px) * 0.25))` : searchWidth } : undefined}>
         <input
           value={query}
           onChange={(event) => onQuery(event.target.value)}
@@ -260,7 +278,7 @@ export function RefToolbar({
           <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
         </svg>
       </div>
-      <div className="ml-auto flex items-center text-[#5d6474]">
+      <div className="ml-auto flex items-center text-[#5d6474] max-md:ml-0 max-md:w-full max-md:justify-end">
         {pageSizeMenu ? (
           <div className="mr-[27px]"><PageSizeSelect value={pageSize} onChange={onPageSize} /></div>
         ) : (
@@ -326,6 +344,9 @@ export function RefTable<T>({
   hideBody,
   hideHead,
   headPad,
+  loading,
+  rowHref,
+  rowLabel,
 }: {
   cols: string
   heads: ReactNode[]
@@ -344,6 +365,13 @@ export function RefTable<T>({
   hideHead?: boolean
   /** Right padding of the header cells (the reference reserves room for the sort arrows, so long titles wrap). */
   headPad?: number
+  /** The list's request is running: the reference's loader takes the body's place (no rows, no «ничего не найдено»). */
+  loading?: boolean
+  /** Each row is also a link to this address (the reference's row overlay <a href>): a middle / ctrl / cmd click opens
+   * it in a new tab and the link can be copied; a plain click still calls onRowClick. */
+  rowHref?: (row: T) => string
+  /** Accessible name of the row link. */
+  rowLabel?: (row: T) => string
 }) {
   const pathname = usePathname()
   const { t } = useLanguage()
@@ -380,7 +408,9 @@ export function RefTable<T>({
           ))}
         </div>
         )}
-        {hideBody ? null : sortedRows.length === 0 ? (
+        {hideBody ? null : loading ? (
+          <RefLoader />
+        ) : sortedRows.length === 0 ? (
           typeof empty === "string" && NOTHING_FOUND.some((text) => t(text) === empty) ? (
             <RefNothingFound />
           ) : (
@@ -390,13 +420,27 @@ export function RefTable<T>({
           sortedRows.map((row) => (
             <Fragment key={rowKey(row)}>
               <div
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={`group relative grid min-h-[50px] items-center bg-white px-[30px] py-[7px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8] ${onRowClick ? "cursor-pointer" : ""} ${rowClass?.(row) ?? ""}`}
+                onClick={onRowClick && !rowHref ? () => onRowClick(row) : undefined}
+                className={`group relative grid min-h-[50px] items-center bg-white px-[30px] py-[7px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8] ${onRowClick || rowHref ? "cursor-pointer" : ""} ${rowClass?.(row) ?? ""}`}
                 style={{ gridTemplateColumns: gridCols, ...padStyle }}
               >
                 {render(row).map((cell, index) => (
                   <div key={index} className="px-2 leading-[16.25px]">{cell}</div>
                 ))}
+                {rowHref && (
+                  <a
+                    href={rowHref(row)}
+                    aria-label={rowLabel?.(row)}
+                    onClick={(event) => {
+                      // A plain left click stays in the page (the detail opens in place); a middle / modified
+                      // click is the browser's (new tab, new window).
+                      if (!onRowClick || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                      event.preventDefault()
+                      onRowClick(row)
+                    }}
+                    className="absolute inset-0 z-[1]"
+                  />
+                )}
               </div>
               {expanded?.(row)}
             </Fragment>
@@ -562,10 +606,10 @@ const NOTHING_FOUND = ["Ничего не найдено", "По вашему з
 
 /** Linko's applied filter (its afterFilter bar, Заказы and Клиенты): «Фильтр: N элемента» in place of «Показать
  * фильтр», ✎ opens the filter again, ⊗ clears it. N = the filter fields in use. */
-export function RefAppliedFilter({ count, onEdit, onClear }: { count: number; onEdit: () => void; onClear: () => void }) {
+export function RefAppliedFilter({ count, onEdit, onClear, width = 346.5, shift = 0, pad = 30 }: { count: number; onEdit: () => void; onClear: () => void; /** Bar width in px (Интеграция: 371.5), or a CSS width (Заказы: its column less the gap). */ width?: number | string; /** Moves the bar left by this many px (Интеграция: its afterFilter's margin-left -30px). */ shift?: number; /** Left padding of the text (Сотрудники: 10 px). */ pad?: number }) {
   const { t } = useLanguage()
   return (
-    <div className="relative mt-px flex h-[48.25px] w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
+    <div className="relative mt-px flex h-[48.25px] items-center bg-[#efefef] text-[13px] text-[#666]" style={{ width, marginLeft: -shift, paddingLeft: pad }}>
       <span>{t("Фильтр:")} {count} {t("элемента")}</span>
       <button type="button" onClick={onEdit} aria-label={t("Изменить фильтр")} className="relative ml-auto flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]">
         <svg viewBox="0 0 24 24" aria-hidden className="h-6 w-6 fill-[#8f8f8f]"><path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" /></svg>
@@ -579,14 +623,14 @@ export function RefAppliedFilter({ count, onEdit, onClear }: { count: number; on
 }
 
 /** Linko's empty list (Отказы, Смена, План опроса …): a 276 px white box, the robot and «По вашему запросу ничего не
- * найдено» under it. */
+ * найдено» under it (Linko: the robot a 155 px background centred in the box, the text 230 px from its top). */
 export function RefNothingFound({ text }: { text?: ReactNode } = {}) {
   const { t } = useLanguage()
   return (
     <div className="flex h-[276px] flex-col items-center bg-white pt-[58px] text-[13px] text-[#666]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/robot-empty.png" alt="" className="w-[164px]" />
-      <span className="mt-[2px]">{text === undefined ? t("По вашему запросу ничего не найдено") : typeof text === "string" ? t(text) : text}</span>
+      <img src="/robot-empty.png" alt="" className="w-[155px]" />
+      <span className="mt-[12px] leading-[16.25px]">{text === undefined ? t("По вашему запросу ничего не найдено") : typeof text === "string" ? t(text) : text}</span>
     </div>
   )
 }
@@ -594,6 +638,26 @@ export function RefNothingFound({ text }: { text?: ReactNode } = {}) {
 /** An empty list with its own text, in Linko's box (Задачи, Списание, Переоценка, Передачи …). */
 export function RefEmpty({ text }: { text: ReactNode }) {
   return <RefNothingFound text={text} />
+}
+
+// The reference's list loader: an 8-dot roller (scale 0.75) in the middle of the table body.
+const ROLLER_DOTS: Array<[number, number]> = [[50, 50], [54, 45], [57, 39], [58, 32], [57, 25], [54, 19], [50, 14], [45, 10]]
+
+/** Loader in the box of the empty list (276 px white), shown while a list's request runs. */
+export function RefLoader({ className = "h-[276px] pt-[100px]" }: { className?: string }) {
+  const { t } = useLanguage()
+  return (
+    <div role="status" aria-label={t("Загрузка...")} className={`flex justify-center bg-white ${className}`}>
+      <style>{"@keyframes ref-roller{to{transform:rotate(360deg)}}"}</style>
+      <div className="relative h-16 w-16 shrink-0 scale-75">
+        {ROLLER_DOTS.map(([top, left], index) => (
+          <div key={index} className="absolute inset-0" style={{ animation: `ref-roller 1.2s cubic-bezier(0.5, 0, 0.5, 1) ${-0.036 * (index + 1)}s infinite`, transformOrigin: "32px 32px" }}>
+            <span className="absolute h-[6px] w-[6px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1E4A9A]" style={{ top, left }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 
@@ -735,6 +799,254 @@ export function FilterSelect({
   )
 }
 
+/** An option of the searchable selects: the value keys it (two items with the same name stay apart). */
+export type FilterOption = { value: string; label: string }
+
+type ComboProps = {
+  label: string
+  options: FilterOption[]
+  values: string[]
+  onChange: (values: string[]) => void
+  multiple?: boolean
+  compact?: boolean
+  required?: boolean
+  error?: string
+  loading?: boolean
+  emptyText?: string
+  limit?: number
+  className?: string
+  /** Told after an option is picked, with how it was picked (a click, or Enter), e.g. to move on to the next field
+   * as the reference does after a click. */
+  onPick?: (option: FilterOption, source: "pointer" | "keyboard") => void
+  /** A Russian key shown (translated) for a picked value that no option names, e.g. «Загрузка...» while the options
+   * load (a filter opened from a link holding ids) and «Товар не найден» after. Without it a chip shows the bare value
+   * and a single pick shows nothing (callers whose values are their own labels). */
+  missingLabel?: string
+  /** The option labels are stored data (stage names …): the page translator leaves the options, the picked value and
+   * the chips alone. The combo's own texts go through t() as before. */
+  rawLabels?: boolean
+}
+
+/**
+ * The reference's react-select (filter forms and dialogs): a click or a typed letter opens it, typing narrows the
+ * options (at most `limit` are listed; «Не найдено» when none match), ↑ / ↓ and Enter pick, Escape closes. A picked
+ * option shows with a × that clears it; `multiple` keeps every pick as a removable chip («× sok»), and Backspace in the
+ * empty search removes the last one.
+ */
+function FilterCombo({ label, options, values, onChange, multiple, compact, required, error, loading, emptyText = "Не найдено", limit = 100, className = "", onPick, missingLabel, rawLabels }: ComboProps) {
+  const { t } = useLanguage()
+  const raw = rawLabels ? { "data-no-translate": "" } : {}
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const [active, setActive] = useState(0)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const controlRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listId = useId()
+  const labels = useMemo(() => new Map(options.map((option) => [option.value, option.label])), [options])
+  const shown = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase("ru")
+    const picked = new Set(values)
+    return options.filter((option) => !(multiple && picked.has(option.value)) && (!needle || option.label.toLocaleLowerCase("ru").includes(needle))).slice(0, limit)
+  }, [options, values, search, multiple, limit])
+  const nameOf = (value: string) => labels.get(value) ?? (missingLabel ? t(missingLabel) : undefined)
+  const single = !multiple && values[0] ? nameOf(values[0]) ?? "" : ""
+  const filled = values.length > 0 || open
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" })
+  }, [active, open])
+
+  const show = (text = "") => {
+    setSearch(text)
+    setActive(0)
+    setOpen(true)
+  }
+  const close = () => {
+    setOpen(false)
+    setSearch("")
+    controlRef.current?.focus()
+  }
+  const pick = (option: FilterOption, source: "pointer" | "keyboard") => {
+    onChange(multiple ? [...values, option.value] : [option.value])
+    close()
+    onPick?.(option, source)
+  }
+
+  function onSearchKey(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault()
+      const step = event.key === "ArrowDown" ? 1 : -1
+      setActive((current) => Math.min(Math.max(current + step, 0), Math.max(shown.length - 1, 0)))
+    } else if (event.key === "Enter") {
+      // Inside a form, Enter picks: it never submits the filter or the dialog.
+      event.preventDefault()
+      if (shown[active]) pick(shown[active], "keyboard")
+    } else if (event.key === "Escape") {
+      event.preventDefault()
+      event.stopPropagation()
+      close()
+    } else if (event.key === "Backspace" && multiple && !search && values.length) {
+      onChange(values.slice(0, -1))
+    } else if (event.key === "Tab") {
+      setOpen(false)
+      setSearch("")
+    }
+  }
+
+  function onControlKey(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (open) return
+    if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      show()
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault()
+      show(event.key)
+    } else if ((event.key === "Backspace" || event.key === "Delete") && values.length && !multiple) {
+      onChange([])
+    }
+  }
+
+  return (
+    <div ref={rootRef} className={`relative ${compact ? "min-h-[50px] pt-[14px]" : "min-h-[62px] pt-[18px]"} ${className}`}>
+      <div
+        ref={controlRef}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-haspopup="listbox"
+        aria-label={t(label)}
+        tabIndex={open ? -1 : 0}
+        onClick={() => (open ? inputRef.current?.focus() : show())}
+        onKeyDown={onControlKey}
+        className={`relative min-h-[36px] cursor-pointer border-b pr-[46px] text-[13px] font-semibold text-black outline-none ${error ? "border-[#f44336]" : open ? "border-[#5d6474]" : "border-[#e8e8e8]"}`}
+      >
+        <span className={`pointer-events-none absolute left-0 ${filled ? "top-[-8px] text-[10px] font-bold leading-3" : "top-[13px] leading-4"}`}>
+          {t(label)}
+          {required && <span className="text-[#e57373]"> *</span>}
+        </span>
+        <div className="flex min-h-[36px] flex-wrap items-center gap-x-[5px] pt-[2px]">
+          {multiple &&
+            values.map((value) => (
+              <span key={value} className="my-[3px] flex h-[22px] items-center rounded-[2px] bg-[#5868f0] text-[11.7px] font-semibold leading-[16px] text-white">
+                <button
+                  type="button"
+                  aria-label={t("Удалить")}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onChange(values.filter((item) => item !== value))
+                  }}
+                  className="px-[5px] py-[2px]"
+                >
+                  ×
+                </button>
+                <span {...raw} className="max-w-[180px] truncate border-l border-white px-[5px]">
+                  {nameOf(value) ?? value}
+                </span>
+              </span>
+            ))}
+          {open ? (
+            <input
+              ref={inputRef}
+              autoFocus
+              value={search}
+              placeholder={single}
+              {...raw}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setActive(0)
+              }}
+              onKeyDown={onSearchKey}
+              aria-autocomplete="list"
+              className="h-[24px] min-w-[60px] flex-1 bg-transparent text-[13px] font-semibold outline-none placeholder:text-black/40"
+            />
+          ) : (
+            !multiple &&
+            single && (
+              <span {...raw} className="block min-w-0 flex-1 truncate leading-[24px]">
+                {single}
+              </span>
+            )
+          )}
+        </div>
+        <span className="absolute bottom-[10px] right-[10px] flex items-center gap-[8px]">
+          {values.length > 0 && (
+            <button
+              type="button"
+              aria-label={t("Очистить")}
+              title={t("Очистить")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation()
+                onChange([])
+                setSearch("")
+              }}
+              className="flex h-[14px] w-[14px] items-center justify-center text-[15px] leading-none text-[#999] hover:text-[#d0021b]"
+            >
+              ×
+            </button>
+          )}
+          <svg viewBox="0 0 10 5" className={`pointer-events-none h-[5px] w-[10px] fill-[#999] ${open ? "rotate-180" : ""}`} aria-hidden>
+            <path d="M0 0l5 5 5-5z" />
+          </svg>
+        </span>
+      </div>
+      {error && <div className="mt-[3px] text-[12px] leading-4 text-[#f44336]">{t(error)}</div>}
+      {open && (
+        <ul ref={listRef} id={listId} role="listbox" className="absolute inset-x-0 top-full z-50 max-h-[205px] overflow-y-auto bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+          {loading ? (
+            <li className="h-9 px-[10px] text-[13px] leading-9 text-[#999]">{t("Загрузка...")}</li>
+          ) : shown.length === 0 ? (
+            <li className="h-9 px-[10px] text-[13px] leading-9 text-[#999]">{t(emptyText)}</li>
+          ) : (
+            shown.map((option, index) => (
+              <li key={option.value} role="option" aria-selected={values.includes(option.value)} data-index={index}>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => pick(option, "pointer")}
+                  {...raw}
+                  className={`block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold ${index === active ? "bg-[#f2f5f8]" : ""} ${values.includes(option.value) ? "text-[#1E4A9A]" : ""}`}
+                >
+                  {option.label}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** Searchable single select over keyed options (the reference's «Этап производства»): × clears the choice. */
+export function FilterSearchSelect({
+  value,
+  onChange,
+  ...props
+}: Omit<ComboProps, "values" | "onChange" | "multiple"> & { value: string; onChange: (value: string) => void }) {
+  return <FilterCombo {...props} values={value ? [value] : []} onChange={(values) => onChange(values[values.length - 1] ?? "")} />
+}
+
+/** Searchable multi-select over keyed options (the reference's «Готовый продукт» / «Сырье»): picks are chips. */
+export function FilterMultiSelect({ value, onChange, ...props }: Omit<ComboProps, "values" | "onChange" | "multiple"> & { value: string[]; onChange: (value: string[]) => void }) {
+  return <FilterCombo {...props} multiple values={value} onChange={onChange} />
+}
+
 export function FilterText({
   label,
   value,
@@ -870,11 +1182,18 @@ export function FilterDate({
   noIcon,
   pickerClassName,
   roomy,
+  iconEnd,
+  clearable,
+  independentMonths,
 }: {
   label: string
   begin: string
   end: string
   onChange: (begin: string, end: string) => void
+  /** The picker's × empties the field («Очистить»: «Укажите дату», no range) instead of only closing it. */
+  clearable?: boolean
+  /** Each month of the picker has both arrows and moves on its own (the reference's filter calendar). */
+  independentMonths?: boolean
   className?: string
   /** Print the months as words ("01 окт. 2026") instead of dd.mm.yyyy, and one day once (Linko's "15 нояб. 2026"). */
   words?: boolean
@@ -891,12 +1210,54 @@ export function FilterDate({
   roomy?: boolean
   /** Anchor classes of the range picker (the reference right-aligns it under the activity filter). */
   pickerClassName?: string
+  /** The reference's DateToDateField (stock count and write-off filters): the 18px calendar at the end of the value
+   * row, a × that clears a chosen period before it, and "begin – end". */
+  iconEnd?: boolean
 }) {
   const { t, language } = useLanguage()
   const [open, setOpen] = useState(false)
   // The local (Asia/Tashkent) day: before 05:00 the UTC date is still yesterday.
   const today = todayIso()
   const wordsLanguage = words ? language : undefined
+  if (iconEnd) {
+    const text = begin ? `${formatFilterDate(begin, wordsLanguage)} – ${formatFilterDate(end || begin, wordsLanguage)}` : t("Укажите дату")
+    return (
+      <div className={`relative h-[62px] ${className}`}>
+        <button type="button" onClick={() => setOpen((current) => !current)} className="absolute inset-x-0 top-[18px] h-[39px] w-full border-b border-[#e0e0e0] text-left text-[13px]">
+          <span className="absolute left-0 top-[-11px] text-[10px] font-semibold leading-3 text-black">{t(label)}</span>
+          <span className="absolute left-0 right-[44px] top-[13px] truncate text-black">{text}</span>
+          {begin && (
+            <span
+              role="button"
+              tabIndex={-1}
+              aria-label={t("Очистить")}
+              onClick={(event) => {
+                event.stopPropagation()
+                onChange("", "")
+              }}
+              className="absolute right-[24px] top-[13px] flex h-[14px] w-[14px] items-center justify-center"
+            >
+              <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#333] opacity-60"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+            </span>
+          )}
+          <svg viewBox="0 0 24 24" className="absolute right-0 top-[11px] h-[18px] w-[18px] fill-[#333] opacity-60"><path d="M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V8h16v13z" /></svg>
+        </button>
+        {open && (
+          <DateRangePicker
+            begin={begin || today}
+            end={end || today}
+            placement={placement}
+            positionClassName={pickerClassName}
+            onClose={() => setOpen(false)}
+            onApply={(b, e) => {
+              onChange(b, e)
+              setOpen(false)
+            }}
+          />
+        )}
+      </div>
+    )
+  }
   return (
     <div className={`relative ${mui ? (tall ? "h-[67px]" : "h-[52px]") : roomy ? "h-[72px]" : "h-[62px]"} ${className}`}>
       <button type="button" onClick={() => setOpen((current) => !current)} className={`absolute inset-x-0 w-full text-left text-[13px] ${mui ? (tall ? "top-[7px] h-[60px]" : "top-[7px] h-[45px]") : `top-[18px] border-b border-[#e8e8e8] ${roomy ? "h-[41px]" : "h-[36px]"}`}`}>
@@ -913,7 +1274,16 @@ export function FilterDate({
           end={end || today}
           placement={placement}
           positionClassName={pickerClassName}
+          independentMonths={independentMonths}
           onClose={() => setOpen(false)}
+          onClear={
+            clearable
+              ? () => {
+                  onChange("", "")
+                  setOpen(false)
+                }
+              : undefined
+          }
           onApply={(b, e) => {
             onChange(b, e)
             setOpen(false)

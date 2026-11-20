@@ -121,6 +121,7 @@ export function SalaryPlansDialog({
   const tableRef = useRef<HTMLDivElement>(null)
 
   const columns = useMemo(() => (scope === "all" ? kpis : kpis.filter((item) => picked.includes(item.id))), [scope, kpis, picked])
+  const colWidth = `${100 / (1 + columns.length)}%`
   const title = `${t("Изменить зарплату выбранных сотрудников на")} ${t(SALARY_MONTHS[month]).toUpperCase()} ${year}`
 
   function next() {
@@ -184,18 +185,19 @@ export function SalaryPlansDialog({
           <SalaryYearField rs className="w-[151px]" lower value={targetYear} onChange={setTargetYear} />
         </div>
         <div ref={tableRef} className="min-h-0 flex-1 overflow-auto">
-          <div style={{ width: 250 * (1 + columns.length) }}>
+          {/* The reference shows six columns (the employee and five KPIs) per window width, the rest scroll. */}
+          <div style={{ width: `${((1 + columns.length) * 100) / 6}%` }}>
             <div className="flex h-[50px] border-b border-[#f2f5f8] font-semibold text-[#333]">
-              <div className="flex w-[250px] shrink-0 items-center pl-[10px]">{t("Сотрудник")}</div>
-              {columns.map((kpi) => <div key={kpi.id} className="flex w-[250px] shrink-0 items-center px-[8px] leading-[16.25px]"><span className="block break-words">{kpi.name}</span></div>)}
+              <div className="flex shrink-0 items-center pl-[10px]" style={{ width: colWidth }}>{t("Сотрудник")}</div>
+              {columns.map((kpi) => <div key={kpi.id} className="flex shrink-0 items-center px-[8px] leading-[16.25px]" style={{ width: colWidth }}><span className="block break-words">{kpi.name}</span></div>)}
             </div>
             {targets.map((target) => (
               <div key={target.userId} className="flex h-[50px] border-b border-[#f2f5f8]">
-                <div className="flex w-[250px] shrink-0 items-center pl-[10px] font-semibold">{target.name}</div>
+                <div className="flex shrink-0 items-center pl-[10px] font-semibold" style={{ width: colWidth }}>{target.name}</div>
                 {columns.map((kpi) => {
                   const key = `${target.userId}:${kpi.id}`
                   return (
-                    <div key={kpi.id} className="relative mt-[5.5px] h-[45px] w-[250px] shrink-0 px-[8px]">
+                    <div key={kpi.id} className="relative mt-[5.5px] h-[45px] shrink-0 px-[8px]" style={{ width: colWidth }}>
                       <input
                         value={formatDigits(values[key] ?? "")}
                         inputMode="decimal"

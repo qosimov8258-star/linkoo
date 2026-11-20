@@ -1,7 +1,6 @@
 "use client"
 
-import { Pencil, Trash2 } from "lucide-react"
-import { useCallback, useState } from "react"
+import { Fragment, useCallback, useState, type ReactNode } from "react"
 
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
@@ -10,7 +9,6 @@ import { formatCategoryDate } from "./categories-grid"
 import {
   DictionaryDeleteDialog,
   DICT_HEAD,
-  DICT_ROW,
   DictionaryPage,
   DictionaryRowActions,
   DictionaryToolbar,
@@ -57,30 +55,51 @@ function UnitsGrid() {
   const actions = (node: UnitOfMeasureNode) =>
     canEdit && <DictionaryRowActions onEdit={() => setDialog({ kind: "update", id: node.id })} onDelete={() => setDialog({ kind: "delete", id: node.id, name: node.name })} />
 
-  // demo rows: every top-level unit is bold, its child units follow indented
-  function renderNode(node: UnitOfMeasureNode, level: number) {
+  // Linko's rows: Bootstrap xs-6 / 4 / 2 of the 30 px inset row (cells padded 8 px, the first only on the right). A
+  // top-level unit's name is bold (its date too when it has child units); its child units follow inside the same item,
+  // their name 50 px in, each under an inset dotted line; the item ends with a full-width dotted line. Rows have no
+  // hover colour: the ✎ / 🗑 of the hovered row show.
+  const dotted = "after:pointer-events-none after:absolute after:inset-x-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-['']"
+  // The ✎ / 🗑 (absolute, 34 px from the right) measured from the page edge like Linko's.
+  const actionsBox = "pointer-events-none absolute inset-y-0 left-0 right-[-30px] [&>*]:pointer-events-auto"
+  function renderRow(node: UnitOfMeasureNode, level: number): ReactNode {
     return (
-      <div key={node.id}>
-        <div className={`${DICT_ROW} grid-cols-[615.5px_1fr]`}>
-          <div className={`break-words py-3 pr-4 leading-[16.25px] ${level === 0 ? "font-semibold" : "pl-[50px]"}`}>{node.name}</div>
-          <div className={`whitespace-nowrap py-3 pr-4 leading-[16.25px] ${node.children.length > 0 ? "font-semibold" : ""}`}>{created(node)}</div>
-          {actions(node)}
+      <Fragment key={node.id}>
+        <div className={`group relative grid min-h-[50px] grid-cols-[50%_33.3333%_1fr] items-center ${level > 0 ? `${dotted} after:top-0` : ""}`}>
+          <div className={`break-words pr-2 leading-[16.25px] ${level === 0 ? "font-semibold" : "pl-[50px]"}`}>{node.name}</div>
+          <div className={`whitespace-nowrap px-2 leading-[16.25px] ${node.children.length > 0 ? "font-semibold" : ""}`}>{created(node)}</div>
+          <div className={actionsBox}>{actions(node)}</div>
         </div>
-        {node.children.map((child) => renderNode(child, level + 1))}
+        {node.children.map((child) => renderRow(child, level + 1))}
+      </Fragment>
+    )
+  }
+  function renderNode(node: UnitOfMeasureNode) {
+    return (
+      <div key={node.id} className={`relative bg-white px-[30px] ${dotted} after:bottom-0`}>
+        {renderRow(node, 0)}
       </div>
     )
   }
 
-  const headerCell = "px-0 font-semibold"
+  const headerCell = "px-2 font-semibold"
 
   return (
     <DictionaryPage>
-      <DictionaryToolbar addLabel={canEdit ? t("добавить измерение") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} hideTotal />
+      {/* Linko's hierarchy answers no count: its pager prints «from - page × size из» (1 - 25 из even for 3 found). */}
+      <DictionaryToolbar
+        addLabel={canEdit ? t("добавить измерение") : null}
+        onAdd={() => setDialog({ kind: "create" })}
+        state={state}
+        update={update}
+        count={Math.max(data?.count ?? 0, state.page * state.pageSize)}
+        hideTotal
+      />
 
       <div className="overflow-x-auto">
         <div className="min-w-[560px]">
-          <div className={`${DICT_HEAD} grid-cols-[615.5px_1fr]`}>
-            <SortHeader as="div" label={t("Наименование")} field="name" ordering={state.ordering} onSort={sort} className={headerCell} />
+          <div className={`${DICT_HEAD} grid-cols-[50%_33.3333%_1fr]`}>
+            <SortHeader as="div" label={t("Наименование")} field="name" ordering={state.ordering} onSort={sort} className="pr-2 font-semibold" />
             <SortHeader as="div" label={t("Дата создания")} field="created_date" ordering={state.ordering} onSort={sort} className={headerCell} />
           </div>
           <div className={loading && data ? "opacity-60" : undefined}>
@@ -91,7 +110,7 @@ function UnitsGrid() {
             ) : rows.length === 0 ? (
               <p className="px-9 py-10 text-center text-slate-400">{t("По вашему запросу ничего не найдено")}</p>
             ) : (
-              rows.map((node) => renderNode(node, 0))
+              rows.map((node) => renderNode(node))
             )}
           </div>
         </div>

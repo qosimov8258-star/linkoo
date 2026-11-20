@@ -1,6 +1,5 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Pencil, Search } from "lucide-react"
 import { FormEvent, useCallback, useEffect, useState } from "react"
 
 import { CashSnackbar, ErrorBlock, LoadingBlock, useCanManage, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
@@ -19,6 +18,10 @@ type Loaded = { key: string; data: OrderTimeRestrictionPage | null; error: strin
 
 const DEFAULT_PAGE_SIZE = 25
 
+// Linko's pager arrows (a triangle in a ring).
+const ARROW_LEFT = "M22,12A10,10 0 0,0 12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12M20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12M14,7L9,12L14,17V7Z"
+const ARROW_RIGHT = "M2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2A10,10 0 0,0 2,12M4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12M10,17L15,12L10,7V17Z"
+
 function queryFromUrl(): Query {
   const params = new URLSearchParams(window.location.search)
   const page = Number(params.get("page"))
@@ -30,11 +33,12 @@ function queryFromUrl(): Query {
   }
 }
 
+/** The address / API query of a state; the defaults stay out, so the bare link stays bare as Linko's #/permission. */
 function queryString(query: Query): string {
   const params = new URLSearchParams()
   if (query.search) params.set("search", query.search)
-  params.set("page", String(query.page))
-  params.set("pageSize", String(query.pageSize))
+  if (query.page > 1) params.set("page", String(query.page))
+  if (query.pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(query.pageSize))
   return params.toString()
 }
 
@@ -59,7 +63,8 @@ export function TimeRestrictionsView({ embedded = false }: { embedded?: boolean 
 
   useEffect(() => {
     if (!query) return
-    const url = `${window.location.pathname}?${queryString(query)}${window.location.hash}`
+    const text = queryString(query)
+    const url = `${window.location.pathname}${text ? `?${text}` : ""}${window.location.hash}`
     if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== url) window.history.replaceState(window.history.state, "", url)
     const controller = new AbortController()
     fetch(`/api/order-time-restrictions?${queryString(query)}`, { cache: "no-store", signal: controller.signal })
@@ -113,36 +118,45 @@ export function TimeRestrictionsView({ embedded = false }: { embedded?: boolean 
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1 text-[13px] text-[#333]" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7 text-[13px] text-[#333]"}>
+    <main className={embedded ? "min-w-0 flex-1 bg-white text-[13px] text-[#333]" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7 text-[13px] text-[#333]"}>
       <section className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
-        <div className="flex min-h-[50px] flex-wrap items-center gap-x-[20px] gap-y-[6px] px-[16px] py-[6px] sm:px-[20px]">
-          <form role="search" onSubmit={submitSearch} className="relative w-full max-w-[300px]">
+        {/* Linko's 60px bar: a 182px search field 15px from the left, «25 ▾», «1 - 2 из 2» and the round arrows. */}
+        <div className="relative flex h-[60px] items-center pr-[5px] text-[13px]">
+          <form role="search" onSubmit={submitSearch} className="absolute left-[15px] top-[11px] h-[48px] w-[182px] max-w-[45%]">
             <input
               value={input}
               maxLength={200}
               onChange={(event) => setInput(event.target.value)}
               placeholder={t("Поиск")}
               aria-label={t("Поиск")}
-              className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#1E4A9A]"
+              className="peer h-[48px] w-full bg-transparent pb-[6px] pr-[28px] text-[13px] text-black outline-none placeholder:text-black/30"
             />
-            <button type="submit" aria-label={t("Поиск")} className="absolute right-1 top-[5px] text-[#9aa3b6] hover:text-[#1E4A9A]">
-              <Search className="h-[18px] w-[18px]" />
+            <span className="pointer-events-none absolute inset-x-0 top-[39px] h-px bg-[#e0e0e0] peer-focus:h-[2px] peer-focus:bg-[#5d6474]" />
+            <button type="submit" aria-label={t("Поиск")} className="absolute right-[2px] top-[12px]">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#ccc]" aria-hidden>
+                <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+              </svg>
             </button>
           </form>
-          <div className="ml-auto flex items-center gap-[12px] whitespace-nowrap">
-            <select
-              value={pageSize}
-              onChange={(event) => setQuery((value) => ({ search: value?.search ?? "", page: 1, pageSize: Number(event.target.value) }))}
-              aria-label={t("Строк на странице")}
-              className="h-[28px] bg-transparent pr-1 text-[13px] outline-none"
-            >
-              {ORDER_TIME_PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-            <span>
+          <div className="ml-auto flex items-center whitespace-nowrap">
+            <div className="relative w-[56px]">
+              <select
+                value={pageSize}
+                onChange={(event) => setQuery((value) => ({ search: value?.search ?? "", page: 1, pageSize: Number(event.target.value) }))}
+                aria-label={t("Строк на странице")}
+                className="h-[48px] w-full cursor-pointer appearance-none bg-transparent text-[13px] text-[#333] outline-none"
+              >
+                {ORDER_TIME_PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+              <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[16px] top-[12px] h-6 w-6 fill-[#e0e0e0]" aria-hidden>
+                <path d="M7 10l5 5 5-5z" />
+              </svg>
+            </div>
+            <span className="ml-[11px] text-[#5d6474]">
               {from} - {to} {t("из")} {count}
             </span>
             <button
@@ -150,52 +164,49 @@ export function TimeRestrictionsView({ embedded = false }: { embedded?: boolean 
               onClick={() => query && setQuery({ ...query, page: Math.max(1, page - 1) })}
               disabled={page <= 1}
               aria-label={t("Назад")}
-              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-slate-700 text-slate-700 disabled:border-slate-300 disabled:text-slate-300"
+              className="ml-[10px] flex h-6 w-6 items-center justify-center"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`} aria-hidden>
+                <path d={ARROW_LEFT} />
+              </svg>
             </button>
             <button
               type="button"
               onClick={() => query && setQuery({ ...query, page: Math.min(lastPage, page + 1) })}
               disabled={page >= lastPage}
               aria-label={t("Вперед")}
-              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-slate-700 text-slate-700 disabled:border-slate-300 disabled:text-slate-300"
+              className="ml-[5px] flex h-6 w-6 items-center justify-center"
             >
-              <ChevronRight className="h-4 w-4" />
+              <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= lastPage ? "fill-black/30" : "fill-black/55"}`} aria-hidden>
+                <path d={ARROW_RIGHT} />
+              </svg>
             </button>
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] table-fixed text-left">
-            <colgroup>
-              <col className="w-5/12" />
-              <col className="w-5/12" />
-              <col className="w-2/12" />
-            </colgroup>
-            <thead className="bg-[#5d6474] text-white">
-              <tr className="h-[50px]">
-                <th scope="col" className="pl-[30px] pr-[10px] text-[13px] font-semibold">{t("Наименование")}</th>
-                <th scope="col" className="px-[10px] text-[13px] font-semibold">{t("Время работы")}</th>
-                <th scope="col" className="pr-[30px]"><span className="sr-only">{t("Изменить")}</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className={`h-[50px] hover:bg-[#f8f9fb] ${dottedRow}`}>
-                  <td className="truncate pl-[30px] pr-[10px]" title={t(row.name)}>{t(row.name)}</td>
-                  <td className="px-[10px]">{workingTimeText(row, t)}</td>
-                  <td className="pr-[30px] text-right">
-                    {canManage && (
-                      <button type="button" onClick={() => setEditing(row)} title={t("Изменить")} aria-label={t("Изменить")} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#5d6474] hover:bg-[#eef0f4]">
-                        <Pencil className="h-[18px] w-[18px]" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="min-w-[520px]">
+            <div className="grid h-[50px] grid-cols-[5fr_5fr_2fr] items-center bg-[#5d6474] px-[30px] text-[13px] font-semibold text-white">
+              <div className="pr-[8px]">{t("Наименование")}</div>
+              <div className="px-[8px]">{t("Время работы")}</div>
+              <div />
+            </div>
+            {rows.map((row) => (
+              <div key={row.id} className={`grid h-[50px] grid-cols-[5fr_5fr_2fr] items-center px-[30px] text-[13px] text-[#333] ${dottedRow}`}>
+                <div className="truncate pr-[8px]" title={t(row.name)}>{t(row.name)}</div>
+                <div className="truncate px-[8px]">{workingTimeText(row, t)}</div>
+                <div className="flex justify-end">
+                  {canManage && (
+                    <button type="button" onClick={() => setEditing(row)} title={t("Изменить")} aria-label={t("Изменить")} className="flex h-[22px] w-[22px] items-center justify-center">
+                      <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#5d6474]" aria-hidden>
+                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
         {!data && !error && <LoadingBlock />}
         {error && !rows.length && <ErrorBlock error={error} onRetry={() => setReload((value) => value + 1)} />}

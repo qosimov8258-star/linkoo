@@ -5,9 +5,10 @@ import { useEffect, useMemo, useState } from "react"
 import { ListFilter } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { KpiFormDialog, type KpiFormValue } from "@/components/analytics/kpi-form"
+import { MultiSelect, type PickItem } from "@/components/analytics/kpi-form-fields"
 import { KpiActiveConfirm, KpiLockDialog } from "@/components/analytics/kpi-lock-dialog"
 import { RefTip } from "@/components/ref/ref-tip"
-import { FilterSelect, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefAppliedFilter, RefButton, RefCard, RefFilterPanel, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import { ReportEmpty, ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -205,6 +206,7 @@ export function KpiPerformanceView({ variant = "page" }: { variant?: "page" | "t
 
 // The reference keeps the list state in the URL (#/kpi/<id>?page&pageSize&status&search&ordering).
 const STATUS_BY_TAB: Record<string, string> = { "Активные": "active", "Не активный": "inactive", "Системные": "only_for_system", "Все": "all" }
+const DETAIL_DIALOGS = ["openLockEditDialog", "openUpdateDialog", "openDublicateDialog", "openConfirmDialog"] as const
 const TAB_BY_STATUS = Object.fromEntries(Object.entries(STATUS_BY_TAB).map(([tab, status]) => [status, tab]))
 const positive = (value: string | null, fallback: number) => {
   const parsed = Number(value)
@@ -225,30 +227,53 @@ export function KpiTasksView() {
   const dataTab = status === null && searchParams.get("id") ? "Все" : tab
   const [query, setQuery] = useState(() => searchParams.get("search") ?? "")
   const [ordering, setOrdering] = useState<"" | "id" | "-id">(() => (["id", "-id"].includes(searchParams.get("ordering") ?? "") ? (searchParams.get("ordering") as "id" | "-id") : ""))
-  const [filterOpen, setFilterOpen] = useState(false)
-  // The reference filters KPIs by their linked products (kpi_task_details).
-  const [productFilter, setProductFilter] = useState("")
-  const [productNames, setProductNames] = useState<string[]>([])
+  // The filter panel is in the address like the reference (?openFilterDialog=true, =false once closed or applied).
+  const [filterParam, setFilterParam] = useState<boolean | null>(() => (searchParams.has("openFilterDialog") ? searchParams.get("openFilterDialog") === "true" : null))
+  const filterOpen = filterParam === true
+  const setFilterOpen = (open: boolean) => setFilterParam(open)
+  // The reference filters KPIs by their linked products: a multi-select of products (newest first, ?product=<id>-<id>);
+  // the list follows it only after "Применить".
+  const [productIds, setProductIds] = useState<number[]>(() => (searchParams.get("product") ?? "").split("-").map(Number).filter((id) => Number.isInteger(id) && id > 0))
+  const [productDraft, setProductDraft] = useState<PickItem[]>([])
+  const [productOptions, setProductOptions] = useState<PickItem[]>([])
   const [pageSize, setPageSize] = useState(() => Math.min(100, positive(searchParams.get("pageSize"), 25)))
   const [page, setPage] = useState(() => positive(searchParams.get("page"), 1))
-  const [modalOpen, setModalOpen] = useState(false)
+  // The reference keeps the "Добавить KPI" dialog in the address: ?openCreateDialog=true
+  const [modalOpen, setModalOpen] = useState(() => searchParams.get("openCreateDialog") === "true")
   const [editingTask, setEditingTask] = useState<KpiTask | null>(null)
   const [copyingTask, setCopyingTask] = useState<KpiTask | null>(null)
   const [confirmTask, setConfirmTask] = useState<KpiTask | null>(null)
   const [lockTask, setLockTask] = useState<KpiTask | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(() => positive(searchParams.get("id"), 0) || null)
+  // The detail card's dialogs are in the address too (?openLockEditDialog / openUpdateDialog / openDublicateDialog /
+  // openConfirmDialog=true); one given on load opens once the KPI list is there.
+  const [pendingDialog, setPendingDialog] = useState(() => (searchParams.get("id") ? DETAIL_DIALOGS.find((key) => searchParams.get(key) === "true") ?? null : null))
+
+  useEffect(() => {
+    if (!pendingDialog || !selectedId || !tasks.length) return
+    const task = tasks.find((item) => item.id === selectedId)
+    if (task) ({ openLockEditDialog: setLockTask, openUpdateDialog: setEditingTask, openDublicateDialog: setCopyingTask, openConfirmDialog: setConfirmTask })[pendingDialog](task)
+    setPendingDialog(null)
+  }, [pendingDialog, selectedId, tasks])
 
   useEffect(() => {
     const params = new URLSearchParams()
+    if (modalOpen) params.set("openCreateDialog", "true")
+    if (filterParam !== null) params.set("openFilterDialog", String(filterParam))
+    if (selectedId && lockTask) params.set("openLockEditDialog", "true")
+    if (selectedId && editingTask) params.set("openUpdateDialog", "true")
+    if (selectedId && copyingTask) params.set("openDublicateDialog", "true")
+    if (selectedId && confirmTask) params.set("openConfirmDialog", "true")
     if (ordering) params.set("ordering", ordering)
     if (page > 1) params.set("page", String(page))
     params.set("pageSize", String(pageSize))
+    if (productIds.length) params.set("product", productIds.join("-"))
     if (status) params.set("status", status)
     if (query.trim()) params.set("search", query.trim())
     if (selectedId) params.set("id", String(selectedId))
     const next = params.toString()
     if (window.location.search.slice(1) !== next) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${next}`)
-  }, [ordering, page, pageSize, status, query, selectedId])
+  }, [modalOpen, filterParam, lockTask, editingTask, copyingTask, confirmTask, ordering, page, pageSize, productIds, status, query, selectedId])
 
   useEffect(() => {
     let cancelled = false
@@ -267,12 +292,16 @@ export function KpiTasksView() {
   }, [])
 
   useEffect(() => {
-    if (!filterOpen || productNames.length) return
+    if ((!filterOpen && !productIds.length) || productOptions.length) return
     fetch("/api/products")
       .then((response) => (response.ok ? response.json() : []))
-      .then((data: Array<{ name?: string }>) => setProductNames([...new Set(data.map((item) => item.name ?? "").filter(Boolean))].sort((a, b) => nameCollator.compare(a, b)).slice(0, 300)))
+      .then((data: Array<{ id: number; name?: string; deleted?: boolean }>) => {
+        const options = data.filter((item) => !item.deleted && item.name).map((item) => ({ id: item.id, name: item.name ?? "" })).sort((a, b) => b.id - a.id)
+        setProductOptions(options)
+        setProductDraft(options.filter((item) => productIds.includes(item.id)))
+      })
       .catch(() => {})
-  }, [filterOpen, productNames.length])
+  }, [filterOpen, productIds, productOptions.length])
 
   async function createTask(input: Partial<KpiFormValue> & { name: string; planType: string; clientType: string; comment: string; active: boolean }) {
     try {
@@ -329,10 +358,10 @@ export function KpiTasksView() {
     const list = tasks.filter((task) => {
       const tabMatch = dataTab === "Все" || (dataTab === "Активные" && isCurrentlyActive(task)) || (dataTab === "Не активный" && !isCurrentlyActive(task)) || (dataTab === "Системные" && task.system)
       const name = task.name.toLowerCase()
-      return tabMatch && words.every((word) => name.includes(word)) && (!productFilter || Boolean(task.detail?.products?.some((product) => product.name === productFilter)))
+      return tabMatch && words.every((word) => name.includes(word)) && (!productIds.length || Boolean(task.detail?.products?.some((product) => productIds.includes(Number((product as { id?: number }).id)))))
     })
     return ordering ? [...list].sort((a, b) => (ordering === "id" ? a.id - b.id : b.id - a.id)) : list
-  }, [tasks, dataTab, query, productFilter, ordering])
+  }, [tasks, dataTab, query, productIds, ordering])
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const shown = filtered.slice((page - 1) * pageSize, page * pageSize)
 
@@ -349,13 +378,15 @@ export function KpiTasksView() {
         <RefToolbar
           linkFilter="flush"
           thinChevron
-          filterWidth={354.5}
+          fluid="position"
           searchWidth={300}
+          // An applied product filter shows the reference's «Фильтр: 1 элемента» bar (✎ reopens it, ⊗ clears it).
+          leftSlot={productIds.length ? <RefAppliedFilter count={1} width="calc(25vw - 28px)" shift={5} onEdit={() => setFilterOpen(true)} onClear={() => { setProductIds([]); setProductDraft([]); setPage(1) }} /> : undefined}
           filterOpen={filterOpen}
-          onToggleFilter={() => setFilterOpen((value) => !value)}
+          onToggleFilter={() => setFilterOpen(!filterOpen)}
           filterPanel={
-            <RefFilterPanel narrow className="mt-[10px]" onClose={() => setFilterOpen(false)} onApply={() => { setFilterOpen(false); setPage(1) }} applyClassName="mt-[22px]">
-              <FilterSelect label={t("Продукт")} value={productFilter} onChange={setProductFilter} options={productNames} />
+            <RefFilterPanel narrow className="!w-[300px]" onClose={() => setFilterOpen(false)} onApply={() => { setFilterOpen(false); setProductIds(productDraft.map((item) => item.id)); setPage(1) }} applyClassName="mt-[22px]">
+              <MultiSelect className="mt-[18px]" label={t("Продукт")} items={productOptions} selected={productDraft} onChange={setProductDraft} />
             </RefFilterPanel>
           }
           query={query}
@@ -443,7 +474,6 @@ export function KpiTasksView() {
       )}
       {confirmTask && (
         <KpiActiveConfirm
-          name={confirmTask.name}
           active={confirmTask.active}
           onClose={() => setConfirmTask(null)}
           onConfirm={() => {
@@ -533,13 +563,21 @@ function KpiTaskDetail({
           ? "Выбранные статусы возвратов"
           : "Нет дополнительных условий"
   const icon = "h-5 w-5 fill-[#666]"
-  const pills = (items: Array<{ name: string }> | undefined, empty: string) =>
-    (items?.length ? items.map((item) => item.name) : [empty]).map((name, index) => (
-      <span key={`${name}-${index}`} className="mr-[6px] inline-block rounded-[16px] bg-[#e9ecef] px-[5px] py-[5px] text-[13px] leading-[16.3px] text-[#333]">{t(name)}</span>
-    ))
+  // The reference's linked-items row: the bold label and the chosen items (4px apart, 34px high pills) in one line;
+  // with nothing chosen a smaller grey "Нет связанных …" pill follows 10px after the label.
+  const linkedRow = (label: string, items: Array<{ name: string }> | undefined, empty: string) => (
+    <div key={label} className="flex items-center border-t border-[#efefef] py-[10px]">
+      <div className="flex flex-wrap items-center gap-[4px] py-[10px] leading-[26px]">
+        <b className="font-semibold text-[#333]">{t(label)}</b>
+        {items?.map((item, index) => <span key={`${item.name}-${index}`} className="rounded-[25px] bg-[#efefef] px-[10px] py-[4px] text-[13px] text-[#333]">{item.name}</span>)}
+      </div>
+      {!items?.length && <span className="ml-[10px] rounded-[25px] bg-[#e9ecef] p-[5px] text-[13px] leading-[16.25px] text-[#333]">{t(empty)}</span>}
+    </div>
+  )
   const row = "flex items-center border-t border-[#eceff1] pb-[14.5px] pt-[15.5px] text-[13px] leading-[25px]"
   const DOTTED = "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-['']"
-  const levelCols = "grid-cols-[163.8px_81.9px_163.8px_163.8px_163.8px_1fr]"
+  // The reference's level table is a bootstrap row of col-xs-2/1/2/2/2/3; its data rows reach 8px further right.
+  const levelCols = "grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,3fr)]"
   return (
     <div className="bg-[#f2f5f8] py-[20px]">
     <div className="-mx-[15px] flex min-h-[566px] flex-col bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
@@ -553,9 +591,9 @@ function KpiTaskDetail({
         </div>
       </div>
       <div className="flex flex-1 border-t border-[#eceff1]">
-        <div className="w-[442.2px] shrink-0 border-r border-[#eceff1]">
+        <div className="w-[30%] shrink-0 border-r border-[#eceff1]">
           <div className="space-y-0 px-[30px] pb-[14.5px] pt-[14px] text-[13px] leading-[25px] text-[#333]">
-            <div className="flex justify-between gap-[20px]"><span>{t("Тип плана:")}</span><b className="max-w-[268px] text-right font-semibold text-[#333]">{t(planLabel(task.planType))}</b></div>
+            <div className="flex justify-between gap-[20px]"><span>{t("Тип плана:")}</span><b className="max-w-[70%] text-right font-semibold text-[#333]">{t(planLabel(task.planType))}</b></div>
             {detail.division?.name && <div className="flex justify-between gap-[8px]"><span>{t("Организация:")}</span><b className="font-semibold text-[#333]">{detail.division.name}</b></div>}
             {detail.calc_in_box && <div className={GREEN}>{t("В блоках")}</div>}
             {detail.use_chosen && (
@@ -599,13 +637,13 @@ function KpiTaskDetail({
         </div>
         <div className="min-w-0 flex-1 pl-[27px] pr-[30px] pt-[19px] text-[13px]">
           <p className="ml-[3px] font-bold leading-[16.3px] text-[#333]">{t("Уровень вознаграждения")}</p>
-          <div className={`relative -ml-[5px] mt-[5px] grid h-[50px] grid-cols-[161.1px_80.6px_161.1px_161.1px_161.1px_241.7px] items-center pl-[5px] font-semibold leading-[16.3px] text-[#333] ${DOTTED}`}>
+          <div className={`relative -ml-[5px] mr-[8px] mt-[5px] grid h-[50px] ${levelCols} items-center pl-[5px] font-semibold leading-[16.3px] text-[#333] ${DOTTED}`}>
             <span className="px-2">№</span><span className="px-2 text-right">{t("От")}</span><span className="px-2 text-right">{t("До")}</span><span className="px-2 text-right">{t("Бонус")}</span><span className="px-2 text-right">{t("Тип расчета")}</span><span className="px-2 text-right">{t("Обнуление предыдущих уровней")}</span>
           </div>
           {(detail.levels ?? []).map((level, index) => (
-            <div key={index} className={`relative -ml-[5px] grid h-[60px] ${levelCols} items-center pl-[5px] leading-[16.3px] text-[#333] ${DOTTED}`}>
+            <div key={index} className={`relative -mr-[8px] -ml-[5px] grid h-[60px] ${levelCols} items-center pl-[5px] leading-[16.3px] text-[#333] ${DOTTED.replace("after:inset-x-0", "after:left-0 after:right-[8px]")}`}>
               <span className="px-2">{index + 1}</span><span className="px-2 text-right">{amount(level.from_amount)} %</span><span className="px-2 text-right">{amount(level.to_amount)} %</span><span className="px-2 text-right">{amount(level.bonus_amount)}</span><span className="px-2 text-right">{t(calcLabels[level.calculation_type] ?? level.calculation_type)}</span>
-              <b className="pl-2 text-right font-bold leading-[18px]">{t(level.exclude_low_level ? "Включено" : "Отключено")}</b>
+              <b className="px-2 text-right font-bold leading-[18px]">{t(level.exclude_low_level ? "Включено" : "Отключено")}</b>
             </div>
           ))}
           <div className="ml-[3px]">
@@ -615,25 +653,13 @@ function KpiTaskDetail({
               ["Выбранные продукты:", detail.products, "Нет связанных товаров"],
               ["Выбранные тип продукты:", detail.product_types, "Нет связанных товаров"],
               ["Выбранные группы товаров:", detail.group_products, "Нет связанных товаров"],
-            ].map(([label, items, empty]) => (
-              <div key={label as string} className="flex h-[67px] items-center border-t border-[#efefef]">
-                <b className="mr-[10px] font-semibold leading-[26px] text-[#333]">{t(label as string)}</b>
-                <div>{pills(items as Array<{ name: string }> | undefined, empty as string)}</div>
-              </div>
-            ))}
+            ].map(([label, items, empty]) => linkedRow(label as string, items as Array<{ name: string }> | undefined, empty as string))}
             {([
               ["Выбранные зоны:", detail.borders?.map((item) => ({ name: item.name ?? item.title ?? "" }))],
               ["Выбранные типы клиентов:", detail.market_types],
               ["Выбранные филиалы:", detail.branches],
               ["Выбранные транспорты:", detail.transports?.map((item) => ({ name: item.number ?? item.name ?? "" }))],
-            ] as Array<[string, Array<{ name: string }> | undefined]>).map(([label, items]) =>
-              items?.length ? (
-                <div key={label} className="flex h-[67px] items-center border-t border-[#efefef]">
-                  <b className="mr-[10px] font-semibold leading-[26px] text-[#333]">{t(label)}</b>
-                  <div>{pills(items, "")}</div>
-                </div>
-              ) : null,
-            )}
+            ] as Array<[string, Array<{ name: string }> | undefined]>).map(([label, items]) => (items?.length ? linkedRow(label, items, "") : null))}
           </div>
         </div>
       </div>

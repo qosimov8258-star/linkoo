@@ -1,10 +1,9 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { FileSpreadsheet } from "lucide-react"
 
 import { CashModal, PrimaryButton } from "@/components/analytics/cash-management-shared"
-import { KIND_TEXT, catalogMutate, errorText, unitParts } from "@/components/products/catalog-shared"
+import { KIND_TEXT, catalogMutate, errorText, formatNumber } from "@/components/products/catalog-shared"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -19,22 +18,21 @@ type Translate = (text: string) => string
 type Cell = string | number
 
 export function catalogListSheet(items: CatalogItem[], t: Translate): Cell[][] {
+  // Linko's sheet: an empty cell reads «Не указано», «Мера» is the base unit and «В кейсе» the bare group size.
+  const none = t("Не указано")
   return [
     [t("Наименование"), t("Штрих - код товара"), t("Артикул"), t("Тип товара"), t("Организация"), t("Мера"), t("В кейсе"), t("Дата создания"), t("Порядковый номер")],
-    ...items.map((item) => {
-      const unit = unitParts(item)
-      return [
-        item.name,
-        item.barcodes.join(", "),
-        item.article || "-",
-        [item.subcategory, item.type].filter(Boolean).join(" / ") || "N/A",
-        item.organization || "-",
-        unit.main,
-        item.boxAmount > 0 ? `${item.boxAmount} ${item.unit}`.trim() : "-",
-        item.createdDate,
-        item.orderNumber,
-      ]
-    }),
+    ...items.map((item) => [
+      item.name,
+      item.barcodes.join(", ") || none,
+      item.article || "-",
+      item.subcategory || item.type || none,
+      item.organization || none,
+      item.unit || none,
+      item.boxAmount > 0 ? formatNumber(item.boxAmount) : "-",
+      item.createdDate || none,
+      item.orderNumber || none,
+    ]),
   ]
 }
 
@@ -129,22 +127,26 @@ export function CatalogImportDialog({
     onDone(result.data)
   }
 
+  // Linko's dialog (both «Импортировать» and «Обновить с excel» open it as «Импорт с Excel»): 400px wide, a bordered
+  // box with «1. СКАЧАТЬ ШАБЛОН» centred over a 200px dashed drop zone, a green «СОХРАНИТЬ» button.
   return (
     <CashModal
-      title={t(mode === "create" ? "Импорт с Excel" : "Обновить с excel")}
+      title={t("Импорт с Excel")}
       onClose={onClose}
-      size="md"
+      size="sm"
+      footerButtons="filled"
       footer={
         <>
           {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
+          <PrimaryButton busy={busy} tone="green" onClick={() => void submit()}>
             {t("Сохранить")}
           </PrimaryButton>
         </>
       }
     >
-      <button type="button" onClick={() => void onTemplate()} className="mb-3 text-[13px] font-semibold uppercase text-[#1E4A9A] hover:underline">
-        {t(mode === "create" ? "1. Скачать шаблон" : "1. Скачать текущий список")}
+      <div className="mb-[11px] mt-[15px] border border-[#efefef] pb-[25px] pl-5 pr-[17px] pt-[17px] text-center">
+      <button type="button" onClick={() => void onTemplate()} className="mb-[14px] text-[13px] uppercase leading-4 text-[#333] hover:underline">
+        {t("1. Скачать шаблон")}
       </button>
       <div
         role="button"
@@ -164,10 +166,13 @@ export function CatalogImportDialog({
           const dropped = event.dataTransfer.files?.[0]
           if (dropped) setFile(dropped)
         }}
-        className={`flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-4 text-center text-[14px] ${drag ? "border-[#1E4A9A] bg-[#eef2ff]" : "border-[#dbe0e8]"}`}
+        className={`flex h-[200px] cursor-pointer flex-col items-center justify-center border-2 border-dashed text-center text-[13px] text-[#333] ${drag ? "border-[#1E4A9A] bg-[#eef2ff]" : "border-[#efefef]"}`}
       >
-        <FileSpreadsheet className="h-8 w-8 text-[#71ce87]" />
-        {file ? <span className="font-semibold text-[#17233b]">{file.name}</span> : <span className="text-[#586174]">{t("2. Добавьте файл Excel или нажмите для выбора")}</span>}
+        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]">
+          <path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z" />
+        </svg>
+        {file ? <span className="mt-[5px] font-semibold">{file.name}</span> : <p className="mt-[5px] leading-4">{t("Добавьте файл Excel или нажмите для выбора")}</p>}
+      </div>
       </div>
       <input
         ref={input}
@@ -180,7 +185,6 @@ export function CatalogImportDialog({
           event.target.value = ""
         }}
       />
-      {mode === "update" && <p className="mt-3 text-[12px] text-[#9aa3b6]">{t("Строки находятся по ID, артикулу, штрих-коду или наименованию; пустые ячейки не изменяются.")}</p>}
       {rowErrors.length > 0 && (
         <ul className="mt-3 max-h-48 overflow-y-auto rounded-md bg-[#fdecea] px-3 py-2 text-[13px] text-[#b71c1c]">
           {rowErrors.map((entry) => (

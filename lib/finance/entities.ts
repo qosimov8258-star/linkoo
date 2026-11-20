@@ -118,7 +118,8 @@ async function financialAccountsOf(db: PgDb): Promise<Map<number, { id: number; 
 }
 
 async function suppliers(db: PgDb): Promise<EntityRecord[]> {
-  const rows = (await db.prepare("SELECT id, name, category, branch, organization, products FROM suppliers ORDER BY lower(name), id").all()) as Array<{
+  // Linko's supplier balance lists suppliers by their last change (modified_date = updated_at), oldest first.
+  const rows = (await db.prepare("SELECT id, name, category, branch, organization, products FROM suppliers ORDER BY updated_at, id").all()) as Array<{
     id: number
     name: string
     category: string

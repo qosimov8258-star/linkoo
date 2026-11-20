@@ -10,6 +10,8 @@ import { SalesPlanDialog } from "@/components/clients/sales-plan-dialog"
 import { RefHeader } from "@/components/ref/list-kit"
 import { RefTip } from "@/components/ref/ref-tip"
 import { AgentDayView } from "@/components/tracking/agent-day-view"
+import { SHOP_DRAWER, shopHref, useAddressShop, writeShopParam } from "@/components/clients/shop-open-address"
+import { EmbeddedShopCard } from "@/components/tracking/shop-drawer-swap"
 import { MONTHS_NOMINATIVE } from "@/lib/dashboard-date-range"
 import type { FieldTotals } from "@/lib/field-activity/types"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
@@ -23,7 +25,10 @@ import type { TrackingDay } from "@/lib/tracking-types"
 // ones, in the base currency: Linko's month_order_total_price), «план продаж» (the month's plan: «добавить» opens «План
 // на продукты») and «Данные за <месяц> <год>г.» — over the agent's day (сделки, посещено, the three counters, the day
 // switcher and the clients in two columns around the day's line), and the agents with their visited / planned clients
-// of the day on the right; one of them opens here on the same day.
+// of the day on the right; one of them opens here on the same day. A client of the day (a link) opens its shop card in
+// the right drawer's place (Linko: drawer=shop&openShop=<id>; the card's X writes openShop=0&drawer=drawer_agent_visit
+// and the agents come back; both are history entries). Linko shows the card 334 px wide there, its tabs and columns
+// running into each other; here the drawer widens to the card's usual 580 px and the day's columns narrow beside it.
 
 const DOLLAR = "M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"
 
@@ -44,6 +49,8 @@ export function AgentRouteView({ employeeId, initialDate }: { employeeId: number
   const [plan, setPlan] = useState<{ key: string; data: MonthlyPlan } | null>(null)
   const [planOpen, setPlanOpen] = useState(false)
   const [planTick, setPlanTick] = useState(0)
+  /** The shop card shown in the agents list's place (?openShop=<id>, also on a reload, Back / Forward). */
+  const shop = useAddressShop("openShop")
   const { year, month, from, to } = monthRange(day)
   const salesKey = `${employeeId}|${from}`
   const planKey = `${employeeId}|${year}|${month}|${planTick}`
@@ -89,6 +96,10 @@ export function AgentRouteView({ employeeId, initialDate }: { employeeId: number
     }
   }, [employeeId, year, month, planKey])
 
+  const openShop = useCallback((clientId: number) => writeShopParam("openShop", clientId, { drawer: SHOP_DRAWER }), [])
+  const closeShop = useCallback(() => writeShopParam("openShop", null), [])
+  const clientHref = useCallback((clientId: number) => shopHref("openShop", clientId, { drawer: SHOP_DRAWER }), [])
+
   const agent = agents.find((entry) => entry.employeeId === employeeId)
   const counts = boardCounts(agents, board)
   const currency = sales?.key === salesKey ? currencyLabel(sales.currency) : ""
@@ -112,23 +123,27 @@ export function AgentRouteView({ employeeId, initialDate }: { employeeId: number
   )
 
   return (
-    <main className="min-h-[calc(100vh-50px)] bg-[#f2f5f8] pb-10 pr-[330px] pt-px text-[#333]">
+    <main className={`min-h-[calc(100vh-50px)] bg-[#f2f5f8] pb-10 ${shop !== null ? "pr-[580px]" : "pr-[330px]"} pt-px text-[#333]`}>
       <div className="pl-[28px] pr-[8px]">
         <RefHeader title={t("Анализ маршрутов")} />
       </div>
       <div className="-mt-px min-h-[calc(100vh-110px)] border-t border-[#e0e0e0] bg-[#f4f4f4] px-[30px] pt-[20px]">
-        <AgentDayView variant="plan" employeeId={employeeId} date={day} onClose={() => router.push("/clients/routes")} onDayChange={setDay} planHeader={header} />
+        <AgentDayView variant="plan" employeeId={employeeId} date={day} onClose={() => router.push("/clients/routes")} onDayChange={setDay} planHeader={header} onOpenClient={openShop} clientHref={clientHref} />
       </div>
 
-      <aside className="fixed right-0 top-0 z-[60] h-screen w-[330px] overflow-y-auto bg-white shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-        <RouteAgentsPanel
-          agents={agents}
-          counts={counts}
-          activeId={employeeId}
-          onPick={(id) => {
-            if (id !== employeeId) router.push(`/clients/routes/${id}${day === todayIso() ? "" : `?date=${day}`}`)
-          }}
-        />
+      <aside className={`fixed right-0 top-0 z-[60] h-screen ${shop !== null ? "w-[580px] max-w-full" : "w-[330px] overflow-y-auto"} bg-white shadow-[0_0_10px_rgba(0,0,0,0.25)]`}>
+        {shop !== null ? (
+          <EmbeddedShopCard clientId={shop} onClose={closeShop} />
+        ) : (
+          <RouteAgentsPanel
+            agents={agents}
+            counts={counts}
+            activeId={employeeId}
+            onPick={(id) => {
+              if (id !== employeeId) router.push(`/clients/routes/${id}${day === todayIso() ? "" : `?date=${day}`}`)
+            }}
+          />
+        )}
       </aside>
 
       {planOpen && (

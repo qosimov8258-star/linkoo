@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Columns3 } from "lucide-react"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
-import { formatMoney } from "@/lib/finance/currency"
+import { formatFixed } from "@/lib/amount-precision"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { MOVE_GROUP_TITLES, shownMoveValue, type MoveColumn, type MoveField, type MoveGroupBy } from "@/lib/stock-movement-columns"
 import type { MoveRow } from "@/lib/stock-movement-report"
@@ -21,8 +21,12 @@ function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) 
   return null
 }
 
-const formatQty = (value: number) => (value ? formatMoney(value, 3) : "0")
-const formatValue = (value: number) => (value ? formatMoney(value, 2) : "0")
+// Linko's movement report prints with a fixed precision of its own, whatever ROUND_AMOUNT_FOR_CURRENCY is: lodash
+// floor(value, 2) of quantities and values alike.
+const formatQty = (value: number) => (value ? formatFixed(value, 2, { floor: true }) : "0")
+const formatValue = (value: number) => (value ? formatFixed(value, 2, { floor: true }) : "0")
+
+const LINKED_FIELDS = new Set<MoveField>(["supply", "supply_return", "return", "order", "writeoff"])
 
 export function StockMoveTable({
   rows,
@@ -97,7 +101,9 @@ export function StockMoveTable({
                 {columns.map((column) => {
                   const qty = shownMoveValue(column, row.qty[column.field])
                   const value = shownMoveValue(column, row.value?.[column.field] ?? 0)
-                  const linkable = clickableCells && !column.valueOnly && column.field !== "begin" && column.field !== "end"
+                  // Linko links only its document columns (Поставки, Возврат по поставкам, Возврат, Выдано по заказу, Списано);
+                  // Прочий приход / расход and the «Показать прочие» columns are plain numbers.
+                  const linkable = clickableCells && !column.valueOnly && LINKED_FIELDS.has(column.field)
                   return (
                     <div key={column.field} style={subTemplate} className="grid">
                       <div className={`${cell} whitespace-nowrap ${background}`}>

@@ -9,7 +9,8 @@ export async function GET(request: Request) {
   if (denied) return denied
   const stageId = positiveIntParam(new URL(request.url).searchParams.get("stageId"))
   if (!stageId) return errorResponse("stageId обязателен")
-  return NextResponse.json(await listEquipment(stageId))
+  // The pictures stay out of the list: each machine's `image` is the URL it is read from.
+  return guarded(async () => NextResponse.json(await listEquipment(stageId)))
 }
 
 export async function POST(request: Request) {

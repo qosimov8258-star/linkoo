@@ -55,7 +55,14 @@ export type TrackingUrlState = {
   minute: number | null
   endHour: number | null
   endMinute: number | null
+  /** Linko's ?openShop=: the shop card shown in the panel's place (> 0), 0 once its X closed it, null when absent. */
+  openShop: number | null
+  /** Linko's ?drawer=: "shop" (a client of the day opened the card) or "drawer_agent_visit" (its X closed it). */
+  drawer: TrackingDrawer
 }
+
+export const TRACKING_DRAWERS = ["", "shop", "drawer_agent_visit"] as const
+export type TrackingDrawer = (typeof TRACKING_DRAWERS)[number]
 
 type RawParams = Record<string, string | string[] | undefined>
 
@@ -90,6 +97,8 @@ export function parseTrackingParams(params: RawParams, today: string): TrackingU
     const minute = bounded(value, 59)
     return minute !== null && minute % 5 === 0 ? minute : null
   }
+  const shopText = first(params.openShop)
+  const drawer = first(params.drawer)
   return {
     date: validDay(first(params.date), today),
     group: (TRACKING_GROUPS as readonly string[]).includes(group) ? (group as TrackingGroup) : "all",
@@ -106,6 +115,8 @@ export function parseTrackingParams(params: RawParams, today: string): TrackingU
     minute: minuteOf(first(params.minute)),
     endHour: bounded(first(params.endHour), 23),
     endMinute: minuteOf(first(params.endMinute)),
+    openShop: /^\d{1,10}$/.test(shopText) && Number(shopText) <= 2_147_483_647 ? Number(shopText) : null,
+    drawer: (TRACKING_DRAWERS as readonly string[]).includes(drawer) ? (drawer as TrackingDrawer) : "",
   }
 }
 
@@ -128,6 +139,8 @@ export function trackingSearch(state: TrackingUrlState): string {
     if (state.endHour !== null) params.set("endHour", String(state.endHour))
     if (state.endMinute !== null) params.set("endMinute", String(state.endMinute))
   }
+  if (state.drawer) params.set("drawer", state.drawer)
+  if (state.openShop !== null) params.set("openShop", String(state.openShop))
   return `?${params.toString()}`
 }
 
@@ -183,8 +196,24 @@ export const minuteOfDay = (iso: string) => Number(iso.slice(11, 13)) * 60 + Num
 
 const AGENT_COLORS = ["#ffc107", "#9c27b0", "#f44336", "#03a9f4", "#4caf50", "#ff5722", "#3f51b5", "#009688", "#e91e63", "#795548", "#607d8b", "#8bc34a"]
 
-/** Stable map colour of an employee. */
+/** Stable map colour of an employee (used where no list position is known). */
 export const agentColor = (employeeId: number) => AGENT_COLORS[Math.abs(employeeId) % AGENT_COLORS.length]
+
+/** Linko's agent colours (market/way `color`), handed out in the order of its list. */
+const LINKO_AGENT_COLORS = ["#f83b7f", "#6770e6", "#fbb432", "#4caf50", "#9c27b0", "#ffc107", "#f44336", "#03a9f4", "#00bcd4", "#ffeb3b", "#009688", "#2196f3", "#cddc39", "#8bc34a", "#ff5722", "#9e9e9e"]
+
+/**
+ * Colours of the tracked agents by their place in the list (login order), as Linko's market/way gives them: the 16
+ * colours once, then the first 15 again and again (the grey only once) — equal for all 34 agents of time3 on
+ * 2026-11-20.
+ */
+export function agentColors(employeeIds: number[]): Map<number, string> {
+  const colors = new Map<number, string>()
+  employeeIds.forEach((employeeId, index) => {
+    colors.set(employeeId, LINKO_AGENT_COLORS[index < LINKO_AGENT_COLORS.length ? index : (index - 15) % 15])
+  })
+  return colors
+}
 
 /** Battery fill: red when low, orange when half-empty, green otherwise. */
 export function batteryColor(level: number): string {

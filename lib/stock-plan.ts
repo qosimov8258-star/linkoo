@@ -22,6 +22,9 @@ import {
 //                     + client_returns 'pending' (the return warehouse)
 //   История Приемки   supplier_incomings 'принят'   + internal_transfers 'принят'  (to_warehouse)
 //                     + client_returns 'accepted' (accepted_at / accepted_by)
+// An internal transfer with source 'shipment' is Linko's «Отгрузка» (the output of a production shift session handed
+// over, lib/production-sessions-repo.ts): type "shipment", numbered by its session (source_id), «От кого» = the stage;
+// it is only received (Приемка / История Приемки), never listed among the Передача tabs.
 //   Передача          internal_transfers 'потвержден' (from_warehouse) + orders 'Есть на складе' with a warehouse
 //   История Передачи  internal_transfers 'в пути' / 'принят' (from_warehouse) + orders 'В пути' / 'Доставлено' with a warehouse
 // Client returns ("Возврат", Продажи → Возвраты, contract 5) are accepted through
@@ -90,7 +93,7 @@ function select(fields: { type: PlanTaskType; party: string; warehouse: string; 
 }
 
 /** The SELECTs of a task tab (empty when none of its tables exist). */
-function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
+function taskSources(tab: PlanTaskTab, t: PlanTables): string[] {
   const parts: string[] = []
   const withIds = (sql: string, alias: string) => sql.replace("id_col", `${alias}.id`).replace("status_col", `COALESCE(${alias}.status, '')::text`)
 
@@ -108,23 +111,42 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
   if (t.has("internal_transfers")) {
     const created = transferCreated(t)
     const planned = t.col("internal_transfers", "delivered_at") ? "fin_ts(tr.delivered_at)" : "NULL::timestamp"
-    const givenAt = t.col("internal_transfers", "given_at") ? ts("tr.given_at") : "NULL::timestamp"
-    const givenBy = columnOr(t, "internal_transfers", "given_by", "tr", "''")
-    const acceptedAt = t.col("internal_transfers", "accepted_at") ? ts("tr.accepted_at") : "NULL::timestamp"
+    // A transfer's given / accepted moments are local wall times in both spellings (copied "YYYY-MM-DD HH:MM:SS", the
+    // app's "…T…"), as its card reads them.
+    const givenAt = t.col("internal_transfers", "given_at") ? "fin_ts(tr.given_at)" : "NULL::timestamp"
+    const creator = columnOr(t, "internal_transfers", "created_by", "tr", "''")
+    const acceptedAt = t.col("internal_transfers", "accepted_at") ? "fin_ts(tr.accepted_at)" : "NULL::timestamp"
     const acceptedBy = columnOr(t, "internal_transfers", "accepted_by", "tr", "''")
     const driver = columnOr(t, "internal_transfers", "driver", "tr", "''")
     const base = { type: "transfer" as const, request: created, deliverer: driver }
+    // The «Отгрузка» documents are listed as type "shipment" below, never as transfers.
+    const plain = t.shipments ? " AND COALESCE(tr.source, '') <> 'shipment'" : ""
     if (tab === "receive") {
       const expected = `COALESCE(${planned}, ${givenAt}, ${created})`
-      parts.push(withIds(select({ ...base, party: "tr.from_warehouse", warehouse: "tr.to_warehouse", date: expected }, "FROM internal_transfers tr WHERE tr.status = 'в пути'"), "tr"))
+      parts.push(withIds(select({ ...base, party: "tr.from_warehouse", warehouse: "tr.to_warehouse", date: expected }, `FROM internal_transfers tr WHERE tr.status = 'в пути'${plain}`), "tr"))
     } else if (tab === "receive_history") {
       const done = `COALESCE(${acceptedAt}, ${planned}, ${created})`
-      parts.push(withIds(select({ ...base, party: "tr.from_warehouse", warehouse: "tr.to_warehouse", date: done, doneBy: acceptedBy, doneAt: done }, "FROM internal_transfers tr WHERE tr.status = 'принят'"), "tr"))
+      parts.push(withIds(select({ ...base, party: "tr.from_warehouse", warehouse: "tr.to_warehouse", date: done, doneBy: acceptedBy, doneAt: done }, `FROM internal_transfers tr WHERE tr.status = 'принят'${plain}`), "tr"))
     } else if (tab === "transfer") {
-      parts.push(withIds(select({ ...base, party: "tr.to_warehouse", warehouse: "tr.from_warehouse", date: `COALESCE(${planned}, ${created})` }, "FROM internal_transfers tr WHERE tr.status = 'потвержден'"), "tr"))
+      // Linko's outcome task of a transfer: «Передал» is the transfer's user (its list's «Создал»), «Дата передачи» its
+      // acceptance moment (none while it waits); the tab runs by the request moment.
+      parts.push(withIds(select({ ...base, party: "tr.to_warehouse", warehouse: "tr.from_warehouse", date: created, doneBy: creator }, `FROM internal_transfers tr WHERE tr.status = 'потвержден'${plain}`), "tr"))
     } else {
-      const done = `COALESCE(${givenAt}, ${created})`
-      parts.push(withIds(select({ ...base, party: "tr.to_warehouse", warehouse: "tr.from_warehouse", date: done, doneBy: givenBy, doneAt: done }, "FROM internal_transfers tr WHERE tr.status IN ('в пути', 'принят')"), "tr"))
+      // Done once accepted into the other warehouse; one still on the way has no «Дата передачи» (it sorts first).
+      const done = `(CASE WHEN tr.status = 'принят' THEN ${acceptedAt} END)`
+      parts.push(withIds(select({ ...base, party: "tr.to_warehouse", warehouse: "tr.from_warehouse", date: done, doneBy: creator, doneAt: done }, `FROM internal_transfers tr WHERE tr.status IN ('в пути', 'принят')${plain}`), "tr"))
+    }
+    // «Отгрузка»: received only (Linko's Передача tabs have no shipment type). № = its session; requested and expected
+    // when the goods left (Начало приемки), done when accepted (Конец приемки, Принял).
+    if (t.shipments && (tab === "receive" || tab === "receive_history")) {
+      const shipment = (sql: string) => sql.replace("id_col", "tr.source_id").replace("status_col", "COALESCE(tr.status, '')::text")
+      const given = `COALESCE(${givenAt}, ${created})`
+      const fields = { type: "shipment" as const, party: shipmentParty(t), warehouse: "tr.to_warehouse", request: given }
+      if (tab === "receive") parts.push(shipment(select({ ...fields, date: given }, "FROM internal_transfers tr WHERE tr.source = 'shipment' AND tr.source_id IS NOT NULL AND tr.status = 'в пути'")))
+      else {
+        const done = `COALESCE(${acceptedAt}, ${given})`
+        parts.push(shipment(select({ ...fields, date: done, doneBy: acceptedBy, doneAt: done }, "FROM internal_transfers tr WHERE tr.source = 'shipment' AND tr.source_id IS NOT NULL AND tr.status = 'принят'")))
+      }
     }
   }
 
@@ -158,9 +180,35 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
   if ((tab === "transfer" || tab === "transfer_history") && t.has("orders") && t.col("orders", "warehouse")) {
     const created = orderCreated(t)
     const delivery = t.col("orders", "delivery") ? `COALESCE(fin_ts(o.delivery), ${created})` : created
-    const fields = { type: "order" as const, party: columnOr(t, "orders", "client", "o", "''"), warehouse: "o.warehouse", request: created, date: delivery, deliverer: columnOr(t, "orders", "delivery_man", "o", "''") }
-    if (tab === "transfer") parts.push(withIds(select(fields, "FROM orders o WHERE btrim(o.warehouse) <> '' AND o.status = 'Есть на складе'"), "o"))
-    else parts.push(withIds(select({ ...fields, doneAt: delivery }, "FROM orders o WHERE btrim(o.warehouse) <> '' AND o.status IN ('В пути', 'Доставлено')"), "o"))
+    const client = columnOr(t, "orders", "client", "o", "''")
+    // Linko's «Кому» is the order's shop (market_name), else its client.
+    const party = t.col("orders", "market_name") ? `COALESCE(NULLIF(btrim(o.market_name), ''), ${client})` : client
+    const fields = { type: "order" as const, party, warehouse: "o.warehouse", request: created, deliverer: columnOr(t, "orders", "delivery_man", "o", "''") }
+    // An order waiting in its warehouse has no «Передал» / «Дата передачи» yet and runs by its request moment.
+    if (tab === "transfer") parts.push(withIds(select({ ...fields, date: created }, "FROM orders o WHERE btrim(o.warehouse) <> '' AND o.status = 'Есть на складе'"), "o"))
+    else {
+      // Handed over: Linko's accepted_by / accepted_time = the first log entry that took the order on its way («В пути»
+      // or «Доставлен», codes 2 / 3) — its user, and its clock on the order's acceptance day (orders.accepted_date).
+      const log = t.has("order_logs")
+        ? `(SELECT l.created_by, ${ts("l.created_at")} AS at FROM order_logs l WHERE l.order_id = o.id AND l.status IN ('2', '3') ORDER BY l.created_at, l.id LIMIT 1)`
+        : "(SELECT ''::text AS created_by, NULL::timestamp AS at)"
+      const day = t.col("orders", "accepted_date") ? "fin_ts(o.accepted_date)::date" : "NULL::date"
+      const done = `COALESCE(${day} + hl.at::time, ${day}::timestamp, hl.at, ${delivery})`
+      parts.push(withIds(select({ ...fields, date: done, doneBy: "hl.created_by", doneAt: done }, `FROM orders o LEFT JOIN LATERAL ${log} hl ON true WHERE btrim(o.warehouse) <> '' AND o.status IN ('В пути', 'Доставлено')`), "o"))
+    }
+  }
+  // Returns to suppliers leave their warehouse (Linko's outcome tasks of type supply_return): «в процессе» to send,
+  // «завершен» sent — «Передал» / «Дата передачи» are the return's hand-over (transfer_time, local wall time).
+  if ((tab === "transfer" || tab === "transfer_history") && t.has("supplier_returns") && t.col("supplier_returns", "warehouse") && t.col("supplier_returns", "status")) {
+    const clock = t.col("supplier_returns", "time") ? `(CASE WHEN sr.time ~ '^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$' THEN sr.time::interval ELSE interval '0' END)` : "interval '0'"
+    const created = t.col("supplier_returns", "created_at") ? ts("sr.created_at") : "NULL::timestamp"
+    const request = t.col("supplier_returns", "date") ? `COALESCE(fin_ts(sr.date) + ${clock}, ${created})` : created
+    const fields = { type: "supply_return" as const, party: columnOr(t, "supplier_returns", "from_whom", "sr", "''"), warehouse: "sr.warehouse", request }
+    if (tab === "transfer") parts.push(withIds(select({ ...fields, date: request }, "FROM supplier_returns sr WHERE btrim(sr.warehouse) <> '' AND sr.status = 'в процессе'"), "sr"))
+    else {
+      const done = t.col("supplier_returns", "transfer_time") ? "fin_ts(sr.transfer_time)" : "NULL::timestamp"
+      parts.push(withIds(select({ ...fields, date: done, doneBy: columnOr(t, "supplier_returns", "transferred_by", "sr", "''"), doneAt: done }, "FROM supplier_returns sr WHERE btrim(sr.warehouse) <> '' AND sr.status = 'завершен'"), "sr"))
+    }
   }
   return parts
 }
@@ -168,7 +216,7 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
 const EMPTY_TASKS = `SELECT ''::text AS type, 0 AS id, ''::text AS party, ''::text AS warehouse, NULL::timestamp AS request_ts, NULL::timestamp AS date_ts,
   ''::text AS deliverer, ''::text AS done_by, NULL::timestamp AS done_ts, ''::text AS status WHERE false`
 
-function taskUnion(tab: PlanTaskTab, t: StockTables): string {
+function taskUnion(tab: PlanTaskTab, t: PlanTables): string {
   const parts = taskSources(tab, t)
   return parts.length ? parts.join("\nUNION ALL\n") : EMPTY_TASKS
 }
@@ -221,8 +269,9 @@ function orderBy(ordering: string): string {
   // Own keys only: "constructor" / "toString" must not reach the SQL through the prototype.
   const name = desc ? ordering.slice(1) : ordering
   const expr = Object.hasOwn(SORTS, name) ? SORTS[name] : undefined
-  const tail = "x.date_ts DESC NULLS LAST, x.type, x.id DESC"
-  return expr ? `${expr} ${desc ? "DESC" : "ASC"} NULLS LAST, ${tail}` : tail
+  // Postgres's own null order, as Linko's: a row without the date comes first when the newest come first.
+  const tail = "x.date_ts DESC, x.type, x.id DESC"
+  return expr ? `${expr} ${desc ? "DESC" : "ASC"}, ${tail}` : tail
 }
 
 type TaskSqlRow = { type: string; id: number; party: string; warehouse: string; request: string; date: string; deliverer: string; done_by: string; done: string; status: string }
@@ -230,10 +279,27 @@ type TaskSqlRow = { type: string; id: number; party: string; warehouse: string; 
 /** Named parameters for the db shim: none at all when the SQL has no @name (it would bind them positionally). */
 const args = (sql: string, params: Record<string, unknown>): unknown[] => (sql.includes("@") ? [params] : [])
 
-async function ready(db: PgDb): Promise<StockTables> {
+/** The ledger tables, and whether the production shift sessions are there (a lazy production table: the stage of an
+ * «Отгрузка» is read through it). */
+type PlanTables = StockTables & { sessions: boolean; shipments: boolean }
+
+async function ready(db: PgDb): Promise<PlanTables> {
   // stockTables() installs the fin_* SQL helpers first (ensureStockSchema).
-  return stockTables(db)
+  const t = await stockTables(db)
+  // The order log (who took an order on its way, and when) is not a stock table: looked up here.
+  const logs = (await db.prepare("SELECT to_regclass('order_logs') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  const shipments = t.col("internal_transfers", "source") && t.col("internal_transfers", "source_id")
+  const lazy = shipments
+    ? ((await db.prepare("SELECT to_regclass('production_shift_sessions') IS NOT NULL AND to_regclass('production_stages') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined)
+    : undefined
+  return { has: (table) => (table === "order_logs" ? Boolean(logs?.ok) : t.has(table)), col: t.col, shipments, sessions: Boolean(lazy?.ok) }
 }
+
+/** «От кого» of an «Отгрузка» `tr`: the stage of its session, else the warehouse the goods left. */
+const shipmentParty = (t: PlanTables) =>
+  t.sessions
+    ? "COALESCE((SELECT st.name FROM production_shift_sessions ss JOIN production_stages st ON st.id = ss.stage_id WHERE ss.id = tr.source_id), tr.from_warehouse)"
+    : "tr.from_warehouse"
 
 /** One task tab, filtered, sorted and paged (pageSize 0 = every row, up to 5000). */
 export async function listPlanTasks(tab: PlanTaskTab, filters: PlanTaskFilters, paging: PlanPaging, db: PgDb = getDb()): Promise<PlanTaskListResult> {
@@ -374,13 +440,14 @@ export async function getPlanItem(type: PlanTaskType, id: number, db: PgDb = get
   }
 
   if (type === "transfer" && t.has("internal_transfers")) {
-    const givenAt = t.col("internal_transfers", "given_at") ? ts("tr.given_at") : "NULL::timestamp"
-    const acceptedAt = t.col("internal_transfers", "accepted_at") ? ts("tr.accepted_at") : "NULL::timestamp"
+    // Local wall times in both spellings (see taskSources).
+    const givenAt = t.col("internal_transfers", "given_at") ? "fin_ts(tr.given_at)" : "NULL::timestamp"
+    const acceptedAt = t.col("internal_transfers", "accepted_at") ? "fin_ts(tr.accepted_at)" : "NULL::timestamp"
     const planned = t.col("internal_transfers", "delivered_at") ? "fin_ts(tr.delivered_at)" : "NULL::timestamp"
     const row = (await db
       .prepare(
         `SELECT tr.*, ${iso(transferCreated(t))} AS pl_created, ${iso(planned)} AS pl_planned, ${iso(givenAt)} AS pl_given, ${iso(acceptedAt)} AS pl_accepted
-           FROM internal_transfers tr WHERE tr.id = @pl_id`,
+           FROM internal_transfers tr WHERE tr.id = @pl_id${t.shipments ? " AND COALESCE(tr.source, '') <> 'shipment'" : ""}`,
       )
       .get({ pl_id: id })) as DetailRow | undefined
     if (!row) return null
@@ -401,6 +468,43 @@ export async function getPlanItem(type: PlanTaskType, id: number, db: PgDb = get
       acceptedAt: text(row, "pl_accepted"),
       comment: text(row, "comment"),
       products: jsonArray(row.items).map((line) => product(index, String(line.product ?? ""), lineQty(line.quantity ?? line.qty))),
+    }
+  }
+
+  // «Отгрузка» №id (the session's number): Linko's manufacture/shipment/<id>/ — who handed it over and when (Начало
+  // приемки), who accepted it and when (Конец приемки, Принял), its comment, and its lines with their status (ОК / Брак).
+  if (type === "shipment" && t.shipments) {
+    const givenAt = t.col("internal_transfers", "given_at") ? ts("tr.given_at") : "NULL::timestamp"
+    const acceptedAt = t.col("internal_transfers", "accepted_at") ? ts("tr.accepted_at") : "NULL::timestamp"
+    const row = (await db
+      .prepare(
+        `SELECT tr.*, ${iso(transferCreated(t))} AS pl_created, ${iso(givenAt)} AS pl_given, ${iso(acceptedAt)} AS pl_accepted, ${shipmentParty(t)} AS pl_party
+           FROM internal_transfers tr WHERE tr.source = 'shipment' AND tr.source_id = @pl_id`,
+      )
+      .get({ pl_id: id })) as DetailRow | undefined
+    if (!row) return null
+    const index = await catalogIndex(db)
+    const accepted = text(row, "status") === "принят"
+    const given = text(row, "pl_given") || text(row, "pl_created")
+    return {
+      type,
+      id,
+      status: text(row, "status"),
+      fromName: text(row, "pl_party"),
+      toName: text(row, "to_warehouse"),
+      createdBy: text(row, "given_by") || text(row, "created_by"),
+      createdAt: given,
+      plannedDate: "",
+      deliverer: "",
+      givenBy: text(row, "given_by") || text(row, "created_by"),
+      givenAt: given,
+      acceptedBy: accepted ? text(row, "accepted_by") : "",
+      acceptedAt: accepted ? text(row, "pl_accepted") : "",
+      comment: text(row, "comment"),
+      products: jsonArray(row.items).map((line) => ({
+        ...product(index, String(line.product ?? ""), lineQty(line.quantity ?? line.qty), String(line.key ?? "")),
+        ...(line.defect === true ? { defect: true } : {}),
+      })),
     }
   }
 
@@ -434,6 +538,33 @@ export async function getPlanItem(type: PlanTaskType, id: number, db: PgDb = get
       products: lines.map((line) =>
         product(index, text(line, "product_name"), lineQty(line.quantity), line.product_id ? `product:${line.product_id}` : "", text(line, "unit")),
       ),
+    }
+  }
+
+  if (type === "supply_return" && t.has("supplier_returns")) {
+    const clock = t.col("supplier_returns", "time") ? `(CASE WHEN sr.time ~ '^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$' THEN sr.time::interval ELSE interval '0' END)` : "interval '0'"
+    const created = t.col("supplier_returns", "created_at") ? ts("sr.created_at") : "NULL::timestamp"
+    const request = t.col("supplier_returns", "date") ? `COALESCE(fin_ts(sr.date) + ${clock}, ${created})` : created
+    const done = t.col("supplier_returns", "transfer_time") ? "fin_ts(sr.transfer_time)" : "NULL::timestamp"
+    const row = (await db
+      .prepare(`SELECT sr.*, ${iso(request)} AS pl_created, ${iso(done)} AS pl_given FROM supplier_returns sr WHERE sr.id = @pl_id`)
+      .get({ pl_id: id })) as DetailRow | undefined
+    if (!row) return null
+    const index = await catalogIndex(db)
+    return {
+      ...empty,
+      type,
+      id,
+      status: text(row, "status"),
+      fromName: text(row, "warehouse"),
+      toName: text(row, "from_whom"),
+      createdBy: text(row, "added_by"),
+      createdAt: text(row, "pl_created"),
+      plannedDate: text(row, "pl_created"),
+      givenBy: text(row, "transferred_by"),
+      givenAt: text(row, "status") === "завершен" ? text(row, "pl_given") : "",
+      comment: text(row, "reason"),
+      products: jsonArray(row.items).map((line) => product(index, String(line.product ?? ""), lineQty(line.qty), typeof line.key === "string" ? line.key : "")),
     }
   }
 

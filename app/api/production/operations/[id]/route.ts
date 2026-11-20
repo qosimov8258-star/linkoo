@@ -18,10 +18,11 @@ export async function PUT(request: Request, context: RouteParams) {
   })
 }
 
+/** 409 {error, usage} while other records (e.g. products it is attached to) point at the operation. */
 export async function DELETE(_request: Request, context: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
   const id = parseIdSegment((await context.params).id)
-  if (!id || !(await deleteOperation(id))) return notFound()
-  return NextResponse.json({ ok: true })
+  if (!id) return notFound()
+  return guarded(async () => ((await deleteOperation(id)) ? NextResponse.json({ ok: true }) : notFound()))
 }

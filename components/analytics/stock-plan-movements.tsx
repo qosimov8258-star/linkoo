@@ -8,7 +8,7 @@ import { ListBTable } from "@/components/analytics/list-b-table"
 import type { StockOptions } from "@/components/analytics/stock-move-filters"
 import { PlanMoveFilterDialog, type PlanFilterChanges } from "@/components/analytics/stock-plan-filters"
 import { CLEAR_PLAN_FILTERS, countPlanFilters, moveApiQuery, planQty, type PlanState } from "@/components/analytics/stock-plan-state"
-import { RI, RefCard, RefIconButton, RefToolbar } from "@/components/ref/list-kit"
+import { RI, RefAppliedFilter, RefCard, RefIconButton, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { formatDotDate } from "@/lib/finance/dates"
 import { formatCategoryDate } from "@/components/analytics/categories-grid"
@@ -89,7 +89,7 @@ export function StockPlanMovements({
     update({ ...changes, page: null })
   }
 
-  const typeText = (row: PlanMovementRow) => t(planMoveType(row.kind).label)
+  const typeText = (row: PlanMovementRow) => t(row.typeLabel ?? planMoveType(row.kind).label)
   const dateText = (row: PlanMovementRow) => (row.day ? formatCategoryDate(row.day, language) : t("Не указана"))
   const exportRows = (source: PlanMovementRow[]) => {
     const header = ["Дата", "Склад", "Тип", "№", "Товар", "Кол-во", "Ед. измерения", "Серия"].map((label) => t(label))
@@ -152,18 +152,15 @@ export function StockPlanMovements({
       <RefToolbar
         filterOpen={filterOpen}
         filterPanel={<PlanMoveFilterDialog state={state} options={options} onClose={() => setFilterOpen(false)} onApply={applyFilter} />}
+        // Linko's toolbar: «Показать фильтр» with its small chevron, the 300 px search 430 px from the window edge; an
+        // applied filter turns into the grey «Фильтр: N элемента» bar.
+        linkFilter="flush"
+        thinChevron
+        filterWidth={379.5}
+        searchWidth={300}
+        onToggleFilter={() => (filterOpen ? setFilterOpen(false) : openFilter())}
         leftSlot={
-          filterCount === 0 ? (
-            <button type="button" onClick={openFilter} className="text-[13px] text-[#1E4A9A]">
-              {t("Показать фильтр")} ⌄
-            </button>
-          ) : (
-            <span className="ml-[5px] inline-flex h-[30px] items-center gap-2 rounded-md bg-[#efefef] px-4 text-[#666]">
-              {t("Фильтр")}: {filterCount} {t("элемента")}
-              <button type="button" onClick={openFilter} aria-label={t("Изменить")} className="border-l border-white pl-2 text-[#8f8f8f]">✎</button>
-              <button type="button" onClick={() => update({ ...CLEAR_PLAN_FILTERS })} aria-label={t("Очистить")} className="border-l border-white pl-2 text-[#8f8f8f]">×</button>
-            </span>
-          )
+          filterCount > 0 && <RefAppliedFilter count={filterCount} width={371.5} shift={4} onEdit={openFilter} onClear={() => update({ ...CLEAR_PLAN_FILTERS })} />
         }
         query={searchDraft}
         onQuery={setSearchDraft}
@@ -205,7 +202,9 @@ export function StockPlanMovements({
 
       <div className={list.loading ? "opacity-60" : undefined}>
         <ListBTable
-          cols={showCheckboxes ? "483px 113px 114px 227px 227px 1fr" : "469px 116px 115px 231px 230px 1fr"}
+          // Linko's grid: 12 equal units inside the 30 px sides (Товар 4, Кол-во 1, Серия 1, Дата 2, Склад 2, Тип 2); a
+          // column's text starts 8 px in, Товар's at its edge.
+          cols={showCheckboxes ? "483px 113px 114px 227px 227px 1fr" : "minmax(0,4fr) minmax(0,1fr) minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr)"}
           minWidth={900}
           cellPad={0}
           heads={[
@@ -221,11 +220,11 @@ export function StockPlanMovements({
             ) : (
               t("Товар")
             ),
-            headLabel("qty", "Кол-во"),
-            t("Серия"),
-            headLabel("day", "Дата"),
-            headLabel("warehouse", "Склад"),
-            t("Тип"),
+            ...[headLabel("qty", "Кол-во"), t("Серия"), headLabel("day", "Дата"), headLabel("warehouse", "Склад"), t("Тип")].map((head, index) => (
+              <span key={index} className={`block ${showCheckboxes ? "" : "pl-[8px]"}`}>
+                {head}
+              </span>
+            )),
           ]}
           rows={rows}
           rowKey={(row) => row.id}
@@ -233,6 +232,7 @@ export function StockPlanMovements({
           empty={list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
           render={(row) => {
             const out = row.qty < 0
+            const inset = showCheckboxes ? "" : "pl-[8px]"
             return [
               <span key="goods" className={`relative top-[2px] inline-flex items-center ${showCheckboxes ? "-ml-[6px]" : ""}`}>
                 {showCheckboxes && <Checkbox checked={selected.includes(row.id)} onChange={() => toggleRow(row.id)} />}
@@ -242,15 +242,19 @@ export function StockPlanMovements({
                 <span className={showCheckboxes ? "ml-[6px]" : "ml-[5px]"}>{row.name}</span>
                 {row.isDefect && <strong className="ml-2 text-[#e57373]">{t("брак")}</strong>}
               </span>,
-              <span key="qty" className="whitespace-nowrap">
+              <span key="qty" className={`block whitespace-nowrap ${inset}`}>
                 {planQty(row.qty, row.unit, t)}
               </span>,
-              "-",
-              <span key="day" className="whitespace-nowrap">
+              <span key="series" className={`block ${inset}`}>
+                -
+              </span>,
+              <span key="day" className={`block whitespace-nowrap ${inset}`}>
                 {dateText(row)}
               </span>,
-              row.warehouse,
-              <span key="type">
+              <span key="warehouse" className={`block ${inset}`}>
+                {row.warehouse}
+              </span>,
+              <span key="type" className={`block ${inset}`}>
                 {typeText(row)} <span className="ml-1 font-semibold text-[#1ca1f5]">{row.docNumber}</span>
               </span>,
             ]

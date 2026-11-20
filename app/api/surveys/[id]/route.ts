@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { requireRole } from "@/lib/rbac"
 import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
-import { deleteSurvey, surveyBodySchema, surveyErrorResponse, updateSurvey } from "@/lib/surveys-repo"
+import { deleteSurvey, surveyBodySchema, surveyErrorResponse, updateSurvey } from "@/lib/questionnaires-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 

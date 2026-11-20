@@ -119,6 +119,7 @@ export function parseCashListQuery(url: string): ParsedQuery<CashListQuery> {
       withDeleted: flag(search, "withDeleted"),
       internalTransfer: flag(search, "internalTransfer"),
       onlyNotInternal: flag(search, "onlyNotInternal"),
+      notAcceptedTransfer: flag(search, "notAcceptedTransfer"),
       search: search.get("search")?.trim() || undefined,
       sources,
       ordering: search.get("ordering")?.trim() || undefined,

@@ -1,23 +1,35 @@
 "use client"
 
-import { askDelete } from "@/lib/ask-confirm"
-import { useEffect, useMemo, useState } from "react"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { askDelete } from "@/lib/ask-confirm"
+import { CashSnackbar, useCanManage, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { ExcelRowImportDialog, type ExcelImportSpec } from "@/components/analytics/excel-row-import"
-import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit"
+import { RI, RefButton, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
+import { SplitDetailList } from "@/components/ref/split-detail"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { importKey, postJson, repeatedInFile, type ImportRowError, type PreparedRow } from "@/lib/excel-row-import"
-import { formatMoney } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { useCurrencyCodes } from "./supplier-incoming-dialogs"
+import { notify } from "@/lib/notify"
+
+import { SupplierDetail } from "./supplier-detail"
 import { SupplierFormModal } from "./supplier-form-modal"
 import { SupplierReserveDialog } from "./supplier-reserve-dialog"
 import type { Supplier } from "./suppliers-data"
-import { notify } from "@/lib/notify"
 
-/** One row of "Импортировать" (Excel; ours, not in the demo): created through POST /api/suppliers like the form. */
+// Склад → Поставщики (Linko's #/provider): the list (Id, Наименование, Категория, Дата создания; newest first, the
+// values in semibold), the search (name or id, see matchesSearch), the card of a supplier opened in place of its row
+// (supplier-detail.tsx) and the dialogs. The address keeps the state as Linko's does:
+// - /analytics/suppliers/33 = the opened card (Linko: #/provider/33), the list's query kept;
+// - pageSize, page, search; openCreateDialog / openUpdateDialog / providerReserveOpen (true while open, false once
+//   closed).
+
+const BASE = "/analytics/suppliers"
+const PAGE_SIZES = [10, 25, 50, 100, 200, 500]
+
+/** One row of "Импортировать" (Excel; ours, not in Linko): created through POST /api/suppliers like the form. */
 type SupplierImport = { name: string; category: string; address: string; branch: string; organization: string; contacts: [] }
 
 /** Stored names of a reference list by comparison key. */
@@ -30,24 +42,75 @@ async function namesOf(url: string): Promise<Map<string, string>> {
   return names
 }
 
-export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
+// Linko's provider search (probed on its server): the id contains the text, or the name does with Latin letters read as
+// Cyrillic on both sides («тест» finds «ABC TEST», «ooo» finds «ООО АБВ»; «x» reads «кс», so «хитой» misses «xitoy»).
+const LATIN: Record<string, string> = { a: "а", b: "б", c: "ц", d: "д", e: "е", f: "ф", g: "г", h: "х", i: "и", j: "ж", k: "к", l: "л", m: "м", n: "н", o: "о", p: "п", q: "к", r: "р", s: "с", t: "т", u: "у", v: "в", w: "в", x: "кс", y: "й", z: "з" }
+const cyrillic = (text: string) => text.toLocaleLowerCase("ru").replace(/[a-z]/g, (letter) => LATIN[letter] ?? letter)
+function matchesSearch(row: Supplier, query: string) {
+  const term = query.trim()
+  if (!term) return true
+  return String(row.id).includes(term) || row.name.toLocaleLowerCase("ru").includes(term.toLocaleLowerCase("ru")) || cyrillic(row.name).includes(cyrillic(term))
+}
+
+const cardIdOf = (pathname: string | null) => {
+  const match = /^\/analytics\/suppliers\/(\d{1,10})\/?$/.exec(pathname ?? "")
+  const id = match ? Number(match[1]) : NaN
+  return Number.isInteger(id) && id > 0 ? id : null
+}
+
+/** Writes the address (keys sorted, as Linko's query-string does); typing in the search replaces the entry. */
+function pushAddress(path: string, patch: Record<string, string | null>, replace = false) {
+  if (typeof window === "undefined" || !window.location.pathname.startsWith(BASE)) return
+  const params = new URLSearchParams(window.location.search)
+  for (const [name, value] of Object.entries(patch)) {
+    if (value === null) params.delete(name)
+    else params.set(name, value)
+  }
+  params.sort()
+  const query = params.toString()
+  const url = `${path}${query ? `?${query}` : ""}`
+  if (url === `${window.location.pathname}${window.location.search}`) return
+  if (replace) window.history.replaceState(null, "", url)
+  else window.history.pushState(null, "", url)
+}
+
+export function SuppliersView() {
   const { t, language } = useLanguage()
-  const currencies = useCurrencyCodes()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [rows, setRows] = useState<Supplier[]>([])
-  const [reserveTarget, setReserveTarget] = useState<Supplier | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [query, setQuery] = useState("")
-  const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+  const closeNotice = useCallback(() => setNotice(null), [])
   const canImport = useCanManage(["procurement.manage"])
 
-  async function reloadSuppliers() {
-    const response = await fetch("/api/suppliers", { cache: "no-store" }).catch(() => null)
-    if (response?.ok) setRows((await response.json()) as Supplier[])
-  }
+  const openedId = cardIdOf(pathname)
+  const search = searchParams.get("search") ?? ""
+  const sizeParam = Number(searchParams.get("pageSize"))
+  const pageSize = PAGE_SIZES.includes(sizeParam) ? sizeParam : 25
+  const pageParam = Number(searchParams.get("page"))
+  const createOpen = searchParams.get("openCreateDialog") === "true"
+  const updateOpen = openedId !== null && searchParams.get("openUpdateDialog") === "true"
+  const reserveOpen = openedId !== null && searchParams.get("providerReserveOpen") === "true"
+
+  const reload = useCallback(async () => {
+    try {
+      const response = await fetch("/api/suppliers", { cache: "no-store" })
+      if (!response.ok) throw new Error("failed")
+      setRows((await response.json()) as Supplier[])
+      setLoadError("")
+    } catch {
+      setLoadError("Не удалось загрузить поставщиков с сервера")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
 
   const importSpec: ExcelImportSpec<SupplierImport> = {
     templateName: "suppliers-template",
@@ -62,7 +125,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
     prepare: async (records) => {
       // Category, branch and organization must exist (by name); they are sent as stored.
       const [categoriesByKey, branchesByKey, organizationsByKey] = await Promise.all([namesOf("/api/supplier-categories"), namesOf("/api/branches"), namesOf("/api/organizations")])
-      const rows: PreparedRow<SupplierImport>[] = []
+      const prepared: PreparedRow<SupplierImport>[] = []
       const errors: ImportRowError[] = []
       for (const { line, values } of records) {
         const label = values.name || t("Название")
@@ -75,59 +138,30 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
         else if (!values.address) errors.push({ line, label, message: "Адрес обязателен" })
         else if (branch === undefined) errors.push({ line, label: `${label}, ${values.branch}`, message: "Филиал не найден" })
         else if (organization === undefined) errors.push({ line, label: `${label}, ${values.organization}`, message: "Организация не найдена" })
-        else rows.push({ line, label, item: { name: values.name, category, address: values.address, branch, organization, contacts: [] } })
+        else prepared.push({ line, label, item: { name: values.name, category, address: values.address, branch, organization, contacts: [] } })
       }
-      return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
+      return { rows: prepared, errors: [...errors, ...repeatedInFile(prepared, (row) => importKey(row.item.name))] }
     },
     send: (item) => postJson("/api/suppliers", item),
     fallbackError: "Не удалось сохранить поставщика",
   }
-  const importButton = canImport ? <RefButton icon={RI.chart} label={t("Импортировать")} onClick={() => setImportOpen(true)} /> : null
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/suppliers")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("failed")
-        return (await response.json()) as Supplier[]
-      })
-      .then((data) => {
-        if (cancelled) return
-        setRows(data)
-        setLoadError("")
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить поставщиков с сервера")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const filtered = useMemo(() => rows.filter((row) => matchesSearch(row, search)), [rows, search])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const page = Math.min(Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1, pageCount)
+  const start = (page - 1) * pageSize
+  const end = Math.min(start + pageSize, filtered.length)
+  const visible = filtered.slice(start, end)
+  const opened = openedId !== null ? (rows.find((row) => row.id === openedId) ?? null) : null
 
-  const filtered = useMemo(
-    () => rows.filter((row) => row.name.toLowerCase().includes(query.toLowerCase()) || String(row.id).includes(query)),
-    [rows, query],
-  )
-  const paging = usePaging(filtered.length)
-  const visible = filtered.slice(paging.start, paging.end)
+  const listPath = () => BASE
+  const cardPath = (id: number) => `${BASE}/${id}`
 
-  function toggleExpand(row: Supplier) {
-    setExpandedId((current) => (current === row.id ? null : row.id))
+  function openCard(id: number | null) {
+    pushAddress(id === null ? listPath() : cardPath(id), {})
   }
 
-  function openCreate() {
-    setEditingId(null)
-    setModalOpen(true)
-  }
-
-  function openEdit(row: Supplier) {
-    setEditingId(row.id)
-    setModalOpen(true)
-  }
+  const setDialog = (name: "openCreateDialog" | "openUpdateDialog" | "providerReserveOpen", open: boolean) => pushAddress(window.location.pathname, { [name]: open ? "true" : "false" })
 
   async function removeRow(row: Supplier) {
     if (!(await askDelete(row.name))) return
@@ -135,155 +169,107 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
       const response = await fetch(`/api/suppliers/${row.id}`, { method: "DELETE" })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        notify(data.error ? t(data.error) : t("Не удалось удалить поставщика"))
+        setNotice({ text: t(data.error || "Удаление невозможно из-за связи с другими данными"), tone: "error" })
         return
       }
       setRows((current) => current.filter((item) => item.id !== row.id))
-      if (expandedId === row.id) setExpandedId(null)
-    } catch {
-      notify(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
-  async function removeReserve(row: Supplier, rowId: number) {
-    if (!(await askDelete())) return
-    try {
-      const response = await fetch(`/api/suppliers/${row.id}/reserve/${rowId}`, { method: "DELETE" })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        notify(data.error ? t(data.error) : t("Не удалось удалить запись"))
-        return
-      }
-      setRows((current) => current.map((item) => (item.id === row.id ? (data as Supplier) : item)))
+      pushAddress(listPath(), {})
+      setNotice({ text: "Успешно удалено", tone: "success" })
     } catch {
       notify(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
   function downloadList() {
-    downloadExcelTable("postavshiki", [
+    downloadExcelTable("Поставщики", [
       ["Id", t("Наименование"), t("Категория"), t("Дата создания")],
       ...filtered.map((row) => [row.id, row.name, row.category, formatDateText(row.createdDate, language)]),
     ])
   }
 
-  // A branch / organization name is this company's data, shown as stored; only the "Не указано" placeholder is translated.
-  const named = (value: string) => (!value.trim() || value.trim() === "Не указано" ? t("Не указано") : value)
+  const notSet = (value: string) => (value.trim() ? value : t("Не указано"))
+  const importButton = canImport ? <RefButton icon={RI.chart} label={t("Импортировать")} onClick={() => setImportOpen(true)} /> : null
 
-  const iconButton = (path: string, label: string, onClick: () => void, extra = "") => (
-    <button type="button" onClick={onClick} aria-label={label} title={label} className={`flex h-6 w-6 items-center justify-center ${extra}`}>
-      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={path} /></svg>
-    </button>
-  )
+  return (
+    <RefPage>
+      <RefHeader title={t("Поставщики")}>
+        {importButton}
+        {/* Linko's button sits 8 px in from the right edge, with the hint «Добавить поставщика». */}
+        <span className="mr-[8px]" title={t("Добавить поставщика")}>
+          <RefButton green icon={RI.add} label={t("Добавить")} onClick={() => setDialog("openCreateDialog", true)} />
+        </span>
+      </RefHeader>
+      <SplitDetailList
+        rows={visible}
+        selectedKey={openedId}
+        rowKey={(row) => row.id}
+        toolbar={
+          <RefToolbar
+            hideFilter
+            query={search}
+            onQuery={(value) => pushAddress(window.location.pathname, { search: value || null, page: null }, true)}
+            pageSize={pageSize}
+            onPageSize={(size) => pushAddress(window.location.pathname, { pageSize: String(size), page: null })}
+            from={filtered.length ? start + 1 : 0}
+            to={end}
+            total={filtered.length}
+            page={page}
+            pageCount={pageCount}
+            onPage={(next) => pushAddress(window.location.pathname, { page: next > 1 ? String(next) : null })}
+            icons={
+              <button type="button" title={t("Скачать Excel")} aria-label={t("Скачать")} onClick={downloadList} className="flex h-12 w-12 items-center justify-center">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.download} /></svg>
+              </button>
+            }
+          />
+        }
+        detailClassName="-mx-[15px] my-[20px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"
+        detail={(row) => (
+          <SupplierDetail
+            supplier={row}
+            onClose={() => openCard(null)}
+            onReserve={() => setDialog("providerReserveOpen", true)}
+            onEdit={() => setDialog("openUpdateDialog", true)}
+            onDelete={() => void removeRow(row)}
+          />
+        )}
+        tableProps={{
+          cols: "97fr 380fr 230fr 200fr",
+          heads: ["Id", t("Наименование"), t("Категория"), t("Дата создания")],
+          rowKey: (row) => row.id,
+          onRowClick: (row) => openCard(row.id),
+          empty: loading ? t("Загрузка поставщиков...") : t(loadError) || t("По вашему запросу ничего не найдено"),
+          // Linko's rows are links: every value in semibold.
+          render: (row) => [
+            <span key="id" className="font-semibold">{row.id}</span>,
+            <span key="name" className="font-semibold">{row.name}</span>,
+            <span key="category" className="font-semibold">{notSet(row.category)}</span>,
+            <span key="date" className="font-semibold" data-no-translate>{formatDateText(row.createdDate, language)}</span>,
+          ],
+        }}
+      />
 
-  const content = (
-    <>
-      {!embedded && (
-        <RefHeader title={t("Поставщики")}>
-          {importButton}
-          <RefButton green icon={RI.add} label={t("Добавить")} onClick={openCreate} />
-        </RefHeader>
-      )}
-      <RefCard>
-        <RefToolbar
-          hideFilter
-          query={query}
-          onQuery={(value) => {
-            setQuery(value)
-            paging.setPage(1)
-          }}
-          pageSize={paging.pageSize}
-          onPageSize={paging.setPageSize}
-          from={filtered.length ? paging.start + 1 : 0}
-          to={paging.end}
-          total={filtered.length}
-          page={paging.page}
-          pageCount={paging.pageCount}
-          onPage={paging.setPage}
-          icons={
-            <button type="button" title={t("Скачать Excel")} aria-label={t("Скачать")} onClick={downloadList} className="flex h-12 w-12 items-center justify-center">
-              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.download} /></svg>
-            </button>
-          }
-          extra={
-            embedded ? (
-              <>
-                {importButton}
-                <RefButton green icon={RI.add} label={t("Добавить")} onClick={openCreate} />
-              </>
-            ) : undefined
-          }
-        />
-        <RefTable
-          cols="97fr 380fr 230fr 200fr"
-          heads={["Id", t("Наименование"), t("Категория"), t("Дата создания")]}
-          rows={visible}
-          rowKey={(row) => row.id}
-          onRowClick={toggleExpand}
-          rowClass={(row) => (expandedId === row.id ? "hidden" : "")}
-          empty={loading ? t("Загрузка поставщиков...") : t(loadError) || t("По вашему запросу ничего не найдено")}
-          render={(row) => [row.id, row.name, row.category, formatDateText(row.createdDate, language)]}
-          expanded={(row) => {
-            if (expandedId !== row.id) return null
-            return (
-              <div className="-mx-[15px] mb-[14px] mt-[20px] bg-white text-[13px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-                <div className="flex h-[65px] items-center justify-between border-b border-[#e0e0e0] pl-[30px] pr-[43px]">
-                  <h2 className="text-[18px] font-normal leading-[24px] text-[#333]">{row.name}</h2>
-                  <div className="flex items-center gap-[10px]">
-                    {iconButton("M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z", t("Добавить продукт"), () => setReserveTarget(row))}
-                    {iconButton(RI.edit, t("Изменить"), () => openEdit(row), "ml-[24px]")}
-                    {iconButton(RI.trash, t("Удалить"), () => removeRow(row), "ml-[24px]")}
-                  </div>
-                </div>
-                <div className="grid grid-cols-[408px_1fr]">
-                  <div className="border-r border-[#e0e0e0] px-[30px] pb-[20px] pt-[15px] leading-[25px]">
-                    <dl>
-                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Адрес")}</dt><dd>{row.address}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Категория")}</dt><dd>{row.category}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Филиал")}</dt><dd>{named(row.branch)}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Организация")}</dt><dd>{named(row.organization)}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="font-semibold">{t("Дата добавления")}</dt><dd>{formatDateText(row.createdDate, language)}</dd></div>
-                    </dl>
-                    <p className="mt-[24px] font-semibold">{t("Контакты")}</p>
-                    {row.contacts.length === 0 && <p className="text-[#666]">{t("Не указано")}</p>}
-                    {row.contacts.map((contact) => (
-                      <div key={contact.id} className="flex justify-between gap-4">
-                        <span>{contact.name}</span>
-                        <span>{contact.phone}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="px-[30px] pt-[14px]">
-                    <div className="grid grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)_40px] items-center pb-[12px] font-semibold">
-                      <span>{t("Продукт")}</span><span>{t("Кол-во")}</span><span>{t("Цена")}</span><span>{t("Сумма")}</span><span />
-                    </div>
-                    <div className="border-t border-dotted border-[#cfd6dc]">
-                      {row.products.map((product) => (
-                        <div key={product.id} className="grid min-h-[50px] grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)_40px] items-center border-b border-dotted border-[#cfd6dc]">
-                          <span>{product.product}</span>
-                          <span>{product.qty.toLocaleString("ru-RU")}</span>
-                          <span>{formatMoney(product.price, 2)} {product.currency || currencies.base}</span>
-                          <span>{formatMoney(product.qty * product.price, 2)} {product.currency || currencies.base}</span>
-                          <span className="text-right">{iconButton(RI.trash, t("Удалить"), () => removeReserve(row, product.id), "ml-auto")}</span>
-                        </div>
-                      ))}
-                      {row.products.length === 0 && <p className="py-6 text-center text-[#999]">{t("Товары не добавлены")}</p>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          }}
-        />
-      </RefCard>
-
-      {modalOpen && (
+      {(createOpen || (updateOpen && opened)) && (
         <SupplierFormModal
-          supplier={editingId !== null ? (rows.find((row) => row.id === editingId) ?? null) : null}
-          onClose={() => setModalOpen(false)}
+          key={createOpen ? "create" : `update-${opened?.id}`}
+          supplier={createOpen ? null : opened}
+          onClose={() => setDialog(createOpen ? "openCreateDialog" : "openUpdateDialog", false)}
           onSaved={(saved) => {
-            setRows((current) => (editingId !== null ? current.map((row) => (row.id === editingId ? saved : row)) : [saved, ...current]))
-            setModalOpen(false)
+            setRows((current) => (current.some((row) => row.id === saved.id) ? current.map((row) => (row.id === saved.id ? saved : row)) : [saved, ...current]))
+            setDialog(createOpen ? "openCreateDialog" : "openUpdateDialog", false)
+            setNotice({ text: "Успешно сохранено", tone: "success" })
+          }}
+        />
+      )}
+
+      {reserveOpen && opened && (
+        <SupplierReserveDialog
+          supplier={opened}
+          onClose={() => setDialog("providerReserveOpen", false)}
+          onSaved={(saved) => {
+            setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)))
+            setDialog("providerReserveOpen", false)
+            setNotice({ text: "Успешно сохранено", tone: "success" })
           }}
         />
       )}
@@ -292,26 +278,14 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
         <ExcelRowImportDialog
           spec={importSpec}
           onClose={() => setImportOpen(false)}
-          onChanged={() => void reloadSuppliers()}
+          onChanged={() => void reload()}
           onDone={(summary) => {
             setImportOpen(false)
             notify(summary)
           }}
         />
       )}
-
-      {reserveTarget && (
-        <SupplierReserveDialog
-          supplier={reserveTarget}
-          onClose={() => setReserveTarget(null)}
-          onSaved={(saved) => {
-            setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)))
-            setReserveTarget(null)
-          }}
-        />
-      )}
-    </>
+      <CashSnackbar message={notice} onClose={closeNotice} />
+    </RefPage>
   )
-
-  return embedded ? <main className="min-w-0 flex-1">{content}</main> : <RefPage>{content}</RefPage>
 }

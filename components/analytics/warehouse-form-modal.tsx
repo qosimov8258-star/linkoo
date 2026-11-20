@@ -110,7 +110,10 @@ function draftFromWarehouse(warehouse: WarehouseDetail, options: Options): Draft
   const employee =
     options.employees.find((item) => warehouse.managerId !== null && item.id === warehouse.managerId) ??
     options.employees.find((item) => warehouse.manager && warehouseNameKey(item.name) === warehouseNameKey(warehouse.manager))
-  const branch = options.branches.find((item) => warehouse.branch && warehouseNameKey(item.name) === warehouseNameKey(warehouse.branch))
+  // The exact name first: two branches can differ only in case ("Buxoro" / "buxoro").
+  const branch =
+    options.branches.find((item) => warehouse.branch && item.name === warehouse.branch) ??
+    options.branches.find((item) => warehouse.branch && warehouseNameKey(item.name) === warehouseNameKey(warehouse.branch))
   return {
     name: warehouse.name,
     fullName: warehouse.fullName,
@@ -281,7 +284,7 @@ export function WarehouseFormModal({
         value={value}
         maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
-        className={`absolute inset-x-0 bottom-0 h-[26px] border-b bg-transparent text-[13px] outline-none ${fieldError(field) ? "border-[#f44336]" : "border-[#e0e0e0]"}`}
+        className={`absolute inset-x-0 bottom-0 h-[26px] border-b bg-transparent pb-[4px] text-[13px] font-semibold outline-none ${fieldError(field) ? "border-[#f44336]" : "border-[#e0e0e0]"}`}
       />
     </MField>
   )
@@ -316,7 +319,7 @@ export function WarehouseFormModal({
                     <SearchSelect variant="underline" value={draft.branch} onChange={(value) => change({ branch: value }, "branch")} options={branchOptions} invalid={Boolean(fieldError("branch"))} />
                   </div>
                 </MField>
-                <MField label={t("Завскладь")} required={managerOptions.length > 0} filled={Boolean(draft.manager)} error={fieldError("manager")} gap={26}>
+                <MField label={t("Завсклад")} required={managerOptions.length > 0} filled={Boolean(draft.manager)} error={fieldError("manager")} gap={26}>
                   <div className="absolute inset-x-0 bottom-0">
                     <SearchSelect variant="underline" value={draft.manager} onChange={(value) => change({ manager: value }, "manager")} options={managerOptions} invalid={Boolean(fieldError("manager"))} />
                   </div>
@@ -397,9 +400,10 @@ export function WarehouseFormModal({
 function MField({ label, required, filled, error, height = 36, gap = 16, children }: { label: string; required?: boolean; filled: boolean; error?: string; height?: number; gap?: number; children: ReactNode }) {
   return (
     <div className="relative" style={{ height, marginBottom: gap }}>
-      <span className={`pointer-events-none absolute left-0 z-[1] font-bold text-black ${filled ? "top-[-12px] text-[10px] leading-3" : "bottom-[8px] text-[13px] leading-4"}`}>
+      {/* Linko's material label: semibold, scaled to 0.75 once filled; its asterisk #e57373. */}
+      <span className={`pointer-events-none absolute left-0 z-[1] font-semibold text-black ${filled ? "top-[-8px] text-[9.75px] leading-3" : "bottom-[8px] text-[13px] leading-4"}`}>
         {label}
-        {required && <span className="text-[#f44336]"> *</span>}
+        {required && <span className="text-[#e57373]"> *</span>}
       </span>
       {children}
       {error && <span className="absolute -bottom-[16px] left-0 text-[11px] text-[#f44336]">{error}</span>}

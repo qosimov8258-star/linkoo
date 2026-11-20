@@ -5,6 +5,7 @@ import Image from "next/image"
 import { ChevronDown } from "lucide-react"
 import * as echarts from "echarts"
 import { MoreButton, ToggleButtons, formatAmount } from "@/components/analytics/widget-table-kit"
+import { amountDigits, printDigits } from "@/lib/amount-precision"
 import { currencyLabel } from "@/lib/finance/currency"
 import { monthEndIso, monthStartIso } from "@/lib/finance/dates"
 import type { BalanceOverview } from "@/lib/finance/overview-types"
@@ -22,10 +23,8 @@ const COLORS = ["#00e096", "#0095ff", "#ff3d71", "#ffaa00", "#7a5af8", "#fd7e14"
 
 export type BalanceRow = { name: string; start: number; end: number; currency: string }
 
-const fmt = (value: number, digits = 3) => {
-  const rounded = Math.round(value * 10 ** digits) / 10 ** digits
-  return rounded.toLocaleString("ru-RU", { maximumFractionDigits: digits }).replace(/ /g, " ")
-}
+// Linko's numberFormat(value, suffix, digits): the decimals of Настройки → Округление сумм override `digits` when set.
+const fmt = (value: number, digits = 3) => printDigits(value, amountDigits(digits)).replace(/ /g, " ")
 /** GET /api/balances/overview?from&to[&organization] (null url = do not fetch). */
 export function useBalanceOverview(query: { from: string; to: string; organization?: string } | null): { data: BalanceOverview | null; loading: boolean; error: string } {
   const [data, setData] = useState<BalanceOverview | null>(null)

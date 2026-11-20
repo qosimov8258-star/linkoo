@@ -1,15 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import { useSearchParams } from "next/navigation"
 import { useRouter } from "next/navigation"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
 import { ClientActDialog } from "@/components/analytics/balance/client-act-dialog"
-import { ClientDetail } from "@/components/clients/clients-view"
-import { OrderDetailCard } from "@/components/orders/order-detail"
-import type { Order } from "@/components/orders/orders-data"
-import type { Client } from "@/components/clients/clients-data"
+import { OrderDebtOrderCard } from "@/components/analytics/order-debts-order-card"
+import { ClientDrawer } from "@/components/clients/clients-view"
+import { ShopDrawerOrderContext, type ShopDrawerOrderLink } from "@/components/clients/shop-drawer-order"
+import { OrderDetailsDialog } from "@/components/orders/order-details-dialog"
 import { ExpandedOverlay } from "@/components/analytics/balance/expanded-view"
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { useCanManage } from "@/components/analytics/cash-management-shared"
@@ -147,22 +148,13 @@ export function OrderDebtsView() {
   const [groupOpen, setGroupOpen] = useState(false)
   // POST /api/order-debts/group-payment needs cash.manage (lib/capabilities-catalog.ts ROUTE_PERMISSIONS).
   const canGroupPay = useCanManage(["cash.manage"])
+  // The drawer's pencil (Linko: only with change_market) needs the client editing right here.
+  const canEditShop = useCanManage(["clients.manage"])
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState<Record<string, OrderDebtOrderRow>>({})
   const [actClient, setActClient] = useState<{ key: string; name: string } | null>(null)
-  // The reference opens the client card (right panel) from an order row; the balance act stays on the clients tab.
-  const [panelClient, setPanelClient] = useState<Client | null>(null)
-  const [orderDialog, setOrderDialog] = useState<Order | null>(null)
-  const openOrderDialog = (id: number) =>
-    fetch(`/api/orders/${id}`)
-      .then((response) => (response.ok ? (response.json() as Promise<Order>) : null))
-      .then((order) => order && setOrderDialog(order))
-      .catch(() => {})
-  const openClientPanel = (id: number) =>
-    fetch(`/api/clients/${id}`)
-      .then((response) => (response.ok ? (response.json() as Promise<Client>) : null))
-      .then((client) => client && setPanelClient(client))
-      .catch(() => {})
+  // The read-only order card of an order number (the drawer's «Просмотреть» opens it through ?orderDetails=<id>).
+  const [orderCardId, setOrderCardId] = useState(0)
   const [recalcBusy, setRecalcBusy] = useState(false)
   const [canEdit, setCanEdit] = useState(false)
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
@@ -181,6 +173,40 @@ export function OrderDebtsView() {
     const search = stateToSearch(state)
     if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
   }, [state])
+
+  // The shop drawer and the order card are history entries like Linko's (hashHistory.push): Back closes them again.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+  const pushState = useCallback((patch: Partial<OrderDebtState>) => {
+    const next = { ...stateRef.current, ...patch }
+    stateRef.current = next
+    window.history.pushState(window.history.state, "", `${window.location.pathname}?${stateToSearch(next)}`)
+    setState(next)
+  }, [])
+  useEffect(() => {
+    const onPop = () => {
+      const next = stateFromParams(new URLSearchParams(window.location.search))
+      setState(next)
+      setSearchDraft(next.search)
+    }
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [])
+  // The drawer is portalled into the body, which exists once the page runs in the browser (?openShop= in a direct link).
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  // Stable: the drawer reloads its shop whenever onClose changes.
+  const closeShop = useCallback(() => pushState({ openShop: 0, orderDetails: 0 }), [pushState])
+  const closeOrderDetails = useCallback(() => pushState({ orderDetails: 0 }), [pushState])
+  const orderLink = useMemo<ShopDrawerOrderLink>(
+    () => ({
+      href: (orderId) => `${typeof window === "undefined" ? "" : window.location.pathname}?${stateToSearch({ ...stateRef.current, orderDetails: orderId })}`,
+      open: (orderId) => pushState({ orderDetails: orderId }),
+    }),
+    [pushState],
+  )
 
   useEffect(() => {
     // Writes (period, recalculation, payment date, payments) need manager or admin here.
@@ -276,7 +302,7 @@ export function OrderDebtsView() {
         ]
         const rows = all.orders.map((row) => [
           row.orderId,
-          row.client.name,
+          row.account.name,
           row.passedDays,
           row.total,
           currencyLabel(row.currency),
@@ -522,7 +548,7 @@ export function OrderDebtsView() {
           return (
             <tr key={row.key} style={{ background }}>
               <td className={cell}>
-                <button type="button" onClick={() => void openOrderDialog(row.orderId)} className="cursor-pointer text-left">
+                <button type="button" onClick={() => setOrderCardId(row.orderId)} className="cursor-pointer text-left">
                   {row.orderId}
                 </button>
               </td>
@@ -532,12 +558,15 @@ export function OrderDebtsView() {
                 </td>
               )}
               <td className={cell}>
+                {/* Linko shows the order's financial account and opens its shop's drawer (?openShop=<shop id>); an order
+                    without a shop only gets «Ошибка при отправке запроса». The name wraps in a 100 px block (a long word
+                    stays whole and overflows it) and turns bold under the pointer. */}
                 <button
                   type="button"
-                  onClick={() => (row.client.id !== null ? openClientPanel(row.client.id) : openDetail(row.client.key))}
-                  className="break-words text-left text-[#1E4A9A]"
+                  onClick={() => (row.client.id !== null ? pushState({ openShop: row.client.id }) : notify(t("Ошибка при отправке запроса"), true))}
+                  className="block cursor-pointer text-left font-normal text-[#1E4A9A] hover:font-semibold"
                 >
-                  {row.client.name || t("Не указано")}
+                  <span className="block w-[100px]">{row.account.name || t("Не указано")}</span>
                 </button>
               </td>
               <td className={cell}>{row.passedDays}</td>
@@ -792,35 +821,25 @@ export function OrderDebtsView() {
         />
       )}
 
-      {orderDialog && (
-        <div className="fixed inset-0 z-[1200] flex items-start justify-center overflow-y-auto bg-black/[0.54] pt-[16px]" onMouseDown={(event) => event.target === event.currentTarget && setOrderDialog(null)}>
-          {/* The reference shows the order card read-only: the title and a close button replace the card's action bar. */}
-          <div className="relative mb-[16px] w-[1200px] max-w-[calc(100vw-32px)] [&>div>div:first-child>div]:hidden [&>div>div:first-child>h2]:hidden [&_.w-1\/3:last-child>div]:hidden [&>div]:shadow-none [&>div>div:first-child]:h-[60px]">
-            <OrderDetailCard
-              order={orderDialog}
-              onUpdate={() => {}}
-              refreshOrder={(id) => void openOrderDialog(id)}
-              onNavigate={(href) => router.push(href)}
-              onNotify={notify}
-            />
-            <h2 className="absolute left-[30px] top-0 flex h-[60px] items-center text-[13px] font-bold uppercase text-[#333]">
-              {t("Заказ")} № {orderDialog.id}
-            </h2>
-            <button type="button" aria-label={t("Закрыть")} onClick={() => setOrderDialog(null)} className="absolute right-[10px] top-[6px] flex h-12 w-12 items-center justify-center">
-              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
-            </button>
-          </div>
-        </div>
-      )}
+      {orderCardId > 0 && <OrderDebtOrderCard key={orderCardId} orderId={orderCardId} onClose={() => setOrderCardId(0)} onNotify={notify} />}
 
-      {panelClient && (
-        <ClientDetail
-          client={panelClient}
-          onClose={() => setPanelClient(null)}
-          onEdit={() => router.push(`/clients?openShop=${panelClient.id}&openUpdateDialog=true`)}
-          onDelete={() => router.push(`/clients?openShop=${panelClient.id}`)}
-        />
-      )}
+      {/* The shop drawer of a ЗАКАЗЫ «Клиент» cell (Linko's openShop=<shop id>): the card as other pages open it, its
+          pencil opening the Клиенты edit form in a new tab; the list stays usable beside it. */}
+      {mounted &&
+        state.openShop > 0 &&
+        createPortal(
+          <ShopDrawerOrderContext.Provider value={orderLink}>
+            {/* Above the expanded list (z-90) too. */}
+            <div className="relative z-[95]">
+              <ClientDrawer key={state.openShop} clientId={state.openShop} onClose={closeShop} editHref={canEditShop ? `/clients?openShop=${state.openShop}&openUpdateDialog=true` : undefined} />
+            </div>
+          </ShopDrawerOrderContext.Provider>,
+          document.body,
+        )}
+
+      {/* ЗАДАЧИ «Просмотреть» of the drawer (Linko's orderDetails=<id>): Linko's read-only order dialog over the page and
+          the drawer. */}
+      {state.orderDetails > 0 && <OrderDetailsDialog key={state.orderDetails} orderId={state.orderDetails} onClose={closeOrderDetails} />}
 
       {notice && (
         <div

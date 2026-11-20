@@ -69,7 +69,14 @@ export type StockInventoryItem = {
   name: string
   article: string
   unit: string
+  /** Display name of the line's series ("" = none). */
   series: string
+  /** stock_series.id of the line's series (Linko's inventory_products[].series.id), null = none. */
+  seriesId: number | null
+  /** products.id of a "product:<id>" line, else null (series belong to products). */
+  productId: number | null
+  /** The product keeps expiry dates / series (products.track_expiry, Linko's use_expiration): its «Серия» select is enabled. */
+  trackExpiry: boolean
   /** Counted quantity = "Баланс (после)". */
   amount: number
   /** System balance = "Баланс (до)". */
@@ -80,6 +87,9 @@ export type StockInventoryItem = {
   cost: number
   /** diff × cost. */
   totalPrice: number
+  /** Linko's total_weight / total_weight_netto: diff × the unit's weight / net weight when the line was saved. */
+  totalWeight: number
+  totalWeightNetto: number
   position: number
 }
 
@@ -88,10 +98,6 @@ export type StockInventoryDetail = StockInventoryRow & {
   confirmedBy: string
   canceledAt: string
   canceledBy: string
-  /** true while pending: balances / diffs were computed now from the stock core. */
-  live: boolean
-  /** Set when the live computation failed (the stored snapshot is shown instead). */
-  liveError: string
   items: StockInventoryItem[]
 }
 
@@ -106,7 +112,8 @@ export type StockInventoryListQuery = {
   createdBy: string[]
   fromDate: string
   toDate: string
-  ordering: StockInventoryOrdering
+  /** One or several keys in order, Linko's "created_date,-id". */
+  ordering: StockInventoryOrdering[]
   page: number
   /** 0 = every row (Excel). */
   pageSize: number
@@ -126,6 +133,13 @@ export type StockInventoryBalanceRow = {
   defects: number
   /** false for document lines whose name matches no product / raw material. */
   inCatalog: boolean
+  /** products.id of a "product:<id>" key. */
+  productId?: number | null
+  /** The product keeps series (Linko's use_expiration): the create form's add row offers «Серия». */
+  trackExpiry?: boolean
+  /** Weight / net weight of one unit (Linko's kg_value / weight_netto). */
+  weight?: number
+  netWeight?: number
 }
 
 export type StockInventoryBalances = {
@@ -145,13 +159,29 @@ export type StockInventoryOptions = {
   currency: string
 }
 
-export type StockInventoryLineInput = { key: string; amount: number; series?: string }
+/** `seriesId`: a series of the line's product (stock_series.id; null = none). `series`: legacy display text, used only
+ * without a seriesId. The same item may come on several lines (one per series, Linko's edit form allows it). */
+export type StockInventoryLineInput = { key: string; amount: number; series?: string; seriesId?: number | null }
+
+/** GET /api/stock/inventories/products: the edit form's «Наименование» options (Linko's stock/all_balances/?search). */
+export type StockInventoryProductOption = {
+  key: string
+  productId: number | null
+  name: string
+  unit: string
+  /** On hand over every warehouse. */
+  balance: number
+  trackExpiry: boolean
+  /** Weight and net weight of one unit, kg (0 when unknown). */
+  weight: number
+  netWeight: number
+}
 
 /** POST /api/stock/inventories and PUT /api/stock/inventories/[id]. */
 export type StockInventoryInput = {
   type: StockInventoryType
   warehouse: string
-  /** Required for custom_date; fact_date always uses today. */
+  /** Required for custom_date; a new fact_date count uses today, an edited one may move to another day («Дата создания»). */
   invDate?: string
   forDayEnd?: boolean
   comment?: string

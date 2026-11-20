@@ -5,9 +5,9 @@ import { docDateError } from "@/lib/document-dates"
 import { nameKey } from "@/lib/finance/entities"
 import { isIsoDay, nowLocalIso, parseAnyDate, todayIso } from "@/lib/finance/dates"
 import { InventoryError, type InventoryQuery } from "@/lib/inventory-items-api"
+import { inventoryConditions } from "@/lib/inventory-items-options"
 import { ensureInventorySchema } from "@/lib/inventory-items-schema"
 import {
-  INVENTORY_CONDITIONS,
   type InventoryChangeInput,
   type InventoryCheck,
   type InventoryItem,
@@ -55,7 +55,7 @@ const CLIENT_NAME_SQL = `CASE WHEN ${ATTACHED_SQL} THEN COALESCE(NULLIF(btrim(c.
 const ITEM_COLUMNS = `i.id, i.serial_number, i.inventory_code, i.product_id, ${PRODUCT_NAME_SQL} AS product_name,
   COALESCE(p.unit, '') AS product_unit, COALESCE(p.organization, '') AS product_org, i.client_id, ${CLIENT_NAME_SQL} AS client_name,
   i.warehouse, i.condition, i.responsible, i.attach_date, i.created_at, i.created_by, i.comment, i.approved, i.check_date,
-  i.reviewed_by, (i.photo <> '') AS has_photo, i.updated_at, i.deleted`
+  i.reviewed_by, (i.photo <> '') AS has_photo, (i.photo LIKE 'data:%') AS photo_ready, i.photo_id, i.updated_at, i.deleted`
 
 type ItemRow = {
   id: number
@@ -78,6 +78,8 @@ type ItemRow = {
   check_date: string
   reviewed_by: string
   has_photo: boolean
+  photo_ready: boolean
+  photo_id: number | null
   updated_at: string
   deleted: number
 }
@@ -104,6 +106,8 @@ function rowToItem(row: ItemRow): InventoryItem {
     reviewedAt: localTime(row.check_date, false),
     reviewedBy: row.reviewed_by ?? "",
     hasPhoto: Boolean(row.has_photo),
+    photoReady: Boolean(row.photo_ready),
+    photoId: row.photo_id == null ? null : Number(row.photo_id),
     version: row.updated_at ?? "",
     deleted: Number(row.deleted) === 1,
   }
@@ -118,12 +122,35 @@ const keys = (values: string[]) => values.map(nameKey)
 /** Local day of a created_at (UTC text) column, for the period filters. */
 const createdDay = (column: string) => `to_char(fin_ts(${column}, true), 'YYYY-MM-DD')`
 
+/** «Дата прикрепления» of the list (Linko main/gear/): the item's date, else the day it was registered. */
+const ATTACH_DAY_SQL = `COALESCE(NULLIF(left(i.attach_date, 10), ''), ${createdDay("i.created_at")})`
+
 function pageOf(count: number, query: InventoryQuery) {
   const pageSize = Math.max(0, query.pageSize)
   const lastPage = pageSize ? Math.max(1, Math.ceil(count / pageSize)) : 1
   const page = pageSize ? Math.min(Math.max(1, query.page), lastPage) : 1
   const limit = pageSize ? ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}` : " LIMIT 10000"
   return { page, pageSize, limit }
+}
+
+/** fin_key names of the directory rows picked by id: Linko's filters send ids, the rows keep names. */
+const ID_NAMES = {
+  stock: "SELECT fin_key(name) FROM warehouses WHERE id = ANY(?::int[])",
+  division: "SELECT fin_key(name) FROM organizations WHERE id = ANY(?::int[])",
+  branch: "SELECT fin_key(name) FROM branches WHERE id = ANY(?::int[])",
+  employee: "SELECT fin_key(btrim(concat_ws(' ', first_name, last_name))) FROM employees WHERE id = ANY(?::int[])",
+  clientType: "SELECT fin_key(name) FROM client_types WHERE id = ANY(?::int[])",
+} as const
+
+/** `column` names one of the directory rows picked by id (one "?" for the id list). */
+export function idNameIn(column: string, kind: keyof typeof ID_NAMES): string {
+  return `fin_key(${column}) IN (${ID_NAMES[kind]})`
+}
+
+/** Linko's «Показать удаленные» lists only the deleted items; without it the deleted ones are left out. */
+export function deletedWhere(query: InventoryQuery): string | null {
+  if (query.onlyDeleted) return "i.deleted = 1"
+  return query.showDeleted ? null : "i.deleted = 0"
 }
 
 function itemWhere(query: InventoryQuery): { sql: string; args: unknown[] } {
@@ -133,7 +160,14 @@ function itemWhere(query: InventoryQuery): { sql: string; args: unknown[] } {
     where.push(sql)
     args.push(...values)
   }
-  if (!query.showDeleted) add("i.deleted = 0")
+  const deleted = deletedWhere(query)
+  if (deleted) add(deleted)
+  if (query.stockIds.length) add(idNameIn("i.warehouse", "stock"), query.stockIds)
+  if (query.divisionIds.length) add(idNameIn("p.organization", "division"), query.divisionIds)
+  // Linko's Филиалы is the client's branch (an item at a branch's warehouse without such a client is not listed).
+  if (query.branchIds.length) add(idNameIn("c.branch", "branch"), query.branchIds)
+  if (query.userIds.length) add(idNameIn("i.responsible", "employee"), query.userIds)
+  if (query.clientTypeIds.length) add(idNameIn("c.type", "clientType"), query.clientTypeIds)
   if (query.scope === "in_stock") add(`NOT ${ATTACHED_SQL}`)
   if (query.scope === "in_market") add(ATTACHED_SQL)
   if (query.clients.length) add("i.client_id = ANY(?::int[])", query.clients)
@@ -147,8 +181,8 @@ function itemWhere(query: InventoryQuery): { sql: string; args: unknown[] } {
   if (query.agents.length) add("fin_key(c.agent) = ANY(?::text[])", keys(query.agents))
   if (query.zones.length) add("fin_key(c.zone) = ANY(?::text[])", keys(query.zones))
   if (query.isReviewed !== null) add("i.approved = ?", query.isReviewed ? 1 : 0)
-  if (query.attachFrom) add("left(i.attach_date, 10) >= ?", query.attachFrom)
-  if (query.attachTo) add("left(i.attach_date, 10) <= ?", query.attachTo)
+  if (query.attachFrom) add(`${ATTACH_DAY_SQL} >= ?`, query.attachFrom)
+  if (query.attachTo) add(`${ATTACH_DAY_SQL} <= ?`, query.attachTo)
   if (query.createdFrom) add(`${createdDay("i.created_at")} >= ?`, query.createdFrom)
   if (query.createdTo) add(`${createdDay("i.created_at")} <= ?`, query.createdTo)
   if (query.search) {
@@ -171,8 +205,8 @@ const ITEM_ORDER: Record<string, string> = {
   "-id": "i.id DESC",
   created_date: "i.created_at ASC, i.id ASC",
   "-created_date": "i.created_at DESC, i.id DESC",
-  date: "i.attach_date ASC, i.id ASC",
-  "-date": "i.attach_date DESC, i.id DESC",
+  date: `${ATTACH_DAY_SQL} ASC, i.id ASC`,
+  "-date": `${ATTACH_DAY_SQL} DESC, i.id DESC`,
 }
 
 export async function listInventoryItems(query: InventoryQuery): Promise<InventoryItemListResult> {
@@ -264,10 +298,11 @@ export async function inventoryProduct(db: PgDb, productId: number, keepId: numb
   return { id: Number(row.id), name: row.name }
 }
 
-export function checkCondition(value: string, current = "", field = "condition"): string {
+/** A condition of inventory_conditions (`allowed`), or the one the item already has. */
+export function checkCondition(value: string, allowed: readonly string[], current = "", field = "condition"): string {
   const condition = value.trim()
   if (!condition) throw new InventoryError(REQUIRED, 400, field)
-  if (!(INVENTORY_CONDITIONS as readonly string[]).includes(condition) && condition !== current) throw new InventoryError("Неизвестное состояние", 400, field)
+  if (!allowed.includes(condition) && condition !== current) throw new InventoryError("Неизвестное состояние", 400, field)
   return condition
 }
 
@@ -335,7 +370,7 @@ type NormalizedInput = {
 async function normalizeInput(db: PgDb, input: InventoryItemInput, current: LockedItem | null): Promise<NormalizedInput> {
   const warehouse = await warehouseName(db, input.warehouse, "warehouse", current?.warehouse)
   const product = await inventoryProduct(db, input.productId, current?.product_id ?? null)
-  const condition = checkCondition(input.condition, current?.condition ?? "")
+  const condition = checkCondition(input.condition, await inventoryConditions(db), current?.condition ?? "")
   const responsible = input.responsible.trim()
   if (!responsible) throw new InventoryError(REQUIRED, 400, "user")
   const serialNumber = input.serialNumber.trim()
@@ -394,10 +429,11 @@ export async function updateInventoryItem(id: number, input: InventoryItemInput)
     await tx
       .prepare(
         `UPDATE inventory_items SET serial_number = ?, inventory_type = ?, product_id = ?, inventory_code = ?, warehouse = ?, condition = ?,
-           responsible = ?, attach_date = ?, comment = ?, photo = COALESCE(?, photo), updated_at = datetime('now')
+           responsible = ?, attach_date = ?, comment = ?, photo = COALESCE(?, photo), photo_id = CASE WHEN ?::text IS NULL THEN photo_id END,
+           updated_at = datetime('now')
          WHERE id = ?`,
       )
-      .run(data.serialNumber, data.productName, data.productId, data.stockNumber, data.warehouse, data.condition, data.responsible, data.date, data.comment, input.photo ?? null, id)
+      .run(data.serialNumber, data.productName, data.productId, data.stockNumber, data.warehouse, data.condition, data.responsible, data.date, data.comment, input.photo ?? null, input.photo ?? null, id)
     // A new date corrects the item's latest movement (its registration while nothing moved), so
     // that entry of История движений follows it: attach_date stays the day of the latest movement,
     // and a later give / take checks against it. A kept date leaves the history as it is.
@@ -458,7 +494,7 @@ export async function changeInventoryClient(id: number, input: InventoryChangeIn
   await withTransaction(async (tx) => {
     const item = await lockItem(tx, id)
     const attached = isAttached(item)
-    const condition = input.condition?.trim() ? checkCondition(input.condition, item.condition) : item.condition
+    const condition = input.condition?.trim() ? checkCondition(input.condition, await inventoryConditions(tx), item.condition) : item.condition
     const comment = (input.comment ?? "").trim()
     const giveId = input.giveClientId || null
     if (!attached && !giveId) throw new InventoryError("Выберите клиента", 400, "giveClient")
@@ -508,7 +544,7 @@ export async function reviewInventoryItem(id: number, isReviewed: boolean, user:
 // --- history and reviews ----------------------------------------------------------------------
 
 export const ITEM_REF_COLUMNS = `i.id AS item_id, ${PRODUCT_NAME_SQL} AS item_product, i.serial_number AS item_serial, i.inventory_code AS item_code,
-  i.deleted AS item_deleted, (i.photo <> '') AS item_photo, i.updated_at AS item_version`
+  i.deleted AS item_deleted, (i.photo LIKE 'data:%') AS item_photo, i.updated_at AS item_version`
 
 export type ItemRefRow = { item_id: number; item_product: string; item_serial: string; item_code: string; item_deleted: number; item_photo: boolean; item_version: string }
 
@@ -547,7 +583,12 @@ export async function listInventoryLogs(query: InventoryQuery): Promise<Inventor
     where.push(sql)
     args.push(...values)
   }
-  if (!query.showDeleted) add("i.deleted = 0")
+  const deleted = deletedWhere(query)
+  if (deleted) add(deleted)
+  if (query.stockIds.length) add(idNameIn("l.warehouse", "stock"), query.stockIds)
+  if (query.divisionIds.length) add(idNameIn("p.organization", "division"), query.divisionIds)
+  if (query.userIds.length) add(idNameIn("l.created_by", "employee"), query.userIds)
+  if (query.clientTypeIds.length) add(idNameIn("c.type", "clientType"), query.clientTypeIds)
   if (query.clients.length) add("l.client_id = ANY(?::int[])", query.clients)
   if (query.products.length) add("i.product_id = ANY(?::int[])", query.products)
   if (query.items.length) add("l.item_id = ANY(?::int[])", query.items)
@@ -593,7 +634,20 @@ export async function listInventoryLogs(query: InventoryQuery): Promise<Inventor
   }
 }
 
-type CheckRow = ItemRefRow & { id: number; client_id: number | null; client_name: string; is_reviewed: number; comment: string; created_by: string; created_at: string }
+type CheckRow = ItemRefRow & { id: number; client_id: number | null; client_name: string; is_reviewed: number; comment: string; created_by: string; created_at: string; images: string | null }
+
+/** The photos of a review row (JSON [{id, file, file_id}] as Linko lists them). */
+function checkImages(value: string | null): InventoryCheck["images"] {
+  try {
+    const list = JSON.parse(value || "[]") as unknown
+    if (!Array.isArray(list)) return []
+    return list
+      .filter((entry): entry is { id: unknown; file_id?: unknown } => typeof entry === "object" && entry !== null)
+      .map((entry) => ({ id: Number(entry.id) || 0, fileId: Number(entry.file_id) || null }))
+  } catch {
+    return []
+  }
+}
 
 /** "История проверки" (demo main/gear_check): every review of an item. */
 export async function listInventoryChecks(query: InventoryQuery): Promise<InventoryListResult<InventoryCheck>> {
@@ -605,7 +659,10 @@ export async function listInventoryChecks(query: InventoryQuery): Promise<Invent
     where.push(sql)
     args.push(...values)
   }
-  if (!query.showDeleted) add("i.deleted = 0")
+  const deleted = deletedWhere(query)
+  if (deleted) add(deleted)
+  if (query.divisionIds.length) add(idNameIn("p.organization", "division"), query.divisionIds)
+  if (query.userIds.length) add(idNameIn("k.created_by", "employee"), query.userIds)
   if (query.clients.length) add("k.client_id = ANY(?::int[])", query.clients)
   if (query.products.length) add("i.product_id = ANY(?::int[])", query.products)
   if (query.items.length) add("k.item_id = ANY(?::int[])", query.items)
@@ -626,7 +683,7 @@ export async function listInventoryChecks(query: InventoryQuery): Promise<Invent
   const rows = (await db
     .prepare(
       `SELECT k.id, k.client_id, COALESCE(NULLIF(btrim(c.name), ''), k.client) AS client_name, k.is_reviewed, k.comment, k.created_by, k.created_at,
-         ${ITEM_REF_COLUMNS} ${from} ORDER BY ${order}${limit}`,
+         k.images, ${ITEM_REF_COLUMNS} ${from} ORDER BY ${order}${limit}`,
     )
     .all(...args)) as CheckRow[]
   return {
@@ -641,6 +698,7 @@ export async function listInventoryChecks(query: InventoryQuery): Promise<Invent
       comment: row.comment ?? "",
       createdBy: row.created_by ?? "",
       createdAt: localTime(row.created_at),
+      images: checkImages(row.images),
     })),
   }
 }

@@ -72,9 +72,13 @@ type Draft = {
   salePoints: string
   boxSizes: BoxSizeDraft[]
   prices: PriceDraft[]
+  /** «Характеристика»: {attribute id: value}. */
+  attributes: Record<string, string>
 }
 
 const str = (value: number | null) => (value === null || value === 0 ? "" : String(value).replace(".", ","))
+/** A stored number as Linko's edit form shows it, a 0 included. */
+const shown = (value: number | null) => (value === null ? "" : String(value).replace(".", ","))
 /** A typed number as the server reads it ("12,5", "1 000", "-" = 0; a stored "1e-7" too). A malformed
  * entry ("12-15", "1,2,3", "5-") is NaN and refused on the field, never cut to its leading digits. */
 const parseNum = (value: string) => {
@@ -140,6 +144,7 @@ function draftOf(item: CatalogDetail | null, options: CatalogOptions | null, app
       salePoints: "",
       boxSizes: [],
       prices: [emptyPrice("", "")],
+      attributes: {},
     }
   }
   return {
@@ -147,18 +152,21 @@ function draftOf(item: CatalogDetail | null, options: CatalogOptions | null, app
     barcodes: item.barcodes.length ? item.barcodes : [""],
     vatPercent: vatNumber(item.vat),
     showGroup: Boolean(item.boxUnit || item.boxAmount),
-    showAdditionals: item.boxSizes.length > 0,
+    // Linko's edit form opens with «ДОП. параметры» off (its stored sizes are kept unless the box is ticked and saved).
+    showAdditionals: false,
     boxAmount: str(item.boxAmount),
-    minStock: str(item.minStock),
-    weight: str(item.weight),
-    netWeight: str(item.netWeight),
-    volume: str(item.volume),
+    // Linko's edit form prints a stored 0 of these as "0" (the add form starts them empty).
+    minStock: shown(item.minStock),
+    weight: shown(item.weight),
+    netWeight: shown(item.netWeight),
+    volume: shown(item.volume),
     expirationDays: item.expirationDays === null ? "" : String(item.expirationDays),
     notifyExpireDays: item.notifyExpireDays === null ? "" : String(item.notifyExpireDays),
     saleMinPrice: shownNumber(item.saleMinPrice, item.salePriceCurrency || currency),
     saleMaxPrice: shownNumber(item.saleMaxPrice, item.salePriceCurrency || currency),
     salePriceCurrency: app.code || item.salePriceCurrency || currency,
-    salePoints: str(item.salePoints),
+    salePoints: shown(item.salePoints),
+    attributes: { ...(item.attributes ?? {}) },
     boxSizes: item.boxSizes.map((size) => ({ unit: size.unit, height: str(size.height), width: str(size.width), length: str(size.length) })),
     prices: item.priceLists.length
       ? item.priceLists.map((entry) => {
@@ -179,9 +187,11 @@ function draftOf(item: CatalogDetail | null, options: CatalogOptions | null, app
   }
 }
 
-function bodyOf(draft: Draft, baseCurrency: string) {
+function bodyOf(draft: Draft, baseCurrency: string, attributeIds: number[] | null) {
   const days = (value: string) => (value.trim() ? Math.trunc(parseNum(value)) : null)
   return {
+    // The attribute fields shown for the chosen type (none without a type); null = not sent (raw materials).
+    ...(attributeIds ? { attributes: Object.fromEntries(attributeIds.map((id) => [String(id), (draft.attributes[String(id)] ?? "").trim()])) } : {}),
     name: draft.name.trim(),
     fullName: draft.fullName,
     barcodes: draft.barcodes.map((code) => code.trim()).filter(Boolean),
@@ -221,9 +231,13 @@ function bodyOf(draft: Draft, baseCurrency: string) {
     saleMaxPrice: draft.limitPrice ? parseNum(draft.saleMaxPrice) : 0,
     salePriceCurrency: draft.limitPrice ? draft.salePriceCurrency : "",
     salePoints: parseNum(draft.salePoints),
-    boxSizes: draft.boxSizes
-      .filter((size) => size.unit.trim() || size.height || size.width || size.length)
-      .map((size) => ({ unit: size.unit.trim(), height: parseNum(size.height), width: parseNum(size.width), length: parseNum(size.length) })),
+    ...(draft.showAdditionals
+      ? {
+          boxSizes: draft.boxSizes
+            .filter((size) => size.unit.trim() || size.height || size.width || size.length)
+            .map((size) => ({ unit: size.unit.trim(), height: parseNum(size.height), width: parseNum(size.width), length: parseNum(size.length) })),
+        }
+      : {}),
     // Demo: an empty price row is not sent (a stored 0 is kept).
     priceLists: draft.prices
       .filter((entry) => entry.name && (entry.cash.trim() || entry.nonCash.trim()))
@@ -263,6 +277,12 @@ export function CatalogFormDialog({
   const [busy, setBusy] = useState(false)
   const set = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }))
   const children = options?.types.find((type) => type.name === draft.type)?.children ?? []
+  // «Характеристика» fields for the chosen type (Linko's e_commerce/options?categories=<type>): every type's ones and
+  // those listed for this type or its subcategory.
+  const attributes =
+    kind === "product" && draft.type
+      ? (options?.attributes ?? []).filter((attribute) => attribute.allTypes || attribute.types.some((name) => name === draft.type || (draft.subcategory && name === draft.subcategory)))
+      : []
   const units = options?.units ?? []
   const marking = (key: "ikpu") => (draft.markedProduct && !draft[key].trim() ? "Это поле обязательно для работы маркировки" : undefined)
   const err = (key: string) => {
@@ -277,7 +297,7 @@ export function CatalogFormDialog({
     if (!draft.type.trim()) local.type = "Это поле обязательно к заполнению"
     // Without loaded options the server resolves the base currency itself (an empty currency is left out).
     // A new price row without a chosen currency is in the app currency when one is set.
-    const body = bodyOf(draft, app.code || (options?.baseCurrency ?? ""))
+    const body = bodyOf(draft, app.code || (options?.baseCurrency ?? ""), kind === "product" && options ? attributes.map((attribute) => attribute.id) : null)
     if (draft.markedProduct) {
       if (!body.barcodes.length) local.barcodes = "Это поле обязательно для работы маркировки"
       if (!draft.ikpu.trim()) local.ikpu = "Это поле обязательно для работы маркировки"
@@ -290,7 +310,7 @@ export function CatalogFormDialog({
       const value = body[key]
       if (value !== null && !(value >= 0 && value <= 100_000)) local[key] = numberError = "Некорректное число"
     }
-    if (body.boxSizes.some((size) => [size.height, size.width, size.length].some(Number.isNaN))) numberError = "Некорректное число"
+    if ((body.boxSizes ?? []).some((size) => [size.height, size.width, size.length].some(Number.isNaN))) numberError = "Некорректное число"
     if (body.priceLists.some((entry) => [entry.cash, entry.nonCash, entry.min, entry.max].some(Number.isNaN))) local.priceLists = numberError = "Некорректная цена"
     const vat = draft.vatPercent.trim() ? parseNum(draft.vatPercent.trim()) : 0
     if (!(vat >= 0 && vat <= 100)) local.vatPercent = numberError = "Некорректное число"
@@ -341,7 +361,7 @@ export function CatalogFormDialog({
           <>
             {error && <span className="mr-4 text-[13px] text-[#f44336]">{error}</span>}
             <SaveButton busy={busy} onClick={() => void save()}>
-              {t(item ? "Сохранить изменение" : "Сохранить")}
+              {t("Сохранить изменение")}
             </SaveButton>
           </>
         }
@@ -349,9 +369,9 @@ export function CatalogFormDialog({
         <FormColumn>
           <div className="pt-[11px]">{text("name", "Наименование", { required: true })}</div>
           <div className="mt-8 flex items-start">
-            {select("unit", "Мера", units, "w-[368px]", true)}
+            {select("unit", "Мера", units, "w-[398px]", true)}
             <span className="ml-[5px] mt-[-1px]">{create("/analytics/units-of-measure", "Добавить меру")}</span>
-            <span className="ml-[18px] mt-[-1px]">
+            <span className="ml-[21px] mt-[-1px]">
               <InfoHint text={MERA_HINT} />
             </span>
           </div>
@@ -372,25 +392,51 @@ export function CatalogFormDialog({
               "type",
               "Тип продукта",
               (options?.types ?? []).map((type) => type.name),
-              "w-[410px]",
+              "w-[443px]",
             )}
             <span className="ml-[5px] mt-[-1px]">{create("/analytics/product-types", "Добавить тип продукта")}</span>
           </div>
-          {draft.type && children.length > 0 && <div className="mt-[31px]">{select("subcategory", "Подкатегория", children)}</div>}
+          {/* Linko shows «Подкатегория» once a type is chosen (its children, possibly none), then the attributes. */}
+          {draft.type && <div className="mt-[17px]">{select("subcategory", "Подкатегория", children)}</div>}
+          {attributes.length > 0 && (
+            <div className="-ml-[30px] -mr-[20px] mt-[9px] bg-[#f1f5f8] px-[30px] pb-[9px] pt-[10px]">
+              {attributes.map((attribute) =>
+                attribute.fieldType === "select" ? (
+                  <div key={attribute.id} className="mb-px mt-[22px]">
+                    <SelectField
+                      label={attribute.name}
+                      value={draft.attributes[String(attribute.id)] ?? ""}
+                      options={attribute.values}
+                      onChange={(value) => set({ attributes: { ...draft.attributes, [String(attribute.id)]: value } })}
+                    />
+                  </div>
+                ) : (
+                  <TextField
+                    key={attribute.id}
+                    label={attribute.name}
+                    numeric={attribute.fieldType === "number"}
+                    value={draft.attributes[String(attribute.id)] ?? ""}
+                    onChange={(value) => set({ attributes: { ...draft.attributes, [String(attribute.id)]: value } })}
+                    error={errors.attributes && attribute === attributes[attributes.length - 1] ? t(errors.attributes) : undefined}
+                  />
+                ),
+              )}
+            </div>
+          )}
           <div className="mt-[31px] flex items-start">
-            {select("supplier", "Поставщик", options?.suppliers ?? [], "w-[203px]")}
-            {select("brand", "Бренд", options?.brands ?? [], "ml-[5px] w-[202px]")}
+            {select("supplier", "Поставщик", options?.suppliers ?? [], "w-[219px]")}
+            {select("brand", "Бренд", options?.brands ?? [], "ml-[5px] w-[219px]")}
             <span className="ml-[5px] mt-[-1px]">{create("/analytics/brands", "Добавить бренд")}</span>
           </div>
           <div className="mt-[31px]">{select("organization", "Организация", options?.organizations ?? [])}</div>
           <div className="flex items-start">
-            {text("orderNumber", "Порядковый номер", { className: "w-[410px]" })}
+            {text("orderNumber", "Порядковый номер", { className: "w-[443px]" })}
             <span className="ml-[5px] mt-6">
               <InfoHint text="По этому порядку агентам будет высвечиваться продукты для продажи заказа установить порядок от 1 - 9999" />
             </span>
           </div>
           <div className="flex items-start">
-            {amount("minStock", "Минимальный остаток", "w-[410px]")}
+            {amount("minStock", "Минимальный остаток", "w-[443px]")}
             <span className="ml-[5px] mt-6">
               <InfoHint text="Сюда можете написать минимальный остаток если ваши складах уменьшильца кол-во товара от минимального остатка система автоматический будет оптравлять уведомления" />
             </span>
@@ -440,14 +486,9 @@ export function CatalogFormDialog({
           />
           <Toggle className="mt-[15px]" checked={draft.showInBot} onChange={(showInBot) => set({ showInBot })} title={t("Показывать в боте")} subTitle={t("Показывать в телеграм боте")} />
           <Toggle className="mt-[15px]" checked={draft.trackExpiry} onChange={(trackExpiry) => set({ trackExpiry })} title={t("Учитывать срок годности")} />
-          {draft.trackExpiry && (
-            <>
-              <Toggle className="mt-[15px]" checked={draft.trackSeries} onChange={(trackSeries) => set({ trackSeries })} title={t("Учитывать серии")} />
-              {/* Shelf life of the product and the warning threshold, whole days (stored as expiration_days / notify_expire_days). */}
-              <div className="mt-[5px]">{amount("expirationDays", "Дата окончания срока годности (дней)")}</div>
-              {amount("notifyExpireDays", "Предупредить, если больше дней")}
-            </>
-          )}
+          {/* The shelf-life days (expiration_days / notify_expire_days) are fields of Linko's form only with its
+              USE_PRODUCT_EXPIRATION_DAYS setting, which is off: they are not shown, and a stored value is kept. */}
+          {draft.trackExpiry && <Toggle className="mt-[15px]" checked={draft.trackSeries} onChange={(trackSeries) => set({ trackSeries })} title={t("Учитывать серии")} />}
           <Toggle className="mt-[15px]" checked={draft.markedProduct} onChange={(markedProduct) => set({ markedProduct })} title={t("Маркировочный товар")} />
           {draft.showAdditionals && <BoxSizesEditor value={draft.boxSizes} onChange={(boxSizes) => set({ boxSizes })} units={units} />}
           <Toggle
@@ -484,11 +525,11 @@ export function CatalogFormDialog({
             onChange={(prices) => set({ prices })}
             priceLists={options?.priceLists ?? []}
             currencies={options?.currencies ?? ["SUM"]}
-            savedNames={item?.priceLists.map((entry) => entry.name) ?? []}
+            defaultCurrency={app.code || options?.baseCurrency || options?.currencies[0] || "SUM"}
             error={errors.priceLists}
           />
           <div className="flex items-start">
-            {amount("salePoints", "Можно продать за кол-во балов", "w-[411px]")}
+            {amount("salePoints", "Можно продать за кол-во балов", "w-[441px]")}
             <span className="ml-2 mt-[23px]">
               <InfoHint text="Здесь укажите кол-во балов который можно купить этот товар. Например, если ви устанавливаете 10 балов, это означает, что клиент может купить 1 единицу этого товара за 10 балов. Баловые акции могут создать через маркетинговые акции." />
             </span>

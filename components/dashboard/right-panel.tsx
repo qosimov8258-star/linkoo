@@ -6,7 +6,7 @@ import * as echarts from "echarts"
 import { SelectField } from "./select-field"
 import { CARD_CLASS } from "./stat-cards"
 import { BREAKDOWN_GROUPS, BREAKDOWN_MEASURES, type DashboardBreakdown } from "@/lib/dashboard-breakdown-types"
-import { currencyLabel } from "@/lib/finance/currency"
+import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const DEFAULT_GROUP = "По брендам"
@@ -15,7 +15,9 @@ const COLORS = ["#00e096", "#0095ff", "#ff3d71", "#ffaa00", "#7a5af8", "#fd7e14"
 /** Slices beyond this many are summed into one "Прочие" slice (a donut of 60 clients is unreadable). */
 const MAX_SLICES = 9
 
-const fmt = (value: number, digits = 2) => value.toLocaleString("ru-RU", { maximumFractionDigits: digits })
+/** The reference's donut prints its total and slices with numberFormat: three decimals, or those of Настройки →
+ * Округление сумм when set (its slice shares with toFixed(1)). */
+const fmt = (value: number) => formatMoney(value)
 /** ECharts puts what a tooltip formatter returns into the page as HTML: a name typed by a user
  * (a product, a client, an agent) must go in as text, never as markup. */
 const escapeHtml = (text: string) => String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char)
@@ -115,7 +117,7 @@ export function RightPanel({ begin, end }: { begin: string; end: string }) {
           <div ref={chartRef} className="absolute inset-[10px]" />
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
             <span className="text-[13px] font-semibold leading-[18px]">
-              {fmt(total, unit === "kg" ? 3 : 2)}
+              {fmt(total)}
               {total === 0 ? "" : suffix}
             </span>
             <span className="text-[10px] font-semibold leading-[14px] text-[#675c5c]">{t("итого")}</span>
@@ -131,7 +133,7 @@ export function RightPanel({ begin, end }: { begin: string; end: string }) {
                 <span data-no-translate className="min-w-0 flex-1 truncate" title={row.name}>
                   {row.name}
                 </span>
-                <span className="shrink-0 font-semibold">{fmt(row.value, unit === "kg" ? 3 : 2)}</span>
+                <span className="shrink-0 font-semibold">{fmt(row.value)}</span>
                 <span className="w-[42px] shrink-0 text-right text-[#999]">{sum ? Math.round((row.value / sum) * 1000) / 10 : 0}%</span>
               </li>
             ))}

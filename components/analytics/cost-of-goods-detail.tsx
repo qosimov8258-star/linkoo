@@ -20,7 +20,7 @@ import { NET_COST_API, NET_COST_SOURCE_LABELS, type NetCostDetail, type NetCostD
 
 function Item({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <li className="flex h-[25px] items-center gap-x-[5.1px] leading-[25px]">
+    <li className="flex min-h-[25px] items-center gap-x-[5.1px] leading-[25px]">
       <span>{label}:</span>
       <span className="font-semibold">{children}</span>
     </li>
@@ -48,7 +48,7 @@ function DocumentsTable({ rows, showCost = true }: { rows: NetCostDocument[]; sh
           {rows.map((row, index) => (
             <tr key={`${row.docType}-${row.docId}-${row.kind}-${index}`} className="hover:bg-[#f9faff]">
               <td className={td}>
-                <DocumentLink docType={row.docType} docId={row.docId} />
+                <DocumentLink docType={row.docType} docId={row.docId} href={row.href} />
               </td>
               <td className={td}>{row.warehouse}</td>
               <td className={`${td} whitespace-nowrap`}>{docDate(row.day, language)}</td>
@@ -82,6 +82,7 @@ export function NetCostDetailPanel({
   if (error || !data) return <ErrorBlock error={error || "Себестоимость не найдена"} onRetry={reload} />
 
   const source = data.sourceType === "manual" ? null : data.sourceType
+  const sourceDocument = data.sourceDocument ?? (source ? { docType: source, docId: data.sourceId } : null)
   // The reference card: 1270px wide (15px beyond the list), 66px title block, then three columns of 25px lines.
   return (
     <div className="-mx-[15px] mb-[20px] mt-[20px] bg-white text-[13px] text-[#333] [box-shadow:0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
@@ -92,21 +93,24 @@ export function NetCostDetailPanel({
         <span className="mt-[4.6px] block truncate text-[13px] font-bold leading-[15px] text-[#666]">{data.itemName}</span>
       </div>
 
-      <div className="flex h-[196px] pl-[30px] pr-[30px]">
+      {/* At least the reference's 196 px; it grows with the lines Mezon may add (Количество, Склад документа,
+          Комментарий), so the last one is never drawn below the card's edge. */}
+      <div className="flex min-h-[196px] pb-[6px] pl-[30px] pr-[30px]">
         <ul className="w-[403px] shrink-0 pt-[40px]">
-          {source ? (
+          {sourceDocument ? (
             <li className="leading-[25px]">
-              <span>{t(NET_COST_SOURCE_LABELS[source] ?? source)} №: </span>
-              <DocumentLink docType={source} docId={data.sourceId} />
+              {/* No «№:» prefix for a source of no number (a stage's «Активность»): the link alone. */}
+              {sourceDocument.docId ? <span>{t(NET_COST_SOURCE_LABELS[sourceDocument.docType] ?? sourceDocument.docType)} №: </span> : null}
+              <DocumentLink docType={sourceDocument.docType} docId={sourceDocument.docId} href={sourceDocument.href} />
             </li>
           ) : (
-            <li className="leading-[25px]">Произвольная себестоимость</li>
+            <li className="leading-[25px]">{t("Произвольная себестоимость")}</li>
           )}
           <Item label={t("Склад")}>{data.stock || t("Не указано")}</Item>
           {data.warehouse && data.warehouse !== data.stock && <Item label={t("Склад документа")}>{data.warehouse}</Item>}
           <Item label={t("Дата")}>{recordDate(data.date, language)}</Item>
           {!data.isManual && <Item label={t("Количество")}>{formatMoney(data.qty, 3)}</Item>}
-          <Item label="Уср. Себестоимость">{fmtCost(data.cost)}</Item>
+          <Item label={t("Уср. Себестоимость")}>{fmtCost(data.cost)}</Item>
           <Item label={t("Себестоимость")}>{fmtCost(data.realCost)}</Item>
           {data.comment && <Item label={t("Комментарий")}>{data.comment}</Item>}
         </ul>
@@ -129,10 +133,10 @@ export function NetCostDetailPanel({
         <div className="min-w-0 flex-1 pt-[26px]">
           <p className="h-[25px] font-bold leading-[25px]">{t("Характеристика")}:</p>
           <ul className="mt-[5.3px]">
-            <Item label="Рассчитанный баланс">{formatMoney(data.balance, 3)}</Item>
-            <Item label="Сумма переоценки">{data.revaluation === null ? "0" : fmtCost(data.revaluation)}</Item>
-            <Item label="Общая сумма переоценки">{data.totalRevaluation === null ? "0" : fmtSum(data.totalRevaluation)}</Item>
-            <Item label="Последнее время проверки">{data.lastCheckTime ? docDate(data.lastCheckTime, language, true) : "—"}</Item>
+            <Item label={t("Рассчитанный баланс")}>{formatMoney(data.balance, 3)}</Item>
+            <Item label={t("Сумма переоценки")}>{data.revaluation === null ? "0" : fmtCost(data.revaluation)}</Item>
+            <Item label={t("Общая сумма переоценки")}>{data.totalRevaluation === null ? "0" : fmtSum(data.totalRevaluation)}</Item>
+            <Item label={t("Последнее время проверки")}>{data.lastCheckTime ? docDate(data.lastCheckTime, language, true) : "—"}</Item>
           </ul>
         </div>
       </div>

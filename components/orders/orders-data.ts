@@ -30,6 +30,8 @@ export type Order = {
   expeditor?: string
   /** Date the delivery was accepted (YYYY-MM-DD). */
   acceptedDate?: string
+  /** Linko's EDO shipment status (service_shipment_status): the list's status-cell icon. */
+  shipmentStatus?: string
   totalPrice?: number
   /** The exact sum of the order's lines (the list's band adds these, as Linko does). */
   linesTotal?: number

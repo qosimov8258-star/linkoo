@@ -98,6 +98,19 @@ export async function resolveReconciliationEntity(db: PgDb, input: EntityInput):
     const contractName = (await loadContractNames(db, s)).get(inn)
     return { variant, key: `inn:${inn}`, name: contractName || String(members[0].name), clientIds: members.map((member) => Number(member.id)) }
   }
+  // Сверка счетов rows are financial accounts ("acc:<id>", the key of Долги по счетам): the account's name and shops.
+  if (variant === "account" && /^acc:\d+$/.test(key)) {
+    const accountId = Number(key.slice(4))
+    const present = (await db.prepare("SELECT to_regclass('financial_accounts') IS NOT NULL AS a, to_regclass('financial_account_markets') IS NOT NULL AS m").get()) as
+      | { a: boolean; m: boolean }
+      | undefined
+    const account = present?.a ? ((await db.prepare("SELECT id, name FROM financial_accounts WHERE id = @id").get({ id: accountId })) as { id: number; name: string } | undefined) : undefined
+    if (!account) throw new FinanceInputError("Клиент не найден", 404)
+    const shops = present?.m
+      ? ((await db.prepare("SELECT client_id FROM financial_account_markets WHERE financial_account_id = @id ORDER BY client_id").all({ id: accountId })) as Array<{ client_id: number }>)
+      : []
+    return { variant, key: `acc:${accountId}`, name: String(account.name), clientIds: shops.map((row) => Number(row.client_id)) }
+  }
   if (!/^\d+$/.test(key)) throw new FinanceInputError("Клиент не найден", 404)
   const client = await loadClient(db, Number(key))
   return { variant, key: String(client.id), name: client.name, clientIds: [client.id] }
@@ -179,10 +192,10 @@ function reconciliationText(name: string, asOf: string, money: Map<string, Recon
 }
 
 /** Σ of the clients' balance splits per currency (an account = its clients). */
-function sumSplits(split: Awaited<ReturnType<typeof clientBalanceSplit>>, clientIds: number[]): Map<string, ReconciliationMoney> {
+function sumSplits(split: Awaited<ReturnType<typeof clientBalanceSplit>>, clientIds: number[], extraKeys: string[] = []): Map<string, ReconciliationMoney> {
   const money = new Map<string, ReconciliationMoney>()
-  for (const id of clientIds) {
-    for (const [code, value] of split.get(String(id))?.currencies ?? []) {
+  for (const id of [...clientIds.map(String), ...extraKeys]) {
+    for (const [code, value] of split.get(id)?.currencies ?? []) {
       const current = money.get(code) ?? { cash: 0, bank: 0, total: 0 }
       money.set(code, { cash: roundMoney(current.cash + value.cash), bank: roundMoney(current.bank + value.bank), total: roundMoney(current.total + value.total) })
     }
@@ -203,8 +216,15 @@ export async function createReconciliationRequest(
   const entity = await resolveReconciliationEntity(db, input)
   const asOf = input.debtDate ?? todayIso()
   const context = await loadCurrencyContext(db)
-  const split = await clientBalanceSplit(db, s, context.base, { to: asOf, mode: input.mode ?? "created", clientIds: entity.clientIds })
-  const money = sumSplits(split, entity.clientIds)
+  // An account row (Сверка счетов, "acc:<id>") also has the money booked on the account itself, as on the page.
+  const byAccount = entity.variant === "account" && entity.key.startsWith("acc:")
+  const split = await clientBalanceSplit(db, s, context.base, {
+    to: asOf,
+    mode: input.mode ?? "created",
+    clientIds: byAccount ? [] : entity.clientIds,
+    ...(byAccount ? { kind: "account" as const } : {}),
+  })
+  const money = sumSplits(split, entity.clientIds, byAccount ? [entity.key] : [])
   const values = {
     status: TELEGRAM_BOT_CONNECTED ? "pending" : "not_send",
     text: reconciliationText(entity.name, asOf, money),

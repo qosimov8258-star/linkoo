@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
 
 import { useCanManage } from "@/components/analytics/cash-management-shared"
+import { amountDigits } from "@/lib/amount-precision"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { ORDER_STATUS_REF_OPTIONS, type Order } from "./orders-data"
@@ -125,7 +126,7 @@ export function SelectedTotalsDialog({ orders, onClose }: { orders: Order[]; onC
     }
   }, [orders])
 
-  const format = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+  const format = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: amountDigits(3) })
   const sum = (rows: TotalsRow[], key: keyof Omit<TotalsRow, "type">) => rows.reduce((total, row) => total + row[key], 0)
   const valueOf = (row: TotalsRow, head: number) => [0, row.type, row.blocks, row.orders, row.returns, row.volume, row.sum][head]
   const sorted = (rows: TotalsRow[]) => {
@@ -138,7 +139,8 @@ export function SelectedTotalsDialog({ orders, onClose }: { orders: Order[]; onC
     })
   }
   const label = (row: TotalsRow) => row.type || t("Не указано")
-  const cell = "border-b border-[#efefef] px-[17.5px] py-[7.8px]"
+  // Linko's table: white rows, a light line under and between the cells.
+  const cell = "border-b border-r border-[#efefef] px-[17.5px] py-[7.8px] last:border-r-0"
 
   const heads = (widths: number[]) => (
     <>
@@ -193,29 +195,35 @@ export function SelectedTotalsDialog({ orders, onClose }: { orders: Order[]; onC
               {heads(TOTALS_COLS[0])}
               <tbody>
                 {sorted(data.rows).map((row, index) => (
-                  <tr key={row.type} className="bg-[#f5f5f5]">
+                  <tr key={row.type}>
                     <td className={cell}>{index + 1}</td>
                     <td className={cell}>{label(row)}</td>
                     {numberCells(row)}
                   </tr>
                 ))}
+                {/* Without bonus lines Linko closes this table with «Итого» and shows no bonus table. */}
+                {data.bonus.length === 0 && totalRow(t("Итого"), data.rows)}
               </tbody>
             </table>
-            <div className="mt-[15px] text-[16px] font-normal leading-5">{t("Бонусные товары")}</div>
-            <table className="mt-[10px] w-full table-fixed border-collapse">
-              {heads(TOTALS_COLS[1])}
-              <tbody>
-                {sorted(data.bonus).map((row, index) => (
-                  <tr key={row.type} className="bg-[#f5f5f5]">
-                    <td className={cell}>{index + 1}</td>
-                    <td className={cell}>{label(row)}</td>
-                    {numberCells(row)}
-                  </tr>
-                ))}
-                {totalRow(t("Итого"), data.rows)}
-                {totalRow(t("Итого с бонусом"), [...data.rows, ...data.bonus])}
-              </tbody>
-            </table>
+            {data.bonus.length > 0 && (
+              <>
+                <div className="mt-[15px] text-[16px] font-normal leading-5">{t("Бонусные товары")}</div>
+                <table className="mt-[10px] w-full table-fixed border-collapse">
+                  {heads(TOTALS_COLS[1])}
+                  <tbody>
+                    {sorted(data.bonus).map((row, index) => (
+                      <tr key={row.type}>
+                        <td className={cell}>{index + 1}</td>
+                        <td className={cell}>{label(row)}</td>
+                        {numberCells(row)}
+                      </tr>
+                    ))}
+                    {totalRow(t("Итого"), data.rows)}
+                    {totalRow(t("Итого с бонусом"), [...data.rows, ...data.bonus])}
+                  </tbody>
+                </table>
+              </>
+            )}
           </>
         )}
       </div>
@@ -234,7 +242,15 @@ type BulkField =
   | "created" | "delivery" | "paid" | "transfer" | "realization"
   | "deliverer" | "expeditor" | "warehouse" | "picker" | "transport" | "status" | "dealType" | "agent" | "pay"
 
-type FieldDef = { key: BulkField; label: string; input?: { kind: "date" | "select"; label: string; options?: string[] } }
+type FieldDef = {
+  key: BulkField
+  label: string
+  input?: { kind: "date" | "select" | "radio"; label: string; options?: string[] }
+  /** Linko's blue «Добавить транспорт» link next to the check box (a new tab). */
+  link?: { href: string; label: string }
+  /** Linko's info box above the field. */
+  note?: string
+}
 
 const LEFT_FIELDS: FieldDef[] = [
   { key: "created", label: "Изменить дату создания", input: { kind: "date", label: "Дата создания" } },
@@ -244,7 +260,8 @@ const LEFT_FIELDS: FieldDef[] = [
   { key: "realization", label: "Сделать дату реализации равной к дате доставке" },
 ]
 
-const BULK_STATUS_OPTIONS = ORDER_STATUS_REF_OPTIONS.map((option) => (option === "Не подтвержден" ? "Не подтвержденный" : option))
+/** Linko's STATUS_CHANGE_ITEMS, in its order. */
+const BULK_STATUS_OPTIONS = ["Не подтвержденный", ...ORDER_STATUS_REF_OPTIONS.filter((option) => option !== "Не подтвержден")]
 
 export function BulkEditDialog({ count, onClose, onApply }: { count: number; onClose: () => void; onApply: (values: BulkEditValues, showAfter: boolean) => void }) {
   const { t } = useLanguage()
@@ -271,10 +288,10 @@ export function BulkEditDialog({ count, onClose, onApply }: { count: number; onC
       { key: "expeditor", label: "Изменить экспедитор", input: { kind: "select", label: "Экспедитор", options: people } },
       { key: "warehouse", label: "Изменить склад", input: { kind: "select", label: "Склад", options: warehouses } },
       { key: "picker", label: "Изменить сборщика", input: { kind: "select", label: "Сборщик", options: people } },
-      { key: "transport", label: "Изменить транспорт", input: { kind: "select", label: "Транспорт", options: transports } },
+      { key: "transport", label: "Изменить транспорт", input: { kind: "select", label: "Транспорт", options: transports }, link: { href: "/analytics/transport?openCreateDialog=true&scrollTop=0", label: "Добавить транспорт" } },
       { key: "status", label: "Изменить статус", input: { kind: "select", label: "Статус", options: BULK_STATUS_OPTIONS } },
-      { key: "dealType", label: "Изменить тип сделки", input: { kind: "select", label: "Тип сделки", options: ["Стандарт", "Консигнация"] } },
-      { key: "agent", label: "Изменить агента", input: { kind: "select", label: "Агент", options: people } },
+      { key: "dealType", label: "Изменить тип сделки", input: { kind: "radio", label: "Тип сделки", options: ["Стандартная", "Консигнация"] } },
+      { key: "agent", label: "Изменить агента", input: { kind: "select", label: "Агент", options: people }, note: "При изменении агента визиты агентов не будут меняться" },
       // Paid / unpaid is no order field: it follows the payments in the cash ledger. This action opens
       // the group payment of the ticked orders (real payments), it never marks an order "paid".
       ...(canPay ? [{ key: "pay", label: "Принять оплату по выбранным заказам" } satisfies FieldDef] : []),
@@ -289,7 +306,8 @@ export function BulkEditDialog({ count, onClose, onApply }: { count: number; onC
     const picked: BulkEditValues = {}
     for (const field of [...LEFT_FIELDS, ...rightFields]) {
       if (!checked[field.key]) continue
-      picked[field.key] = !field.input ? "1" : values[field.key] ?? (field.input.kind === "select" && field.key === "status" ? BULK_STATUS_OPTIONS[0] : "")
+      // Linko's «Статус» opens empty: nothing picked changes nothing.
+      picked[field.key] = !field.input ? "1" : values[field.key] ?? ""
     }
     onApply(picked, showAfter)
   }
@@ -298,32 +316,53 @@ export function BulkEditDialog({ count, onClose, onApply }: { count: number; onC
     <div key={field.key} className={spaced ? "mb-[10px]" : ""}>
       <label className="flex min-h-[30px] cursor-pointer items-start gap-[9px] py-[5px] text-[13px] font-semibold leading-[20px] text-[#333]">
         <input type="checkbox" checked={!!checked[field.key]} onChange={() => toggle(field.key)} className="mt-[3px] h-[14px] w-[14px] shrink-0 accent-[#5d6474]" />
-        {t(field.label)}
+        <span className={field.key === "realization" ? "max-w-[240px]" : ""}>{t(field.label)}</span>
       </label>
+      {checked[field.key] && field.link && (
+        <a href={field.link.href} target="_blank" rel="noreferrer" className="block pb-[4px] text-[13px] text-[#039be5] hover:underline">{t(field.link.label)}</a>
+      )}
+      {checked[field.key] && field.note && (
+        <div className="my-[8px] rounded-[8px] bg-[#eef3fb] px-[15px] py-[14px] text-[12.5px] leading-[16px] text-[#4f71dc]">{t(field.note)}</div>
+      )}
       {checked[field.key] && field.input && (
-        <div className="my-[6px] pr-[15px]">
+        <div className="my-[6px]">
           {field.input.kind === "date" ? (
+            // Linko's DateField: the label inside the line, the calendar icon at the right (the native picker opens from it).
             <label className="relative block h-[44px] border-b border-[#e0e0e0]">
-              <span className="absolute left-0 top-[14px] text-[13px] text-[#666]">{values[field.key] ? "" : t(field.input.label)}</span>
+              <span className="pointer-events-none absolute left-0 top-[14px] text-[13px] text-[#333]">{values[field.key] ? "" : t(field.input.label)}</span>
               <input
                 type="date"
                 value={values[field.key] ?? ""}
                 onChange={(event) => setValue(field.key, event.target.value)}
                 aria-label={t(field.input.label)}
-                className={`absolute inset-x-0 bottom-0 h-[30px] bg-transparent text-[13px] outline-none ${values[field.key] ? "" : "text-transparent"}`}
+                className={`absolute inset-x-0 bottom-0 h-[30px] bg-transparent text-[13px] outline-none [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:h-6 [&::-webkit-calendar-picker-indicator]:w-6 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 ${values[field.key] ? "" : "text-transparent"}`}
               />
+              <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[6px] right-[2px] h-[18px] w-[18px] fill-[#ccc]"><path d="M9 11H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm2-7h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z" /></svg>
             </label>
+          ) : field.input.kind === "radio" ? (
+            <div role="radiogroup" aria-label={t(field.input.label)}>
+              {(field.input.options ?? []).map((option) => (
+                <label key={option} className="flex h-[34px] cursor-pointer items-center gap-[14px] text-[13px] text-[#333]">
+                  <input type="radio" name={`bulk-${field.key}`} checked={values[field.key] === option} onChange={() => setValue(field.key, option)} className="sr-only" />
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0" aria-hidden>
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" fill="#333" />
+                    {values[field.key] === option && <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z" fill="#5d6474" />}
+                  </svg>
+                  {t(option)}
+                </label>
+              ))}
+            </div>
           ) : (
             <label className="relative block min-h-[44px] border-b border-[#e0e0e0]">
               <span className="absolute left-0 top-0 text-[10px] font-semibold text-[#333]">{values[field.key] ? t(field.input.label) : ""}</span>
               <select
-                value={values[field.key] ?? (field.key === "status" ? BULK_STATUS_OPTIONS[0] : "")}
+                value={values[field.key] ?? ""}
                 onChange={(event) => setValue(field.key, event.target.value)}
                 aria-label={t(field.input.label)}
                 className="absolute inset-x-0 bottom-0 h-[30px] appearance-none bg-transparent pr-6 text-[13px] font-semibold outline-none"
               >
-                {field.key !== "status" && <option value="">{t(field.input.label)}</option>}
-                {(field.input.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}
+                <option value="">{t(field.input.label)}</option>
+                {(field.input.options ?? []).map((option) => <option key={option} value={option}>{field.key === "status" ? t(option) : option}</option>)}
               </select>
               <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-0 right-0 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
             </label>
@@ -336,7 +375,7 @@ export function BulkEditDialog({ count, onClose, onApply }: { count: number; onC
   return (
     <Dialog title={t("Изменение выбранных заказов")} width={680} closeRight={10} onClose={onClose}>
       <div className="grid grid-cols-[340px_1fr] pb-[25px] pt-[15px]">
-        <div className="border-r border-[#e0e0e0] pl-[18px] pr-[90px]">{LEFT_FIELDS.map((field) => renderField(field, false))}</div>
+        <div className="border-r border-[#e0e0e0] pl-[18px] pr-[15px]">{LEFT_FIELDS.map((field) => renderField(field, false))}</div>
         <div className="pl-[17px] pr-[15px]">{rightFields.map((field, index) => renderField(field, index >= 4 && index < rightFields.length - 1))}</div>
       </div>
       <div className="flex h-[57px] items-center justify-between border-t border-[#e0e0e0] px-[26px] text-[13px] font-semibold uppercase text-[#039be5]">

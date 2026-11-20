@@ -5,6 +5,7 @@ import { listFieldEmployees } from "@/lib/field-activity/employees"
 import { fieldEventTotals, listFieldEvents } from "@/lib/field-activity/events"
 import { lastLocations } from "@/lib/field-activity/gps-repo"
 import { dayStartMs } from "@/lib/field-activity/input"
+import { dayTaskHistoryEnd, historyDayCounts, historyPlannedClientIds } from "@/lib/activity-history"
 import { dayStatus } from "@/lib/field-activity/routes-repo"
 import { MAX_PAGE_SIZE, type FieldEvent } from "@/lib/field-activity/types"
 import { todayIso } from "@/lib/finance/dates"
@@ -60,18 +61,19 @@ async function dayEvents(employeeId: number, day: string): Promise<{ events: Fie
   return { events, truncated: count > events.length }
 }
 
-type ClientInfo = { name: string; address: string; lat: number | null; lng: number | null }
+type ClientInfo = { name: string; address: string; landmark: string; lat: number | null; lng: number | null }
 
 async function clientInfo(clientIds: number[]): Promise<Map<number, ClientInfo>> {
   const map = new Map<number, ClientInfo>()
   if (!clientIds.length) return map
   const rows = (await getDb()
-    .prepare("SELECT id, name, COALESCE(address, '') AS address, location_lat, location_lng FROM clients WHERE id = ANY(@ids::int[])")
-    .all({ ids: clientIds })) as Array<{ id: number; name: string | null; address: string; location_lat: number | null; location_lng: number | null }>
+    .prepare("SELECT id, name, COALESCE(address, '') AS address, COALESCE(landmark, '') AS landmark, location_lat, location_lng FROM clients WHERE id = ANY(@ids::int[])")
+    .all({ ids: clientIds })) as Array<{ id: number; name: string | null; address: string; landmark: string; location_lat: number | null; location_lng: number | null }>
   for (const row of rows) {
     map.set(Number(row.id), {
       name: row.name ?? "",
       address: row.address ?? "",
+      landmark: row.landmark ?? "",
       lat: row.location_lat === null ? null : Number(row.location_lat),
       lng: row.location_lng === null ? null : Number(row.location_lng),
     })
@@ -87,9 +89,17 @@ export async function trackingDay(employeeId: number, day: string): Promise<Trac
   const [status] = await dayStatus([employeeId], day)
   const { events, truncated } = await dayEvents(employeeId, day)
   const totals = await fieldEventTotals({ from: day, to: day, employeeIds: [employeeId], excludeCancelled: true })
+  // Linko's «сделки» sum counts every order of the day, cancelled ones too («Заказ оформлен» only the counted ones).
+  const allOrders = await fieldEventTotals({ from: day, to: day, kinds: ["order"], employeeIds: [employeeId], orders: "all" })
   const [location] = await lastLocations([employeeId], locationUntil(day))
 
-  const planned = status?.planned ?? []
+  // A day copied from Linko follows Linko's own day plan (lib/activity-history.ts): its clients and its counts.
+  const historyEnd = await dayTaskHistoryEnd()
+  const fromHistory = historyEnd !== null && day <= historyEnd
+  const historyCounts = fromHistory ? (await historyDayCounts([employeeId], day)).get(employeeId) : undefined
+  const planned = fromHistory
+    ? (await historyPlannedClientIds(employeeId, day)).map((clientId) => ({ clientId, clientName: "", address: "", lat: null, lng: null, routePosition: null }))
+    : (status?.planned ?? [])
   const plannedIds = new Set(planned.map((client) => client.clientId))
   const groups = new Map<string, { clientId: number | null; clientName: string; events: FieldEvent[] }>()
   for (const event of events) {
@@ -113,6 +123,7 @@ export async function trackingDay(employeeId: number, day: string): Promise<Trac
       clientId: group.clientId,
       clientName: details?.name || plan?.clientName || group.clientName,
       address: details?.address ?? plan?.address ?? "",
+      landmark: details?.landmark ?? "",
       lat: details?.lat ?? plan?.lat ?? null,
       lng: details?.lng ?? plan?.lng ?? null,
       planned: isPlanned,
@@ -140,6 +151,7 @@ export async function trackingDay(employeeId: number, day: string): Promise<Trac
         clientId: client.clientId,
         clientName: details?.name || client.clientName,
         address: details?.address ?? client.address,
+        landmark: details?.landmark ?? "",
         lat: details?.lat ?? client.lat,
         lng: details?.lng ?? client.lng,
         planned: true,
@@ -157,22 +169,28 @@ export async function trackingDay(employeeId: number, day: string): Promise<Trac
       }
     })
 
-  const done = status?.done ?? 0
-  const todo = status?.todo ?? 0
+  const done = historyCounts?.done ?? status?.done ?? 0
+  const todo = historyCounts?.todo ?? status?.todo ?? 0
   return {
     date: day,
     employee,
     location: location ?? null,
     baseCurrency: totals.baseCurrency,
     stats: {
-      orders: totals.byKind.order,
+      // The base currency first, then by code (the header prints them in this order).
+      orders: {
+        ...allOrders.byKind.order,
+        byCurrency: [...allOrders.byKind.order.byCurrency].sort((a, b) =>
+          a.currency === totals.baseCurrency ? -1 : b.currency === totals.baseCurrency ? 1 : a.currency.localeCompare(b.currency),
+        ),
+      },
       payments: totals.byKind.payment,
       returns: totals.byKind.return,
       reports: totals.byKind.photo_report.count,
       deliveries: totals.byKind.delivery.count,
       done,
       todo,
-      unplanned: status?.unplanned ?? 0,
+      unplanned: historyCounts?.unplanned ?? status?.unplanned ?? 0,
     },
     counters: {
       ordered: totals.byKind.order.count,

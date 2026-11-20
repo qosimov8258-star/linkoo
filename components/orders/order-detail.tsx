@@ -1,19 +1,20 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 
 import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
+import { ClientDrawer } from "@/components/clients/clients-view"
+import { amountDigits } from "@/lib/amount-precision"
 import { parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { strictNumber } from "@/lib/strict-number"
 
-import { AddOrderDialog, FlatInput, OrganizationMoveHint } from "./add-order-dialog"
-import { useAllowedProductIds, useAllowedRows } from "./allowed-products"
-import { orderListPrice, type OrderPriceList } from "./order-list-price"
-import { useAppCurrencyInfo } from "@/lib/app-currency-context"
+import { AddOrderDialog, OrganizationMoveHint } from "./add-order-dialog"
 import { RefCheck, RefDate, RefSelect, RefText } from "./order-ref-fields"
 import { OrderPaymentsDialog } from "./order-returns-tab"
+import { OrderSeriesControls, OrderSeriesTab } from "./order-series"
+import { PrintMenu } from "./print-menu"
 import { EDITABLE_STATUSES, FINAL_STATUSES, ORDER_STATUSES, canChangeStatus, orderApiErrorText, orderOrganization, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
 
 // The order card (Продажи → Заказы → a row). Every figure comes from the
@@ -41,6 +42,10 @@ export type OrderLineItem = {
   boxAmount?: number
   boxUnit?: string
   returnQuantity?: number
+  /** A bonus line of a Linko promotion (green «(бонус)» after the name). */
+  isBonus?: boolean
+  /** The line's Linko id on a copied order (the quick return's «№»). */
+  linkoId?: number
 }
 
 export type ApiOrderLog = {
@@ -66,7 +71,7 @@ type OrderDetail = Order & {
 type OrderDue = { currencies: Array<{ currency: string; total: number; paid: number; remaining: number }> }
 
 /** A client return of the order (Продажи → Возвраты, /api/client-returns?orderId=). */
-type ReturnRow = { id: number; returnDate: string; status: string; warehouse: string; amount: number; currency: string; itemCount?: number }
+type ReturnRow = { id: number; returnDate: string; status: string; warehouse: string; amount: number; currency: string; comment?: string; itemCount?: number }
 
 /** Reference action codes -> badge label and colour of the "Логи" tab. */
 export const LOG_ACTIONS: Record<string, { label: string; tone: "success" | "begin" | "error" }> = {
@@ -76,9 +81,11 @@ export const LOG_ACTIONS: Record<string, { label: string; tone: "success" | "beg
   cancel_given: { label: "Отменил передачу", tone: "error" },
   delivered: { label: "Доставлен", tone: "success" },
   undelivered: { label: "Отменена доставки", tone: "error" },
-  add_discount: { label: "Добавлена скидка", tone: "success" },
+  add_discount: { label: "Добавление ручной скидки", tone: "success" },
+  cancel_discount: { label: "Добавление ручной скидки отменено", tone: "error" },
   add_bonus: { label: "Добавлен бонус", tone: "success" },
   canceled: { label: "Заказ отменен", tone: "error" },
+  fiscal_check: { label: "Создан фискальный чек", tone: "success" },
 }
 
 /** Reference status codes of a log entry -> the order status label used by STATUS_MENU, and the label the log prints. */
@@ -154,28 +161,9 @@ const ICONS = {
 }
 
 const RU_SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-const MONTH_PREFIXES = ["янв", "фев", "мар", "апр", "ма", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
 
 function formatRuDate(date: Date) {
   return `${String(date.getDate()).padStart(2, "0")} ${RU_SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
-}
-
-function localIso(date: Date) {
-  const offset = date.getTimezoneOffset() * 60000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
-}
-
-/** "2026-10-21", "21 окт. 2026" or "21 октября 2026 г." → "2026-10-21" (today when unreadable). */
-function toInputDate(value: string | undefined) {
-  const text = value ?? ""
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10)
-  const match = /(\d{1,2})\s+([А-Яа-я]+)\.?\s+(\d{4})/.exec(text)
-  const date = new Date()
-  if (match) {
-    const month = MONTH_PREFIXES.findIndex((prefix) => match[2].toLowerCase().startsWith(prefix))
-    if (month >= 0) date.setFullYear(Number(match[3]), month, Number(match[1]))
-  }
-  return localIso(date)
 }
 
 /** "2026-10-21" → "21 окт. 2026"; other texts unchanged. */
@@ -199,11 +187,11 @@ function displayMoment(value: string | undefined | null) {
 }
 
 function formatNumber(value: number) {
-  return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
+  // Linko's numberFormat: the decimals of Настройки → Округление сумм override the precision of the call.
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: amountDigits(2) })
 }
 
 const PAYMENT_TYPE_LABELS: Record<string, string> = { cash: "Наличные", bank: "Перечисление" }
-const DEAL_TYPE_LABELS: Record<string, string> = { standard: "Стандартная", consignment: "Консигнация" }
 
 type ApiResult<T> = { ok: true; body: T } | { ok: false; error: string; agentLimit?: AgentLimitExceeded; productRestriction?: ProductRestrictionRefusal }
 
@@ -435,6 +423,17 @@ const TABS = ["Список товаров", "Серии", "Возврат", "З
 /** The reference's tab widths (px): the "Возврат" tab is 15px wider than the others. */
 const TAB_COLUMNS = [279.8, 279.8, 294.8, 279.8, 279.8]
 type DetailTab = (typeof TABS)[number]
+/** Linko's ?tab= value of each tab (#/order/<id>?tab=logs): written once a tab is picked. */
+const TAB_KEYS: Record<DetailTab, string> = { "Список товаров": "productList", Серии: "expireDate", Возврат: "return", "Задействованные акции": "promotions", Логи: "logs" }
+
+/** A promotion the order used (GET /api/orders/[id]/promotions): Linko's «Задействованные акции». */
+type OrderPromotion = { id: number; name: string; type: string }
+
+/** Linko's dotted list rows of the «Возврат» tab (xs 3 / 3 / 2 / 3 / 1 of 12; text right-aligned unless set left). */
+const DOTTED_ROW = "grid min-h-[60px] grid-cols-[3fr_3fr_2fr_3fr_1fr] items-center border-b-2 border-dotted border-[#d9e0e5] px-[5px] text-right text-[13px] text-[#333] [&>*]:pr-[22px]"
+/** The same rows of «Задействованные акции» (xs 2 / 6 / 4). */
+// Linko's «Тип акции» ends at the card's inner edge: no padding after the last column.
+const DOTTED_ROW_PROMO = "grid min-h-[60px] grid-cols-[2fr_6fr_4fr] items-center border-b-2 border-dotted border-[#d9e0e5] pl-[5px] text-right text-[13px] text-[#333] [&>*]:pr-[22px] [&>*:last-child]:pr-0"
 
 export function OrderDetailCard({
   order,
@@ -451,22 +450,79 @@ export function OrderDetailCard({
 }) {
   const { t } = useLanguage()
   const [tab, setTab] = useState<DetailTab>("Список товаров")
-  const [menu, setMenu] = useState<null | "status" | "edit" | "discount" | "discountSize" | "return">(null)
+  // Linko writes ?tab= only once a tab is picked (or the address named one).
+  const [tabInUrl, setTabInUrl] = useState(false)
+  const [menu, setMenu] = useState<null | "status" | "edit" | "discount" | "discountSize" | "return" | "print">(null)
   const [paymentsOpen, setPaymentsOpen] = useState(false)
   const [dialog, setDialog] = useState<
     null | "status" | "invoice" | "manualDiscount" | "recalc" | "cancelDiscount" | "fullReturn" | "cancelOrder" | "logDetails"
   >(null)
-  const [sheet, setSheet] = useState<null | "edit" | "quickEdit" | "quickReturn" | "print" | "printPreview">(null)
+  const [sheet, setSheet] = useState<null | "edit" | "quickEdit" | "quickReturn" | "printPreview">(null)
   const [printCopies, setPrintCopies] = useState(1)
+  // Linko's client link opens the shop card over the order page (?openShopDetail=<shop id>).
+  const [shopId, setShopId] = useState<number | null>(null)
+  // Linko's X leaves drawer=drawer_agent_visit&openShopDetail=0 (0: closed) and keeps the drawer's tab parameters.
+  const closeShop = useCallback(() => setShopId(0), [])
+  const [items, setItems] = useState<OrderLineItem[]>([])
+  const [itemsLoading, setItemsLoading] = useState(true)
+  const [logs, setLogs] = useState<ApiOrderLog[]>([])
+  const [detail, setDetail] = useState<OrderDetail | null>(null)
+  const [due, setDue] = useState<OrderDue | null>(null)
+  const [returns, setReturns] = useState<ReturnRow[]>([])
+  const [promotions, setPromotions] = useState<OrderPromotion[] | null>(null)
+  const [statusTarget, setStatusTarget] = useState(order.status)
+  const [dialogError, setDialogError] = useState("")
 
-  // The reference keeps these dialogs in the query string: ?openUpdateDialog=true, ?openQuickEdit=true, ?openInvoiceDialog=true
+  const status = order.status
+  const editable = !(ORDER_STATUSES as readonly string[]).includes(status) || EDITABLE_STATUSES.includes(status)
+  const final = FINAL_STATUSES.includes(status)
+  /**
+   * Linko lists all six statuses in «Изменить статус» (the current one too: its dialog can move the delivery date).
+   * Mezon keeps the server's transition rule (lib/orders-repo.ts updateOrder → canChangeStatus: a shipped order's stock
+   * and a delivered / cancelled order's client ledger are not unwound by a status change), so a status the server
+   * refuses is listed greyed; the current one stays open while the order is not final.
+   */
+  const canPickStatus = (target: string) => (target === status ? !final : canChangeStatus(status, target))
+
+  // Linko keeps the card's tab and dialogs in the query string: ?tab=logs, ?openUpdateDialog=true, ?openQuickEdit=true,
+  // ?openInvoiceDialog=true, ?openQuickReturn=true, ?openManualDiscountDialog=true, ?openTransactionsDialog=true,
+  // ?openShopDetail=<shop>, ?detailStatus=<code>&openChangeStatus=true.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get("openUpdateDialog") === "true") setSheet("edit")
-    else if (params.get("openQuickEdit") === "true") setSheet("quickEdit")
-    if (params.get("openInvoiceDialog") === "true") setDialog("invoice")
+    const flag = (name: string) => params.get(name) === "true"
+    const fromUrl = TABS.find((label) => TAB_KEYS[label] === params.get("tab"))
+    if (fromUrl) {
+      setTab(fromUrl)
+      setTabInUrl(true)
+    }
+    if (flag("openUpdateDialog")) setSheet("edit")
+    else if (flag("openQuickEdit")) setSheet("quickEdit")
+    else if (flag("openQuickReturn")) setSheet("quickReturn")
+    const target = LOG_STATUS[params.get("detailStatus") ?? ""]?.status
+    if (flag("openInvoiceDialog")) setDialog("invoice")
+    else if (flag("openManualDiscountDialog")) setDialog("manualDiscount")
+    else if (flag("openChangeStatus") && target && canPickStatus(target)) {
+      setStatusTarget(target)
+      setDialog("status")
+    }
+    if (flag("openTransactionsDialog")) setPaymentsOpen(true)
+    const shop = Number(params.get("openShopDetail"))
+    if (Number.isSafeInteger(shop) && shop > 0) setShopId(shop)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const urlFlags = `${sheet === "edit" ? "u" : ""}${sheet === "quickEdit" ? "q" : ""}${dialog === "invoice" ? "i" : ""}`
+  const urlState = JSON.stringify({
+    tab: tabInUrl ? TAB_KEYS[tab] : null,
+    openUpdateDialog: sheet === "edit" ? "true" : null,
+    openQuickEdit: sheet === "quickEdit" ? "true" : null,
+    openQuickReturn: sheet === "quickReturn" ? "true" : null,
+    openInvoiceDialog: dialog === "invoice" ? "true" : null,
+    openManualDiscountDialog: dialog === "manualDiscount" ? "true" : null,
+    openChangeStatus: dialog === "status" ? "true" : null,
+    detailStatus: dialog === "status" ? (STATUS_CODE_OF[statusTarget] ?? null) : null,
+    openTransactionsDialog: paymentsOpen ? "true" : null,
+    openShopDetail: shopId ? String(shopId) : shopId === 0 ? "0" : null,
+    drawer: shopId === 0 ? "drawer_agent_visit" : null,
+  })
   const urlReady = useRef(false)
   useEffect(() => {
     if (!urlReady.current) {
@@ -474,22 +530,14 @@ export function OrderDetailCard({
       return
     }
     const url = new URL(window.location.href)
-    const set = (name: string, on: boolean) => (on ? url.searchParams.set(name, "true") : url.searchParams.delete(name))
-    set("openUpdateDialog", urlFlags.includes("u"))
-    set("openQuickEdit", urlFlags.includes("q"))
-    set("openInvoiceDialog", urlFlags.includes("i"))
+    for (const [name, value] of Object.entries(JSON.parse(urlState) as Record<string, string | null>)) {
+      if (value === null) url.searchParams.delete(name)
+      else url.searchParams.set(name, value)
+    }
     url.searchParams.sort()
     const next = url.pathname + url.search
     if (next !== window.location.pathname + window.location.search) window.history.replaceState(window.history.state, "", next)
-  }, [urlFlags])
-  const [items, setItems] = useState<OrderLineItem[]>([])
-  const [itemsLoading, setItemsLoading] = useState(true)
-  const [logs, setLogs] = useState<ApiOrderLog[]>([])
-  const [detail, setDetail] = useState<OrderDetail | null>(null)
-  const [due, setDue] = useState<OrderDue | null>(null)
-  const [returns, setReturns] = useState<ReturnRow[]>([])
-  const [statusTarget, setStatusTarget] = useState(order.status)
-  const [dialogError, setDialogError] = useState("")
+  }, [urlState])
 
   const loadItems = useCallback(() => {
     setItemsLoading(true)
@@ -500,9 +548,29 @@ export function OrderDetailCard({
 
   useEffect(() => {
     void loadItems()
-    setTab("Список товаров")
     setMenu(null)
   }, [order.id, loadItems])
+
+  // Another order in the same card: back to its first tab (the first mount keeps the tab the address named).
+  const shownOrder = useRef(order.id)
+  useEffect(() => {
+    if (shownOrder.current === order.id) return
+    shownOrder.current = order.id
+    setTab("Список товаров")
+    setTabInUrl(false)
+  }, [order.id])
+
+  // «Задействованные акции»: the promotions Linko applied to the order.
+  useEffect(() => {
+    let cancelled = false
+    setPromotions(null)
+    void api<OrderPromotion[]>(`/api/orders/${order.id}/promotions`).then((result) => {
+      if (!cancelled) setPromotions(result.ok && Array.isArray(result.body) ? result.body : [])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [order.id])
 
   const loadLogs = useCallback(() => {
     fetch(`/api/orders/${order.id}/logs`)
@@ -554,11 +622,6 @@ export function OrderDetailCard({
     return ok !== false
   }
 
-  const status = order.status
-  const editable = !(ORDER_STATUSES as readonly string[]).includes(status) || EDITABLE_STATUSES.includes(status)
-  const final = FINAL_STATUSES.includes(status)
-  const canEditOrders = useCanEditOrders()
-
   /** The reference only offers returns once the goods left the warehouse (delivered / handed to the courier). */
   const canReturn = order.status === "Доставлено" || order.status === "В пути"
 
@@ -567,7 +630,8 @@ export function OrderDetailCard({
     const error = await putDiscounts(order.id, items, percent)
     if (error) return error
     await patchOrder({ discount: percent ? `${percent}%` : "" })
-    addLog(percent ? "add_discount" : "updated", percent ? `Ручная скидка: ${percent}%` : "Скидки отменены")
+    // Linko logs these without a comment (sales/order_logs add_discount / cancel_discount).
+    addLog(percent ? "add_discount" : "cancel_discount")
     reloadAll()
     return null
   }
@@ -585,7 +649,8 @@ export function OrderDetailCard({
   const createdDate = createdDay ? fromInputDate(createdDay) : /^\d{1,2}\s+\S+\s+\d{4}/.test(order.created) ? order.created.replace(/\s+\d{1,2}:\d{2}$/, "") : `${order.created.replace(/\s+\d{1,2}:\d{2}$/, "")} ${new Date().getFullYear()}`
   // The client's debt from the client ledger (one line per currency, never a guessed currency).
   const debt = detail?.clientDebt ?? null
-  const deliverer = order.deliveryMan || (order.clientDeliverer && order.clientDeliverer !== "Не указано" ? order.clientDeliverer : "")
+  // Linko prints the order's own delivery man (never the shop's), else «Не указан».
+  const deliverer = order.deliveryMan || ""
   const dueLine = (pick: "paid" | "remaining") => (due?.currencies.length ? due.currencies.map((entry) => `${formatNumber(entry[pick])} ${entry.currency}`).join(", ") : `0 ${currency}`.trim())
   const paid = due?.currencies.some((entry) => entry.paid > 0) ?? false
   /** Debt lines of the ledger text ("-120 SUM, 5 USD"; a decimal comma has no space after it), red when negative. */
@@ -599,9 +664,20 @@ export function OrderDetailCard({
         </span>
       ))
   const payDay = order.paymentDate || order.dueDate || ""
-  const paymentTypeLabel = order.paymentType ? PAYMENT_TYPE_LABELS[order.paymentType] ?? order.paymentType : order.payTypeName || (order.payMethod === "bank" ? "Перечисление" : order.payMethod ? "Наличные" : "")
-  const dealLabel = order.dealType === "0" ? "Стандартная" : order.dealType === "1" ? "Консигнация" : order.dealType ? DEAL_TYPE_LABELS[order.dealType] ?? order.dealType : ""
+  // Linko prints the name of the order's payment type as it is stored (custom_payment_type.name: «cash», «Наличные»…);
+  // an order without one shows the label of its cash / bank kind.
+  const paymentTypeLabel = order.payTypeName || (order.paymentType ? PAYMENT_TYPE_LABELS[order.paymentType] ?? order.paymentType : order.payMethod === "bank" ? "Перечисление" : order.payMethod ? "Наличные" : "")
+  // Linko: deal_type "0" is «Стандартная», anything else (an empty value too) «Консигнация»; the app's own orders store
+  // "standard" / "consignment".
+  const dealLabel = order.dealType === "0" || order.dealType === "standard" ? "Стандартная" : "Консигнация"
   const deliveryTypeLabel = order.deliveryType === "self" ? "Самовывоз" : order.deliveryType === "delivery" ? "Доставка" : order.deliveryType || ""
+  // «Дата реализации»: the day Linko accepted the order (accepted_time, a date only); the app's own orders are realized
+  // the day they leave the warehouse (shipped_at).
+  const realizedDay = order.acceptedDate || (order.shippedAt ? parseAnyDay(order.shippedAt, true) : null) || ""
+  // The order's effective discount as Linko's «Скидка» popover hints it: 100 × discount / (total + discount).
+  const grossTotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
+  const discountTotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice - item.lineTotal, 0)
+  const discountShare = grossTotal > 0 ? (100 * discountTotal) / grossTotal : 0
 
   const row = (label: string, value: ReactNode, valueClass = "") => (
     <li className="flex min-h-[25px] items-start justify-between gap-3 leading-[25px]">
@@ -611,7 +687,8 @@ export function OrderDetailCard({
   )
 
   const tabIndex = TABS.indexOf(tab)
-  const allowedTargets = STATUS_MENU.filter((item) => item.status !== status && canChangeStatus(status, item.status))
+  // Linko greys the trash (cancel) of a cancelled order and of one that left the warehouse.
+  const canCancel = !(status === "Отменен" || status === "В пути" || status === "Доставлено") && canChangeStatus(status, "Отменен")
 
   return (
     <div className="relative bg-white font-sans text-[13px] leading-normal text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
@@ -622,17 +699,20 @@ export function OrderDetailCard({
           {order.id}
         </h2>
         <div className="flex items-center gap-[18px]">
+          {/* «Серии» tab: Linko's av_timer and «Изменит серии» (the editor's deep link opens on every tab). */}
+          <OrderSeriesControls orderId={order.id} warehouse={order.warehouse || order.stockName || ""} buttons={tab === "Серии"} onNotify={onNotify} />
           <div className="relative">
-            <HeaderButton icon={ICONS.edit} label={t("Изменить статус")} disabled={!allowedTargets.length} onClick={() => setMenu(menu === "status" ? null : "status")} />
+            <HeaderButton icon={ICONS.edit} label={t("Изменить статус")} onClick={() => setMenu(menu === "status" ? null : "status")} />
             {menu === "status" && (
               <Menu onClose={() => setMenu(null)}>
-                {allowedTargets.map((item) => (
+                {STATUS_MENU.map((item) => (
                   <MenuItem
                     key={item.status}
                     kind="status"
                     icon={item.icon}
                     color={item.color}
                     label={t(item.label)}
+                    disabled={!canPickStatus(item.status)}
                     onClick={() => {
                       setMenu(null)
                       setStatusTarget(item.status)
@@ -660,15 +740,24 @@ export function OrderDetailCard({
               <Menu onClose={() => setMenu(null)}>
                 <MenuItem icon={ICONS.discount} label={t("Скидка")} onClick={() => setMenu("discountSize")} />
                 <MenuItem icon={ICONS.discount} label={t("Частичная скидка")} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
+                <MenuItem icon={ICONS.discount} label={t("Ручная скидка")} onClick={() => (setMenu(null), setDialogError(""), setDialog("manualDiscount"))} />
                 <MenuItem icon={ICONS.sync} label={t("Пересчитать")} onClick={() => (setMenu(null), setDialog("recalc"))} />
                 <MenuItem icon={ICONS.trash} label={t("Отменить скидки")} onClick={() => (setMenu(null), setDialogError(""), setDialog("cancelDiscount"))} />
               </Menu>
             )}
             {menu === "discountSize" && (
               <DiscountSizePopover
+                percent={discountShare}
+                hasReturn={items.some((item) => (item.returnQuantity ?? 0) > 0)}
                 onClose={() => setMenu(null)}
                 onApply={(percent) => {
                   setMenu(null)
+                  // Linko's «Отменить скидку» asks first (zeroDiscountDialog), like the menu's «Отменить скидки».
+                  if (!percent) {
+                    setDialogError("")
+                    setDialog("cancelDiscount")
+                    return
+                  }
                   void applyDiscountPercent(percent).then((error) => error && onNotify(t(error)))
                 }}
               />
@@ -694,23 +783,46 @@ export function OrderDetailCard({
                   <MenuItem
                     icon={ICONS.undo}
                     label={t("Частичный возврат")}
-                    onClick={() => (setMenu(null), onNavigate(`/analytics/returns?o=${order.id}&openCreateDialog=true`))}
+                    onClick={() => {
+                      setMenu(null)
+                      void partialReturnHref(order).then(onNavigate)
+                    }}
                   />
                 </Menu>
               ) : (
                 <ReturnNotice onClose={() => setMenu(null)} />
               ))}
           </div>
-          <HeaderButton icon={ICONS.print} label={t("Распечатать")} onClick={() => setSheet("print")} />
+          {/* Linko greys «Распечатать» of a cancelled order; its tooltip, 13 px to the left of the button, says «Распечатать»
+              or «Заказ отменен вы не можете распечатать». */}
+          <div className="group/print relative">
+            <HeaderButton icon={ICONS.print} label={t("Распечатать")} disabled={status === "Отменен"} onClick={() => setMenu(menu === "print" ? null : "print")} />
+            {menu !== "print" && (
+              <span className="pointer-events-none absolute right-[calc(100%+13px)] top-[-2px] z-[120] hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-normal leading-[16.9px] text-white opacity-90 group-hover/print:block">
+                {t(status === "Отменен" ? "Заказ отменен вы не можете распечатать" : "Распечатать")}
+              </span>
+            )}
+            {menu === "print" && (
+              <PrintMenu
+                onClose={() => setMenu(null)}
+                onPick={(copies) => {
+                  setMenu(null)
+                  setPrintCopies(copies)
+                  setSheet("printPreview")
+                }}
+              />
+            )}
+          </div>
           <button
             type="button"
             aria-label={t("Отменить")}
-            disabled={!canChangeStatus(status, "Отменен") || status === "Отменен"}
+            disabled={!canCancel}
             onClick={() => (setDialogError(""), setDialog("cancelOrder"))}
-            className="group relative flex h-12 w-12 items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
+            className="group relative flex h-12 w-12 items-center justify-center disabled:cursor-not-allowed"
           >
-            <Mi d={ICONS.trash} className="h-5 w-5 fill-black/30 group-hover:fill-black/60" />
-            <span className="pointer-events-none absolute right-[-27px] top-[58px] z-[120] hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90 group-hover:block">{t("Отменить")}</span>
+            {/* Linko: a dark #666 bin while it can cancel, a pale one when greyed. */}
+            <Mi d={ICONS.trash} className={`h-5 w-5 ${canCancel ? "fill-[#666]" : "fill-black/[0.26]"}`} />
+            <span className="pointer-events-none absolute right-[-27px] top-[58px] z-[120] hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-normal leading-[16.9px] text-white opacity-90 group-hover:block">{t("Отменить")}</span>
           </button>
         </div>
       </div>
@@ -719,12 +831,21 @@ export function OrderDetailCard({
       <div className="flex border-b border-[#efefef] px-[15px]">
         <div className="w-1/3 border-r border-[#efefef] p-[15px]">
           <ul>
-            {row(
-              `${t("Клиент")}:`,
-              <button type="button" onClick={() => onNavigate(`/clients?openClient=${encodeURIComponent(order.client)}`)} className="font-semibold text-[#1E4A9A] hover:underline">
+            {/* Linko: the shop name with the client's name in a tooltip; a click opens the shop card over the order. */}
+            <li className="group/client relative flex min-h-[25px] items-start justify-between gap-3 leading-[25px]">
+              <span>{t("Клиент")}:</span>
+              <button
+                type="button"
+                disabled={!order.clientId}
+                onClick={() => order.clientId && setShopId(order.clientId)}
+                className="max-w-[50%] cursor-pointer text-right font-semibold text-[#1E4A9A] disabled:cursor-default"
+              >
                 {order.marketName || order.client}
-              </button>,
-            )}
+              </button>
+              <span className="pointer-events-none absolute left-[177px] top-[-14px] z-[20] hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-semibold leading-[16.9px] text-white opacity-90 group-hover/client:block">
+                {order.client}
+              </span>
+            </li>
             {row(`${t("Транспорт")}:`, order.transportNumber || t("Не указан"))}
             {row(`${t("Филиал")}:`, order.branchName || order.clientBranch || t("Не указан"))}
             {row(`${t("Склад")}:`, order.warehouse || order.stockName || t("Не указан"), order.warehouse || order.stockName ? "" : "text-[#e57373]")}
@@ -737,10 +858,13 @@ export function OrderDetailCard({
         <div className="w-1/3 border-r border-[#efefef] p-[15px]">
           <ul>
             {row(`${t("Прайс-лист")}:`, order.priceList || t("Не указан"))}
-            {row(`${t("Организация")}:`, orderOrganization(order) || t("Не указана"))}
-            {row(`${t("Дата окончательной оплаты")}:`, payDay ? t(displayDay(payDay)) : t("Не указана"))}
+            {/* Linko's DIVISIONS setting (on for this account): the order's division, only when it has one. Linko leaves
+                «Дата окончательной оплаты» blank without a date. */}
+            {orderOrganization(order) && row(`${t("Организация")}:`, orderOrganization(order))}
+            {row(`${t("Дата окончательной оплаты")}:`, payDay ? t(displayDay(payDay)) : "")}
             {row(`${t("Тип оплаты")}:`, paymentTypeLabel ? t(paymentTypeLabel) : t("Не указан"))}
-            {row(t("Общая стоимость"), order.amount)}
+            {/* Linko's total_price: the exact sum of the lines (0,37093 USD), not the list's 2-decimal amount text. */}
+            {row(t("Общая стоимость"), items.length ? `${formatNumber(items.reduce((sum, item) => sum + item.lineTotal, 0))} ${currency}` : order.linesTotal !== undefined ? `${formatNumber(order.linesTotal)} ${currency}` : order.amount)}
             {order.discount && row(t("Скидка"), order.discount, "text-[#278549]")}
             {row(
               `${t("Оплачено")}:`,
@@ -754,7 +878,8 @@ export function OrderDetailCard({
                 dueLine("paid")
               ),
             )}
-            {row(`${t("Остаток")}:`, due ? dueLine("remaining") : "…", due?.currencies.some((entry) => entry.remaining > 0) ? "text-[#e57373]" : "")}
+            {/* Linko: red while something remains, green once nothing does. */}
+            {row(`${t("Остаток")}:`, due ? dueLine("remaining") : "…", !due ? "" : due.currencies.some((entry) => entry.remaining > 0) ? "text-[#e57373]" : "text-[#81c784]")}
             <li className="flex min-h-[25px] items-center justify-between gap-3 font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#1E4A9A]" />
@@ -773,16 +898,28 @@ export function OrderDetailCard({
         </div>
         <div className="w-1/3 px-[15px] pb-5 pt-[15px]">
           <ul>
-            {row(`${t("Создал")}:`, order.createdBy || t("Не указано"))}
-            {row(`${t("Агент")}:`, order.agent || t("Не указано"))}
-            {row(`${t("Доставщик")}:`, deliverer || t("Не указано"))}
+            {/* Linko's «Создал» is the order's user, who is its agent (no separate «Агент» row); the name also shows in a tooltip. */}
+            {/* Linko: the tooltip sits 12 px to the left of the name, centred on it. */}
+            <li className="flex min-h-[25px] items-start justify-between gap-3 leading-[25px]">
+              <span>{t("Создал")}:</span>
+              <span className="group/author relative max-w-[50%] text-right font-semibold">
+                {order.agent || order.createdBy || t("Не указано")}
+                {(order.agent || order.createdBy) && (
+                  <span className="pointer-events-none absolute right-[calc(100%+12px)] top-1/2 z-[20] hidden -translate-y-1/2 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-semibold leading-[16.9px] text-white opacity-90 group-hover/author:block">
+                    {order.agent || order.createdBy}
+                  </span>
+                )}
+              </span>
+            </li>
+            {row(`${t("Доставщик")}:`, deliverer || t("Не указан"))}
             {row(`${t("Экспедитор")}:`, order.expeditor || t("Не указано"))}
             {row(t("Дата создания"), t(createdDate))}
-            {row(`${t("Дата реализации")}:`, order.shippedAt ? t(displayMoment(order.shippedAt)) : order.acceptedDate ? t(fromInputDate(order.acceptedDate)) : t("Не реализовано"))}
+            {row(`${t("Дата реализации")}:`, realizedDay ? t(fromInputDate(realizedDay)) : t("Не реализовано"))}
             {row(`${t("Текущий статус")}:`, t(status === "Доставлено" ? "Доставлен" : status === "В пути" ? "Передан доставщику" : status), statusColor)}
             {row(`${t("Тип передачи")}:`, deliveryTypeLabel ? t(deliveryTypeLabel) : t("Не указано"))}
-            {row(`${t("Дата доставки")}:`, order.delivery ? t(displayDay(order.delivery)) : t("Не указана"))}
-            {row(`${t("Тип сделки")}:`, dealLabel ? t(dealLabel) : t("Не указано"))}
+            {/* Linko shows «Дата доставки» only when the order has one. */}
+            {order.delivery && row(`${t("Дата доставки")}:`, t(displayDay(order.delivery)))}
+            {row(`${t("Тип сделки")}:`, t(dealLabel))}
             {invoiceActive && invoiceNumber && row(`${t("Статус отправки")}:`, t("Заполнено"))}
             {order.comment && row(`${t("Комментарий")}:`, order.comment)}
           </ul>
@@ -805,7 +942,7 @@ export function OrderDetailCard({
       <div className="px-[30px] pb-5">
         <div className="relative grid border-b border-[#f2f5f8]" style={{ gridTemplateColumns: TAB_COLUMNS.map((width) => `${width}fr`).join(" ") }}>
           {TABS.map((label, index) => (
-            <button key={label} type="button" onClick={() => setTab(label)} className="h-12 text-left text-[13px] font-medium text-black">
+            <button key={label} type="button" onClick={() => label !== tab && (setTab(label), setTabInUrl(true))} className="h-12 text-left text-[13px] font-medium text-black">
               <span className="block text-center" style={{ width: `${(TAB_COLUMNS[0] / TAB_COLUMNS[index]) * 100}%` }}>
                 {t(label)}
               </span>
@@ -819,56 +956,66 @@ export function OrderDetailCard({
 
         {tab === "Список товаров" && (
           <>
+            {/* Linko's «Список товаров» has no add row: lines are added in «Изменить». */}
             <ItemsTable items={items} loading={itemsLoading} />
-            {/* Lines can be added while the order is still editable, by a user who may change orders. */}
-            {editable && !final && canEditOrders && !itemsLoading && (
-              <InlineAddLine
-                key={order.id}
-                order={order}
-                onAdded={() => {
-                  // The server logged the change ("Добавлен товар: …"); the card reloads the lines, totals and log.
-                  reloadAll()
-                  onNotify(t("Товар добавлен в заказ"))
-                }}
-              />
-            )}
           </>
         )}
-        {tab === "Серии" && <Robot text={t("По вашему запросу ничего не найдено")} />}
+        {tab === "Серии" && <OrderSeriesTab orderId={order.id} refreshKey={items.map((item) => [item.id, item.quantity])} />}
+        {/* Linko's «Возврат» tab: Причина возврата (the return's comment) | Склад | Дата возврата | Сумма (<currency>) |
+            status; a row opens the return in a new tab. */}
         {tab === "Возврат" &&
           (returns.length ? (
-            <table className="mt-4 w-full text-left">
-              <thead>
-                <tr className="font-semibold">
-                  <th className="py-2">№</th>
-                  <th>{t("Дата возврата")}</th>
-                  <th>{t("Склад")}</th>
-                  <th>{t("Статус")}</th>
-                  <th className="text-right">{t("Сумма возврата")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {returns.map((entry) => (
-                  <tr key={entry.id} className="border-t border-dotted border-[#d6d6d6]">
-                    <td className="py-2">
-                      <button type="button" onClick={() => onNavigate(`/analytics/returns?r=${entry.id}`)} className="text-[#1E4A9A] hover:underline">
-                        {entry.id}
-                      </button>
-                    </td>
-                    <td>{t(displayDay(entry.returnDate))}</td>
-                    <td>{entry.warehouse}</td>
-                    <td>{t(entry.status === "accepted" ? "Принят" : entry.status === "cancelled" ? "Отменен" : "Ожидает")}</td>
-                    <td className="text-right">
-                      {formatNumber(entry.amount)} {entry.currency}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="pb-[10px]">
+              <div className={`${DOTTED_ROW} font-semibold`}>
+                <span className="text-left">{t("Причина возврата")}</span>
+                <span className="text-left">{t("Склад")}</span>
+                <span>{t("Дата возврата")}</span>
+                <span>{`${t("Сумма")} (${currency})`}</span>
+                <span />
+              </div>
+              {returns.map((entry) => (
+                <a key={entry.id} href={`/analytics/returns/${entry.id}?search=${entry.id}`} target="_blank" rel="noopener noreferrer" className={`${DOTTED_ROW} hover:bg-[#fafafa]`}>
+                  <span className="truncate text-left">{entry.comment ?? ""}</span>
+                  <span className="truncate text-left">{entry.warehouse}</span>
+                  <span>{t(displayDay(entry.returnDate.slice(0, 10)))}</span>
+                  <span>{formatNumber(entry.amount)}</span>
+                  <span className={entry.status === "accepted" ? "text-[#81c784]" : entry.status === "cancelled" ? "text-[#e57373]" : "text-[#f0ad4e]"}>
+                    {t(entry.status === "accepted" ? "Принят" : entry.status === "cancelled" ? "Отменен" : "Ожидает")}
+                  </span>
+                </a>
+              ))}
+            </div>
           ) : (
             <Robot overlay text={t("В данном заказе нет возвратов")} />
           ))}
-        {tab === "Задействованные акции" && <Robot overlay text={t("Для этого заказа нет акций")} />}
+        {/* Linko's «Задействованные акции»: № акции | Наименование | Тип акции; a row opens the promotion in a new tab. */}
+        {tab === "Задействованные акции" &&
+          (promotions === null ? (
+            <div className="h-[120px]" />
+          ) : promotions.length ? (
+            <div className="pb-[10px]">
+              <div className={`${DOTTED_ROW_PROMO} font-semibold`}>
+                <span className="text-left">{t("№ акции")}</span>
+                <span className="text-left">{t("Наименование")}</span>
+                <span>{t("Тип акции")}</span>
+              </div>
+              {promotions.map((promotion) => (
+                <a
+                  key={promotion.id}
+                  href={`/analytics/marketing-campaigns?search=${encodeURIComponent(promotion.name)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`${DOTTED_ROW_PROMO} hover:bg-[#fafafa]`}
+                >
+                  <span className="text-left">№ {promotion.id}</span>
+                  <span className="truncate text-left">{promotion.name}</span>
+                  <span>{promotion.type ? t(promotion.type) : t("Не указано")}</span>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <Robot overlay text={t("Для этого заказа нет акций")} />
+          ))}
         {tab === "Логи" && (
           <div>
             <div className="mt-[10px] flex w-full items-end justify-end">
@@ -944,11 +1091,13 @@ export function OrderDetailCard({
           orderId={order.id}
           current={status}
           initial={statusTarget}
-          delivery={order.delivery}
           error={dialogError}
           onClose={() => setDialog(null)}
-          onApply={async (next, deliveryDate) => {
-            const ok = await patchOrder(deliveryDate ? { status: next, delivery: deliveryDate } : { status: next }, `${t("Статус заказа изменён:")} ${t(next)}`)
+          onApply={async (next, deliveryDate, transferDate) => {
+            const ok = await patchOrder(
+              { status: next, ...(deliveryDate ? { delivery: deliveryDate } : {}), ...(transferDate ? { acceptedDate: transferDate } : {}) },
+              `${t("Статус заказа изменён:")} ${t(next)}`,
+            )
             if (ok) setDialog(null)
           }}
         />
@@ -967,11 +1116,22 @@ export function OrderDetailCard({
       )}
       {dialog === "manualDiscount" && (
         <ManualDiscountDialog
+          orderId={order.id}
           error={dialogError}
           onClose={() => setDialog(null)}
-          onApply={async (percent) => {
-            const error = await applyDiscountPercent(percent)
-            if (error) return setDialogError(t(error))
+          onApply={async (promotion) => {
+            // The promotion's own percents: per listed product, else its one discount on every line.
+            const percents = new Map(promotion.products.map((entry) => [entry.productId, entry.percent]))
+            const lines = items
+              .map((item) => ({ item, percent: promotion.products.length ? (item.productId !== null ? percents.get(item.productId) : undefined) : promotion.discount }))
+              .filter((line): line is { item: OrderLineItem; percent: number } => line.percent !== undefined)
+            if (!lines.length) return setDialogError(t("В заказе нет товаров этой акции"))
+            for (const line of lines) {
+              const error = await putDiscounts(order.id, [line.item], line.percent)
+              if (error) return setDialogError(t(error))
+            }
+            addLog("add_discount")
+            reloadAll()
             setDialog(null)
           }}
         />
@@ -1070,7 +1230,7 @@ export function OrderDetailCard({
           }}
         />
       )}
-      {sheet === "quickEdit" && (
+      {sheet === "quickEdit" && !itemsLoading && (
         <QuickEditSheet
           order={order}
           items={items}
@@ -1086,6 +1246,7 @@ export function OrderDetailCard({
       {sheet === "quickReturn" && (
         <QuickReturnSheet
           order={order}
+          items={items}
           onClose={() => setSheet(null)}
           onSaved={(id) => {
             addLog("updated", "Оформлен быстрый возврат")
@@ -1095,18 +1256,38 @@ export function OrderDetailCard({
           }}
         />
       )}
-      {sheet === "print" && (
-        <PrintDrawer
-          onClose={() => setSheet(null)}
-          onPick={(copies) => {
-            setPrintCopies(copies)
-            setSheet("printPreview")
-          }}
-        />
-      )}
       {sheet === "printPreview" && createPortal(<PrintSheet order={order} items={items} debt={debt} copies={printCopies} onClose={() => setSheet(null)} />, document.body)}
+      {!!shopId &&
+        createPortal(<ClientDrawer key={shopId} clientId={shopId} onClose={closeShop} editHref={`/clients?openShop=${shopId}&openUpdateDialog=true`} />, document.body)}
     </div>
   )
+}
+
+/**
+ * «Частичный возврат» → Linko's #/return?c=<client>&m=<shop>&o=<order>&s=<warehouse>&d=<delivery man>&openCreateDialog=true:
+ * the returns page opens «Добавление возврата» for the order with its warehouse and delivery man already chosen.
+ * Here the client and the shop are one record; the warehouse and the delivery man are found by the order's names.
+ */
+async function partialReturnHref(order: Order): Promise<string> {
+  const params = new URLSearchParams()
+  if (order.clientId) {
+    params.set("c", String(order.clientId))
+    params.set("m", String(order.clientId))
+  }
+  params.set("o", String(order.id))
+  params.set("openCreateDialog", "true")
+  const same = (a: unknown, b: string) => String(a ?? "").trim().toLowerCase() === b.trim().toLowerCase()
+  const warehouse = order.warehouse || order.stockName || ""
+  const [stocks, people] = await Promise.all([
+    warehouse ? api<Array<{ id: number; name: string }>>("/api/warehouses") : null,
+    order.deliveryMan ? api<Array<Record<string, unknown>>>("/api/employees") : null,
+  ])
+  const stock = stocks?.ok && Array.isArray(stocks.body) ? stocks.body.find((row) => same(row.name, warehouse)) : undefined
+  if (stock) params.set("s", String(stock.id))
+  const man = people?.ok && Array.isArray(people.body) ? people.body.find((row) => same(employeeName(row), order.deliveryMan ?? "")) : undefined
+  if (man && typeof man.id === "number") params.set("d", String(man.id))
+  params.sort()
+  return `/analytics/returns?${params}`
 }
 
 /** Sets one discount on every line; returns the first server error, if any. */
@@ -1242,30 +1423,76 @@ export function LogDetailsSheet({ orderId, logs, onClose }: { orderId: number; l
 /* Items table                                                         */
 /* ------------------------------------------------------------------ */
 
-function SortHead({ children, width }: { children: ReactNode; width?: string }) {
+/** The items table's sortable columns (Linko's ordering keys). */
+type ItemSortKey = "productName" | "amount" | "total" | "totalWeight" | "returnAmount" | "price" | "productTotal" | "discount"
+type ItemSort = { key: ItemSortKey; desc: boolean } | null
+
+/** A sortable header: both arrows while unsorted, only the active one once the column orders the rows (Linko). */
+function SortHead({ children, width, name, sort, onSort }: { children: ReactNode; width?: string; name: ItemSortKey; sort: ItemSort; onSort: (key: ItemSortKey) => void }) {
+  const active = sort?.key === name ? sort : null
   return (
-    <th style={width ? { width } : undefined} className="whitespace-nowrap bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold text-[#374557]">
+    <th style={width ? { width } : undefined} onClick={() => onSort(name)} className="cursor-pointer select-none whitespace-nowrap bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold text-[#374557]">
       <span className="flex items-center">
         {children}
-        <span className="flex h-5 w-5 flex-col">
-          <svg viewBox="0 0 24 24" className="ml-[5px] -mb-[5px] h-[15px] w-[15px] fill-[#888]"><path d="M7 14l5-5 5 5z" /></svg>
-          <svg viewBox="0 0 24 24" className="ml-[5px] -mt-[5px] h-[15px] w-[15px] fill-[#888]"><path d="M7 10l5 5 5-5z" /></svg>
+        <span className="flex h-5 w-5 flex-col justify-center">
+          {(!active || !active.desc) && <svg viewBox="0 0 24 24" className={`ml-[5px] h-[15px] w-[15px] fill-[#888] ${active ? "" : "-mb-[5px]"}`}><path d="M7 14l5-5 5 5z" /></svg>}
+          {(!active || active.desc) && <svg viewBox="0 0 24 24" className={`ml-[5px] h-[15px] w-[15px] fill-[#888] ${active ? "" : "-mt-[5px]"}`}><path d="M7 10l5 5 5-5z" /></svg>}
         </span>
       </span>
     </th>
   )
 }
 
-/** "0 тонна(+1 кг)": whole blocks of `boxAmount` units, the remainder in the product's own unit. */
-function blockLabel(quantity: number, unit: string, boxAmount?: number, boxUnit?: string) {
+/** "0 тонна (+1 кг)": whole blocks of `boxAmount` units, the remainder in the product's own unit (Linko: a 12 px span
+ * 4 px after the blocks). */
+function blockLabel(quantity: number, unit: string, boxAmount?: number, boxUnit?: string): ReactNode {
   if (!boxAmount || boxAmount <= 0 || !boxUnit) return "0"
   const blocks = Math.floor(quantity / boxAmount)
   const rest = Math.round((quantity - blocks * boxAmount) * 1000) / 1000
-  return `${blocks} ${boxUnit}${rest > 0 ? `(+${formatNumber(rest)} ${unit})` : ""}`
+  return (
+    <>
+      {blocks} {boxUnit}
+      {rest > 0 && <span className="ml-[4px] text-[12px]">(+{formatNumber(rest)} {unit})</span>}
+    </>
+  )
+}
+
+/** Linko prints line prices and sums with up to 8 decimals (those of Настройки → Округление сумм when set). */
+function formatPrice(value: number) {
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: amountDigits(8) })
+}
+
+/** A line's price after its discount (the stored price is the one before it). */
+const salePrice = (item: OrderLineItem) => item.unitPrice * (1 - item.discountPercent / 100)
+/** What the discount takes off the line (a bonus line, given for free, shows 0 like Linko). */
+const lineDiscount = (item: OrderLineItem) => (item.isBonus ? 0 : item.quantity * item.unitPrice - item.lineTotal)
+
+const SORT_VALUE: Record<ItemSortKey, (item: OrderLineItem) => number | string> = {
+  productName: (item) => item.productName,
+  amount: (item) => item.quantity,
+  total: (item) => (item.boxAmount && item.boxAmount > 0 ? item.quantity / item.boxAmount : 0),
+  totalWeight: () => 0,
+  returnAmount: (item) => item.returnQuantity ?? 0,
+  price: salePrice,
+  productTotal: (item) => item.lineTotal,
+  discount: lineDiscount,
 }
 
 function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boolean }) {
   const { t } = useLanguage()
+  // Linko: a header click orders the lines descending, the next ascending, the third goes back to the order's own.
+  const [sort, setSort] = useState<ItemSort>(null)
+  const onSort = (key: ItemSortKey) => setSort((current) => (current?.key !== key ? { key, desc: true } : current.desc ? { key, desc: false } : null))
+  const rows = useMemo(() => {
+    if (!sort) return items
+    const value = SORT_VALUE[sort.key]
+    return [...items].sort((a, b) => {
+      const x = value(a)
+      const y = value(b)
+      const order = typeof x === "string" || typeof y === "string" ? String(x).localeCompare(String(y), "ru") : x - y
+      return sort.desc ? -order : order
+    })
+  }, [items, sort])
   const totals = items.reduce(
     (sum, item) => ({
       total: sum.total + item.lineTotal,
@@ -1280,6 +1507,7 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
   const currency = items[0]?.currency || ""
 
   const cell = "border-b border-r border-[#efefef] px-[17.5px] py-[8px] align-middle"
+  const head = { sort, onSort }
 
   return (
     <div className="border-l border-[#efefef]">
@@ -1287,14 +1515,14 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
         <thead>
           <tr>
             <th className="bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold text-[#374557]">№</th>
-            <SortHead width="30%">{t("Товар")}</SortHead>
-            <SortHead>{t("Количество")}</SortHead>
-            <SortHead>{t("Блок")}</SortHead>
-            <SortHead>{t("Кг.")}</SortHead>
-            <SortHead>{t("Возврат")}</SortHead>
-            <SortHead>{`${t("Цена")} ${currency}`}</SortHead>
-            <SortHead>{`${t("Сумма")} ${currency}`}</SortHead>
-            <SortHead>{`${t("Скидка")} (${currency})`}</SortHead>
+            <SortHead width="30%" name="productName" {...head}>{t("Товар")}</SortHead>
+            <SortHead name="amount" {...head}>{t("Количество")}</SortHead>
+            <SortHead name="total" {...head}>{t("Блок")}</SortHead>
+            <SortHead name="totalWeight" {...head}>{t("Кг.")}</SortHead>
+            <SortHead name="returnAmount" {...head}>{t("Возврат")}</SortHead>
+            <SortHead name="price" {...head}>{`${t("Цена")} ${currency}`}</SortHead>
+            <SortHead name="productTotal" {...head}>{`${t("Сумма")} ${currency}`}</SortHead>
+            <SortHead name="discount" {...head}>{`${t("Скидка")} (${currency})`}</SortHead>
           </tr>
         </thead>
         <tbody>
@@ -1311,12 +1539,14 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
               </td>
             </tr>
           ) : (
-            items.map((item, index) => (
+            rows.map((item, index) => (
               <tr key={item.id}>
+                {/* Linko numbers the lines in the order they are shown. */}
                 <td className={cell}>{index + 1}</td>
                 <td className={cell}>
                   {item.productName}
-                  {item.article && <span className="block text-[#1E4A9A]">{item.article}</span>}
+                  {item.isBonus && <strong className="font-semibold text-[#81c784]"> ({t("бонус")})</strong>}
+                  {item.article && <span title={`${t("Артикул")}: ${item.article}`} className="block text-[#1E4A9A]">{item.article}</span>}
                 </td>
                 <td className={cell}>
                   {formatNumber(item.quantity)} {t(item.unit)}
@@ -1324,9 +1554,25 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
                 <td className={cell}>{blockLabel(item.quantity, t(item.unit), item.boxAmount, item.boxUnit && t(item.boxUnit))}</td>
                 <td className={cell}>0</td>
                 <td className={`${cell} ${(item.returnQuantity ?? 0) > 0 ? "text-[#e57373]" : ""}`}>{(item.returnQuantity ?? 0) > 0 ? "- " : ""}{formatNumber(item.returnQuantity ?? 0)} {t(item.unit)}</td>
-                <td className={cell}>{formatNumber(item.unitPrice)}</td>
-                <td className={cell}>{formatNumber(item.lineTotal)}</td>
-                <td className={cell}>{formatNumber(item.quantity * item.unitPrice - item.lineTotal)}</td>
+                {/* Linko: the price after the discount, then the price before it in blue while a discount applies. */}
+                <td className={cell}>
+                  {formatPrice(salePrice(item))}
+                  {item.discountPercent > 0 && item.unitPrice > 0 && (
+                    <span title={t("Цена без скидки")} className="block text-[#1E4A9A]">
+                      {formatPrice(item.unitPrice)}
+                    </span>
+                  )}
+                </td>
+                <td className={cell}>{formatPrice(item.lineTotal)}</td>
+                {/* Linko: what the discount takes off the line (0 for a bonus line), then its percent in blue. */}
+                <td className={cell}>
+                  {formatNumber(lineDiscount(item))}
+                  {item.discountPercent > 0 && (
+                    <span title={t("Процент скидки")} className="block text-[#1E4A9A]">
+                      {formatPrice(item.discountPercent)} %
+                    </span>
+                  )}
+                </td>
               </tr>
             ))
           )}
@@ -1342,7 +1588,7 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
               <td className="border-b border-r border-[#efefef] px-[17.5px]">0</td>
               <td className={`border-b border-r border-[#efefef] px-[17.5px] ${totals.returned > 0 ? "text-[#e57373]" : ""}`}>{totals.returned > 0 ? "- " : ""}{returnedTotals}</td>
               <td className="border-b border-r border-[#efefef]" />
-              <td className="border-b border-r border-[#efefef] px-[17.5px]">{formatNumber(totals.total)}</td>
+              <td className="border-b border-r border-[#efefef] px-[17.5px]">{formatPrice(totals.total)}</td>
               <td className="border-b border-r border-[#efefef] px-[17.5px]">{formatNumber(totals.discount)}</td>
             </tr>
           )}
@@ -1352,342 +1598,67 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
   )
 }
 
-/** Can the signed-in user change orders (POST /api/orders/[id]/items needs a manager and orders.manage)? */
-function useCanEditOrders(): boolean {
-  const [can, setCan] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((user: { role?: string; permissions?: string[] | null } | null) => {
-        if (cancelled || !user) return
-        const role = user.role ?? ""
-        setCan(role === "admin" || (role === "manager" && (user.permissions == null || user.permissions.includes("orders.manage"))))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  return can
-}
-
-type SellableProduct = {
-  id: number
-  name: string
-  unit?: string
-  canSell?: boolean
-  deleted?: boolean
-  priceLists?: { name: string; cash?: number; nonCash?: number; currency?: string; nonCashCurrency?: string }[]
-}
-
-const MAX_LINE_QTY = 1_000_000_000
-const MAX_LINE_PRICE = 10_000_000_000_000
-
-/**
- * "+ добавить товар" under the order's lines: the edit form's inline row (Наименование / Кол-во /
- * Сумма за ед). The line is saved through the same validated path as the edit form
- * (POST /api/orders/[id]/items): the server applies the order status, Ограничение продуктов,
- * the agent limits, the time restrictions and — for a reserved order — the warehouse stock.
- */
-function InlineAddLine({ order, onAdded }: { order: Order; onAdded: () => void }) {
-  const { t } = useLanguage()
-  const [open, setOpen] = useState(false)
-  if (!open) {
-    return (
-      <div className="flex justify-end pt-[10px]">
-        <button type="button" onClick={() => setOpen(true)} className="h-9 px-4 text-[13px] text-[#4f6fe0] hover:underline">
-          + {t("добавить товар")}
-        </button>
-      </div>
-    )
-  }
-  return (
-    <InlineAddForm
-      order={order}
-      onClose={() => setOpen(false)}
-      onAdded={() => {
-        setOpen(false)
-        onAdded()
-      }}
-    />
-  )
-}
-
-function InlineAddForm({ order, onClose, onAdded }: { order: Order; onClose: () => void; onAdded: () => void }) {
-  const { t } = useLanguage()
-  const app = useAppCurrencyInfo()
-  const [products, setProducts] = useState<SellableProduct[] | null>(null)
-  // The price lists (with their currency): a product entry without its own currency is in its list's currency.
-  const [priceLists, setPriceLists] = useState<OrderPriceList[] | null>(null)
-  // Ограничение продуктов: an agent with a product / type list is offered only those products (the API refuses the others).
-  const sellable = useAllowedRows(products, useAllowedProductIds(order.agent))
-  const [productId, setProductId] = useState("")
-  const [quantity, setQuantity] = useState("")
-  const [unitPrice, setUnitPrice] = useState("")
-  const [busy, setBusy] = useState(false)
-  // A double click / double Enter sends one request (the state update lands after the second event).
-  const sending = useRef(false)
-  const [error, setError] = useState("")
-
-  useEffect(() => {
-    let cancelled = false
-    void api<SellableProduct[]>("/api/products").then((result) => {
-      if (!cancelled) setProducts(result.ok && Array.isArray(result.body) ? result.body.filter((row) => row.canSell !== false && !row.deleted) : [])
-    })
-    // Every list (active=all): the order may use a list that was switched off later. A failed load leaves
-    // only the entries with their own currency priced (the others are typed by hand).
-    void api<OrderPriceList[]>("/api/price-lists?active=all").then((result) => {
-      if (!cancelled) setPriceLists(result.ok && Array.isArray(result.body) ? result.body : [])
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // The order's currency and payment type pick the price list price (cash / non-cash), like the edit form.
-  const currency = (order.currency || "").trim()
-  const nonCash = order.payTypeName === "Перечисление" || (order.payTypeName !== "Наличные" && (order.paymentType === "bank" || order.payMethod === "bank"))
-  /**
-   * The price list price in the order currency, else "" (typed by hand). An entry without its own currency is in
-   * its list's currency; a price of another or an unknown currency is never taken (order-list-price.ts).
-   */
-  const listPrice = (product: SellableProduct): string => {
-    const value = orderListPrice(product.priceLists, { priceList: order.priceList, lists: priceLists, orderCurrency: currency, nonCash, rates: app.code ? app.rates : undefined })
-    return value === null || value > MAX_LINE_PRICE ? "" : String(value)
-  }
-
-  async function submit() {
-    if (sending.current) return
-    setError("")
-    const product = (sellable ?? []).find((row) => String(row.id) === productId)
-    if (!product) return setError(t("Выберите товар"))
-    const qty = strictNumber(quantity, { locale: true })
-    const price = strictNumber(unitPrice, { locale: true })
-    if (!(qty > 0 && qty <= MAX_LINE_QTY) || !(price >= 0 && price <= MAX_LINE_PRICE) || unitPrice.trim() === "") return setError(t("Проверьте количество и цену"))
-    sending.current = true
-    setBusy(true)
-    const result = await api(`/api/orders/${order.id}/items`, {
-      method: "POST",
-      body: { productId: product.id, productName: product.name, ...(product.unit ? { unit: product.unit } : {}), quantity: qty, unitPrice: price, discountPercent: 0, ...(currency ? { currency } : {}) },
-    })
-    sending.current = false
-    setBusy(false)
-    if (!result.ok) return setError(orderApiErrorText(result, t, "Не удалось сохранить изменения на сервере"))
-    onAdded()
-  }
-
-  // Enter in a field adds the line; Escape closes only this row (stopped here, so the card stays open).
-  const keys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
-      event.preventDefault()
-      void submit()
-    } else if (event.key === "Escape") {
-      event.preventDefault()
-      event.stopPropagation()
-      onClose()
-    }
-  }
-
-  return (
-    <div className="mt-[10px] bg-[#f1f4f7] px-[18px] pb-4 pt-8" onKeyDown={keys}>
-      <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
-        <div className="w-[510px] max-w-full">
-          <ProductSelect
-            label={t("Наименование")}
-            value={productId}
-            onChange={(value) => {
-              setError("")
-              setProductId(value)
-              const product = (sellable ?? []).find((row) => String(row.id) === value)
-              setQuantity((current) => current || "1")
-              setUnitPrice(product ? listPrice(product) : "")
-            }}
-            loading={!sellable || !priceLists}
-            options={sellable && priceLists ? sellable.map((row) => ({ value: String(row.id), label: row.name })) : []}
-          />
-        </div>
-        <FlatInput label={t("Кол-во")} value={quantity} onChange={(value) => (setError(""), setQuantity(value))} className="w-[200px]" />
-        <FlatInput label={`${t("Сумма за ед")}${currency ? ` (${currency})` : ""}`} value={unitPrice} onChange={(value) => (setError(""), setUnitPrice(value))} className="w-[310px]" />
-        <div className="mb-2 flex items-center gap-4">
-          <button type="button" onClick={() => void submit()} disabled={busy} aria-label={t("Добавить")} title={t("Добавить")} className="text-[#4f6fe0] disabled:opacity-50">
-            <Mi d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" className="h-6 w-6 fill-current" />
-          </button>
-          <button type="button" onClick={onClose} aria-label={t("Отмена")} title={t("Отмена")} className="text-[#999] hover:text-[#666]">
-            <Mi d={ICONS.close} className="h-6 w-6 fill-current" />
-          </button>
-        </div>
-      </div>
-      {error && <p className="mt-3 text-[13px] text-[#f44336]">{error}</p>}
-    </div>
-  )
-}
-
-/**
- * The edit form's flat "Наименование" select (the bold label is the placeholder and floats above once a
- * product is chosen) with a typed search. The list is portaled to <body> as a fixed panel under (or above)
- * the field, so the order rows that follow the card never cover it.
- */
-function ProductSelect({
-  label,
-  value,
-  options,
-  loading,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: Array<{ value: string; label: string }>
-  loading: boolean
-  onChange: (value: string) => void
-}) {
-  const { t } = useLanguage()
-  const [place, setPlace] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null)
-  const [query, setQuery] = useState("")
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const listRef = useRef<HTMLDivElement>(null)
-  const selected = options.find((row) => row.value === value)
-  const needle = query.trim().toLowerCase()
-  const shown = needle ? options.filter((row) => row.label.toLowerCase().includes(needle)) : options
-
-  const openList = () => {
-    const rect = buttonRef.current?.getBoundingClientRect()
-    if (!rect) return
-    setQuery("")
-    const below = window.innerHeight - rect.bottom
-    setPlace(below >= 300 || below >= rect.top ? { left: rect.left, width: rect.width, top: rect.bottom + 2 } : { left: rect.left, width: rect.width, bottom: window.innerHeight - rect.top + 2 })
-  }
-  const pick = (next: string) => {
-    onChange(next)
-    setPlace(null)
-    buttonRef.current?.focus()
-  }
-
-  useEffect(() => {
-    if (!place) return
-    const inside = (target: EventTarget | null) => target instanceof Node && (listRef.current?.contains(target) || buttonRef.current?.contains(target))
-    const onDown = (event: MouseEvent) => !inside(event.target) && setPlace(null)
-    // The panel is fixed: it closes when the page under it scrolls or resizes (scrolling the list itself is fine).
-    const onScroll = (event: Event) => !inside(event.target) && setPlace(null)
-    const onResize = () => setPlace(null)
-    document.addEventListener("mousedown", onDown)
-    window.addEventListener("scroll", onScroll, true)
-    window.addEventListener("resize", onResize)
-    return () => {
-      document.removeEventListener("mousedown", onDown)
-      window.removeEventListener("scroll", onScroll, true)
-      window.removeEventListener("resize", onResize)
-    }
-  }, [place])
-
-  return (
-    <div className="relative">
-      <span className={`block h-[13px] text-[9.75px] font-semibold leading-[12.2px] text-black ${selected ? "" : "invisible"}`}>{label}</span>
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={Boolean(place)}
-        onClick={() => (place ? setPlace(null) : openList())}
-        className="relative flex h-[41px] w-full items-center border-b border-[#e0e0e0] pr-14 pt-[3px] text-left text-[13px] font-semibold text-[#333]"
-      >
-        {selected ? <span className="truncate">{selected.label}</span> : <span className="font-semibold text-black">{label}</span>}
-        <span className="absolute right-0 top-[11px] flex items-center text-[#999]">
-          {loading && <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-[#ccc] border-t-transparent" />}
-          <svg viewBox="0 0 10 7" className="mr-[10px] h-[7px] w-[10px]" aria-hidden>
-            <path d={place ? "M0 7h10L5 0z" : "M0 0h10L5 7z"} fill="#999" />
-          </svg>
-        </span>
-      </button>
-      {place &&
-        createPortal(
-          <div
-            ref={listRef}
-            data-order-overlay
-            style={{ position: "fixed", left: place.left, width: place.width, top: place.top, bottom: place.bottom }}
-            className="z-[1400] bg-white py-1 font-sans shadow-[0_2px_10px_rgba(0,0,0,0.2)]"
-          >
-            <input
-              autoFocus
-              value={query}
-              placeholder={t("Поиск")}
-              aria-label={t("Поиск")}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                // Handled here: the add-line row must not take Enter (save) or Escape (close) from the search box.
-                if (event.key === "Escape") {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setPlace(null)
-                  buttonRef.current?.focus()
-                } else if (event.key === "Enter") {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  if (shown[0]) pick(shown[0].value)
-                }
-              }}
-              className="mx-3 mb-1 block h-8 w-[calc(100%-24px)] border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none"
-            />
-            <ul role="listbox" className="max-h-60 overflow-y-auto">
-              {shown.length === 0 ? (
-                <li className="px-3 py-2 text-[13px] font-semibold text-slate-400">{loading ? t("Загрузка...") : t("Ничего не найдено")}</li>
-              ) : (
-                shown.map((row) => (
-                  <li key={row.value} role="option" aria-selected={row.value === value}>
-                    <button
-                      type="button"
-                      onClick={() => pick(row.value)}
-                      className={`block w-full px-3 py-2 text-left text-[13px] font-semibold ${row.value === value ? "bg-[#e3effd] text-slate-800" : "text-slate-500 hover:bg-slate-50"}`}
-                    >
-                      {row.label}
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>,
-          document.body,
-        )}
-    </div>
-  )
-}
 
 /* ------------------------------------------------------------------ */
 /* Dialogs                                                             */
 /* ------------------------------------------------------------------ */
 
-/** "Размер скидки / OK" popover under the Скидка button (the reference's first discount menu item). */
-function DiscountSizePopover({ onClose, onApply }: { onClose: () => void; onApply: (percent: number) => void }) {
+/**
+ * "Размер скидки / OK" popover under the Скидка button (the reference's first discount menu item). Like Linko the field
+ * hints the order's current discount (100 × discount / (total + discount), "9,091"), right-aligned before a "%", and an
+ * order with a discount also gets the red «Отменить скидку», which takes it off at once.
+ */
+function DiscountSizePopover({ percent, hasReturn, onClose, onApply }: { percent: number; hasReturn: boolean; onClose: () => void; onApply: (percent: number) => void }) {
   const { t } = useLanguage()
   const [value, setValue] = useState("")
   const submit = () => {
-    const percent = Number(value)
-    if (percent > 0 && percent <= 100) onApply(percent)
+    // Linko offers no OK while the order has a return (its lines' return_amount add up to more than 0).
+    if (hasReturn) return onClose()
+    const next = strictNumber(value, { locale: true })
+    if (next > 0 && next <= 100) onApply(next)
     else onClose()
   }
+  // Linko's OrderSetDiscountForm: 10 px padding (20 px on the left), the hint in the amount precision, no "%" sign; an
+  // order with a return gets the red notice before the field and no OK.
   return (
     <>
       <button type="button" data-order-overlay aria-label={t("Закрыть")} onClick={onClose} className="fixed inset-0 z-[110] cursor-default" />
-      <div className="absolute left-[-71.1px] top-[38.3px] z-[115] h-[72px] w-[198.1px] rounded-[2px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-        <span className="absolute left-[149px] top-[-7px] h-[14px] w-[14px] rotate-45 bg-white shadow-[-2px_-2px_4px_rgba(0,0,0,0.06)]" />
-        <div className="relative h-full overflow-hidden rounded-[2px] bg-white">
-          <span className="absolute left-5 top-[10.7px] text-[9.75px] font-semibold leading-[12.2px] text-black">{t("Размер скидки")}</span>
-          <input
-            autoFocus
-            inputMode="decimal"
-            value={value}
-            onChange={(event) => setValue(event.target.value.replace(/[^\d.]/g, ""))}
-            onKeyDown={(event) => event.key === "Enter" && submit()}
-            className="absolute left-5 top-[27px] h-[26px] w-[110px] bg-transparent text-[13px] font-semibold text-[#333] outline-none"
-          />
-          <span className="absolute left-5 top-[53px] h-px w-[110px] bg-[#e0e0e0]" />
-          <button type="button" onClick={submit} className="absolute left-[138px] top-[21.5px] h-9 w-[50.1px] text-center">
-            <span className="inline-block py-[9px] text-[13px] leading-[18px] text-[#1E4A9A]">OK</span>
-          </button>
+      <div className="absolute right-[-26px] top-[38.3px] z-[115] h-[72px] rounded-[2px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+        <span className="absolute right-[35px] top-[-7px] h-[14px] w-[14px] rotate-45 bg-white shadow-[-2px_-2px_4px_rgba(0,0,0,0.06)]" />
+        <div className="relative flex h-full items-start overflow-hidden whitespace-nowrap rounded-[2px] bg-white pl-5 pr-[10px]">
+          {hasReturn && <span className="mr-5 mt-[32px] text-[13px] leading-4 text-[#e57373]">{t("У этого заказа есть возврат пожалуйста с начало отмените возврат")}</span>}
+          <label className="relative block h-full w-[110px]">
+            <span className="absolute left-0 top-[11px] text-[9.75px] font-semibold leading-[12.2px] text-black">{t("Размер скидки")}</span>
+            <input
+              autoFocus
+              inputMode="decimal"
+              value={value}
+              placeholder={formatNumber(percent)}
+              onChange={(event) => setValue(event.target.value.replace(/[^\d.,]/g, ""))}
+              onKeyDown={(event) => event.key === "Enter" && submit()}
+              className="absolute inset-x-0 top-[28px] h-[24px] bg-transparent text-right text-[13px] font-semibold text-[#333] outline-none placeholder:font-normal placeholder:text-black/30"
+            />
+            <span className="absolute inset-x-0 top-[52px] h-px bg-[#e0e0e0]" />
+          </label>
+          {!hasReturn && (
+            <button type="button" onClick={submit} className="ml-[8px] mt-[22px] h-9 min-w-[50px] text-center">
+              <span className="text-[13px] font-semibold leading-[18px] text-[#1E4A9A]">OK</span>
+            </button>
+          )}
+          {percent > 0 && (
+            <button type="button" onClick={() => onApply(0)} className="ml-[8px] mt-[22px] h-9 px-4 text-[13px] font-semibold uppercase leading-[18px] text-[#e57373]">
+              {t("Отменить скидку")}
+            </button>
+          )}
         </div>
       </div>
     </>
   )
+}
+
+/** "9,091": a number with a decimal comma and at most `digits` fraction digits (Linko's percent hints). */
+function formatDecimal(value: number, digits: number) {
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: digits })
 }
 
 /** Shown instead of the return menu while the goods are still in the warehouse. */
@@ -1723,7 +1694,6 @@ function StatusDialog({
   orderId,
   current,
   initial,
-  delivery,
   error,
   onClose,
   onApply,
@@ -1731,38 +1701,54 @@ function StatusDialog({
   orderId: number
   current: string
   initial: string
-  delivery: string
   error?: string
   onClose: () => void
-  onApply: (status: string, deliveryDate?: string) => void
+  onApply: (status: string, deliveryDate?: string, transferDate?: string) => void
 }) {
   const { t } = useLanguage()
   const [status, setStatus] = useState(initial)
   const [changeDelivery, setChangeDelivery] = useState(false)
   const [changeTransfer, setChangeTransfer] = useState(false)
-  const [date, setDate] = useState(toInputDate(delivery))
+  // Linko opens both date fields empty (the picker starts on today); an unpicked date changes nothing.
+  const [date, setDate] = useState("")
+  const [transferDate, setTransferDate] = useState("")
   const options = ORDER_STATUS_OPTIONS.filter((value) => value === current || canChangeStatus(current, value))
-  const label = (value: string) => t(value === "Доставлено" ? "Доставлен" : value)
+  // Linko's labels of the six statuses («Не подтвержденный», «Передан доставщику», «Доставлен»).
+  const label = (value: string) => t(STATUS_MENU.find((item) => item.status === value)?.label ?? value)
   return (
-    <DialogShell title={t("Изменение")} height={302.3} inset onClose={onClose} action={t("Изменить")} error={error} disabled={status === current && !changeDelivery} onAction={() => onApply(status, changeDelivery ? date : undefined)}>
+    <DialogShell
+      title={t("Изменение")}
+      height={302.3}
+      inset
+      onClose={onClose}
+      action={t("Изменить")}
+      error={error}
+      disabled={!status || (status === current && !(changeDelivery && date) && !(changeTransfer && transferDate))}
+      onAction={() => status && onApply(status, changeDelivery && date ? date : undefined, changeTransfer && transferDate ? transferDate : undefined)}
+    >
       <p className="mt-[10px] text-[13px] font-bold leading-[16.3px]">
         {t("Заказ №")} {orderId}
       </p>
+      {/* Linko's status select can be cleared (×); nothing is changed without a status. */}
       <RefSelect
         className="mt-[10px]"
         label={t("Статус")}
         value={status}
-        display={label(status)}
+        display={status ? label(status) : undefined}
         options={options.map((value) => ({ value, label: label(value) }))}
         onChange={setStatus}
+        onClear={() => setStatus("")}
       />
-      <RefCheck className="mt-[15px]" checked={changeDelivery} onChange={setChangeDelivery}>
+      {/* Linko's dark grey boxes; an empty date field shows its name 14 px above the line, 9 px under the box. */}
+      <RefCheck className="mt-[15px] [&_path]:fill-[#666]" checked={changeDelivery} onChange={setChangeDelivery}>
         {t("Изменить дата доставки")}
       </RefCheck>
-      {changeDelivery && <RefDate className="mt-[10px]" label={t("Дата доставки")} value={date} display={t(longRuDate(date))} onChange={setDate} />}
-      <RefCheck className={changeDelivery ? "mt-[10px]" : "mt-[20px]"} checked={changeTransfer} onChange={setChangeTransfer}>
+      {changeDelivery && <RefDate className="mt-[9px]" height={47} label={t("Дата доставки")} value={date} display={t(longRuDate(date))} onChange={setDate} />}
+      <RefCheck className={`${changeDelivery ? "mt-[29px]" : "mt-[20px]"} [&_path]:fill-[#666]`} checked={changeTransfer} onChange={setChangeTransfer}>
         {t("Изменить дату передачи")}
       </RefCheck>
+      {/* Linko's «Дата передачи»: the day the goods were handed over (the card's «Дата реализации»). */}
+      {changeTransfer && <RefDate className="mb-[29px] mt-[9px]" height={47} label={t("Дата передачи")} value={transferDate} display={t(longRuDate(transferDate))} onChange={setTransferDate} />}
     </DialogShell>
   )
 }
@@ -1819,17 +1805,36 @@ function InvoiceDialog({ order, onClose, onSave }: { order: Order; onClose: () =
   )
 }
 
-function ManualDiscountDialog({ onClose, onApply, error }: { onClose: () => void; onApply: (percent: number) => void; error?: string }) {
+/** An active manual-discount promotion (GET /api/orders/[id]/promotions?manual=true). */
+type ManualPromotion = { id: number; name: string; discount: number; products: Array<{ productId: number; percent: number }> }
+
+/**
+ * «Ручная скидка»: Linko's «Акция» select lists the active promotions of type discount with the manual discount kind
+ * (market/promotion/get_active?order=&type=discount&discount_type=manual), «Не найдено» when there is none.
+ */
+function ManualDiscountDialog({ orderId, onClose, onApply, error }: { orderId: number; onClose: () => void; onApply: (promotion: ManualPromotion) => void; error?: string }) {
   const { t } = useLanguage()
-  const [percent, setPercent] = useState("")
+  const [chosen, setChosen] = useState("")
+  const [promotions, setPromotions] = useState<ManualPromotion[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void api<ManualPromotion[]>(`/api/orders/${orderId}/promotions?manual=true`).then((result) => {
+      if (!cancelled) setPromotions(result.ok && Array.isArray(result.body) ? result.body : [])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [orderId])
+  const promotion = promotions?.find((row) => String(row.id) === chosen)
   return (
-    <DialogShell title={t("Ручная скидка")} height={367} onClose={onClose} action={t("Применить")} error={error} disabled={!percent} onAction={() => onApply(Number(percent))}>
+    <DialogShell title={t("Ручная скидка")} height={367} onClose={onClose} action={t("Применить")} error={error} disabled={!promotion} onAction={() => promotion && onApply(promotion)}>
       <RefSelect
         className="mt-[30px]"
         label={t("Акция")}
-        value={percent}
-        options={[5, 10, 15, 20, 25, 30].map((value) => ({ value: String(value), label: `${t("Скидка")} ${value}%` }))}
-        onChange={setPercent}
+        value={chosen}
+        options={(promotions ?? []).map((row) => ({ value: String(row.id), label: row.name }))}
+        emptyText={promotions === null ? t("Загрузка...") : t("Не найдено")}
+        onChange={setChosen}
       />
     </DialogShell>
   )
@@ -1856,27 +1861,50 @@ function FullReturnDialog({ order, onClose, onConfirm, error }: { order: Order; 
 /* Full screen sheets                                                  */
 /* ------------------------------------------------------------------ */
 
+/** A typed number of the quick edit ("10 000", "0,17"); NaN when it is not one. */
+const read = (text: string | undefined) => strictNumber(text ?? "", { locale: true })
+
+/** The line's unit price after its own discount (what Linko's quick edit starts «Цена» at). */
+const currentPrice = (item: OrderLineItem) => Math.round(item.unitPrice * (1 - (item.discountPercent ?? 0) / 100) * 1e8) / 1e8
+
+/** "10000" → "10 000" (Linko's quick edit shows the line price grouped; strictNumber reads it back). */
+function groupedInput(value: number) {
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: 8, useGrouping: true }).replace(/ | /g, " ")
+}
+
+/** A typed amount regrouped as Linko's price inputs do while typing ("10000" → "10 000", "10000,5" → "10 000,5");
+ * anything that is not a plain number is left as typed. */
+function regroupTyped(text: string) {
+  const match = /^(-?)(\d+)([.,]\d*)?$/.exec(text.replace(/\s+/g, ""))
+  return match ? `${match[1]}${match[2].replace(/\B(?=(\d{3})+(?!\d))/g, " ")}${match[3] ?? ""}` : text
+}
+
 function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; items: OrderLineItem[]; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
-  const [lines, setLines] = useState(() => items.map((item) => ({ id: item.id, quantity: String(item.quantity), price: String(item.unitPrice), discount: item.discountPercent ? String(item.discountPercent) : "" })))
-  const [confirmed, setConfirmed] = useState(true)
+  // Linko's USE_ORDER_PRODUCT_PRICE_DISCOUNT (on for this account): «Скидка (<currency>)» is an amount off the unit price.
+  // «Цена» starts at the line's current price (after its discount) and the discount empty; new price = price − discount.
+  const initial = useMemo(() => items.map((item) => ({ quantity: String(item.quantity), price: groupedInput(currentPrice(item)), discount: "" })), [items])
+  const [lines, setLines] = useState(initial)
+  // Linko: ticked for a confirmed order; it cannot be changed once the order is handed over or delivered.
+  const confirmLocked = order.status === "В пути" || order.status === "Доставлено"
+  const [confirmed, setConfirmed] = useState(order.status !== "Не подтвержден")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-
   const calc = useMemo(
     () =>
       items.map((item, index) => {
         const line = lines[index]
-        const quantity = Number(line?.quantity) || 0
-        const price = Number(line?.price) || 0
-        const discount = Number(line?.discount) || 0
-        const gross = quantity * price
-        return { gross, net: gross * (1 - discount / 100), newPrice: price * (1 - discount / 100) }
+        const quantity = read(line?.quantity) || 0
+        const price = read(line?.price) || 0
+        const discount = read(line?.discount) || 0
+        return { quantity, gross: quantity * price, off: quantity * discount, net: quantity * (price - discount), newPrice: price - discount }
       }),
     [items, lines],
   )
   const grossTotal = calc.reduce((sum, line) => sum + line.gross, 0)
+  const offTotal = calc.reduce((sum, line) => sum + line.off, 0)
   const netTotal = calc.reduce((sum, line) => sum + line.net, 0)
+  const currency = items[0]?.currency || order.currency || ""
 
   const update = (index: number, patch: Partial<(typeof lines)[number]>) => {
     setError("")
@@ -1886,38 +1914,96 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
   const save = useCallback(async () => {
     setError("")
     for (const [index, line] of lines.entries()) {
-      const quantity = Number(line.quantity)
-      const price = Number(line.price)
-      const discount = Number(line.discount || 0)
-      if (!(quantity > 0) || !(price >= 0) || !(discount >= 0 && discount <= 100)) return setError(`${items[index]?.productName}: ${t("Проверьте количество и цену")}`)
+      const quantity = read(line.quantity)
+      const price = read(line.price)
+      const discount = line.discount.trim() ? read(line.discount) : 0
+      if (!(quantity > 0) || !(price >= 0) || !(discount >= 0 && discount <= price)) return setError(`${items[index]?.productName}: ${t("Проверьте количество и цену")}`)
     }
     setSaving(true)
     try {
       for (const [index, item] of items.entries()) {
         const line = lines[index]
+        const start = initial[index]
+        const quantity = read(line.quantity)
+        const priced = line.price !== start?.price || Boolean(line.discount.trim())
+        // Untouched lines are left alone; a new quantity alone keeps the line's stored price and discount.
+        if (!priced && quantity === item.quantity) continue
+        const price = read(line.price)
+        const discount = line.discount.trim() ? read(line.discount) : 0
         const result = await api(`/api/orders/${order.id}/items/${item.id}`, {
           method: "PUT",
-          body: { productId: item.productId ?? undefined, productName: item.productName, unit: item.unit, quantity: Number(line.quantity), unitPrice: Number(line.price), discountPercent: Number(line.discount || 0), currency: item.currency },
+          body: {
+            productId: item.productId ?? undefined,
+            productName: item.productName,
+            unit: item.unit,
+            quantity,
+            unitPrice: priced ? price : item.unitPrice,
+            // The amount off the price is kept as the line's percent of it.
+            discountPercent: priced ? (price > 0 ? Math.min(100, (discount / price) * 100) : 0) : (item.discountPercent ?? 0),
+            currency: item.currency,
+          },
         })
         if (!result.ok) return setError(result.agentLimit || result.productRestriction ? orderApiErrorText(result, t, "Не удалось сохранить изменения на сервере") : `${item.productName}: ${t(result.error)}`)
+      }
+      // «Подтвердить заказ», as the edit dialog: confirming an unconfirmed order puts it in stock, unticking unconfirms it.
+      if (!confirmLocked && ["Не подтвержден", "В процессе", "Есть на складе"].includes(order.status)) {
+        const nextStatus = confirmed ? (order.status === "Не подтвержден" ? "Есть на складе" : order.status) : "Не подтвержден"
+        if (nextStatus !== order.status) {
+          const result = await api(`/api/orders/${order.id}`, { method: "PATCH", body: { status: nextStatus } })
+          if (!result.ok) return setError(t(result.error))
+        }
       }
       onSaved()
     } finally {
       setSaving(false)
     }
-  }, [items, lines, onSaved, order.id, t])
+  }, [confirmLocked, confirmed, initial, items, lines, onSaved, order.id, order.status, t])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.altKey && event.key === "Enter") void save()
-      if (event.altKey && event.key === "1") setConfirmed((value) => !value)
+      if (event.altKey && event.key === "1" && !confirmLocked) setConfirmed((value) => !value)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [save])
+  }, [confirmLocked, save])
 
-  const COLS = "grid grid-cols-[364px_121.3px_242.7px_repeat(6,121.3px)]"
-  const cellInput = "ml-2 h-[35px] w-[105.3px] border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold text-black outline-none focus:border-[#374557]"
+  // Linko's 12-column grid over the sheet's width: name 3, group 1, initial quantity 2, then one each; the last is right-aligned.
+  // Every cell is padded 8 px (an input is 16 px narrower than its column).
+  const COLS = "grid grid-cols-[3fr_1fr_2fr_1fr_1fr_1fr_1fr_1fr_1fr] [&>span]:px-2 [&>input]:mx-2 [&>input]:w-[calc(100%-16px)]"
+  const cellInput = "h-[35px] w-full border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold text-black outline-none focus:border-b-2 focus:border-[#374557] read-only:focus:border-b read-only:focus:border-[#e0e0e0]"
+  // Linko's bonus lines are shown but not edited (disabled fields with a dotted line).
+  const lockedInput = "h-[35px] w-full cursor-default border-b border-dotted border-[#999] bg-transparent text-[13px] font-semibold text-black outline-none"
+  const row = (item: OrderLineItem, index: number) => {
+    const box = item.boxAmount && item.boxAmount > 0 ? item.boxAmount : 0
+    const locked = Boolean(item.isBonus)
+    const input = locked ? lockedInput : cellInput
+    return (
+      // Linko's row: 50 px, text 20 px from its top, inputs 10 px from it with the line 36 px down.
+      <div key={item.id} className={`${COLS} h-[50px] items-start border-b-2 border-dotted border-[#d9e0e5] text-[13px] leading-4 text-[#333] [&>input]:mt-[10px] [&>input]:h-[26px] [&>input]:pt-[6px] [&>span]:pt-5 ${locked ? "" : "bg-white"}`}>
+        <span>{item.productName}</span>
+        {/* «Группа»: the quantity in the product's blocks (1 of 6 → "0,17"); typing blocks sets the quantity. */}
+        <input
+          value={box ? formatDecimal((calc[index]?.quantity ?? 0) / box, 2) : "0"}
+          readOnly={!box || locked}
+          onChange={(event) => {
+            const groups = read(event.target.value)
+            if (box && Number.isFinite(groups)) update(index, { quantity: String(Math.round(groups * box * 1000) / 1000) })
+          }}
+          className={input}
+        />
+        <span>{formatNumber(item.quantity)}</span>
+        {/* Linko focuses no field; prices and discounts are regrouped while typing (10 000). */}
+        <input readOnly={locked} value={lines[index]?.quantity ?? ""} onChange={(event) => update(index, { quantity: event.target.value })} className={input} />
+        <input readOnly={locked} value={lines[index]?.price ?? ""} onChange={(event) => update(index, { price: regroupTyped(event.target.value) })} className={input} />
+        <span>{formatNumber(calc[index]?.gross ?? 0)}</span>
+        <input readOnly={locked} value={lines[index]?.discount ?? ""} onChange={(event) => update(index, { discount: regroupTyped(event.target.value) })} className={input} />
+        <span>{formatNumber(calc[index]?.newPrice ?? 0)}</span>
+        <span className="text-right">{formatNumber(calc[index]?.net ?? 0)}</span>
+      </div>
+    )
+  }
+  const indexed = items.map((item, index) => ({ item, index }))
 
   return (
     <SheetShell
@@ -1928,11 +2014,13 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
         <div className="flex h-[62px] items-center justify-between pl-[10px] pr-[10px]">
           <div className="flex items-center text-[14px] text-black">
             <span>{t("Сумма без скидка")}:</span>
-            <b className="ml-[10px] mr-[29px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(grossTotal)}</b>
+            <b className="ml-[5px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(grossTotal)}</b>
+            <span className="ml-[5px] mr-[20px]">,</span>
             <span>{t("Скидка / накидка")}:</span>
-            <b className="ml-[10px] mr-[29px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(grossTotal - netTotal)}</b>
+            <b className="ml-[5px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(offTotal)}</b>
+            <span className="ml-[5px] mr-[20px]">,</span>
             <span>{t("Итого")}:</span>
-            <b className="ml-[10px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(netTotal)}</b>
+            <b className="ml-[5px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(netTotal)}</b>
           </div>
           <div className="flex items-center gap-4">
             {error && <span className="text-[#e57373]">{error}</span>}
@@ -1943,43 +2031,38 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
         </div>
       }
     >
-      <div className="px-[22px] pt-[41px]">
-        <div className="ml-2 flex h-[25px] items-center text-[13px] text-[#333]">
-          <span className="w-[100px]">{t("Клиент")}:</span>
-          <b className="w-[120px] font-semibold text-[#129fdd]">{order.marketName || order.client}</b>
-          <span className="w-[126.2px]">{t("Инициатор")}:</span>
-          <b className="w-[88.8px] font-semibold">{order.agent}</b>
-          <RefCheck checked={confirmed} onChange={setConfirmed}>
-            {t("Подтвердить заказ")} (Alt + 1)
-          </RefCheck>
+      <div className="px-[22px] pt-[37px]">
+        {/* Linko sets the client / initiator line in a grey rounded panel. */}
+        <div className="mx-2 flex h-[62px] items-center rounded-[5px] border border-[#e8ebf0] bg-[#f7f8fa] px-[16px] text-[13px] text-[#333]">
+          <span className="w-[141px]">{t("Клиент")}:</span>
+          <b className="mr-[20px] font-semibold text-[#129fdd]">{order.marketName || order.client}</b>
+          <span className="w-[126px]">{t("Инициатор")}:</span>
+          <b className="mr-[18px] font-semibold">{order.agent}</b>
+          {/* Linko only disables the input once the order is handed over: the box and its bold label keep their colour,
+              and a ticked box is dark grey here. */}
+          <span className={confirmLocked ? "pointer-events-none" : ""} aria-disabled={confirmLocked}>
+            <RefCheck checked={confirmed} onChange={setConfirmed} className="[&_path]:fill-[#666]">
+              {t("Подтвердить заказ")} (Alt + 1)
+            </RefCheck>
+          </span>
         </div>
-        <div className={`${COLS} mt-5 text-[13px] font-semibold leading-[16.3px]`}>
+        <div className={`${COLS} border-b-2 border-dotted border-[#d9e0e5] py-5 text-[13px] font-semibold leading-4`}>
           <span>{t("Наименование")}</span>
           <span>{t("Группа")}</span>
           <span>{t("Изначальный кол-во")}</span>
           <span>{t("Кол-во")}</span>
           <span>{t("Цена")}</span>
           <span>{t("Сумма")}</span>
-          <span>{t("Скидка")} (%)</span>
+          <span>{t("Скидка")} ({currency})</span>
           <span>{t("Новая цена")}</span>
-          <span>{t("Новая сумма")}</span>
+          <span className="text-right">{t("Новая сумма")}</span>
         </div>
-        <div className="mt-[19.3px]">
-          {items.map((item, index) => (
-            <div key={item.id} className={`${COLS} h-[56px] items-center border-y border-dotted border-[#cfd8dc] bg-[#f1f4f7] text-[13px] leading-[16.3px] text-[#333]`}>
-              <span>{item.productName}</span>
-              <input value="0" readOnly className={cellInput} />
-              <span>{formatNumber(item.quantity)}</span>
-              <input value={lines[index]?.quantity ?? ""} onChange={(event) => update(index, { quantity: event.target.value })} className={cellInput} />
-              <input value={lines[index]?.price ?? ""} onChange={(event) => update(index, { price: event.target.value })} className={cellInput} />
-              <span>{formatNumber(calc[index]?.gross ?? 0)}</span>
-              <input value={lines[index]?.discount ?? ""} onChange={(event) => update(index, { discount: event.target.value })} className={cellInput} />
-              <span>{formatNumber(calc[index]?.newPrice ?? 0)}</span>
-              <span>{formatNumber(calc[index]?.net ?? 0)}</span>
-            </div>
-          ))}
+        <div>{indexed.filter(({ item }) => !item.isBonus).map(({ item, index }) => row(item, index))}</div>
+        {/* The bonus lines sit inside Linko's grey «Бонусные товары» block (2 px wider than the rows on each side). */}
+        <div className="-mx-[2px] mt-[20px] bg-[#f2f5f8]">
+          <div className="flex h-[36px] items-center px-[10px] text-[13px] leading-[16.3px] text-[#999]">{t("Бонусные товары")}</div>
+          {indexed.filter(({ item }) => item.isBonus).map(({ item, index }) => row(item, index))}
         </div>
-        <div className="ml-2 mt-[24.7px] text-[13px] leading-[16.3px] text-[#999]">{t("Бонусные товары")}</div>
       </div>
     </SheetShell>
   )
@@ -1988,10 +2071,18 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
 /** A line of the order that can still be returned (GET /api/orders/[id]/returnable). */
 type Returnable = { orderItemId: number; productName: string; unit: string; ordered: number; returned: number; available: number; price: number; currency: string }
 
+/** Linko's payment types of a quick return (cash / bank: the client ledger's split of the return, lib/finance/sources.ts). */
+const RETURN_PAYMENT_TYPES = [
+  { value: "cash", label: "Наличный" },
+  { value: "bank", label: "Банковский счет" },
+]
+
 /** "Быстрый возврат": one client return of the order (Продажи → Возвраты); the stock and the client
  * balance change when it is accepted into the warehouse. Quantities above what is left are refused. */
-function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: (id: number) => void }) {
+function QuickReturnSheet({ order, items, onClose, onSaved }: { order: Order; items: OrderLineItem[]; onClose: () => void; onSaved: (id: number) => void }) {
   const { t } = useLanguage()
+  // Linko starts on the order's own payment type («Наличный»); it can be changed or cleared (then the order's counts).
+  const [paymentType, setPaymentType] = useState(order.paymentType === "bank" || order.payMethod === "bank" ? "bank" : "cash")
   const [warehouse, setWarehouse] = useState(order.warehouse || order.stockName || "")
   const warehouses = useNames("/api/warehouses", (row) => (row.active === false ? "" : plainName(row)))
   const [lines, setLines] = useState<Returnable[] | null>(null)
@@ -2006,7 +2097,7 @@ function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: 
     void api<Returnable[]>(`/api/orders/${order.id}/returnable`).then((result) => setLines(result.ok ? result.body : []))
   }, [order.id])
 
-  const priceOf = (line: Returnable) => (manualPrice && prices[line.orderItemId] !== undefined ? Number(prices[line.orderItemId]) || 0 : line.price)
+  const priceOf = (line: Returnable) => (manualPrice && prices[line.orderItemId] !== undefined ? strictNumber(prices[line.orderItemId], { locale: true }) || 0 : line.price)
   const over = (line: Returnable) => (Number(qty[line.orderItemId]) || 0) > line.available + 1e-9
   const overLines = (lines ?? []).filter(over)
   /** Any edit: the message of the last save attempt is about the old values. */
@@ -2028,6 +2119,7 @@ function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: 
         orderId: order.id,
         warehouse,
         comment: comment.trim() || undefined,
+        ...(paymentType ? { paymentType } : {}),
         items: chosen.map((line) => ({ orderItemId: line.orderItemId, quantity: Number(qty[line.orderItemId]), ...(manualPrice ? { price: priceOf(line) } : {}) })),
       },
     })
@@ -2036,7 +2128,10 @@ function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: 
     onSaved(result.body.id)
   }
 
-  const COLS = "grid grid-cols-[121.3px_364px_121.3px_121.3px_242.7px_242.7px_242.7px]"
+  // Linko's 12-column grid: № 1, name 3, ordered 1, available 1, quantity 2, price 2, sum 2; cells padded 8 px, a 2 px
+  // dotted line under the head and under every row (white rows, 50 px).
+  const COLS = "grid grid-cols-[1fr_3fr_1fr_1fr_2fr_2fr_2fr] [&>span]:px-2"
+  const linkoIds = new Map(items.map((item) => [item.id, item.linkoId]))
   return (
     <SheetShell
       z={1001}
@@ -2056,29 +2151,29 @@ function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: 
       }
     >
       <div className="px-[22px] pt-[31px]">
-        <div className="ml-2 flex items-start gap-[25px]">
-          {/* A client return takes no payment type: once accepted into the warehouse its amount is
-              credited to the client's balance (lib/client-returns-repo.ts), never paid out of a
-              cashbox. Shown read-only, so nothing here pretends to choose how the money goes back. */}
-          <div className="relative h-[54px] w-[316px]" title={t("Сумма возврата зачисляется на баланс клиента после приемки на склад")}>
-            <span className="absolute left-0 top-0 whitespace-nowrap text-[9.75px] font-semibold leading-[12.2px] text-black">{t("Тип оплаты")}</span>
-            <span className="absolute left-0 right-0 top-[26px] truncate text-[13px] font-semibold leading-[18px] text-[#999]">{t("На баланс клиента")}</span>
-            <span className="absolute inset-x-0 bottom-0 h-px bg-[#e0e0e0]" />
-          </div>
+        <div className="ml-2 flex items-start gap-[15px]">
           <RefSelect
-            className="w-[316px]"
+            className="w-[349px]"
+            label={t("Тип оплаты")}
+            value={paymentType}
+            options={RETURN_PAYMENT_TYPES.map((option) => ({ value: option.value, label: t(option.label) }))}
+            onChange={(value) => (setPaymentType(value), edited())}
+            onClear={() => (setPaymentType(""), edited())}
+          />
+          <RefSelect
+            className="w-[349px]"
             label={t("Склад")}
             value={warehouse}
             options={Array.from(new Set([...(warehouse ? [warehouse] : []), ...warehouses])).map((value) => ({ value, label: value }))}
             onChange={(value) => (setWarehouse(value), edited())}
             onClear={() => (setWarehouse(""), edited())}
           />
-          <RefText className="w-[326px]" label={t("Комментарий")} value={comment} onChange={setComment} />
-          <RefCheck className="ml-auto mt-[13.5px] mr-[42px]" checked={manualPrice} onChange={(value) => (setManualPrice(value), edited())}>
+          <RefText className="w-[349px]" label={t("Комментарий")} value={comment} onChange={setComment} />
+          <RefCheck className="ml-auto mt-[13.5px] mr-[50px]" checked={manualPrice} onChange={(value) => (setManualPrice(value), edited())}>
             {t("Изменение цены вручную")}
           </RefCheck>
         </div>
-        <div className={`${COLS} mt-[22.7px] text-[13px] font-semibold leading-[16.3px]`}>
+        <div className={`${COLS} mt-[2.7px] border-b-2 border-dotted border-[#d9e0e5] py-5 text-[13px] font-semibold leading-[16px]`}>
           <span>№</span>
           <span>{t("Наименование")}</span>
           <span>{t("По заказу")}</span>
@@ -2090,18 +2185,19 @@ function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: 
         {lines === null ? (
           <p className="py-8 text-center text-[#888]">{t("Загрузка...")}</p>
         ) : (
-          <div className="mt-[19.4px]">
-            {lines.map((line, index) => (
-              <div key={line.orderItemId} className={`${COLS} min-h-[56px] items-center border-y border-dotted border-[#9ec9e8] bg-[#f1f4f7] text-[13px] leading-[16.3px] text-[#333]`}>
-                <span>{index + 1}</span>
+          <div>
+            {lines.map((line) => (
+              <div key={line.orderItemId} className={`${COLS} min-h-[50px] items-center border-b-2 border-dotted border-[#d9e0e5] text-[13px] leading-[16px] text-[#333]`}>
+                {/* Linko's № is the order line's id (its own id on an order copied from it). */}
+                <span>{linkoIds.get(line.orderItemId) ?? line.orderItemId}</span>
                 <span>{line.productName}</span>
+                {/* Linko: what was ordered, with what has been returned already in red. */}
                 <span>
-                  {formatNumber(line.ordered)} {t(line.unit)}
+                  {formatNumber(line.ordered)}
+                  {line.returned > 0 && <span className="text-[#e57373]"> (-{formatNumber(line.returned)})</span>}
                 </span>
+                <span>{formatNumber(line.available)}</span>
                 <span>
-                  {formatNumber(line.available)} {t(line.unit)}
-                </span>
-                <span className="ml-2">
                   <input
                     type="number"
                     min="0"
@@ -2115,7 +2211,7 @@ function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: 
                       setQty((current) => ({ ...current, [line.orderItemId]: event.target.value }))
                       edited()
                     }}
-                    className={`h-[35px] w-[226.7px] border-b-2 bg-transparent text-[13px] font-semibold outline-none disabled:opacity-40 ${over(line) ? "border-[#e57373] text-[#e57373]" : "border-[#374557] text-black"}`}
+                    className={`h-[35px] w-full bg-transparent text-[13px] font-semibold outline-none disabled:opacity-40 ${over(line) ? "border-b-2 border-[#e57373] text-[#e57373]" : "border-b border-[#e0e0e0] text-black focus:border-b-2 focus:border-[#374557]"}`}
                   />
                   {over(line) && (
                     <span className="block text-[11px] font-semibold text-[#e57373]">
@@ -2123,62 +2219,25 @@ function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: 
                     </span>
                   )}
                 </span>
-                <input
-                  disabled={!manualPrice}
-                  value={manualPrice ? (prices[line.orderItemId] ?? String(line.price)) : String(line.price)}
-                  onChange={(event) => {
-                    setPrices((current) => ({ ...current, [line.orderItemId]: event.target.value }))
-                    edited()
-                  }}
-                  className="ml-2 h-[35px] w-[226.7px] border-b border-dotted border-[#374557] bg-transparent text-[13px] font-semibold outline-none"
-                />
-                <span>{formatNumber((Number(qty[line.orderItemId]) || 0) * priceOf(line))}</span>
+                <span>
+                  <input
+                    disabled={!manualPrice}
+                    value={manualPrice ? (prices[line.orderItemId] ?? groupedInput(line.price)) : groupedInput(line.price)}
+                    onChange={(event) => {
+                      setPrices((current) => ({ ...current, [line.orderItemId]: event.target.value }))
+                      edited()
+                    }}
+                    className="h-[35px] w-full border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold text-black outline-none focus:border-b-2 focus:border-[#374557] disabled:border-b-2 disabled:border-dotted disabled:border-black/30 disabled:text-black"
+                  />
+                </span>
+                {/* Linko's «Сумма» is the order line's: what was ordered at the price. */}
+                <span>{formatNumber(line.ordered * priceOf(line))}</span>
               </div>
             ))}
           </div>
         )}
       </div>
     </SheetShell>
-  )
-}
-
-/** Right-hand "Распечатать" panel: repeat count and the active order-invoice templates (Справочники → Шаблоны документов). */
-function PrintDrawer({ onClose, onPick }: { onClose: () => void; onPick: (copies: number) => void }) {
-  const { t } = useLanguage()
-  const [copies, setCopies] = useState("1")
-  const [templates, setTemplates] = useState<{ id: number; name: string }[] | null>(null)
-  useEscape(onClose)
-  useEffect(() => {
-    fetch("/api/doc-templates?pageSize=500")
-      .then(async (response) => (response.ok ? ((await response.json()) as { results: { id: number; name: string; keyName: string; isActive: boolean }[] }) : { results: [] }))
-      .then((data) => setTemplates(data.results.filter((row) => row.keyName === "order" && row.isActive)))
-      .catch(() => setTemplates([]))
-  }, [])
-  return createPortal(
-    <div data-order-overlay className="fixed inset-0 z-[2100] font-sans text-[13px] text-[#333]">
-      <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="absolute inset-0 cursor-default" />
-      <aside className="absolute top-0 h-full w-[358px] overflow-y-auto bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]" style={{ left: "calc(100% - 459px)" }}>
-        <div className="px-5 pb-[10px] pt-5">
-          <span className="block text-[9.75px] font-semibold leading-[12.2px] text-black">{t("Кол - во повторений")}</span>
-          <input value={copies} onChange={(event) => setCopies(event.target.value.replace(/\D/g, ""))} className="h-[26px] w-[170px] border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold outline-none" />
-        </div>
-        {templates === null ? null : templates.length === 0 ? (
-          <p className="px-5 py-4 text-[#999]">{t("По вашему запросу ничего не найдено...")}</p>
-        ) : (
-          templates.map((template) => (
-            <button
-              key={template.id}
-              type="button"
-              onClick={() => onPick(Math.max(1, Number(copies) || 1))}
-              className="block h-12 w-full cursor-pointer px-5 text-left leading-[48px] hover:bg-[#f5f5f5]"
-            >
-              {template.name}
-            </button>
-          ))
-        )}
-      </aside>
-    </div>,
-    document.body,
   )
 }
 

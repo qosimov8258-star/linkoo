@@ -117,7 +117,7 @@ export function OrganizationDeleteDialog({
     <Modal
       title={t("Подтверждение удаления")}
       onClose={onClose}
-      bodyClassName="px-[30px] pt-[20px]"
+      bodyClassName="min-h-[210px] px-[30px] pt-[20px]"
       footer={<SaveLink disabled={busy || Boolean(loadError)} onClick={() => void remove()}>{t("Удалить")}</SaveLink>}
     >
       <p className="pb-[20px]">{t("Вы уверены что хотите удалить эти данные?")}</p>

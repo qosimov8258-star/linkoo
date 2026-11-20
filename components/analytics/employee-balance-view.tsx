@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Download, Loader2, MoreVertical, Search } from "lucide-react"
+import { Loader2, MoreVertical, Search } from "lucide-react"
 
 import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
 import { balanceListExcelRows } from "@/components/analytics/balance/excel"
@@ -359,9 +359,10 @@ export function EmployeeBalanceView() {
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] pb-[8px] pt-[15px]">
+        <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] mt-[7px] py-0">
           <BalanceFilterChip
             count={filterCount}
+            variant="button"
             onOpen={() => {
               setDraftUsers(state.users)
               setDraftJob(state.job)
@@ -389,7 +390,14 @@ export function EmployeeBalanceView() {
               aria-label={t("Скачать Excel")}
               className="text-[#586174] hover:text-[#17233b] disabled:opacity-40"
             >
-              {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+              {downloading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                // Linko's filled «file_download» icon.
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]" aria-hidden>
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+                </svg>
+              )}
             </button>
             <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={(next) => update(next)} />
             <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />

@@ -86,33 +86,56 @@ export function StockLevelTable({
   ordering,
   onSort,
   onOpenItem,
+  onOpenReserved,
+  warehouses = [],
   loading,
 }: {
   rows: StockLevelRow[]
+  /** Warehouses in scope by id (the API's `warehouses`): the arrow lists each of them, zero lines included. */
+  warehouses?: string[]
   mode: StockLevelMode
   hidden: StockColumnId[]
   currency: string
   ordering: string
   onSort: (key: string) => void
   onOpenItem: (row: StockLevelRow) => void
+  /** «Забронировано» of a product row: the list of the documents that reserve it. */
+  onOpenReserved?: (row: StockLevelRow) => void
   loading: boolean
 }) {
   const { t } = useLanguage()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const columns = visibleStockColumns(mode, hidden)
   const money = (value: number) => `${formatMoney(value, 2)} ${currencyLabel(currency)}`
+  // Linko's arrow (stock/all_balances_by_stock): every warehouse in its order, a zero line where the item has nothing;
+  // a warehouse missing from the register (a name only on documents) follows at the end.
+  const linesOf = (row: StockLevelRow): StockLevelStock[] => {
+    const key = (name: string) => name.trim().toLowerCase()
+    const byName = new Map(row.stocks.map((stock) => [key(stock.warehouse), stock]))
+    const listed = warehouses.map((name) => byName.get(key(name)) ?? { warehouse: name, branch: "", total: 0, reserved: 0, transit: 0, defects: 0, available: 0, value: 0 })
+    const known = new Set(warehouses.map(key))
+    return [...listed, ...row.stocks.filter((stock) => !known.has(key(stock.warehouse)))]
+  }
 
   const cell = (row: StockLevelRow, line: Line, id: StockColumnId, sub: boolean): ReactNode => {
     const unit = row.unit
     switch (id) {
+      // Linko leaves an empty article / type cell blank and repeats them on the warehouse lines.
       case "article":
-        return sub ? "" : row.article || "-"
+        return row.article
       case "type":
-        return sub ? "" : row.type || "-"
+        return row.type
       case "total":
         return <b>{qtyWithUnit(line.total, unit, t)}</b>
       case "reserved":
-        return <span className="px-[3px] font-semibold" style={{ color: line.reserved > 0 ? "#129fdd" : "#90a4ae" }}>{qtyWithUnit(line.reserved, unit, t)}</span>
+        // Linko: the product's reserved count opens the documents that hold it (stock/reserved_product); a warehouse line does not.
+        return !sub && onOpenReserved && line.reserved > 0 ? (
+          <button type="button" onClick={() => onOpenReserved(row)} className="cursor-pointer px-[3px] font-semibold text-[#129fdd] hover:underline">
+            {qtyWithUnit(line.reserved, unit, t)}
+          </button>
+        ) : (
+          <span className="px-[3px] font-semibold" style={{ color: line.reserved > 0 && !sub ? "#129fdd" : "#90a4ae" }}>{qtyWithUnit(line.reserved, unit, t)}</span>
+        )
       case "transit":
         return <b className="px-[3px] text-[#f0ad4e]">{qtyWithUnit(line.transit, unit, t)}</b>
       case "available":
@@ -174,7 +197,7 @@ export function StockLevelTable({
               <Fragment key={row.key}>
                 <div style={template} className={`grid ${bg}`}>
                   <div className={`${cellClass()} pl-[5px]`}>
-                    <button type="button" onClick={() => toggle(row.key)} disabled={!row.stocks.length} aria-label={t(open ? "Свернуть" : "Развернуть")} className="flex h-[26px] w-[24px] shrink-0 items-center disabled:opacity-30">
+                    <button type="button" onClick={() => toggle(row.key)} disabled={!row.stocks.length && !warehouses.length} aria-label={t(open ? "Свернуть" : "Развернуть")} className="flex h-[26px] w-[24px] shrink-0 items-center disabled:opacity-30">
                       <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#333]"><path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} /></svg>
                     </button>
                     <button type="button" onClick={() => onOpenItem(row)} className="min-w-0 break-words py-[3px] text-left hover:text-[#1E4A9A]">
@@ -188,11 +211,10 @@ export function StockLevelTable({
                   ))}
                 </div>
                 {open &&
-                  row.stocks.map((stock, stockIndex) => (
+                  linesOf(row).map((stock, stockIndex) => (
                     <div key={stock.warehouse} style={template} className={`grid ${stockIndex % 2 ? "bg-[#dce8f5]" : "bg-[#e8f1fb]"}`}>
                       <div className={`${cellClass()} pl-[29px] text-[#3b4a66]`}>
                         <span className="truncate">{stock.warehouse}</span>
-                        {stock.branch && <span className="ml-2 text-xs text-[#7a8599]">{stock.branch}</span>}
                       </div>
                       {columns.map((column) => (
                         <div key={column.id} className={`${cellClass(column)} whitespace-nowrap`}>

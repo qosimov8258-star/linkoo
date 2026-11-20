@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import {
   ChevronLeft,
   ChevronRight,
+  LocateFixed,
   MapPinned,
   Route,
   Trash2,
@@ -15,6 +16,8 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import type { Client } from "@/components/clients/clients-data"
 import { invalidateDirectory, useDirectoryNames } from "@/components/clients/use-directory"
 import { TerritoryPanel } from "./territory-panel"
+import { useAddressShop, writeShopParam } from "@/components/clients/shop-open-address"
+import { EmbeddedShopCard } from "./shop-drawer-swap"
 import { hasZone, isLocated, mapClientsOf, mapZonesOf, zoneColors, zoneKey, type ClientZone, type LatLng } from "./tracking-data"
 
 const TrackingMap = dynamic(() => import("./tracking-map").then((m) => m.TrackingMap), {
@@ -455,6 +458,8 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
   const [mapFilter, setMapFilter] = useState<MapFilter>(EMPTY_MAP_FILTER)
   const [notice, setNotice] = useState<{ tone: "info" | "error"; text: string } | null>(null)
   const [focus, setFocus] = useState<{ key: number; points: LatLng[] } | null>(null)
+  /** Linko's ?openShopDetail=<id>: the shop card shown in the zones panel's place (also on a reload, Back / Forward). */
+  const shop = useAddressShop("openShopDetail")
   const territory = useTerritoryData()
 
   useEffect(() => {
@@ -463,6 +468,15 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
     if (params.get("openFilterDialog") === "true") setFilterOpen(true)
     if (params.get("openInfo") === "true") setManagePanel(true)
   }, [view])
+
+  // Linko's Территория: a client pin or a search result opens the client's shop card in the zones panel's place
+  // (openInfo=true&openShopDetail=<id>); the card's X writes openShopDetail=0&drawer=drawer_agent_visit and the zones
+  // panel comes back. Both are history entries, as Linko's.
+  const openShop = useCallback((clientId: number) => {
+    setManagePanel(true)
+    writeShopParam("openShopDetail", clientId, { extra: { openInfo: "true" } })
+  }, [])
+  const closeShop = useCallback(() => writeShopParam("openShopDetail", null), [])
 
   const query = search.trim().toLowerCase()
   const shownClients = useMemo(
@@ -476,6 +490,8 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
   )
   const colorOf = useMemo(() => zoneColors([...territory.zones.map((zone) => zone.name), ...territory.clients.map((client) => client.zone)]), [territory.zones, territory.clients])
   const mapClients = useMemo(() => mapClientsOf(shownClients, colorOf), [shownClients, colorOf])
+  // Linko lists the first five clients on the map that match the search under its box.
+  const searchResults = showClients && query ? mapClients.slice(0, 5) : []
   const mapZones = useMemo(() => mapZonesOf(territory.zones, mapClientsOf(territory.clients, colorOf), colorOf), [territory.zones, territory.clients, colorOf])
   const unassigned = territory.clients.filter((client) => !hasZone(client)).length
   const unlocated = territory.clients.filter((client) => !isLocated(client)).length
@@ -545,6 +561,7 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
       draft={editor ? ring : null}
       onMapClick={editor && drawing ? onMapClick : undefined}
       focus={focus}
+      onClientClick={editor ? undefined : openShop}
     />
   )
 
@@ -568,17 +585,33 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
               <button type="button" onClick={() => setNotice(null)} aria-label={t("Закрыть")}><X className="h-4 w-4 text-[#777]" /></button>
             </div>
           )}
-          <div className="absolute right-[14px] top-[18px] z-[500] flex h-[48px] w-[264px] items-center bg-white shadow-[0_2px_6px_rgba(0,0,0,0.2)]">
-            {searchOpen && (
-              <label className="flex h-full flex-1 items-center px-[22px]">
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full text-[15px] outline-none placeholder:text-[#999]" />
-              </label>
+          {/* Like Linko's, the search box stands left of the open zones panel. */}
+          <div className={`absolute top-[18px] z-[500] w-[264px] bg-white shadow-[0_2px_6px_rgba(0,0,0,0.2)] ${managePanel ? "right-[482px]" : "right-[14px]"}`}>
+            <div className="flex h-[48px] items-center">
+              {searchOpen && (
+                <label className="flex h-full flex-1 items-center px-[22px]">
+                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full text-[15px] outline-none placeholder:text-[#999]" />
+                </label>
+              )}
+              <button type="button" onClick={() => setSearchOpen((current) => !current)} className="h-full px-[18px] text-[#333]">
+                {searchOpen ? <ChevronLeft className="h-4 w-4 fill-current" /> : <ChevronRight className="h-4 w-4" />}
+              </button>
+            </div>
+            {searchOpen && searchResults.length > 0 && (
+              <ul className="border-t border-[#e0e0e0] py-[8px]">
+                {searchResults.map((client) => (
+                  <li key={client.id}>
+                    <button type="button" onClick={() => openShop(client.id)} className="flex h-[48px] w-full items-center gap-[20px] px-[16px] text-left text-[15px] text-[#333] hover:bg-[#f2f5f8]">
+                      <LocateFixed className="h-[22px] w-[22px] shrink-0 text-[#757575]" strokeWidth={1.75} />
+                      <span className="min-w-0 truncate">{client.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
-            <button type="button" onClick={() => setSearchOpen((current) => !current)} className="h-full px-[18px] text-[#333]">
-              {searchOpen ? <ChevronLeft className="h-4 w-4 fill-current" /> : <ChevronRight className="h-4 w-4" />}
-            </button>
           </div>
-          <div className="absolute bottom-0 right-0 z-[500] w-[230px] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]">
+          {/* Like Linko's, the panel stands left of the open zones panel or shop card (470 px). */}
+          <div className={`absolute bottom-0 z-[500] w-[230px] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.25)] ${managePanel ? "right-[470px]" : "right-0"}`}>
             <button type="button" onClick={() => setFilterOpen(true)} className="flex h-[30px] w-full items-center gap-[10px] bg-[#1E4A9A] px-[14px] text-[13px] font-semibold text-white"><svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>{t("Показать клиентов")}</button>
             <div className="space-y-[8px] px-[14px] pb-[8px] pt-[10px]">
               <CheckLine label="Клиенты" checked={showClients} onChange={setShowClients} />
@@ -602,7 +635,12 @@ export function TrackingView({ view = "clients" }: TrackingViewProps) {
               }}
             />
           )}
-          {managePanel && (
+          {managePanel && shop !== null && (
+            <aside aria-label={t("Клиент")} className="absolute bottom-0 right-0 top-0 z-[600] w-[470px] max-w-full bg-white shadow-[0_0_10px_rgba(0,0,0,0.25)]">
+              <EmbeddedShopCard clientId={shop} onClose={closeShop} />
+            </aside>
+          )}
+          {managePanel && shop === null && (
             <TerritoryPanel
               zones={territory.zones}
               loading={territory.loading}

@@ -120,7 +120,8 @@ export function WarehouseDeleteDialog({
             <X className="h-5 w-5" />
           </button>
         </header>
-        <div className="relative min-h-[150px] px-[30px] text-[14px] text-[#333]">
+        {/* Linko's ConfirmDialog: 13px text, a 56px question and name strip, the body at least 210px tall. */}
+        <div className="relative min-h-[210px] px-[30px] text-[13px] leading-4 text-[#333]">
           {busy && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80">
               <Loader2 className="h-8 w-8 animate-spin text-[#1E4A9A]" />
@@ -151,7 +152,7 @@ export function WarehouseDeleteDialog({
             type="button"
             onClick={remove}
             disabled={busy || Boolean(loadError) || blockedBy.length > 0}
-            className="rounded px-5 py-2.5 text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#129fdd]/10 disabled:opacity-50"
+            className="h-9 rounded px-5 text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#129fdd]/10 disabled:opacity-50"
           >
             {t("Удалить")}
           </button>

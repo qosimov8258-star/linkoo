@@ -2,6 +2,7 @@
 // Money rows spell currencies inconsistently (SUM/sum/UZS, USD/usd,
 // EUR/eur/euro/Euro), so everything is normalised to one canonical code.
 
+import { amountDigits, printDigits, roundToDigits } from "@/lib/amount-precision"
 import type { CurrencyBalance, FinanceCurrency } from "@/lib/finance/types"
 
 const ALIASES: Record<string, string> = {
@@ -97,14 +98,39 @@ function escapeRegExp(text: string): string {
 }
 
 /** Stored codes and spellings printed as they are (amount strings like "1 000 SUM", "Сумма (SUM)" literals,
- * option texts), the default shown names (SOM, ЕВРО) and every code of Валюты. Whole words only and
- * case-sensitive, so "SUMMARY" or "sum" are untouched. */
+ * option texts), the default shown names (SOM, ЕВРО) and every code of Валюты that has a letter. Whole words only
+ * and case-sensitive, so "SUMMARY" or "sum" are untouched. */
 function storedNames(): RegExp {
   if (namesPattern) return namesPattern
-  const words = new Set(["SUM", "SOM", "USD", "EURO", "EUR", "Euro", "ЕВРО", ...Object.keys(customLabels)])
+  // A code of Валюты without a letter ("01", "02") is not matched as a plain word: it would turn every "01" of the
+  // screen (a date, a number, a name like "01. …") into the currency's name. See numericCodePatterns.
+  const words = new Set(["SUM", "SOM", "USD", "EURO", "EUR", "Euro", "ЕВРО", ...Object.keys(customLabels).filter((code) => /\p{L}/u.test(code))])
   const alternatives = [...words].filter(Boolean).sort((a, b) => b.length - a.length).map(escapeRegExp).join("|")
   namesPattern = new RegExp(`(?<![\\p{L}\\p{N}_'’])(${alternatives})(?![\\p{L}\\p{N}_'’])`, "gu")
   return namesPattern
+}
+
+/** An amount as the app prints it ("3 200", "1 234 567,5", "-8 156", "0.45"). */
+const PRINTED_AMOUNT = String.raw`[-−]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)`
+
+let numericPatterns: { key: string; afterAmount: RegExp; inParens: RegExp; alone: RegExp } | null = null
+
+/** Codes of Валюты without a letter ("01") are replaced only where they stand for a currency: right after an amount
+ * ("3 200 01" — not after a run of digit groups like a phone number's "45 01"), alone in parentheses ("Цена (01)"),
+ * or as the whole text of an element (a select, a currency cell). */
+function numericCodePatterns(): typeof numericPatterns {
+  const codes = Object.keys(customLabels).filter((code) => !/\p{L}/u.test(code))
+  if (!codes.length) return null
+  const key = codes.join("|")
+  if (numericPatterns?.key === key) return numericPatterns
+  const alternatives = codes.sort((a, b) => b.length - a.length).map(escapeRegExp).join("|")
+  numericPatterns = {
+    key,
+    afterAmount: new RegExp(`(?<![\\p{L}\\p{N}_.,:/])(?<!\\p{N}[ \\u00a0\\u202f])(${PRINTED_AMOUNT})([ \\u00a0\\u202f])(${alternatives})(?![\\p{L}\\p{N}_.,:/-])`, "gu"),
+    inParens: new RegExp(`\\((${alternatives})\\)`, "gu"),
+    alone: new RegExp(`^(\\s*)(${alternatives})(\\s*)$`, "u"),
+  }
+  return numericPatterns
 }
 
 /** Text with the stored currency names replaced by the shown ones of Валюты ("100 SUM" → "100 SOM",
@@ -112,11 +138,21 @@ function storedNames(): RegExp {
  * entry for the euro's name: EVRO, EURO …). Used by the DOM pass of lib/i18n/dom-translator.tsx for every
  * screen and by the Excel export. */
 export function showCurrencyNames(text: string, euro = currencyLabel("EUR")): string {
+  let out = text
   const pattern = storedNames()
   pattern.lastIndex = 0
-  if (!pattern.test(text)) return text
-  pattern.lastIndex = 0
-  return text.replace(pattern, (name) => (normCurrency(name) === "EUR" ? euro : currencyLabel(name)))
+  if (pattern.test(out)) {
+    pattern.lastIndex = 0
+    out = out.replace(pattern, (name) => (normCurrency(name) === "EUR" ? euro : currencyLabel(name)))
+  }
+  const numeric = numericCodePatterns()
+  if (numeric) {
+    out = out
+      .replace(numeric.afterAmount, (_match, amount: string, space: string, code: string) => `${amount}${space}${currencyLabel(code)}`)
+      .replace(numeric.inParens, (_match, code: string) => `(${currencyLabel(code)})`)
+      .replace(numeric.alone, (_match, before: string, code: string, after: string) => `${before}${currencyLabel(code)}${after}`)
+  }
+  return out
 }
 
 /** Lower-case code used by the older *_balance_transactions ledgers (sum/usd/eur). */
@@ -155,17 +191,21 @@ export function currenciesWithAmounts(
   return currencies.length ? [currencies[0].code] : []
 }
 
-/** Rounds away float noise. Three decimals by default, like the reference's amounts (7 079 026,149). */
-export function roundMoney(value: number, digits = 3): number {
-  if (!Number.isFinite(value)) return 0
-  const factor = 10 ** digits
-  const rounded = Math.round(value * factor) / factor
-  return Object.is(rounded, -0) ? 0 : rounded
+/** Rounds away float noise, halves away from zero (lib/amount-precision.ts roundToDigits): as the reference prints an
+ * amount (Intl) and its server rounds a numeric (-0.370925 → -0.37093). Without `digits`: to the decimals of
+ * Настройки → Округление сумм (the reference's ROUND_AMOUNT_FOR_CURRENCY), else three (1 234 567,891). An explicit
+ * `digits` is kept whatever the setting is (stored math with a precision of its own: cash to 5 decimals, rates to 10).
+ * The reference's client-side round() takes a negative half toward +∞ instead: roundAmount. */
+export function roundMoney(value: number, digits?: number): number {
+  return roundToDigits(value, digits ?? amountDigits(3))
 }
 
-/** "1 234 567,5" (ru-RU grouping, up to `maxDigits` decimals, no currency). The reference shows up to three decimals. */
+/** "1 234 567,5" (ru-RU grouping, no currency): the reference's numberFormat(amount, suffix, precision = 3). Its
+ * decimals are those of Настройки → Округление сумм when set (ROUND_AMOUNT_FOR_CURRENCY, lib/amount-precision.ts),
+ * else `maxDigits`: a set value wins over the precision of the call, as in the reference ("1 234,56789" with 5).
+ * Screens the reference prints with a fixed precision use formatFixed (lib/amount-precision.ts). */
 export function formatMoney(value: number, maxDigits = 3): string {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: maxDigits }).format(roundMoney(value, maxDigits))
+  return printDigits(value, amountDigits(maxDigits))
 }
 
 /** Converts `amount` of `from` into `to` with current rates (units of base per unit). null when a rate is unknown. */

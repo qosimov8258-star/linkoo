@@ -52,13 +52,16 @@ export async function listUnitsOfMeasure(): Promise<UnitOfMeasure[]> {
   return (await allRows(await dictionariesDb())).map(rowToUnit)
 }
 
-/** The tree grid: top-level units (searched, sorted, paged) with their children. Default order = newest first. */
+/** The tree grid: the top-level units (searched, sorted) with their children. Default order = newest first. Like
+ * Linko's main/measurement/hierarchy/ the search matches the top-level names only (a matching child does not bring its
+ * parent; a matching parent comes with all its children) and every unit is answered whatever the page: Linko's list
+ * shows them all under its «1 - 25 из» pager. */
 export async function listUnitTree(query: DictionaryListQuery): Promise<UnitOfMeasureTreeResult> {
   const units = (await allRows(await dictionariesDb())).map(rowToUnit)
   // No ordering = the demo hierarchy order (newest first): created_date descending.
-  const tree = filterTree(buildTree<UnitOfMeasure, UnitOfMeasureNode>(units, query.ordering || "-created_date"), query.search)
-  const start = (query.page - 1) * query.pageSize
-  return { count: tree.length, results: tree.slice(start, start + query.pageSize) }
+  const roots = buildTree<UnitOfMeasure, UnitOfMeasureNode>(units, query.ordering || "-created_date")
+  const tree = query.search.trim() ? roots.filter((node) => filterTree([{ ...node, children: [] }], query.search).length > 0) : roots
+  return { count: tree.length, results: tree }
 }
 
 async function readRow(db: PgDb, id: number, lock = false): Promise<Row | undefined> {

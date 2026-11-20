@@ -41,6 +41,7 @@ type Row = {
   organization: string
   contacts: string
   products: string
+  updated_at: string
 }
 
 function parseJsonArray<T>(value: string): T[] {
@@ -58,6 +59,7 @@ function rowToSupplier(row: Row): Supplier {
     name: row.name,
     category: row.category,
     createdDate: row.created_date,
+    modifiedDate: row.updated_at ?? "",
     address: row.address,
     branch: row.branch,
     organization: row.organization,
@@ -65,6 +67,9 @@ function rowToSupplier(row: Row): Supplier {
     products: parseJsonArray<SupplierProduct>(row.products),
   }
 }
+
+/** The card's last change in Tashkent wall time, as Linko's modified_date (imported values are local too). */
+const LOCAL_NOW = "to_char(now() AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD HH24:MI:SS')"
 
 const monthNames = ["янв.", "февр.", "марта", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
 function formatToday() {
@@ -181,7 +186,7 @@ export async function createSupplier(input: SupplierInput): Promise<Supplier> {
     const result = await tx
       .prepare(
         `INSERT INTO suppliers (name, category, created_date, address, branch, organization, contacts, products, updated_at)
-         VALUES (@name, @category, @createdDate, @address, @branch, @organization, @contacts, '[]', datetime('now'))`,
+         VALUES (@name, @category, @createdDate, @address, @branch, @organization, @contacts, '[]', ${LOCAL_NOW})`,
       )
       .run({
         name: value.name,
@@ -287,7 +292,7 @@ export async function updateSupplier(id: number, input: SupplierInput): Promise<
     await tx
       .prepare(
         `UPDATE suppliers SET name = @name, category = @category, address = @address, branch = @branch,
-           organization = @organization, contacts = @contacts, updated_at = datetime('now')
+           organization = @organization, contacts = @contacts, updated_at = ${LOCAL_NOW}
          WHERE id = @id`,
       )
       .run({
@@ -330,7 +335,28 @@ export async function addSupplierReserve(id: number, lines: ReserveInput[]): Pro
       if (existing) Object.assign(existing, { qty: line.qty, price: line.price, currency: line.currency })
       else products.push({ id: Math.max(0, ...products.map((item) => item.id)) + 1, product: line.product, qty: line.qty, price: line.price, currency: line.currency })
     }
-    await tx.prepare("UPDATE suppliers SET products = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(products), id)
+    await tx.prepare(`UPDATE suppliers SET products = ?, updated_at = ${LOCAL_NOW} WHERE id = ?`).run(JSON.stringify(products), id)
+    return rowToSupplier((await readRow(tx, id))!)
+  })
+}
+
+export type ReserveLine = { productId: number | null; product: string; unit: string; qty: number; price: number; currency: string }
+
+/** «Добавить запас» → «Сохранить»: Linko's dialog edits the supplier's whole reserve, so the lines replace it. A line keeps
+ * its id when the same product was there before. With `manual` off, each line gets the product's cost (`costOf`). */
+export async function replaceSupplierReserve(id: number, lines: ReserveLine[], manual: boolean, costOf: (line: ReserveLine) => Promise<number>): Promise<Supplier | null> {
+  return withTransaction(async (tx) => {
+    const row = await readRow(tx, id, true)
+    if (!row) return null
+    const before = rowToSupplier(row).products
+    let next = Math.max(0, ...before.map((item) => item.id))
+    const products: SupplierProduct[] = []
+    for (const line of lines) {
+      const kept = before.find((item) => (line.productId != null && item.productId === line.productId) || (item.productId == null && item.product === line.product))
+      const price = manual ? line.price : await costOf(line)
+      products.push({ id: kept?.id ?? ++next, productId: line.productId, product: line.product, unit: line.unit, qty: line.qty, price, currency: line.currency, manual })
+    }
+    await tx.prepare(`UPDATE suppliers SET products = ?, updated_at = ${LOCAL_NOW} WHERE id = ?`).run(JSON.stringify(products), id)
     return rowToSupplier((await readRow(tx, id))!)
   })
 }
@@ -340,7 +366,7 @@ export async function removeSupplierReserve(id: number, rowId: number): Promise<
     const row = await readRow(tx, id, true)
     if (!row) return null
     const products = rowToSupplier(row).products.filter((item) => item.id !== rowId)
-    await tx.prepare("UPDATE suppliers SET products = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(products), id)
+    await tx.prepare(`UPDATE suppliers SET products = ?, updated_at = ${LOCAL_NOW} WHERE id = ?`).run(JSON.stringify(products), id)
     return rowToSupplier((await readRow(tx, id))!)
   })
 }

@@ -53,7 +53,7 @@ export const cashboxInputSchema = z
     ),
   })
   .superRefine((value, ctx) => {
-    if (!value.cashierId && !value.cashier) ctx.addIssue({ code: "custom", path: ["cashier"], message: REQUIRED })
+    // The cashier is optional (the user's choice, 2026-11-19): a cashbox is created without one.
     const rawType = value.paymentType || value.type
     if (!rawType) ctx.addIssue({ code: "custom", path: ["paymentType"], message: REQUIRED })
     else if (!cashboxTypeOf(rawType)) ctx.addIssue({ code: "custom", path: ["paymentType"], message: "Неизвестный тип оплаты" })
@@ -70,6 +70,8 @@ export const cashboxListQuerySchema = z.object({
   search: text(200),
   page: int(1, 1_000_000),
   pageSize: int(1, 2000),
+  /** The grid's "Id" header (demo ordering=id / -id); anything else keeps the default (newest first). */
+  ordering: z.enum(["id", "-id"]).optional().catch(undefined),
 })
 export type CashboxListQuery = z.infer<typeof cashboxListQuerySchema>
 

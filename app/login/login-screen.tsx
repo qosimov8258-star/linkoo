@@ -3,8 +3,8 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { X } from "lucide-react"
 
-import { PASSWORD_MIN, passwordProblem } from "@/lib/auth-policy"
-import { todayIso } from "@/lib/finance/dates"
+import { PasswordInput } from "@/components/ui/password-input"
+import { passwordHintFor, passwordMinFor, passwordProblem, type PasswordPolicy } from "@/lib/auth-policy"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { safeRedirectPath } from "./safe-redirect"
@@ -63,7 +63,17 @@ const INPUT_CLASS =
 
 /** Shown right after signing in with a password that must be replaced (set by
  * an administrator, the first seeded password, or one weaker than the policy). */
-function ChangePasswordForm({ currentPassword: knownCurrent, username, target }: { currentPassword: string; username: string; target: string }) {
+function ChangePasswordForm({
+  currentPassword: knownCurrent,
+  username,
+  policy,
+  target,
+}: {
+  currentPassword: string
+  username: string
+  policy: PasswordPolicy
+  target: string
+}) {
   const { t } = useLanguage()
   const [currentPassword, setCurrentPassword] = useState(knownCurrent)
   const [newPassword, setNewPassword] = useState("")
@@ -74,7 +84,7 @@ function ChangePasswordForm({ currentPassword: knownCurrent, username, target }:
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setError("")
-    const problem = passwordProblem(newPassword, username)
+    const problem = passwordProblem(newPassword, username, policy)
     if (problem) return setError(t(problem))
     if (newPassword !== confirm) return setError(t("Пароли не совпадают"))
     setSubmitting(true)
@@ -100,27 +110,26 @@ function ChangePasswordForm({ currentPassword: knownCurrent, username, target }:
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <p className="rounded-md bg-amber-50 px-4 py-3 text-sm leading-5 text-amber-800">
-        {t("Для продолжения работы задайте новый пароль.")} {t("Не менее 8 символов; пароль не может состоять только из цифр.")}
+        {t("Для продолжения работы задайте новый пароль.")} {t(passwordHintFor(policy))}
       </p>
       {!knownCurrent && (
         <label className="block">
           <span className="mb-2 block text-sm font-medium leading-[17.5px] text-black">
             {t("Текущий пароль")} <span className="text-red-500">*</span>
           </span>
-          <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className={INPUT_CLASS} autoComplete="current-password" />
+          <PasswordInput value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className={INPUT_CLASS} autoComplete="current-password" />
         </label>
       )}
       <label className="block">
         <span className="mb-2 block text-sm font-medium leading-[17.5px] text-black">
           {t("Новый пароль")} <span className="text-red-500">*</span>
         </span>
-        <input
-          type="password"
+        <PasswordInput
           autoFocus
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
           required
-          minLength={PASSWORD_MIN}
+          minLength={passwordMinFor(policy)}
           className={INPUT_CLASS}
           autoComplete="new-password"
         />
@@ -129,7 +138,7 @@ function ChangePasswordForm({ currentPassword: knownCurrent, username, target }:
         <span className="mb-2 block text-sm font-medium leading-[17.5px] text-black">
           {t("Повторите новый пароль")} <span className="text-red-500">*</span>
         </span>
-        <input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} required className={INPUT_CLASS} autoComplete="new-password" />
+        <PasswordInput value={confirm} onChange={(event) => setConfirm(event.target.value)} required className={INPUT_CLASS} autoComplete="new-password" />
       </label>
       {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
       <button
@@ -152,13 +161,15 @@ type LoginScreenProps = {
   reason?: string
   /** Already signed in but the password must be changed first. */
   mustChangeFor?: string
+  /** The password rules of that account (lib/auth-policy.ts). */
+  mustChangePolicy?: PasswordPolicy
 }
 
-function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
+function LoginForm({ from, reason, mustChangeFor, mustChangePolicy }: LoginScreenProps) {
   const { t } = useLanguage()
   const target = safeRedirectPath(from)
-  const [changeFor, setChangeFor] = useState<{ username: string; currentPassword: string } | null>(
-    mustChangeFor ? { username: mustChangeFor, currentPassword: "" } : null,
+  const [changeFor, setChangeFor] = useState<{ username: string; currentPassword: string; policy: PasswordPolicy } | null>(
+    mustChangeFor ? { username: mustChangeFor, currentPassword: "", policy: mustChangePolicy ?? "standard" } : null,
   )
   // No demo tenant prefilled: the last server this browser signed in to, else this site's host.
   const [server, setServer] = useState("")
@@ -208,7 +219,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
         setError(data.error ? t(data.error) : t("Не удалось войти"))
         return
       }
-      const data = (await response.json().catch(() => ({}))) as { username?: string; mustChangePassword?: boolean }
+      const data = (await response.json().catch(() => ({}))) as { username?: string; mustChangePassword?: boolean; passwordPolicy?: PasswordPolicy }
 
       // Like the reference, only «Запомнить меня» keeps the server + login for the next visit.
       if (remember) {
@@ -219,14 +230,14 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
       }
 
       if (data.mustChangePassword) {
-        setChangeFor({ username: data.username ?? login.trim(), currentPassword: password })
+        setChangeFor({ username: data.username ?? login.trim(), currentPassword: password, policy: data.passwordPolicy === "employee" ? "employee" : "standard" })
         setPassword("")
         return
       }
       // A full page load, so nothing from the previous account's screens survives.
-      // The reference lands on "#/?beginDate=<today>&endDate=<today>" (its own range preselected to today).
-      const today = todayIso()
-      window.location.assign(from ? target : `/?beginDate=${today}&endDate=${today}`)
+      // The requested page, else the home page (lib/home-page.ts: Персонал → Должности, the user's choice;
+      // the reference lands on its dashboard "#/?beginDate=<today>&endDate=<today>").
+      window.location.assign(target)
     } catch {
       setError(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
@@ -235,7 +246,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
   }
 
   if (changeFor) {
-    return <ChangePasswordForm currentPassword={changeFor.currentPassword} username={changeFor.username} target={target} />
+    return <ChangePasswordForm currentPassword={changeFor.currentPassword} username={changeFor.username} policy={changeFor.policy} target={target} />
   }
 
   return (
@@ -308,8 +319,7 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
           <span className="mb-2 block text-sm font-medium leading-[17.5px] text-black">
             {t("Пароль")} <span className="text-red-500">*</span>
           </span>
-          <input
-            type="password"
+          <PasswordInput
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             placeholder={t("Введите")}

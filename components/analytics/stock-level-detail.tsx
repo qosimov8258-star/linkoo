@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, type ReactNode } from "react"
+import Link from "next/link"
 import { X } from "lucide-react"
 
 import { qtyWithUnit } from "@/components/analytics/stock-level-state"
@@ -19,10 +20,23 @@ const DOC_LABELS: Record<string, string> = {
   supplier_incomings: "Поставка",
   production_movements: "Производство",
   internal_transfers: "Внутреннее перемещение",
+  // A production «Отгрузка» (a worker shift session handed over): № = the session, linked to План приемок и передач.
+  production_shipment: "Отгрузка",
+  // A production line is named by what it belongs to (lib/stock/production-documents.ts), as in Движение товаров:
+  // its batch (№ = the batch), a stage's Активность (a shift entry: no number) or reconciliation, or a balance
+  // copied from Linko that is no production document.
+  production_parties: "Партия",
+  production_activity: "Активность",
+  production_inventories: "Инвентаризация",
+  production_adjustment: "Не указано",
+  inventory_work: "Работа с инвентарем",
+  undocumented_stock: "Остаток без документа",
   stock_inventories: "Инвентаризация",
   supplier_returns: "Возврат поставщику",
   write_offs: "Списание",
   orders: "Заказ",
+  // An accepted client return (ledger kind 'return', one of the receipt kinds).
+  client_returns: "Возврат",
 }
 
 function useJson<T>(url: string | null) {
@@ -142,18 +156,29 @@ export function StockItemDialog({ itemKey, scope, fallbackName, onClose }: { ite
               </tr>
             </thead>
             <tbody>
-              {data.receipts.map((receipt, index) => (
-                <tr key={`${receipt.docType}-${receipt.docId}-${index}`}>
-                  <td className={td}>
-                    {t(DOC_LABELS[receipt.docType] ?? receipt.docType)} №{receipt.docId}
-                  </td>
-                  <td className={td}>{receipt.day === "1970-01-01" ? "-" : formatDotDate(receipt.day)}</td>
-                  <td className={td}>{receipt.warehouse}</td>
-                  <td className={`${td} text-right`}>{qtyWithUnit(receipt.qty, unit, t)}</td>
-                  <td className={`${td} text-right`}>{receipt.unitCost ? money(receipt.unitCost) : "-"}</td>
-                  <td className={`${td} ${receipt.isDefect ? "text-[#e57373]" : "text-[#3aa76d]"}`}>{receipt.isDefect ? t("Брак") : "OK"}</td>
-                </tr>
-              ))}
+              {data.receipts.map((receipt, index) => {
+                // docId 0: a receipt of no numbered document (a stage's Активность, a balance copied from Linko). A
+                // document type the map does not know reads «Другие документы», never its table name.
+                const label = `${t(DOC_LABELS[receipt.docType] ?? "Другие документы")}${receipt.docId ? ` №${receipt.docId}` : ""}`
+                return (
+                  <tr key={`${receipt.docType}-${receipt.docId}-${index}`}>
+                    <td className={td}>
+                      {receipt.href ? (
+                        <Link href={receipt.href} className="text-[#1E4A9A] hover:underline">
+                          {label}
+                        </Link>
+                      ) : (
+                        label
+                      )}
+                    </td>
+                    <td className={td}>{receipt.day === "1970-01-01" ? "-" : formatDotDate(receipt.day)}</td>
+                    <td className={td}>{receipt.warehouse}</td>
+                    <td className={`${td} text-right`}>{qtyWithUnit(receipt.qty, unit, t)}</td>
+                    <td className={`${td} text-right`}>{receipt.unitCost ? money(receipt.unitCost) : "-"}</td>
+                    <td className={`${td} ${receipt.isDefect ? "text-[#e57373]" : "text-[#3aa76d]"}`}>{receipt.isDefect ? t("Брак") : "OK"}</td>
+                  </tr>
+                )
+              })}
               {!data.receipts.length && (
                 <tr>
                   <td colSpan={6} className="px-3 py-4 text-center text-[#8b95a5]">

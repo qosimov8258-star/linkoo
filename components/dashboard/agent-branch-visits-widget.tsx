@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react"
 import { SelectField } from "./select-field"
 import { AgentVisitsFilterPanel } from "./agent-visits-filter-panel"
 import { CARD_CLASS } from "./stat-cards"
+import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -320,8 +321,8 @@ function useDelivererWidget(begin: string, end: string, enabled: boolean): Deliv
   return data
 }
 
-/** Linko's widget numbers: grouped, up to 3 decimals. */
-const formatWidgetNumber = (value: number) => (Math.round(value * 1000) / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 }).replace(/[\u00a0\u202f]/g, " ")
+/** Linko's widget numbers (its numberFormat): grouped, up to 3 decimals, or those of Настройки → Округление сумм. */
+const formatWidgetNumber = (value: number) => formatMoney(value).replace(/[\u00a0\u202f]/g, " ")
 
 /** «Кассир принял»: green = all of the payments accepted, blue = some, red = none. */
 const CASHIER_BADGE: Record<"green" | "blue" | "red", string> = {
@@ -474,6 +475,8 @@ export function AgentBranchVisitsWidget({
   const courierRows = couriersExpanded ? (deliverers?.rows ?? []) : (deliverers?.rows ?? []).slice(0, 7)
 
   return (
+    // Linko's dashboard: an agent's name opens the agent's day in an 800 px drawer, on the period's last day.
+    <AgentDrawerScope date={end} width={800} push>
     <div className="space-y-5">
       <div className={`${CARD_CLASS} flex overflow-hidden`}>
         <SummaryBox value={String(stats.agents.length)} label="Активные" tone="green" />
@@ -496,7 +499,9 @@ export function AgentBranchVisitsWidget({
           <tbody>
             {stats.agents.map((row) => (
               <tr key={row.employeeId} className="border-t border-dotted border-[#ddd]">
-                <td className="whitespace-nowrap px-[17px] py-[10px] font-semibold">{row.name}</td>
+                <td className="whitespace-nowrap px-[17px] py-[10px] font-semibold">
+                  <AgentLink employeeId={row.employeeId} name={row.name} tone="plain" />
+                </td>
                 {visibleColumns.map((column) => (
                   <td key={column.key} className="whitespace-nowrap px-[17px] py-[10px]">{cellValue(row, column.key)}</td>
                 ))}
@@ -632,7 +637,9 @@ export function AgentBranchVisitsWidget({
             <tbody>
               {agentRows.map((person) => (
                 <tr key={person.id} className="h-[46px] border-b border-[#efefef]">
-                  <td className="w-[140px] px-[17px]">{fullName(person)}</td>
+                  <td className="w-[140px] px-[17px]">
+                    <AgentLink employeeId={person.id} name={fullName(person)} tone="plain" />
+                  </td>
                   <td className="border-l border-[#efefef] px-[10px]">
                     {trends.get(fullName(person)) && <Sparkline values={trends.get(fullName(person))!.sales} color="#1E4A9A" />}
                   </td>
@@ -682,7 +689,9 @@ export function AgentBranchVisitsWidget({
             <tbody>
               {courierRows.map((row) => (
                 <tr key={row.id} className="h-[46px] border-b border-[#efefef]">
-                  <td className="px-[17px]">{row.name}</td>
+                  <td className="px-[17px]">
+                    <AgentLink employeeId={row.id} name={row.name} tone="plain" />
+                  </td>
                   <td className="border-l border-[#efefef] px-[17px]">{formatWidgetNumber(row.order)}</td>
                   <td className="border-l border-[#efefef] px-[17px]">{formatWidgetNumber(row.orderReturn)}</td>
                   <td className="border-l border-[#efefef] px-[17px]">{formatWidgetNumber(row.dateReturn)}</td>
@@ -707,5 +716,6 @@ export function AgentBranchVisitsWidget({
       </div>
       )}
     </div>
+    </AgentDrawerScope>
   )
 }

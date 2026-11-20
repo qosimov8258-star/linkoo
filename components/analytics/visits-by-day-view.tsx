@@ -6,7 +6,6 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import type { AgentRouteSummary, AgentRouteSummaryRow } from "@/lib/agent-visits-repo"
 import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
 import { nextMatrixSort } from "@/components/ref/sort-arrows"
-import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-drawer"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
 
@@ -158,7 +157,7 @@ export function VisitsByDayView() {
       agents.map((agent) => ({
         key: String(agent.employeeId),
         cells: [
-          <AgentLink key="name" employeeId={agent.employeeId} name={agent.name} />,
+          agent.name,
           ...days.map((day) => {
             const value = cellValue(agent, day.iso, applied.column)
             return typeof value === "number" ? matrixNumber(value) : value
@@ -172,34 +171,32 @@ export function VisitsByDayView() {
     <ReportPage>
       <ReportHeader title="Визиты по дням" onExcel={downloadVisitsCsv} onDashboard={() => setDashboardOpen(true)} inDashboard={inDashboard} />
 
-      <AgentDrawerScope date={applied.to}>
-        <ReportBand>
-          <ReportFilters
-            onApply={() => {
-              if (draftFrom <= draftTo) setApplied({ from: draftFrom, to: draftTo, column: columnOf(draftColumn) })
-            }}
-            applyDisabled={draftFrom > draftTo}
-          >
-            <ReportDateField label="Дата создания от" value={draftFrom} max={draftTo} onChange={setDraftFrom} />
-            <ReportDateField label="Дата создания до" value={draftTo} min={draftFrom} onChange={setDraftTo} />
-            <ReportChipField label="Колонка" value={draftColumn} options={COLUMNS.map((column) => column.label)} onChange={setDraftColumn} />
-          </ReportFilters>
+      <ReportBand>
+        <ReportFilters
+          onApply={() => {
+            if (draftFrom <= draftTo) setApplied({ from: draftFrom, to: draftTo, column: columnOf(draftColumn) })
+          }}
+          applyDisabled={draftFrom > draftTo}
+        >
+          <ReportDateField label="Дата создания от" value={draftFrom} max={draftTo} onChange={setDraftFrom} />
+          <ReportDateField label="Дата создания до" value={draftTo} min={draftFrom} onChange={setDraftTo} />
+          <ReportChipField label="Колонка" value={draftColumn} options={COLUMNS.map((column) => column.label)} onChange={setDraftColumn} />
+        </ReportFilters>
 
-          {agents.length === 0 ? (
-            <ReportEmpty />
-          ) : (
-            <ReportMatrix
-              stickyFirst
-              heads={matrixHeads}
-              groups={[{ title: "", span: 1 }, ...days.map((day) => ({ title: day.day, span: 1 }))]}
-              sortKey={sort.key}
-              sortDir={sort.dir}
-              onSort={(index) => setSort((current) => nextMatrixSort(current, index))}
-              rows={matrixRows}
-            />
-          )}
-        </ReportBand>
-      </AgentDrawerScope>
+        {agents.length === 0 ? (
+          <ReportEmpty />
+        ) : (
+          <ReportMatrix
+            stickyFirst
+            heads={matrixHeads}
+            groups={[{ title: "", span: 1 }, ...days.map((day) => ({ title: day.day, span: 1 }))]}
+            sortKey={sort.key}
+            sortDir={sort.dir}
+            onSort={(index) => setSort((current) => nextMatrixSort(current, index))}
+            rows={matrixRows}
+          />
+        )}
+      </ReportBand>
 
       {overlayOpen && (
         <button

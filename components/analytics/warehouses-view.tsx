@@ -32,9 +32,9 @@ import {
 
 type ActiveTab = "true" | "false"
 type ViewState = { isActive: ActiveTab; search: string; ordering: WarehouseOrdering; page: number; pageSize: number }
-// Reference grid: 12 xs columns inside the 30px gutters (Id 1 | 2 | 2 | 2 | 2 | Дата 1 | Вэнсел 3).
-// Measured on the reference (1500px): text starts at x = 255 / 364 / 567 / 769 / 972 / 1174 / 1315.
-const COLUMNS = "109px 203px 202px 203px 202px 141px minmax(0,1fr)"
+// Linko's grid: 12 equal xs columns inside the 30px gutters (Id 1 | Наименование 2 | Адрес 2 | Филиал 2 | Зав. склад 2 |
+// Дата создания 1 | Вэнсел 1, right-aligned | the hover actions 1); every cell but the first keeps 8px on its left.
+const COLUMNS = "minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)"
 
 type DialogState = { kind: "create" } | { kind: "update"; id: number } | { kind: "delete"; id: number; name?: string } | null
 
@@ -167,8 +167,8 @@ function WarehousesGrid() {
   const notSet = t("Не указано")
   // Demo "DD MMM YYYY" (ru Intl appends " г.", the demo does not).
   const created = (row: WarehouseDetail) => (row.createdAt && language !== "ru" ? formatStatementDate(row.createdAt, language, false).replace(/\s*г\.$/, "") : row.createdDate)
-  const header = (field: WarehouseOrderingField, label: string, className = "") => (
-    <span className={`pr-4 ${className}`}>
+  const header = (field: WarehouseOrderingField, label: string, className = "px-2") => (
+    <span className={className}>
       <SortButton label={t(label)} field={field} ordering={state.ordering} onSort={(next) => update({ ordering: next, page: 1 })} />
     </span>
   )
@@ -195,7 +195,9 @@ function WarehousesGrid() {
 
       <SettingsToolbar
         className="h-[52px]"
-        searchClassName="left-[335px] top-[12px]"
+        // Linko's search field: 360px from the panel's left edge, 300px wide.
+        searchClassName="left-[360px] top-[12px]"
+        searchWidth={300}
         left={canEdit ? <AddLink onClick={() => setDialog({ kind: "create" })}>{t("добавить склад")}</AddLink> : undefined}
         query={searchDraft}
         onQuery={setSearchDraft}
@@ -211,13 +213,14 @@ function WarehousesGrid() {
       />
 
       <div className={`${kitHead} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
-        {header("id", "Id", "")}
+        {header("id", "Id", "pr-2")}
         {header("name", "Наименование")}
         {header("address", "Адрес")}
         {header("branch", "Филиал")}
         {header("manager", "Зав. склад")}
-        {header("created_date", "Дата создания", "pr-[56px]")}
-        {header("is_van_sell", "Вэнсел", "")}
+        {/* Linko's sortable title keeps room for its arrow, so «Дата создания» wraps. */}
+        {header("created_date", "Дата создания", "pl-2 pr-[30px]")}
+        {header("is_van_sell", "Вэнсел", "px-2 text-right")}
       </div>
       <div className={loading && data ? "opacity-60" : undefined}>
         {loading && !data ? (
@@ -229,25 +232,27 @@ function WarehousesGrid() {
         ) : (
           rows.map((row) => (
             <div key={row.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
-              <span className="pr-4">{row.id}</span>
-              <span className="min-w-0 break-words pr-4" title={row.fullName ? `${row.name} — ${row.fullName}` : row.name}>
+              <span className="pr-2">{row.id}</span>
+              <span className="min-w-0 break-words px-2" title={row.fullName ? `${row.name} — ${row.fullName}` : row.name}>
                 {row.name}
               </span>
-              <span className="min-w-0 break-words pr-4" title={row.address}>
+              <span className="min-w-0 break-words px-2" title={row.address}>
                 {row.address || notSet}
               </span>
-              <span className="min-w-0 break-words pr-4">{row.branch || notSet}</span>
-              <span className="min-w-0 break-words pr-4">{row.manager || notSet}</span>
-              <span className="pr-[55.6px]">{created(row)}</span>
-              <span className="pl-[30px]">
+              <span className="min-w-0 break-words px-2">{row.branch || notSet}</span>
+              <span className="min-w-0 break-words px-2">{row.manager || notSet}</span>
+              <span className="min-w-0 px-2">{created(row)}</span>
+              <span className="flex justify-end px-2">
                 <span
-                  className="inline-block h-4 w-4 rounded-full align-middle"
-                  style={{ background: row.online ? "rgb(129, 199, 132)" : "#f44336" }}
+                  className="ml-[10px] inline-block h-4 w-4 rounded-full align-middle"
+                  style={{ background: row.online ? "rgb(129, 199, 132)" : "red" }}
                   title={row.online ? t("Да") : t("Нет")}
                 />
               </span>
               {canEdit && (
                 <RowActions
+                  // Linko's ✎ / 🗑 end at its row's right padding (30px).
+                  right={33.2}
                   onEdit={() => setDialog({ kind: "update", id: row.id })}
                   onDelete={() => setDialog({ kind: "delete", id: row.id, name: row.name })}
                 />
@@ -293,7 +298,7 @@ function WarehousesGrid() {
 function SortButton({ label, field, ordering, onSort }: { label: string; field: WarehouseOrderingField; ordering: WarehouseOrdering; onSort: (next: WarehouseOrdering) => void }) {
   const icon = ordering === field ? <ArrowUp className="h-4 w-4" /> : ordering === `-${field}` ? <ArrowDown className="h-4 w-4" /> : null
   return (
-    <button type="button" onClick={() => onSort(nextOrdering(ordering, field))} className="inline-flex items-center gap-[10px] font-semibold">
+    <button type="button" onClick={() => onSort(nextOrdering(ordering, field))} className="inline-flex items-center gap-[10px] text-left font-semibold">
       {label} {icon}
     </button>
   )

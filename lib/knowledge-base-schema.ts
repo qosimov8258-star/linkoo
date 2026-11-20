@@ -8,12 +8,14 @@ import { keySql } from "@/lib/platform-refs"
 // maintenance pool (outsideTransaction), never inside a request transaction:
 //   knowledge_base_files              uploaded PDFs (bytes in Postgres, served by an authenticated GET)
 //   knowledge_base_articles           name (unique by keySql), text, active, file_id → files
-//   knowledge_base_article_positions  article ↔ job position (Права доступа), both by FK
-// An older database has the first draft of knowledge_base_articles (roles = JSON array of
-// free-text role names): matching names become position links once per row (roles_migrated
-// marks it); the original roles text is kept untouched.
+//   knowledge_base_article_positions  article ↔ job position (the first model, no longer read)
+//   knowledge_base_article_access_rights  article ↔ access right (Права доступа), both by FK
+// Linko publishes an article to access rights (main/position/), not to job positions. An older
+// database has the first draft of knowledge_base_articles (roles = JSON array of free-text role
+// names) and / or job-position links: once per row (access_rights_migrated) the access rights of
+// the same names become its links. The roles text and the job-position links are kept untouched.
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 declare global {
   var __linkoKnowledgeBaseSchema: { version: number; ready: Promise<void> } | undefined
@@ -92,6 +94,37 @@ async function install(): Promise<void> {
       END $$;
     `)
     await tx.exec("UPDATE knowledge_base_articles SET roles_migrated = 1 WHERE roles_migrated = 0")
+    await tx.exec(`
+      CREATE TABLE IF NOT EXISTS knowledge_base_article_access_rights (
+        article_id INTEGER NOT NULL REFERENCES knowledge_base_articles (id) ON DELETE CASCADE,
+        access_right_id INTEGER NOT NULL REFERENCES access_rights (id) ON DELETE CASCADE,
+        PRIMARY KEY (article_id, access_right_id)
+      );
+    `)
+    await tx.exec("CREATE INDEX IF NOT EXISTS knowledge_base_article_access_rights_right ON knowledge_base_article_access_rights (access_right_id)")
+    await tx.exec("ALTER TABLE knowledge_base_articles ADD COLUMN IF NOT EXISTS access_rights_migrated INTEGER NOT NULL DEFAULT 0")
+    // Job-position model → access rights: the roles names and the linked job positions' names,
+    // matched to access rights by name, once per row.
+    await tx.exec(`
+      DO $$ BEGIN
+        INSERT INTO knowledge_base_article_access_rights (article_id, access_right_id)
+        SELECT DISTINCT a.id, r.id
+          FROM knowledge_base_articles a
+          JOIN LATERAL (
+            SELECT n.name FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(a.roles::jsonb) = 'array' THEN a.roles::jsonb ELSE '[]'::jsonb END
+            ) AS n(name)
+            UNION
+            SELECT p.name FROM knowledge_base_article_positions l JOIN job_positions p ON p.id = l.position_id WHERE l.article_id = a.id
+          ) AS names ON TRUE
+          JOIN access_rights r ON ${keySql("r.name")} = ${keySql("names.name")}
+         WHERE a.access_rights_migrated = 0
+        ON CONFLICT DO NOTHING;
+      EXCEPTION WHEN others THEN
+        RAISE NOTICE 'knowledge_base access rights backfill skipped: %', SQLERRM;
+      END $$;
+    `)
+    await tx.exec("UPDATE knowledge_base_articles SET access_rights_migrated = 1 WHERE access_rights_migrated = 0")
   })
 }
 

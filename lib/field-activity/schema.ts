@@ -8,7 +8,7 @@ import { getDb, outsideTransaction, withTransaction } from "@/lib/db"
 // never deadlock. Every statement is idempotent (fresh and existing databases alike). No other
 // module reads these tables, so they are not part of the lib/db.ts bootstrap.
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS field_visits (
@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS field_refusals (
 CREATE INDEX IF NOT EXISTS field_refusals_employee_at ON field_refusals (employee_id, happened_at);
 CREATE INDEX IF NOT EXISTS field_refusals_at ON field_refusals (happened_at);
 CREATE INDEX IF NOT EXISTS field_refusals_client ON field_refusals (client_id);
+-- The client's name as the source system named it when the refusal was copied: a client deleted there has no clients
+-- row here, and its refusals still name it ('' = none; a client that exists shows its own name).
+ALTER TABLE field_refusals ADD COLUMN IF NOT EXISTS client_name TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS field_photo_reports (
   id SERIAL PRIMARY KEY,

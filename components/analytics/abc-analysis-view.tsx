@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
-import { currencyLabel } from "@/lib/finance/currency"
+import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import type { AbcResult } from "@/lib/finance/pnl-types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -14,6 +14,8 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // product types, brands, branches and order agents.
 
 const GROUP_BY: Record<string, "product" | "productType" | "brand"> = { "Продукт": "product", "Тип продукта": "productType", "Бренд": "brand" }
+/** Linko's groupField values of the address. */
+const GROUP_FIELD: Record<string, string> = { product: "product", productType: "product_type", brand: "brand" }
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -64,6 +66,23 @@ export function AbcAnalysisView() {
 
   const { t } = useLanguage()
   const [query, setQuery] = useState(() => ({ from: monthStart(), to: today(), productType: "", brand: "", branch: "", orderUser: "", groupBy: "Продукт" }))
+
+  // Linko's link (abc_analysis/?beginDate=2026-01-01&endDate=2026-10-30&groupField=product) opens that period and
+  // grouping; read after the first render, so the server render and the first client render stay the same.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const day = (value: string | null) => (value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null)
+    const begin = day(params.get("beginDate"))
+    const end = day(params.get("endDate"))
+    const group = Object.keys(GROUP_BY).find((label) => GROUP_FIELD[GROUP_BY[label]] === params.get("groupField"))
+    if (!begin && !end && !group) return
+    const next = { from: begin ?? monthStart(), to: end ?? today() }
+    if (next.from > next.to) return
+    setFrom(next.from)
+    setTo(next.to)
+    if (group) setGroupBy(group)
+    setQuery((current) => ({ ...current, ...next, groupBy: group ?? current.groupBy }))
+  }, [])
   const [data, setData] = useState<AbcResult | null>(null)
   const [itemsLoading, setItemsLoading] = useState(true)
   const [itemsError, setItemsError] = useState("")
@@ -101,7 +120,8 @@ export function AbcAnalysisView() {
   function downloadCsv() {
     downloadExcelTable("abc-analysis.xls", [
       ["ИД", "Наименование", "Кол-во проданного товара", "Кол-во проданного товара в %", "Сумма продаж", "Сумма продаж в %", "Класс"],
-      ...rows.map((row) => [row.id, row.name, row.quantity, row.quantityPercent.toFixed(1), row.sales, row.salesPercent.toFixed(2), row.abcClass]),
+      // Linko's Excel holds the server's figures as they are (the percentages rounded to 1 and 2 decimals: 0.3, 6.98).
+      ...rows.map((row) => [row.id, row.name, row.quantity, row.quantityPercent, row.sales, row.salesPercent, row.abcClass]),
       ["", "Итого", totals.quantity, 100, totals.sales, 100, ""],
     ])
   }
@@ -152,19 +172,19 @@ export function AbcAnalysisView() {
                     <tr key={`${row.id}-${row.name}`}>
                       <td className="border px-2 py-4">{row.id}</td>
                       <td className="border px-2 py-4">{row.name}</td>
-                      <td className="border px-2 py-4 text-right">{row.quantity.toLocaleString("ru-RU")}</td>
-                      <td className="border px-2 py-4 text-right">{row.quantityPercent.toFixed(1)}</td>
-                      <td className="border px-2 py-4 text-right">{row.sales.toLocaleString("ru-RU")}</td>
-                      <td className="border px-2 py-4 text-right">{row.salesPercent.toFixed(2)}</td>
+                      <td className="border px-2 py-4 text-right">{formatMoney(row.quantity)}</td>
+                      <td className="border px-2 py-4 text-right">{formatMoney(row.quantityPercent)}</td>
+                      <td className="border px-2 py-4 text-right">{formatMoney(row.sales)}</td>
+                      <td className="border px-2 py-4 text-right">{formatMoney(row.salesPercent)}</td>
                       <td className={`border px-2 py-4 ${row.abcClass === "A" ? "bg-[#a0fc7e]" : row.abcClass === "B" ? "bg-[#faec55]" : "bg-[#f54242]"}`}>{row.abcClass}</td>
                     </tr>
                   ))}
                   <tr className="bg-slate-50 font-semibold">
                     <td className="border" />
                     <td className="border px-2 py-4">{t("Итого")}</td>
-                    <td className="border px-2 py-4 text-right">{totals.quantity.toLocaleString("ru-RU")}</td>
+                    <td className="border px-2 py-4 text-right">{formatMoney(totals.quantity)}</td>
                     <td className="border px-2 py-4 text-right">100</td>
-                    <td className="border px-2 py-4 text-right">{totals.sales.toLocaleString("ru-RU")}</td>
+                    <td className="border px-2 py-4 text-right">{formatMoney(totals.sales)}</td>
                     <td className="border px-2 py-4 text-right">100</td>
                     <td className="border" />
                   </tr>

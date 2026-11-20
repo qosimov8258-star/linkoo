@@ -32,7 +32,7 @@ import { CASH_DOC_SEQUENCE, ensureFinanceSchema, ensureLedgerExtensions, type Fi
 //     the cashbox cashier's single organization). Best effort: a failure only
 //     logs a warning and never blocks the schema.
 
-const CASH_SCHEMA_VERSION = 6
+const CASH_SCHEMA_VERSION = 7
 
 const DDL = `
 CREATE SEQUENCE IF NOT EXISTS ${CASH_DOC_SEQUENCE};
@@ -129,6 +129,24 @@ CREATE TABLE IF NOT EXISTS cash_entry_children (
   position INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS cash_entry_children_entry_idx ON cash_entry_children (entry_id);
+
+-- Facts of Linko's own cash transactions that the merged local rows do not carry (type / order / client of a client
+-- payment's cash transaction, the agent of an acceptance kept as a cash entry); written by
+-- scripts/linko-sync/import-cash-list-facts.mjs, read by the cash list (lib/cash/list.ts) only.
+CREATE TABLE IF NOT EXISTS linko_cash_list_facts (
+  source TEXT NOT NULL,
+  row_id INTEGER NOT NULL,
+  op_type INTEGER,
+  order_id INTEGER,
+  client_id INTEGER,
+  client_name TEXT,
+  agent_id INTEGER,
+  agent_name TEXT,
+  local_op_type INTEGER,
+  local_order_id INTEGER,
+  local_client_id INTEGER,
+  PRIMARY KEY (source, row_id)
+);
 
 ALTER TABLE income_categories ADD COLUMN IF NOT EXISTS options TEXT;
 ALTER TABLE expense_categories ADD COLUMN IF NOT EXISTS options TEXT;

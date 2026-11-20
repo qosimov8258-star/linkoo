@@ -211,7 +211,8 @@ function CashBalanceContent() {
         </>
       )}
 
-      <BalanceFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} from={period.from} to={period.to} onApply={(next) => pushState(next, null)} />
+      {/* columns={4}: the reference's card over the filter row (one date field a quarter wide, «Применить» in normal case). */}
+      <BalanceFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} from={period.from} to={period.to} onApply={(next) => pushState(next, null)} columns={4} />
 
       {detail && (
         <CashBalanceDetail

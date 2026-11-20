@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db"
 import { parseId } from "@/lib/auth-request"
 import { getClient } from "@/lib/clients-repo"
 import { getCurrentUser } from "@/lib/current-user"
+import { roundMoney } from "@/lib/finance/currency"
 import { todayIso } from "@/lib/finance/dates"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { invalidFieldResponse } from "@/lib/validation"
@@ -25,11 +26,15 @@ function shift(day: string, days: number): string {
 }
 
 const round2 = (value: number) => Math.round((Number(value) || 0) * 100) / 100
+/** The drawer's «Баланс» tiles as Linko prints them: to the decimals of Настройки → Округление сумм (its
+ * ROUND_AMOUNT_FOR_CURRENCY), a half away from zero on the shortest decimal (roundMoney). */
+const roundTile = (value: number) => roundMoney(Number(value) || 0)
 
 // GET /api/clients/[id]/summary?from&to (default: the last 30 days) → the
 // client card figures from the client ledger: balance at the start / end of
 // the period, orders (by creation), actual sales (shipped, by realization),
-// returns and payments per currency, last order / payment day.
+// returns and payments per currency, last order / payment day; order / orderReturn / payment / otherIncome /
+// otherExpense are the ledger's columns as they are (the shop drawer's «Баланс» tiles).
 export async function GET(request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
@@ -65,14 +70,22 @@ export async function GET(request: Request, { params }: RouteParams) {
         actualSales: round2(-(r?.order ?? 0)),
         returns: round2(c?.order_return ?? 0),
         payments: round2(c?.payment ?? 0),
+        // The drawer's «Баланс» tiles: the ledger's own columns, as «Баланс клиентов» shows them, to the setting's decimals.
+        beginExact: roundTile(c?.begin_balance ?? 0),
+        endExact: roundTile(c?.end_balance ?? 0),
+        order: roundTile(c?.order ?? 0),
+        orderReturn: roundTile(c?.order_return ?? 0),
+        payment: roundTile(c?.payment ?? 0),
+        otherIncome: roundTile(c?.none_type_plus ?? 0),
+        otherExpense: roundTile(c?.none_type_minus ?? 0),
       }
     })
     .filter((entry, index) => index === 0 || Object.entries(entry).some(([key, value]) => key !== "currency" && value !== 0))
   const lastOrder = typeof row?.info.last_order === "string" ? row.info.last_order : null
   const lastPayment = typeof row?.info.last_payment === "string" ? row.info.last_payment : null
   // Linko's last_visit_date: the day of the client's latest visit (an order, a refusal and a photo report are each made
-  // during one); an order made here without a visit counts as one too. Its last_reject_comment: the text of the latest
-  // refusal.
+  // during one); an order made here without a visit counts as one too. Its last_reject_comment: the latest refusal's
+  // comment, else its refusal type (Linko's «Точка закрыт»); a copied shop without refusals here keeps Linko's text.
   const db = getDb()
   const visit = (await db
     .prepare("SELECT to_char(max(started_at) AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') AS day FROM field_visits WHERE client_id = ?")
@@ -83,6 +96,12 @@ export async function GET(request: Request, { params }: RouteParams) {
     .prepare("SELECT comment, reason FROM field_refusals WHERE client_id = ? ORDER BY happened_at DESC, id DESC LIMIT 1")
     .get(id)
     .catch(() => null)) as { comment: string | null; reason: string | null } | null
+  const linkoRefusal = refusal
+    ? null
+    : ((await db
+        .prepare("SELECT last_reject_comment FROM linko_market_cards WHERE client_id = ?")
+        .get(id)
+        .catch(() => null)) as { last_reject_comment: string | null } | null)
   const today = todayIso()
   const daysSince = (day: string | null) => (day ? Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000)) : null)
   // The card counts like Linko from the shop's own last order / visit days (its field activity; an office order does
@@ -100,6 +119,6 @@ export async function GET(request: Request, { params }: RouteParams) {
     daysSinceLastPayment: daysSince(lastPayment),
     lastVisit,
     daysSinceLastVisit: daysSince(fieldVisit ?? fieldOrder ?? lastVisit),
-    lastRefusalComment: refusal?.comment?.trim() || null,
+    lastRefusalComment: refusal?.comment?.trim() || refusal?.reason?.trim() || linkoRefusal?.last_reject_comment?.trim() || null,
   })
 }

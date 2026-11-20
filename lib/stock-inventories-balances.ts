@@ -2,6 +2,7 @@ import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
 import { costsInWarehouse, getWarehouseItemCosts, previousDay } from "@/lib/stock/costs"
+import { leadingNumber } from "@/lib/stock/catalog"
 import { stockOrphanNames } from "@/lib/stock/level"
 import { getStockBalances, getStockCatalog } from "@/lib/stock/ledger"
 import type { StockCatalogItem } from "@/lib/stock/types"
@@ -84,8 +85,34 @@ async function averageCosts(moment: BalanceMoment, db: PgDb): Promise<Map<string
   return costsInWarehouse(await getWarehouseItemCosts({ date: moment.forDayEnd ? moment.date : previousDay(moment.date) }, db), moment.warehouse)
 }
 
+type ProductFacts = { order: number | null; trackExpiry: boolean; weight: number; netWeight: number }
+
+/** Linko's all_balances facts of the products: «Порядковый номер», series flag and unit weights. */
+async function productFacts(ids: number[], db: PgDb): Promise<Map<number, ProductFacts>> {
+  const facts = new Map<number, ProductFacts>()
+  if (!ids.length) return facts
+  const rows = (await db
+    .prepare(
+      `SELECT id, COALESCE((to_jsonb(p) ->> 'track_expiry')::int, 0) AS track_expiry, to_jsonb(p) ->> 'weight' AS weight,
+              to_jsonb(p) ->> 'net_weight' AS net_weight, to_jsonb(p) ->> 'order_number' AS order_number
+       FROM products p WHERE id = ANY(@ids::int[])`,
+    )
+    .all({ ids })) as Array<{ id: number; track_expiry: number; weight: string | null; net_weight: string | null; order_number: string | null }>
+  for (const row of rows) {
+    const order = /^\s*-?\d+(\.\d+)?\s*$/.test(row.order_number ?? "") ? Number(row.order_number) : null
+    facts.set(Number(row.id), { order, trackExpiry: Number(row.track_expiry) === 1, weight: leadingNumber(row.weight), netWeight: leadingNumber(row.net_weight) })
+  }
+  return facts
+}
+
+const productIdOfKey = (key: string) => {
+  const match = /^product:(\d+)$/.exec(key)
+  return match ? Number(match[1]) : null
+}
+
 /** Every catalog item with its system balance (0 when nothing moved) plus the
- * non-catalog keys that have a balance there, sorted by name. */
+ * non-catalog keys that have a balance there, in Linko's all_balances order: by «Порядковый номер» (the products
+ * without one last), then by product id; other items after them by name. */
 export async function getInventoryBalances(moment: BalanceMoment): Promise<StockInventoryBalances> {
   const db = getDb()
   const [catalog, balances] = await Promise.all([getStockCatalog(db), warehouseBalances(moment, db)])
@@ -111,22 +138,44 @@ export async function getInventoryBalances(moment: BalanceMoment): Promise<Stock
     if (known.has(key) || !round6(balance.qty)) continue
     rows.push({ key, name: orphans.get(key)?.name ?? nameFromKey(key), article: "", type: "", brand: "", unit: "", qty: round6(balance.qty), cost: unitCost(balance, undefined, averages.get(key)), defects: round6(balance.defects), inCatalog: false })
   }
-  rows.sort((a, b) => a.name.localeCompare(b.name, "ru") || a.key.localeCompare(b.key))
+  const facts = await productFacts(rows.map((row) => productIdOfKey(row.key)).filter((id): id is number => id !== null), db)
+  for (const row of rows) {
+    const id = productIdOfKey(row.key)
+    const fact = id === null ? undefined : facts.get(id)
+    row.productId = id
+    row.trackExpiry = fact?.trackExpiry ?? false
+    row.weight = fact?.weight ?? 0
+    row.netWeight = fact?.netWeight ?? 0
+  }
+  const rank = (row: StockInventoryBalanceRow) => {
+    const id = row.productId ?? null
+    return { order: id === null ? Number.POSITIVE_INFINITY : (facts.get(id)?.order ?? Number.POSITIVE_INFINITY), id: id ?? Number.POSITIVE_INFINITY }
+  }
+  rows.sort((a, b) => {
+    const x = rank(a)
+    const y = rank(b)
+    return x.order - y.order || x.id - y.id || a.name.localeCompare(b.name, "ru") || a.key.localeCompare(b.key)
+  })
   return { warehouse: moment.warehouse, date: moment.date, forDayEnd: moment.forDayEnd, rows }
 }
 
 export type LineSnapshot = { balanceAmount: number; diff: number; cost: number; totalPrice: number }
 
-/** "Баланс (до)", Разница, cost and Сумма of counted lines at the inventory moment. */
+/** "Баланс (до)", Разница, cost and Сумма of counted lines at the inventory moment. An item counted on several lines
+ * (one per series: the ledger keeps no balance per series) gets its system balance on its first line and 0 on the
+ * others, so its differences add up to Σ counted − balance. */
 export async function snapshotLines(
   moment: BalanceMoment,
   lines: Array<{ key: string; amount: number }>,
   db: PgDb = getDb(),
 ): Promise<LineSnapshot[]> {
   const [catalog, balances, averages] = await Promise.all([loadCatalogMap(db), warehouseBalances(moment, db), averageCosts(moment, db)])
+  const counted = new Set<string>()
   return lines.map((line) => {
     const balance = balances.get(line.key)
-    const balanceAmount = round6(balance?.qty ?? 0)
+    const first = !counted.has(line.key)
+    counted.add(line.key)
+    const balanceAmount = first ? round6(balance?.qty ?? 0) : 0
     const diff = round6(line.amount - balanceAmount)
     const cost = unitCost(balance, catalog.get(line.key), averages.get(line.key))
     return { balanceAmount, diff, cost, totalPrice: round6(diff * cost) }

@@ -23,6 +23,9 @@ export function CatalogFilterBar({
   onClose,
   onClear,
   onApply,
+  barWidth,
+  hidePerfectStore,
+  searchableType,
 }: {
   kind: CatalogKind
   filters: CatalogFilters
@@ -32,13 +35,20 @@ export function CatalogFilterBar({
   onClose: () => void
   onClear: () => void
   onApply: (filters: CatalogFilters) => void
+  /** Width of the applied-filter bar ("Фильтр: N элемента" + edit + clear): it must end inside the caller's filter
+   * column, or the search field next to it covers its clear button (default 346.5, the catalog pages' column). */
+  barWidth?: number
+  /** No «Только Perfect Store продукты» (the reference's production product filter has none). */
+  hidePerfectStore?: boolean
+  /** «Тип продукта» narrows as you type (the reference's autocomplete) instead of a plain list. */
+  searchableType?: boolean
 }) {
   const { t } = useLanguage()
   const count = filterCount(filters)
   return (
     <>
       {count > 0 ? (
-        <FilterToggle count={count} open={open} onOpen={onOpen} onClose={onClose} onClear={onClear} />
+        <FilterToggle count={count} open={open} onOpen={onOpen} onClose={onClose} onClear={onClear} barWidth={barWidth} />
       ) : (
         <button type="button" onClick={open ? onClose : onOpen} className="flex items-center text-[13px] text-[#1E4A9A]">
           {t("Показать фильтр")}
@@ -47,7 +57,7 @@ export function CatalogFilterBar({
       )}
       {open && (
         <div className="absolute left-0 top-0 z-30">
-          <CatalogFilterPanel kind={kind} filters={filters} options={options} onClose={onClose} onApply={onApply} />
+          <CatalogFilterPanel kind={kind} filters={filters} options={options} onClose={onClose} onApply={onApply} hidePerfectStore={hidePerfectStore} searchableType={searchableType} />
         </div>
       )}
     </>
@@ -60,43 +70,72 @@ function CatalogFilterPanel({
   options,
   onClose,
   onApply,
+  hidePerfectStore,
+  searchableType,
 }: {
   kind: CatalogKind
   filters: CatalogFilters
   options: CatalogOptions | null
   onClose: () => void
   onApply: (filters: CatalogFilters) => void
+  hidePerfectStore?: boolean
+  searchableType?: boolean
 }) {
   const { t } = useLanguage()
   const [draft, setDraft] = useState<CatalogFilters>(filters)
   const set = (patch: Partial<CatalogFilters>) => setDraft((current) => ({ ...current, ...patch }))
   const types = options?.types ?? []
-  const children = types.find((type) => type.name === draft.typeParent)?.children ?? []
+  // typeParent / typeChild hold product_types ids (Linko's URL: typeParent=306); an old link may still carry a name.
+  const parent = types.find((type) => String(type.id ?? "") === draft.typeParent || type.name === draft.typeParent)
+  const children = parent?.children ?? []
+  const childName = parent ? (Object.entries(parent.childIds ?? {}).find(([, id]) => String(id) === draft.typeChild)?.[0] ?? (children.includes(draft.typeChild) ? draft.typeChild : "")) : ""
+  const typeValue = (name: string) => {
+    const found = types.find((type) => type.name === name)
+    return found ? String(found.id ?? found.name) : ""
+  }
   const canSell = [t("Можно продать"), t("Нельзя продать")]
-  const supplies = options?.supplies ?? []
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
+  // Мера / Бренд / Поставщик / Организации keep directory ids (measurement=17, like Linko); a value only items carry,
+  // or an older link, stays a name.
+  const byId = (directory: "units" | "brands" | "suppliers" | "organizations", stored: string[], onChange: (value: string[]) => void) => {
+    const ids = options?.filterIds?.[directory] ?? {}
+    const names = Object.fromEntries(Object.entries(ids).map(([name, id]) => [String(id), name]))
+    return {
+      value: stored.map((value) => names[value] ?? value),
+      onChange: (picked: string[]) => onChange(picked.map((name) => (ids[name] !== undefined ? String(ids[name]) : name))),
     }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  }
+  // Linko's «Поставка» option reads «Поставка №353 · Поставщик: … · Номер договора: -».
+  const supplies = (options?.supplies ?? []).map((supply) => ({
+    id: supply.id,
+    label: `${t("Поставка")} №${supply.id} · ${t("Поставщик")}: ${supply.supplier || "-"} · ${t("Номер договора")}: ${supply.contract || "-"}`,
+  }))
 
+  // Escape does not close Linko's «Фильтр» panel (only an open dropdown), so it is not bound here.
   return (
     <RefFilterPanel narrow onClose={onClose} onApply={() => onApply(draft)} applyClassName="mt-[25px]">
       <div className="-mt-px">
-        <FilterSelect label={t("Тип продукта")} value={draft.typeParent} onChange={(value) => set({ typeParent: value, typeChild: "" })} options={types.map((type) => type.name)} />
-        {draft.typeParent && <FilterSelect label={t("Подкатегория")} value={draft.typeChild} onChange={(value) => set({ typeChild: value })} options={children} />}
+        {searchableType ? (
+          <FilterSearchSelect label={t("Тип продукта")} value={parent?.name ?? ""} onChange={(value) => set({ typeParent: typeValue(value), typeChild: "" })} options={types.map((type) => type.name)} />
+        ) : (
+          <FilterSelect label={t("Тип продукта")} value={parent?.name ?? ""} onChange={(value) => set({ typeParent: typeValue(value), typeChild: "" })} options={types.map((type) => type.name)} />
+        )}
+        {draft.typeParent && (
+          <FilterSelect
+            label={t("Подкатегория")}
+            value={childName}
+            onChange={(value) => set({ typeChild: value ? String(parent?.childIds?.[value] ?? value) : "" })}
+            options={children}
+          />
+        )}
         <FilterSelect
           label={t("Показать только")}
           value={draft.canSell === "1" ? canSell[0] : draft.canSell === "2" ? canSell[1] : ""}
           onChange={(value) => set({ canSell: value === canSell[0] ? "1" : value === canSell[1] ? "2" : "" })}
           options={canSell}
         />
-        <FilterMulti label={t("Мера")} value={draft.measurement} onChange={(measurement) => set({ measurement })} options={options?.units ?? []} />
-        <FilterMulti label={t("Бренд")} value={draft.brand} onChange={(brand) => set({ brand })} options={options?.filterValues?.brands ?? options?.brands ?? []} />
-        <FilterMulti label={t("Поставщик")} value={draft.provider} onChange={(provider) => set({ provider })} options={options?.filterValues?.suppliers ?? options?.suppliers ?? []} />
+        <FilterMulti label={t("Мера")} {...byId("units", draft.measurement, (measurement) => set({ measurement }))} options={options?.filterValues?.units ?? options?.units ?? []} />
+        <FilterMulti label={t("Бренд")} {...byId("brands", draft.brand, (brand) => set({ brand }))} options={options?.filterValues?.brands ?? options?.brands ?? []} />
+        <FilterMulti label={t("Поставщик")} {...byId("suppliers", draft.provider, (provider) => set({ provider }))} options={options?.filterValues?.suppliers ?? options?.suppliers ?? []} />
         <FilterMulti label={t("Цвет")} value={draft.color} onChange={(color) => set({ color })} options={options?.colors ?? []} />
         <FilterSelect
           label={t("Поставка")}
@@ -104,19 +143,106 @@ function CatalogFilterPanel({
           onChange={(value) => set({ supply: value ? String(supplies.find((supply) => supply.label === value)?.id ?? "") : "" })}
           options={supplies.map((supply) => supply.label)}
         />
-        <FilterMulti label={t("Организации")} value={draft.division} onChange={(division) => set({ division })} options={options?.filterValues?.organizations ?? options?.organizations ?? []} />
+        <FilterMulti label={t("Организации")} {...byId("organizations", draft.division, (division) => set({ division }))} options={options?.filterValues?.organizations ?? options?.organizations ?? []} />
       </div>
       <div className="mt-[3px] flex flex-col gap-[10px]">
         <FilterCheck compact label={t("Только ММЛ продукты")} checked={draft.isMML} onChange={(isMML) => set({ isMML })} />
         <FilterCheck compact label={t("Инвентари")} checked={draft.isGear} onChange={(isGear) => set({ isGear })} />
-        {kind === "product" && <FilterCheck compact label={t("Только Perfect Store продукты")} checked={draft.isPerfectStore} onChange={(isPerfectStore) => set({ isPerfectStore })} />}
+        {kind === "product" && !hidePerfectStore && <FilterCheck compact label={t("Только Perfect Store продукты")} checked={draft.isPerfectStore} onChange={(isPerfectStore) => set({ isPerfectStore })} />}
       </div>
     </RefFilterPanel>
   )
 }
 
+/** One choice with a search field, styled like FilterSelect (the reference's «Тип продукта» autocomplete): typing narrows
+ * the list, Enter takes the first match, «Сбросить» clears the field. */
+function FilterSearchSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const rootRef = useRef<HTMLDivElement>(null)
+  const needle = search.trim().toLocaleLowerCase("ru")
+  const shown = needle ? options.filter((option) => option.toLocaleLowerCase("ru").includes(needle)) : options
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [open])
+
+  const choose = (option: string) => {
+    onChange(option)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={rootRef} className="relative h-[62px]">
+      <div className={`absolute inset-x-0 top-[18px] h-[36px] border-b ${open ? "border-[#d9d9d9]" : "border-[#e8e8e8]"}`}>
+        {(value || open) && <span className="absolute left-0 top-[-8px] text-[10px] font-bold leading-3 text-black">{label}</span>}
+        {open ? (
+          <input
+            autoFocus
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation()
+                setOpen(false)
+              }
+              if (event.key !== "Enter") return
+              event.preventDefault()
+              if (shown[0]) choose(shown[0])
+            }}
+            placeholder={value}
+            aria-label={label}
+            className="absolute inset-x-0 top-[8px] h-[24px] bg-transparent pr-8 text-[13px] font-semibold text-black outline-none placeholder:text-black/40"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("")
+              setOpen(true)
+            }}
+            className="absolute inset-0 text-left text-[13px] font-semibold text-black"
+          >
+            {value ? <span className="absolute inset-x-0 top-[10px] truncate pr-8">{value}</span> : <span className="absolute left-0 top-[13px] leading-4">{label}</span>}
+          </button>
+        )}
+      </div>
+      <span aria-hidden className={`pointer-events-none absolute right-[10px] top-[37px] h-0 w-0 border-x-[5px] border-x-transparent ${open ? "border-b-[5px] border-b-[#999]" : "border-t-[5px] border-t-[#999]"}`} />
+      {open && (
+        <div className="absolute inset-x-0 top-[54px] z-50 max-h-[205px] overflow-y-auto bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+          {value && (
+            <button type="button" onClick={() => choose("")} className="block h-9 w-full px-[10px] text-left text-[13px] text-[#999] hover:bg-[#f2f5f8]">
+              {t("Сбросить")}
+            </button>
+          )}
+          {shown.length === 0 ? (
+            <div className="h-9 px-[10px] text-[13px] leading-9 text-[#999]">{t("Ничего не найдено")}</div>
+          ) : (
+            shown.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => choose(option)}
+                className={`block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${option === value ? "text-[#1E4A9A]" : ""}`}
+              >
+                {option}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Multi-select styled after the reference's react-select: chips with a leading ×, menu without the chosen ones. */
-function FilterMulti({ label, value, onChange, options }: { label: string; value: string[]; onChange: (value: string[]) => void; options: string[] }) {
+export function FilterMulti({ label, value, onChange, options }: { label: string; value: string[]; onChange: (value: string[]) => void; options: string[] }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")

@@ -22,21 +22,43 @@ import { useLanguage } from "@/lib/i18n/language-context"
 /** The demo detail is not limited by dates. */
 const ALL_TIME = { from: "2000-01-01", to: "2099-12-31" }
 
-const DETAIL_PAGE_SIZE = 10
+/** Linko's detail pages by 25 («1 - 25 из 61»). */
+const DETAIL_PAGE_SIZE = 25
 
 /** Manual "Нет типа" rows of this page's own ledger (editable in the demo). */
 function isManual(row: StatementRow) {
   return row.editable && row.source === "vansell_manual" && (row.column === "none_type_plus" || row.column === "none_type_minus")
 }
 
-/** Demo texts: "Передача склада (Передача № 5)", "Оплата на кассу (Передача № 7)", "Нет типа (comment)". */
+/** Linko's word before a document number: «Передача № 635», «Отход № 181» (the ledger row's description). */
+function referenceText(row: StatementRow, t: (text: string) => string) {
+  return `${t(row.description === "Отход" ? "Отход" : "Передача")} № ${row.docNumber}`
+}
+
+/** An «Отгрузка» leg (a production shift session handed over to a warehouse, lib/finance/sources.ts transferLeg):
+ * its number is the session's, not a transfer's, so it reads «Отгрузка № 6» and links to the plan detail. */
+const SHIPMENT_TITLE = "Отгрузка"
+
+/** Linko texts: "Передача склада (Передача № 5)", "Оплата на кассу (Передача № 7)", "Передача (Отход № 181)", "Нет типа
+ * (comment)"; a cash hand-in prints a space after the bracket («Оплата на кассу ( Передача № 635)»), a bank one does not.
+ * A production shipment reads «Отгрузка № 6». */
 function RowDescription({ row }: { row: StatementRow }) {
   const { t } = useLanguage()
   if (row.title === "Нет типа" || !row.docNumber) return <span>{describeStatementRow(row, t)}</span>
-  const reference = `${t("Передача")} № ${row.docNumber}`
+  if (row.title === SHIPMENT_TITLE) {
+    const shipment = rowDescriptionText(row, t)
+    return row.href ? (
+      <Link href={row.href} className="text-[#129fdd] hover:underline">
+        {shipment}
+      </Link>
+    ) : (
+      <span>{shipment}</span>
+    )
+  }
+  const reference = referenceText(row, t)
   return (
     <span>
-      {t(row.title)} (
+      {t(row.title)} ({row.column === "cash_transfer_plus" ? " " : ""}
       {row.href ? (
         <Link href={row.href} className="text-[#129fdd] hover:underline">
           {reference}
@@ -51,19 +73,19 @@ function RowDescription({ row }: { row: StatementRow }) {
 
 function rowDescriptionText(row: StatementRow, t: (text: string) => string) {
   if (row.title === "Нет типа" || !row.docNumber) return describeStatementRow(row, t)
-  return `${t(row.title)} (${t("Передача")} № ${row.docNumber})`
+  if (row.title === SHIPMENT_TITLE) return `${t(SHIPMENT_TITLE)} № ${row.docNumber}`
+  return `${t(row.title)} (${row.column === "cash_transfer_plus" ? " " : ""}${referenceText(row, t)})`
 }
 
 export function VansellDetailDialog({
   entityKey,
-  name,
   currencies,
   canEdit,
   onClose,
   onChanged,
 }: {
   entityKey: string
-  /** Row name while the statement loads. */
+  /** Row name (the title prints none, as in Linko). */
   name: string
   currencies: FinanceCurrency[]
   canEdit: boolean
@@ -78,7 +100,6 @@ export function VansellDetailDialog({
   const [actOpen, setActOpen] = useState(false)
   const statement = useBalanceStatement("vansell", entityKey, { ...ALL_TIME, currency, order: "desc", page: paging.page, pageSize: paging.pageSize })
   const data = statement.data
-  const title = data?.entity.name || name
   const totalCodes = data ? (currency ? [currency] : data.visibleCurrencies) : []
   const currencyOptions = data?.currencies.length ? data.currencies : currencies
 
@@ -100,11 +121,8 @@ export function VansellDetailDialog({
     <VansellModal
       width={900}
       onClose={onClose}
-      title={
-        <>
-          {t("Информация по баланс вэнсел")} {title}
-        </>
-      }
+      // Linko's title has no agent name.
+      title={t("Информация по баланс вэнсел")}
     >
       {!data && statement.loading ? (
         <div className="flex h-[300px] items-center justify-center">

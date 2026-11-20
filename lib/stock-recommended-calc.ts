@@ -1,10 +1,10 @@
 // Pure formulas of "Рекомендованный запас" (demo #/recommended-stock, chunk
 // c138 / API stock/recommended_balances). No imports, so a node script can
 // test them directly. The demo front end only displays the server's numbers;
-// the formulas below reproduce its sample
-//   {total_amount: 5, by_day: 1.6667, total_balance: 5210, remain_days: 3126,
-//    week_recommendations: 10, month_recommendations: 50, sale_part: 100}
-// with 5 units sold on 3 distinct days.
+// the formulas below reproduce them cell for cell (2026-11-20, four periods):
+//   sale_part = sold ÷ Σ sold × 100 (3 decimals), by_day = sold ÷ days with sales,
+//   remain_days = round(available ÷ by_day) (Python's, half to even), week / month = by_day × 6 / × 30 (2 decimals),
+// e.g. 178 sold on 7 days, 1 139,1 available → by_day 25,4286, 45 days, 152,57 / 762,86.
 
 export type RecommendedInput = {
   key: string
@@ -18,16 +18,16 @@ export type RecommendedInput = {
 
 export type RecommendedNumbers = {
   sold: number
-  /** Доля от продаж, % of the period's total sold (of the listed items). */
+  /** Доля от продаж, % of the period's total sold (of the listed items), 3 decimals. */
   salePart: number
   available: number
   /** Сред. дневные продажи = sold ÷ days with sales. */
   byDay: number
-  /** Запас дней = available ÷ by_day (0 when nothing is available). */
+  /** Запас дней = available ÷ by_day, rounded to a whole day (0 when nothing is available). */
   remainDays: number
-  /** Рек. запас на 6 дней = ⌈by_day × 6⌉. */
+  /** Рек. запас на 6 дней = by_day × 6 (2 decimals). */
   week: number
-  /** Рек. запас на 30 дней = ⌈by_day × 30⌉. */
+  /** Рек. запас на 30 дней = by_day × 30 (2 decimals). */
   month: number
 }
 
@@ -37,8 +37,15 @@ const round = (value: number, digits: number) => {
   return Object.is(rounded, -0) ? 0 : rounded
 }
 
-/** ⌈x⌉ without float noise (1.6666…7 × 6 = 10.000000000000002 → 10). */
-const ceilClean = (value: number) => Math.ceil(round(value, 6))
+/** Python's round() (Linko's server): a half goes to the even neighbour (180,5 → 180, 1,5 → 2). */
+function roundHalfEven(value: number): number {
+  const clean = round(value, 6)
+  const floor = Math.floor(clean)
+  const rest = round(clean - floor, 6)
+  if (rest > 0.5) return floor + 1
+  if (rest < 0.5) return floor
+  return floor % 2 === 0 ? floor : floor + 1
+}
 
 /** Numbers per item; only items with sales (sold > 0) are returned. */
 export function recommendedNumbers(inputs: RecommendedInput[]): Map<string, RecommendedNumbers> {
@@ -50,28 +57,33 @@ export function recommendedNumbers(inputs: RecommendedInput[]): Map<string, Reco
     const available = round(input.available, 6)
     result.set(input.key, {
       sold: round(input.sold, 6),
-      salePart: totalSold > 0 ? round((input.sold / totalSold) * 100, 2) : 0,
+      salePart: totalSold > 0 ? round((input.sold / totalSold) * 100, 3) : 0,
       available,
-      byDay: round(byDay, 4),
-      remainDays: byDay > 0 && available > 0 ? round(available / byDay, 2) : 0,
-      week: ceilClean(byDay * 6),
-      month: ceilClean(byDay * 30),
+      byDay: round(byDay, 6),
+      remainDays: byDay > 0 && available > 0 ? roundHalfEven(available / byDay) : 0,
+      week: round(byDay * 6, 2),
+      month: round(byDay * 30, 2),
     })
   }
   return result
 }
 
-/** "Показать по типу ед.": Количество (×1), Вес (× kg per unit), Объем (× m³ per unit).
- * Shares and days are ratios and do not change. */
-export function convertRecommended(numbers: RecommendedNumbers, factor: number): RecommendedNumbers {
-  if (factor === 1) return numbers
+/** "Показать по типу ед." (Linko select_type): every quantity × `factor` — the kg of a unit (Вес), its «Объем», or
+ * 1 ÷ the units of its box (Блок; ×1 for an item without a box) — with by_day, week and month from the converted sold;
+ * the share is taken again over the converted totals (`totalConverted`); Запас дней is a ratio and stays. */
+export function convertRecommended(numbers: RecommendedNumbers, factor: number, saleDays: number, totalConverted: number): RecommendedNumbers {
+  if (factor === 1 && totalConverted <= 0) return numbers
+  const sold = numbers.sold * factor
+  const byDay = saleDays > 0 ? sold / saleDays : sold
   return {
     ...numbers,
-    sold: round(numbers.sold * factor, 4),
-    available: round(numbers.available * factor, 4),
-    byDay: round(numbers.byDay * factor, 4),
-    week: round(numbers.week * factor, 4),
-    month: round(numbers.month * factor, 4),
+    sold: round(sold, 6),
+    salePart: totalConverted > 0 ? round((sold / totalConverted) * 100, 3) : 0,
+    available: round(numbers.available * factor, 6),
+    byDay: round(byDay, 6),
+    remainDays: factor ? numbers.remainDays : 0,
+    week: round(byDay * 6, 2),
+    month: round(byDay * 30, 2),
   }
 }
 

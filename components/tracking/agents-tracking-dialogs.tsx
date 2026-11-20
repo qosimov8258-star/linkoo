@@ -5,7 +5,6 @@ import { createPortal } from "react-dom"
 import { ChevronDown, X } from "lucide-react"
 
 import { CheckBox, Modal, SaveButton } from "@/components/analytics/catalog-ui"
-import type { Client } from "@/components/clients/clients-data"
 import type { Order } from "@/components/orders/orders-data"
 import { formatMoney } from "@/lib/finance/currency"
 import { formatDateText } from "@/lib/i18n/format-date"
@@ -15,8 +14,8 @@ import { LAST_LOCATION_ID, type StartLocation } from "@/lib/tracking-types"
 import { STATUS_OPTIONS, type DetailStatus } from "./agents-tracking-data"
 
 // Dialogs of the agent detail: the status filter, ОПТИМИЗАЦИЯ МАРШРУТА, ИЗМЕНЕНИЕ ВЫБРАННЫХ
-// КЛИЕНТОВ (location lock), the photo report / refusal viewer, the order summary and the
-// client card. Every dialog closes on Escape and on its X.
+// КЛИЕНТОВ (location lock), the photo report / refusal viewer and the order summary. Every dialog
+// closes on Escape and on its X. A client opens Linko's full shop card (shop-drawer-swap.tsx).
 
 type Option = { id: number; label: string }
 
@@ -490,58 +489,5 @@ export function OrderSummaryDialog({ orderId, onClose, onNavigate }: { orderId: 
         </>
       )}
     </WideDialog>
-  )
-}
-
-/** Client card drawer ("Показать клиента"). */
-export function ClientDrawer({ clientId, onClose, onNavigate }: { clientId: number; onClose: () => void; onNavigate: (href: string) => void }) {
-  const { t, language } = useLanguage()
-  useEscape(onClose)
-  const { data, error, loading } = useJson<Client>(`/api/clients/${clientId}`, "Клиент не найден")
-  const located = typeof data?.locationLat === "number" && typeof data?.locationLng === "number"
-  return createPortal(
-    <div className="fixed inset-0 z-[100] bg-black/30" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <aside role="dialog" aria-modal="true" className="absolute bottom-0 right-0 top-0 flex w-[420px] max-w-full flex-col bg-white text-[13px] text-[#333] shadow-xl">
-        <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[24px] pr-[18px]">
-          <h3 className="truncate text-[15px] font-bold">{data?.name ?? t("Клиент")}</h3>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800">
-            <X className="h-6 w-6" />
-          </button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-[24px] py-[16px]">
-          {loading && <p className="text-[#777]">{t("Загрузка...")}</p>}
-          {error && <p className="text-[#e53935]">{error}</p>}
-          {data && (
-            <>
-              <Row label="Телефон">{data.phone || "—"}</Row>
-              <Row label="Адрес">{data.address || "—"}</Row>
-              <Row label="Ориентир">{data.landmark || "—"}</Row>
-              <Row label="Тип клиента">{data.type || "—"}</Row>
-              <Row label="Зона">{data.zone || "—"}</Row>
-              <Row label="Ответственный агент">{data.agent || "—"}</Row>
-              <Row label="Ответственный доставщик">{data.deliverer || "—"}</Row>
-              <Row label="Локация">
-                {located ? (
-                  <a href={`https://www.google.com/maps?q=${data.locationLat},${data.locationLng}`} target="_blank" rel="noopener noreferrer" className="text-[#1E4A9A] hover:underline">
-                    {`${data.locationLat}, ${data.locationLng}`}
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </Row>
-              <Row label="Баланс">{data.balanceLines?.length ? data.balanceLines.join(", ") : "—"}</Row>
-              <Row label="Последний заказ">{data.lastOrder ? formatDateText(data.lastOrder, language) : "—"}</Row>
-              <Row label="Последняя оплата">{data.lastPayment ? formatDateText(data.lastPayment, language) : "—"}</Row>
-              <div className="mt-[18px] flex justify-end">
-                <button type="button" onClick={() => onNavigate(`/clients?openClient=${encodeURIComponent(data.name)}`)} className="text-[12px] font-bold uppercase text-[#1ea1f2] hover:opacity-80">
-                  {t("Открыть карточку клиента")}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </aside>
-    </div>,
-    document.body,
   )
 }

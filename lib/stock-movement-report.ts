@@ -2,6 +2,7 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
+import { canReadPurchases } from "@/lib/company-money"
 import { getCurrentUser } from "@/lib/current-user"
 import { linkedWarehouseNames } from "@/lib/user-warehouses"
 import { getDb, type PgDb } from "@/lib/db"
@@ -13,6 +14,7 @@ import { REVALUATION_KIND, type LedgerPosting } from "@/lib/net-cost-ledger"
 import { loadCostLedger } from "@/lib/stock/costs"
 import { stockDeletedKeys, stockOrphanNames } from "@/lib/stock/level"
 import { getStockCatalog, stockMovementsSql } from "@/lib/stock/ledger"
+import { describeProductionLines } from "@/lib/stock/production-documents"
 import { parsePageParam } from "@/lib/stock/paging"
 import { STOCK_MOVE_KINDS, type StockCatalogItem, type StockMoveKind } from "@/lib/stock/types"
 import { notSignedInResponse, invalidFieldResponse } from "@/lib/validation"
@@ -96,7 +98,9 @@ export type MoveUnitTotals = { unit: string; qty: MoveNumbers }
  * units are never summed for display: "10 шт, 2,5 кг"). */
 export type MoveSumResult = ModeEcho & { count: number; qty: MoveNumbers; qtyByUnit: MoveUnitTotals[]; value: MoveNumbers | null }
 
-export type MoveItemDocument = { day: string; warehouse: string; kind: StockMoveKind; docType: string; docId: number; qty: number; value: number | null }
+/** `docId` 0: the line belongs to no numbered document. `href`: the document's own page when it has one (a batch:
+ * /analytics/production-batches?party=…); otherwise the page of its doc type (MOVE_DOC_TYPES). */
+export type MoveItemDocument = { day: string; warehouse: string; kind: StockMoveKind; docType: string; docId: number; qty: number; value: number | null; href?: string }
 export type MoveItemDetail = ModeEcho & {
   item: { key: string; name: string; article: string; unit: string; type: string; brand: string }
   total: MoveRow
@@ -214,8 +218,6 @@ type Context = {
   allowedWarehouses: string[] | null
   /** Display names of keys missing from the catalog (filled by resolveOrphans). */
   orphans: Map<string, string>
-  /** Inventory items (products.is_inventory): listed only once they hold or move stock. */
-  inventoryKeys: Set<string>
 }
 
 async function loadContext(filters: Pick<MoveFilters, "warehouses" | "branches">, db: PgDb): Promise<Context> {
@@ -232,9 +234,7 @@ async function loadContext(filters: Pick<MoveFilters, "warehouses" | "branches">
     const names = filters.warehouses.length ? filters.warehouses : [...warehouses.values()].map((warehouse) => warehouse.name)
     allowedWarehouses = filters.branches.length ? names.filter((name) => filters.branches.includes(warehouses.get(finKey(name))?.branch ?? "")) : names
   }
-  const inventoryRows = (await db.prepare("SELECT id FROM products WHERE COALESCE(is_inventory, 0) = 1").all().catch(() => [])) as Array<{ id: number }>
-  const inventoryKeys = new Set(inventoryRows.map((row) => `product:${row.id}`))
-  return { catalog, warehouses, allowedWarehouses, orphans: new Map(), inventoryKeys }
+  return { catalog, warehouses, allowedWarehouses, orphans: new Map() }
 }
 
 function itemMatches(key: string, filters: MoveFilters, context: Context): boolean {
@@ -556,7 +556,9 @@ async function stockMovementRowsFresh(filters: MoveFilters, db: PgDb): Promise<M
   const hidden = needle ? [] : finished.filter((row) => deletedKeys.has(row.key))
   const rows = finished
     .filter((row) => !deletedKeys.has(row.key))
-    .filter((row) => filters.groupBy !== "product" || !(context.inventoryKeys.has(row.key) || !context.catalog.has(row.key)) || Object.values(row.qty).some((value) => value !== 0))
+    // Every live catalog item is a row, inventory products (Linko's gear products) included, as in Linko's report;
+    // an item outside the catalog only when it holds or moves stock.
+    .filter((row) => filters.groupBy !== "product" || context.catalog.has(row.key) || Object.values(row.qty).some((value) => value !== 0))
     .filter((row) => filters.groupBy === "product" || !needle || row.name.toLowerCase().includes(needle))
   return { rows, needPriceList, units, hidden }
 }
@@ -665,9 +667,63 @@ export async function stockMovementItem(key: string, filters: MoveFilters, db: P
     item: { key, name: total.name, article: total.article, unit: total.unit, type: item?.type ?? "", brand: item?.brand ?? "" },
     total,
     warehouses,
-    documents,
+    documents: await shipmentDocuments(await productionDocuments(documents, db), db),
     documentsTruncated: docRows.length > DOCUMENT_LIMIT,
   }
+}
+
+/** The ledger books every production_movements line under its own row id, which names no document a user can find.
+ * The item's documents name what each line belongs to instead (MOVE_DOC_TYPES): a batch line its batch («Партия
+ * №100», linking to the batch; a line copied from Linko outside its batch names the batch in its comment, «Партия
+ * №64 — Linko #351641»), a shift entry its stage's «Активность», a reconciliation of a stage (older versions'
+ * «Сверить») that reconciliation; a balance copied from Linko (its «Работа с инвентарем», stock it held without a
+ * document: scripts/linko-sync) is no production document (no number, no link). Lines of one document, day,
+ * warehouse and kind are added up. The naming rules are lib/stock/production-documents.ts's (shared with the Остаток
+ * drawer and Себестоимость): a line it does not know keeps docType production_movements with № 0; an adjustment
+ * keeps the document's own href. */
+async function productionDocuments(documents: MoveItemDocument[], db: PgDb): Promise<MoveItemDocument[]> {
+  const ids = [...new Set(documents.filter((document) => document.docType === "production_movements" && document.docId > 0).map((document) => document.docId))]
+  if (!ids.length) return documents
+  const lines = await describeProductionLines(db, ids)
+  const described = (document: MoveItemDocument): MoveItemDocument =>
+    document.docType !== "production_movements" ? document : { ...document, ...(lines.get(document.docId) ?? { docId: 0 }) }
+  const merged = new Map<string, MoveItemDocument>()
+  for (const document of documents.map(described)) {
+    const id = [document.day, document.warehouse, document.kind, document.docType, document.docId, document.href ?? ""].join("\u0000")
+    const current = merged.get(id)
+    if (!current) {
+      merged.set(id, { ...document })
+      continue
+    }
+    current.qty = round(current.qty + document.qty)
+    if (current.value !== null || document.value !== null) current.value = round((current.value ?? 0) + (document.value ?? 0))
+  }
+  return [...merged.values()]
+}
+
+/** A production «Отгрузка» (an internal transfer with source 'shipment': a worker shift session's output handed over,
+ * lib/production-sessions-repo.ts) is no «Передача между складами» (the transfer list hides it): it is numbered by
+ * its session and opens in План приемок и передач, in Приемка while on its way and in История Приемки once accepted. */
+async function shipmentDocuments(documents: MoveItemDocument[], db: PgDb): Promise<MoveItemDocument[]> {
+  const ids = [...new Set(documents.filter((document) => document.docType === "internal_transfers" && document.docId > 0).map((document) => document.docId))]
+  if (!ids.length) return documents
+  // The source columns may be missing on an older schema: read through to_jsonb.
+  const rows = (await db
+    .prepare(
+      `SELECT t.id, NULLIF(to_jsonb(t)->>'source_id', '')::int AS session_id, COALESCE(t.status, '') AS status
+         FROM internal_transfers t
+        WHERE t.id = ANY(@ids::int[]) AND COALESCE(to_jsonb(t)->>'source', '') = 'shipment' AND NULLIF(to_jsonb(t)->>'source_id', '') IS NOT NULL`,
+    )
+    .all({ ids })) as Array<{ id: number; session_id: number; status: string }>
+  if (!rows.length) return documents
+  const shipments = new Map(rows.map((row) => [Number(row.id), row]))
+  return documents.map((document) => {
+    const shipment = document.docType === "internal_transfers" ? shipments.get(document.docId) : undefined
+    if (!shipment) return document
+    const session = Number(shipment.session_id)
+    const tab = shipment.status === "принят" ? "receive_history" : "receive"
+    return { ...document, docType: "production_shipment", docId: session, href: `/analytics/receipt-transfer-plan?tab=${tab}&id=shipment-${session}` }
+  })
 }
 
 // --- Excel ("Скачать" / "Скачать упрощенный список") --------------------------------
@@ -713,7 +769,10 @@ export function stockMovementSheet(rows: MoveRow[], filters: MoveFilters, option
 
 // --- route helpers ------------------------------------------------------------------
 
-/** Auth (any signed-in user) + filter parsing of the /api/stock/movement routes. */
+/** Auth (any signed-in user) + filter parsing of the /api/stock/movement routes. The cost mode (values at the
+ * cost of goods, e.g. «Партия №100» of the item drawer at its batch cost) is for the readers of purchase costs
+ * only (canReadPurchases, as /api/cost-of-goods and the batch detail); anyone else gets the quantity mode, which
+ * the echoed `mode` tells the page. */
 export async function movementRequest(url: string): Promise<{ filters: MoveFilters; params: URLSearchParams; error?: undefined } | { error: NextResponse }> {
   const user = await getCurrentUser()
   if (!user) return { error: notSignedInResponse() }
@@ -722,6 +781,7 @@ export async function movementRequest(url: string): Promise<{ filters: MoveFilte
   if (parsed.error !== undefined) {
     return { error: invalidFieldResponse(parsed.error, "YYYY-MM-DD") }
   }
+  if (parsed.filters.mode === "cost" && !canReadPurchases(user)) parsed.filters.mode = "quantity"
   // Without a warehouse or branch filter, the warehouses linked to the user's employee card (as Linko scopes it).
   if (!parsed.filters.warehouses.length && !parsed.filters.branches.length) parsed.filters.warehouses = await linkedWarehouseNames(user)
   return { filters: parsed.filters, params }

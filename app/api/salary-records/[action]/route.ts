@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { requireCompanyMoneyReader } from "@/lib/company-money"
 import { dbErrorResponse } from "@/lib/db-errors"
 import { requireRole } from "@/lib/rbac"
+import { salaryCard } from "@/lib/salary-cards-repo"
 import { SalaryInputError, copyMonth, recalculate, setApproved, setPlans, setSalaries } from "@/lib/salary-records-repo"
 import { dbId, strictNum } from "@/lib/strict-number"
 import { parseJsonBody } from "@/lib/validation"
@@ -56,6 +58,17 @@ const copySchema = z.object({
 const recalcSchema = z.object(period)
 
 type RouteParams = { params: Promise<{ action: string }> }
+
+/** GET /api/salary-records/<id>: the row card of a record (the reference's staff/salary/<id>/) with its KPI balances. */
+export async function GET(_request: Request, { params }: RouteParams) {
+  const reader = await requireCompanyMoneyReader()
+  if (reader.error) return reader.error
+  const { action } = await params
+  const id = /^\d{1,9}$/.test(action) ? Number(action) : 0
+  const card = id ? await salaryCard(id) : null
+  if (!card) return NextResponse.json({ error: "Не найдено" }, { status: 404 })
+  return NextResponse.json(card)
+}
 
 /**
  * POST /api/salary-records/<action>: change-approve ("Зачислить" / "Отменить зачисление"), bulk-plans ("Установить KPI"),

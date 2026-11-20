@@ -3,7 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import type { PgDb } from "@/lib/db"
+import { getDb, type PgDb } from "@/lib/db"
 import { defaultBalancePeriod, isIsoDay, monthStartIso } from "@/lib/finance/dates"
 import { getManagementBalance, NO_BRANCH_LABEL } from "@/lib/finance/management"
 import type { ManagementLine, ManagementSection } from "@/lib/finance/types"
@@ -143,9 +143,48 @@ function matchesBranch(card: ManagementReportBranch, filter: string): boolean {
   return card.value !== MANAGEMENT_NO_BRANCH && nameKey(card.name) === nameKey(name)
 }
 
-export async function getManagementBalanceReport(query: ManagementBalanceQuery, db?: PgDb): Promise<ManagementReport> {
+type Viewer = { employeeId: number | null; username: string }
+
+/** Linko lists the cards of the signed-in user's own branches (the employee's «Филиалы»), main branches first, then by
+ * name (lower case, code-point order). Returns the order rank of every branch name (nameKey → rank) and whether the
+ * user has own branches at all (without any, every card is listed in the same order). */
+async function linkoCardOrder(db: PgDb, viewer: Viewer | undefined): Promise<{ own: boolean; rank: Map<string, number> }> {
+  const rows = (await db.prepare("SELECT id, name, is_main FROM branches").all().catch(() => [])) as Array<{ id: number; name: string; is_main: number | null }>
+  let ownIds: number[] = []
+  if (viewer) {
+    const row = (await (viewer.employeeId
+      ? db.prepare("SELECT branch_ids FROM employees WHERE id = ?").get(viewer.employeeId)
+      : db.prepare("SELECT branch_ids FROM employees WHERE login = ? ORDER BY id LIMIT 1").get(viewer.username)
+    ).catch(() => undefined)) as { branch_ids: string | null } | undefined
+    try {
+      const parsed = JSON.parse(row?.branch_ids ?? "[]") as unknown
+      ownIds = Array.isArray(parsed) ? parsed.filter((id): id is number => Number.isInteger(id)) : []
+    } catch {
+      ownIds = []
+    }
+  }
+  const own = new Set(ownIds)
+  const listed = rows.filter((row) => !own.size || own.has(Number(row.id)))
+  const lower = (name: string) => name.trim().toLowerCase()
+  listed.sort((a, b) => (Number(b.is_main) || 0) - (Number(a.is_main) || 0) || (lower(a.name) < lower(b.name) ? -1 : lower(a.name) > lower(b.name) ? 1 : 0) || a.id - b.id)
+  const rank = new Map<string, number>()
+  listed.forEach((row, index) => {
+    if (!rank.has(nameKey(row.name))) rank.set(nameKey(row.name), index)
+  })
+  return { own: own.size > 0, rank }
+}
+
+export async function getManagementBalanceReport(query: ManagementBalanceQuery, db?: PgDb, viewer?: Viewer): Promise<ManagementReport> {
   const result = await getManagementBalance({ from: query.from, to: query.to, organizations: query.organizations }, db)
-  const cards: ManagementReportBranch[] = result.branches.map((branch) => {
+  const order = await linkoCardOrder(db ?? getDb(), viewer)
+  // The user's own branches only (when they have some), in Linko's order; cards of other names (documents naming an
+  // unknown branch, «Без филиала») after them, as before.
+  const ordered = result.branches
+    .filter((branch) => !order.own || order.rank.has(nameKey(branch.name)))
+    .map((branch, index) => ({ branch, index, rank: order.rank.get(nameKey(branch.name)) ?? Number.MAX_SAFE_INTEGER }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((item) => item.branch)
+  const cards: ManagementReportBranch[] = ordered.map((branch) => {
     const value = branchValue(branch.id, branch.name)
     const link: LinkContext = { from: result.from, to: result.to, organizations: query.organizations, card: { id: branch.id, name: branch.name, value } }
     return {

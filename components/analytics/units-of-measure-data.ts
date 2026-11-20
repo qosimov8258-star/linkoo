@@ -21,7 +21,7 @@ export type UnitOfMeasure = {
 
 export type UnitOfMeasureNode = UnitOfMeasure & { parentName: string; children: UnitOfMeasureNode[] }
 
-/** GET /api/units-of-measure?view=tree … — top-level units (paged) with their children. */
+/** GET /api/units-of-measure?view=tree … — every top-level unit with its children (Linko answers them all on any page). */
 export type UnitOfMeasureTreeResult = { count: number; results: UnitOfMeasureNode[] }
 
 /** GET /api/units-of-measure/[id] (?usage=1 adds `usage`). */

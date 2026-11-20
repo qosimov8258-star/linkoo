@@ -19,7 +19,6 @@ export const TAB_COPY: Record<
     item: string
     list: string
     nothing: string
-    addLink: string
     picker: string
     search: string
     selectOne: string
@@ -34,7 +33,6 @@ export const TAB_COPY: Record<
     item: "Товар",
     list: "Список товаров",
     nothing: "Вы еще не выбрали ни одного товара.",
-    addLink: "Добавить товар?",
     picker: "Добавление продуктов",
     search: "Поиск товаров...",
     selectOne: "Выберите хотя бы один товар",
@@ -46,11 +44,11 @@ export const TAB_COPY: Record<
     remove: "Убрать тип продукты",
     titles: { add: "Добавить тип продукты", remove: "Убрать тип продукты", set: "Установить тип продукты" },
     item: "Тип продукта",
-    list: "Список типов продуктов",
-    nothing: "Вы еще не выбрали ни одного типа продукта.",
-    addLink: "Добавить тип продукта?",
-    picker: "Добавление типов продуктов",
-    search: "Поиск типов продуктов...",
+    // Linko's dialog and picker keep the product wording on this tab too.
+    list: "Список товаров",
+    nothing: "Вы еще не выбрали ни одного товара.",
+    picker: "Добавление продуктов",
+    search: "Поиск товаров...",
     selectOne: "Выберите хотя бы один тип продукта",
   },
 }
@@ -138,9 +136,9 @@ export function apiErrorText(body: ApiErrorBody | null, fallback: string, t: (te
   return `${message}: ${shown}${items.length > 5 ? ` (+${items.length - 5})` : ""}`
 }
 
-/** "from - to из total" of a page (0 - 0 when empty). */
+/** "from - to из total" of a page (Linko prints "1 - 0 из 0" when empty). */
 export function rangeOf(page: number, pageSize: number, count: number): { from: number; to: number } {
-  if (count <= 0) return { from: 0, to: 0 }
+  if (count <= 0) return { from: 1, to: 0 }
   const from = (page - 1) * pageSize + 1
   return { from, to: Math.min(count, page * pageSize) }
 }

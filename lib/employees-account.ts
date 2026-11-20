@@ -43,6 +43,9 @@ export type AccountRequest = {
   login: string
   /** bcrypt hash of a new password, or null when none was typed. */
   hash: string | null
+  /** Why the new password fails the standard policy (an administrator's account linked to the employee
+   * must still follow it), or null when it passes or none was typed. */
+  strongProblem: string | null
 }
 
 /** Checks the password of a save (policy, administrator only) and hashes it. A password is only
@@ -53,11 +56,13 @@ export async function prepareAccount(
 ): Promise<{ request: AccountRequest } | { failure: AccountFailure }> {
   const login = input.systemAccess ? normalizeUsername(input.login) : ""
   const password = input.systemAccess ? input.password : ""
-  if (!password) return { request: { login, hash: null } }
+  if (!password) return { request: { login, hash: null, strongProblem: null } }
   if (actor.role !== "admin") return { failure: { error: "account_forbidden", field: "password" } }
-  const weak = passwordProblem(password, login)
+  // An employee's account follows the short policy (lib/auth-policy.ts PasswordPolicy); planAccount
+  // still holds an administrator's account linked to the employee to the standard one.
+  const weak = passwordProblem(password, login, "employee")
   if (weak) return { failure: { error: "weak_password", field: "password", message: weak } }
-  return { request: { login, hash: await hashPassword(password) } }
+  return { request: { login, hash: await hashPassword(password), strongProblem: passwordProblem(password, login, "standard") } }
 }
 
 type AccountRow = { id: number; username: string; display_name: string; role: string; access_right_id: number | null }
@@ -112,7 +117,8 @@ export async function planAccount(
   const { current, request, actor } = args
   const account = current ? await linkedAccount(tx, current.id) : null
   const displayName = account && current && args.name !== current.name && account.display_name === current.name ? args.name : undefined
-  const plan: AccountPlan = { login: account ? account.username : "", account, create: false, rename: null, hash: null, accessRightId: undefined, displayName }
+  // Without «Доступ к системе» (the employee goes to «Удаленные») the login is kept: Linko keeps the username.
+  const plan: AccountPlan = { login: account ? account.username : (current?.login ?? "").trim(), account, create: false, rename: null, hash: null, accessRightId: undefined, displayName }
   if (!args.systemAccess) return { plan }
 
   const stored = account ? account.username : (current?.login ?? "").trim()
@@ -128,6 +134,10 @@ export async function planAccount(
     const employee = await tx.prepare("SELECT 1 FROM employees WHERE lower(login) = lower(@login) AND id <> @id LIMIT 1").get({ login, id: current?.id ?? 0 })
     const user = await tx.prepare("SELECT 1 FROM users WHERE lower(username) = lower(@login) AND id <> @id LIMIT 1").get({ login, id: account?.id ?? 0 })
     if (employee || user) return { failure: { error: "login_taken", field: "login" } }
+  }
+  // A short password is an employee account's only: an administrator's account keeps the standard policy.
+  if (request.hash !== null && account?.role === "admin" && request.strongProblem) {
+    return { failure: { error: "weak_password", field: "password", message: request.strongProblem } }
   }
   plan.login = login
   plan.create = create

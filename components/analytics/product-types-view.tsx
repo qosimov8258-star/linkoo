@@ -1,6 +1,5 @@
 "use client"
 
-import { Pencil, Trash2 } from "lucide-react"
 import { useCallback, useState } from "react"
 
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
@@ -10,7 +9,6 @@ import { formatCategoryDate } from "./categories-grid"
 import {
   DictionaryDeleteDialog,
   DICT_HEAD,
-  DICT_ROW,
   DictionaryPage,
   DictionaryRowActions,
   DictionaryToolbar,
@@ -29,7 +27,8 @@ import { PRODUCT_TYPES_API, PRODUCT_TYPE_ORDERINGS, PRODUCT_TYPE_PAGE_SIZE, type
 // picture), hover ✎ / 🗑. Create / update dialog = product-types-form.tsx, delete confirm =
 // dictionaries-shared.tsx. Like the demo the state lives in the URL (?openCreateDialog=true,
 // ?productType=<id>&openUpdateDialog=true | openDeleteDialog=true, ?ordering). Like the demo
-// there is no search box and no paginator: every type is listed, ordered by name.
+// there is no search box and no paginator: every type is listed by its Порядок (a column header sorts by that
+// column instead).
 
 export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
   if (embedded) return <ProductTypesGrid />
@@ -57,37 +56,66 @@ function ProductTypesGrid() {
   const actions = (node: ProductTypeNode) =>
     canEdit && <DictionaryRowActions onEdit={() => setDialog({ kind: "update", id: node.id })} onDelete={() => setDialog({ kind: "delete", id: node.id, name: node.name })} />
 
-  // demo rows: Bootstrap grid xs-3 / 3 / 3 / 2 / 1; the children of a type sit in a nested grid
-  // (picture xs-1, name xs-4, organization xs-3, date xs-2, bot xs-1, actions xs-1)
-  function renderNode(node: ProductTypeNode) {
-    const group = node.children.length > 0
+  // Linko's rows (Bootstrap xs-3 / 3 / 3 / 2 / 1 of the 30 px inset row; cells padded 8 px, the first only on the
+  // right). A type with subcategories is a bold row followed by its subcategories; a type without them is a row padded
+  // 15 px all round with only its name bold. A subcategory row (picture xs-1, name 1/3, xs-3, xs-2, xs-1, actions xs-1)
+  // sits 15 px further in on every level (its own subcategories nest inside it) under an inset dotted line. Rows have
+  // no hover colour: the ✎ / 🗑 of the hovered row show.
+  const dotted = "after:pointer-events-none after:absolute after:inset-x-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-['']"
+  const cell = "break-words px-2 leading-[16.25px]"
+  // The ✎ / 🗑 (absolute, 34 px from the right) measured from the page edge like Linko's, whatever the row's inset.
+  const actionsBox = "pointer-events-none absolute inset-y-0 left-0 [&>*]:pointer-events-auto"
+
+  function renderChild(child: ProductTypeNode, depth: number) {
     return (
-      <div key={node.id}>
-        <div className={`${DICT_ROW} grid-cols-[311.8px_303.7px_303.8px_1fr] ${group ? "font-semibold" : ""}`}>
-          <div className="break-words py-3 pr-4 font-semibold leading-[16.25px]">{node.name}</div>
-          <div className="py-3 pr-4 leading-[16.25px]">{node.organization || notSet}</div>
-          <div className="whitespace-nowrap py-3 pr-4 leading-[16.25px]">{created(node)}</div>
-          <div className="py-3 pr-4 leading-[16.25px]">{node.showInBot ? t("Да") : t("Нет")}</div>
-          {actions(node)}
-        </div>
-        {node.children.map((child) => (
-          <div key={child.id} className="group relative ml-[145px] mr-[30px] grid min-h-[45px] grid-cols-[408px_300px_200px_1fr] items-center after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8]">
-            <div className="flex min-h-[45px] items-center break-words py-2.5 pr-4 leading-[16.25px]">
-              {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
-              {child.imageUrl && <img src={child.imageUrl} alt="" className="mr-2 max-h-10 max-w-10 object-contain" />}
-              {child.name}
-            </div>
-            <div className="py-2.5 pr-4">{child.organization || notSet}</div>
-            <div className="whitespace-nowrap py-2.5 pr-4">{created(child)}</div>
-            <div className="py-2.5 pr-4">{child.showInBot ? t("Да") : t("Нет")}</div>
-            {actions(child)}
+      <div key={child.id} style={{ paddingLeft: depth * 15 }}>
+        <div className={`group relative grid min-h-[45px] grid-cols-[8.3333%_33.3333%_25%_16.6667%_8.3333%_1fr] items-center py-2.5 ${dotted} after:top-0`}>
+          <div className="px-2">
+            {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
+            {child.imageUrl && <img src={child.imageUrl} alt="" className="max-h-10 max-w-10 object-contain" />}
           </div>
-        ))}
+          <div className="break-words leading-[16.25px]">{child.name}</div>
+          <div className={cell}>{child.organization || notSet}</div>
+          <div className={`${cell} whitespace-nowrap`}>{created(child)}</div>
+          <div className={cell}>{child.showInBot ? t("Да") : t("Нет")}</div>
+          <div className={`${actionsBox} right-[-30px]`}>{actions(child)}</div>
+        </div>
+        {child.children.map((grandchild) => renderChild(grandchild, depth + 1))}
       </div>
     )
   }
 
-  const headerCell = "px-0 font-semibold"
+  function renderNode(node: ProductTypeNode) {
+    const group = node.children.length > 0
+    const columns = "grid grid-cols-[25%_25%_25%_16.6667%_1fr] items-center"
+    return (
+      <div key={node.id} className={`relative bg-white ${dotted} after:bottom-0`}>
+        {group ? (
+          <div className="px-[30px]">
+            <div className={`group relative min-h-[50px] font-semibold ${columns}`}>
+              <div className="break-words pr-2 leading-[16.25px]">{node.name}</div>
+              <div className={cell}>{node.organization || notSet}</div>
+              <div className={`${cell} whitespace-nowrap`}>{created(node)}</div>
+              <div className={cell}>{node.showInBot ? t("Да") : t("Нет")}</div>
+              <div className={`${actionsBox} right-[-30px]`}>{actions(node)}</div>
+            </div>
+            {node.children.map((child) => renderChild(child, 1))}
+          </div>
+        ) : (
+          <div className={`group relative min-h-[55px] p-[15px] ${columns}`}>
+            <div className="break-words pr-2 font-semibold leading-[16.25px]">{node.name}</div>
+            <div className={cell}>{node.organization || notSet}</div>
+            <div className={`${cell} whitespace-nowrap`}>{created(node)}</div>
+            <div className={cell}>{node.showInBot ? t("Да") : t("Нет")}</div>
+            {/* The ✎ / 🗑 sit 15 px further out here (Linko's padded row). */}
+            <div className={`${actionsBox} right-[-15px]`}>{actions(node)}</div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const headerCell = "px-2 font-semibold"
 
   return (
     <DictionaryPage>
@@ -95,8 +123,8 @@ function ProductTypesGrid() {
 
       <div className="overflow-x-auto">
         <div className="min-w-[820px]">
-          <div className={`${DICT_HEAD} grid-cols-[311.8px_303.7px_303.8px_1fr]`}>
-            <SortHeader as="div" label={t("Категории")} field="name" ordering={state.ordering} onSort={sort} className={headerCell} />
+          <div className={`${DICT_HEAD} grid-cols-[25%_25%_25%_16.6667%_1fr]`}>
+            <SortHeader as="div" label={t("Категории")} field="name" ordering={state.ordering} onSort={sort} className="pr-2 font-semibold" />
             <SortHeader as="div" label={t("Организация")} field="division" ordering={state.ordering} onSort={sort} className={headerCell} />
             <SortHeader as="div" label={t("Дата создания")} field="created_date" ordering={state.ordering} onSort={sort} className={headerCell} />
             <div className={headerCell}>{t("Показывать в боте")}</div>

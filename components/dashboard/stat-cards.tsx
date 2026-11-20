@@ -1,15 +1,15 @@
 import { formatStatTitle } from "@/lib/dashboard-date-range"
 import type { CurrencyAmount, DashboardSummary } from "@/lib/dashboard-summary-repo"
+import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 export const CARD_CLASS = "rounded-[10px] bg-white shadow-[0_8px_24px_rgba(149,157,165,0.2)]"
 
 /** One line per currency ("0 SUM" when there is nothing). */
-/** One line per currency with money; none at all for an empty period (the reference leaves the card blank then). */
+/** One line per currency with money; none at all for an empty period (the reference leaves the card blank then). The
+ * amounts as the reference's numberFormat prints them: three decimals, or those of Настройки → Округление сумм. */
 export function formatAmounts(amounts: CurrencyAmount[] | undefined): string[] {
-  return (amounts ?? [])
-    .filter((amount) => amount.value)
-    .map((amount) => `${amount.value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${amount.currency}`)
+  return (amounts ?? []).filter((amount) => amount.value).map((amount) => `${formatMoney(amount.value)} ${amount.currency}`)
 }
 
 export function StatCards({

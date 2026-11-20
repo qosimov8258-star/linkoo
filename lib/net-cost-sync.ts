@@ -36,8 +36,16 @@ import { STOCK_TABLES } from "@/lib/stock/schema"
  * 7: older entries (no entered_at) keep the start-of-day rule they were entered under.
  * 8: up to the day of Linko's copied cost history (linko_history 'net_cost') production output comes in at the
  *    average; Linko's cost records are manual entries.
- * 9: a supply generated from an inventory surplus (supplier_incomings.is_inventory) comes in at the average. */
-export const NET_COST_VERSION = "9"
+ * 9: a supply generated from an inventory surplus (supplier_incomings.is_inventory) comes in at the average.
+ * 10: a batch's spoiled raw (Бракованное сырье) leaves the stock at the average but is no part of its output's value
+ *    (the output is valued from the good raw lines, as the reference costs it); a batch's defective output
+ *    (Бракованный товар) never enters the stock (lib/stock/sources.ts).
+ * 11: a production record carries no «Сумма переоценки» (null, «Не указано» as in the reference; display only).
+ * 12: the copied-history rule of 8 holds for Linko's own production lines only (registered before Linko's cost history
+ *    was read); a line the app books later on an earlier day (a back-dated batch, a line added to a copied batch on its
+ *    old date) is valued from its raw lines / recipe norms like every other app line, never at the average.
+ * 13: header totals per cost scope («Общий» + the warehouses with an own cost), as Linko's. */
+export const NET_COST_VERSION = "13"
 const CHUNK = 1000
 const EPS = 1e-6
 
@@ -96,6 +104,9 @@ export type ProductionLinks = {
   party: Map<number, number>
   /** The recipe norms a shift entry's output was costed with (lib/production-activity-repo.ts). */
   basis: Map<number, CostBasisLine[]>
+  /** A batch's spoiled raw lines (Бракованное сырье): they leave the stock at the average, but the batch's
+   * output is not valued from them (the reference costs the output from its good raw lines only). */
+  spoiled?: Set<number>
 }
 
 export type LedgerInputs = {
@@ -113,6 +124,9 @@ export type LedgerInputs = {
    * Linko's cost records are the ledger's manual entries (scripts/linko-sync/import-net-cost-history.mjs), and
    * production output comes in at the average, as Linko books it (a manufactured item keeps its cost). */
   linkoUntil: string
+  /** The local moment ("YYYY-MM-DDTHH:mm:ss.mmm") Linko's cost history was read (linko_history 'net_cost' holds it in
+   * UTC); only production lines registered before it are Linko's history ('' = unknown: the day decides). */
+  linkoUntilAt?: string
 }
 
 const AT = (expr: string) => `to_char(${expr}, 'YYYY-MM-DD"T"HH24:MI:SS.MS')`
@@ -164,6 +178,41 @@ async function productionClosure(db: PgDb, itemKey: string, has: (table: string,
     )
     .all({ nc_item: itemKey })) as Array<{ k: string }>
   return [...new Set([itemKey, ...rows.map((row) => row.k)])]
+}
+
+/** `itemKeys` and every item whose production output is valued from one of them, at any depth — the reverse of
+ * productionClosure: the outputs of the batches that took or put out one of them (a batch spreads its raw value over all
+ * its good units) and of the shift entries whose recipe norms name one of them. A change of these items' stock or value
+ * can change the cost of goods of exactly these items (lib/production-batches-repo.ts refreshProductionCosts). */
+export async function productionDependents(db: PgDb, itemKeys: string[]): Promise<string[]> {
+  const seeds = [...new Set(itemKeys.filter(Boolean))]
+  if (!seeds.length) return []
+  const cols = await tableColumns(db, ["production_movements"])
+  const has = (column: string) => Boolean(cols.get("production_movements")?.has(column))
+  if (!has("party_id") || !has("item_kind") || !has("item_id")) return seeds
+  const key = (alias: string) => `${alias}.item_kind || ':' || ${alias}.item_id`
+  const basis = has("cost_basis")
+    ? `UNION
+       SELECT ${key("m")}, c.j ->> 'key'
+       FROM production_movements m CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("m.cost_basis")}) AS c(j)
+       WHERE m.direction = 'made' AND m.party_id IS NULL AND m.cost_basis IS NOT NULL`
+    : ""
+  const rows = (await db
+    .prepare(
+      `WITH RECURSIVE nc_deps AS (
+         SELECT ${key("m")} AS made, ${key("r")} AS dep
+         FROM production_movements m JOIN production_movements r ON r.party_id = m.party_id AND r.direction IN ('raw', 'made') AND r.id <> m.id
+         WHERE m.direction = 'made' AND m.party_id IS NOT NULL
+         ${basis}
+       ), nc_up(k) AS (
+         SELECT unnest(@nc_items::text[])
+         UNION
+         SELECT d.made FROM nc_up u JOIN nc_deps d ON d.dep = u.k WHERE d.made IS NOT NULL
+       )
+       SELECT k FROM nc_up`,
+    )
+    .all({ nc_items: seeds })) as Array<{ k: string }>
+  return [...new Set([...seeds, ...rows.map((row) => row.k)])]
 }
 
 /** Everything one ledger run needs; `itemKey` limits it to one item and the items its
@@ -304,17 +353,22 @@ export async function loadLedgerInputs(db: PgDb, itemKey?: string): Promise<Ledg
   // module); without one they would count at the end of the day, after every receipt.
   await metaQuery("orders", { at: [{ column: "shipped_at", utc: true }, created] })
 
-  // Production lines: their batch, and the recipe norms of shift entries.
-  const production: ProductionLinks = { party: new Map(), basis: new Map() }
+  // Production lines: their batch (and the batch's spoiled raw lines), and the recipe norms of shift entries.
+  const production: ProductionLinks = { party: new Map(), basis: new Map(), spoiled: new Set() }
   const productionIds = [...(ids.get("production_movements") ?? [])]
   if (productionIds.length && has("production_movements", "party_id")) {
     const basis = has("production_movements", "cost_basis") ? "cost_basis" : "NULL::text AS cost_basis"
+    const spoiled = has("production_movements", "is_defect") ? "(direction = 'raw' AND COALESCE(is_defect, 0) = 1)" : "false"
     const links = (await db
-      .prepare(`SELECT id, party_id, ${basis} FROM production_movements WHERE id = ANY(@ids::int[]) AND (party_id IS NOT NULL OR direction = 'made')`)
-      .all({ ids: productionIds })) as Array<{ id: number; party_id: number | null; cost_basis: string | null }>
+      .prepare(
+        `SELECT id, party_id, ${basis}, ${spoiled} AS spoiled FROM production_movements WHERE id = ANY(@ids::int[]) AND (party_id IS NOT NULL OR direction = 'made')`,
+      )
+      .all({ ids: productionIds })) as Array<{ id: number; party_id: number | null; cost_basis: string | null; spoiled: boolean }>
     for (const row of links) {
-      if (row.party_id !== null && row.party_id !== undefined) production.party.set(Number(row.id), Number(row.party_id))
-      else {
+      if (row.party_id !== null && row.party_id !== undefined) {
+        production.party.set(Number(row.id), Number(row.party_id))
+        if (row.spoiled) production.spoiled?.add(Number(row.id))
+      } else {
         const lines = parseBasis(row.cost_basis)
         if (lines) production.basis.set(Number(row.id), lines)
       }
@@ -369,12 +423,15 @@ export async function loadLedgerInputs(db: PgDb, itemKey?: string): Promise<Ledg
     for (const row of products) defaults.set(`product:${row.id}`, Number(row.cost) || 0)
   }
   let linkoUntil = ""
+  let linkoUntilAt = ""
   const history = (await db.prepare("SELECT to_regclass('linko_history') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
   if (history?.ok) {
     const row = (await db.prepare("SELECT until FROM linko_history WHERE ledger = 'net_cost'").get()) as { until: string } | undefined
     linkoUntil = String(row?.until ?? "").slice(0, 10)
+    // The importer stores the moment the records were fetched in UTC (new Date().toISOString(), without its zone).
+    linkoUntilAt = preciseLocalMoment(row?.until, true) ?? ""
   }
-  return { moves, entries, meta, defaults, fallbacks, labels, warehouses, production, linkoUntil }
+  return { moves, entries, meta, defaults, fallbacks, labels, warehouses, production, linkoUntil, linkoUntilAt }
 }
 
 export function itemLabel(inputs: Pick<LedgerInputs, "labels">, key: string): string {
@@ -383,9 +440,10 @@ export function itemLabel(inputs: Pick<LedgerInputs, "labels">, key: string): st
 
 // --- production output values ------------------------------------------------------------
 //
-// A batch's good output is valued from what the ledger issued its raw materials at:
-// unit = Σ raw lines' posted values ÷ Σ good output units (Брак carries no value), so the
-// batch moves value from raw materials to its output without creating or losing any —
+// A batch's good output is valued from what the ledger issued its good raw materials at:
+// unit = Σ good raw lines' posted values ÷ Σ good output units (Брак carries no value; spoiled
+// raw — Бракованное сырье — leaves the stock at the average like a write-off and is no part of
+// the output), so the batch moves value from raw materials to its output without creating any —
 // also when a raw material's average changes later (a back-dated receipt, an expense
 // added to an accepted supply). A shift entry (no batch) is valued by the recipe norms it
 // was registered with × the components' ledger average at the end of its day; an older
@@ -432,8 +490,10 @@ function productionPlan(inputs: LedgerInputs): ProductionPlan {
       if (move.docType !== "production_movements") continue
       const party = inputs.production.party.get(move.docId)
       if (party === undefined) continue
-      if (move.kind === "manufacture_out") batch(party).raw.push({ docId: move.docId, item, stored: move.value })
-      else if (move.kind === "manufacture_in" && !move.isDefect && move.qty > 0) {
+      if (move.kind === "manufacture_out") {
+        // Spoiled raw (Бракованное сырье) left the stock at the average, but the output is not made of it.
+        if (!inputs.production.spoiled?.has(move.docId)) batch(party).raw.push({ docId: move.docId, item, stored: move.value })
+      } else if (move.kind === "manufacture_in" && !move.isDefect && move.qty > 0) {
         batch(party).goodQty += move.qty
         const items = made.get(party) ?? []
         items.push(item)
@@ -515,6 +575,17 @@ function averageUpTo<T extends { day: string; avg: number }>(list: readonly T[] 
   return found
 }
 
+/** A production line of Linko's copied history (rule 8): booked on a day before Linko's cost history was read AND
+ * registered before that moment (it was copied with Linko's own registration time). A line the app registers later is
+ * its own, whatever day it is booked on: a back-dated batch, or a line added to a copied batch on the batch's old date,
+ * is valued from its raw lines / recipe norms, never at the average (which would create or lose value, or book the
+ * output at 0 when the item has no cost yet). Without a registration moment the day decides, as before. */
+function linkoHistoryLine(move: LedgerMove, inputs: Pick<LedgerInputs, "meta" | "linkoUntil" | "linkoUntilAt">): boolean {
+  if (!inputs.linkoUntil || !(move.day < inputs.linkoUntil)) return false
+  const registered = inputs.meta.get(`${move.docType}:${move.docId}`)?.at ?? ""
+  return !registered || !inputs.linkoUntilAt || registered < inputs.linkoUntilAt
+}
+
 /** The moves of `item` with their production output valued (see above); the same array
  * when nothing changes. */
 function valuedMoves(item: string, inputs: LedgerInputs, plan: ProductionPlan, results: Map<string, LedgerItemResult>): LedgerMove[] {
@@ -524,7 +595,7 @@ function valuedMoves(item: string, inputs: LedgerInputs, plan: ProductionPlan, r
     if (move.docType !== "production_movements" || move.kind !== "manufacture_in" || move.isDefect || !(move.qty > 0)) return move
     // Linko's history: its production output never blended into the cost (it books a cost record when it sets one,
     // and that record is an entry here).
-    if (inputs.linkoUntil && move.day < inputs.linkoUntil) {
+    if (linkoHistoryLine(move, inputs)) {
       changed = true
       return { ...move, atAverage: true }
     }
@@ -741,25 +812,32 @@ async function applyBalanceCheck(db: PgDb, results: Map<string, LedgerItemResult
   }
 }
 
+/** One header row per cost scope, as Linko's stock/net_cost/total/ (USE_STOCK_OWN_NET_COST): «Общий» = the stock of
+ * every warehouse that follows the common cost; then each warehouse with a cost of its own (its own records), in the
+ * order its own costs began (first manual entry). A warehouse without an own cost has no row of its own. */
 function computeTotals(results: Map<string, LedgerItemResult>, warehouses: Map<string, string>): NetCostTotalRow[] {
-  type Acc = { name: string; cumulative: number; last: number; revaluation: number; noCost: number }
-  const rows = new Map<string, Acc>()
-  for (const [wk, name] of warehouses) rows.set(wk, { name, cumulative: 0, last: 0, revaluation: 0, noCost: 0 })
-  const all: Acc = { name: "", cumulative: 0, last: 0, revaluation: 0, noCost: 0 }
+  type Acc = { name: string; cumulative: number; last: number; revaluation: number; noCost: number; first: number }
+  const own = new Map<string, Acc>()
+  const all: Acc = { name: "", cumulative: 0, last: 0, revaluation: 0, noCost: 0, first: 0 }
   for (const result of results.values()) {
     let itemNoCost = false
+    const firstEntry = new Map<string, number>()
+    for (const record of result.records) {
+      if (record.scope && record.entryId !== null) firstEntry.set(record.scope, Math.min(firstEntry.get(record.scope) ?? Infinity, record.entryId))
+    }
     for (const wh of result.warehouses) {
-      const acc = rows.get(wh.wk) ?? { name: wh.name, cumulative: 0, last: 0, revaluation: 0, noCost: 0 }
-      rows.set(wh.wk, acc)
-      const noCost = wh.qty > EPS && !wh.hasCost
-      for (const target of [acc, all]) {
-        target.cumulative += wh.value
-        target.last += wh.current
-        target.revaluation += wh.revaluation
+      let acc = all
+      if (wh.scope) {
+        acc = own.get(wh.scope) ?? { name: warehouses.get(wh.scope) ?? wh.name, cumulative: 0, last: 0, revaluation: 0, noCost: 0, first: Infinity }
+        own.set(wh.scope, acc)
+        acc.first = Math.min(acc.first, firstEntry.get(wh.scope) ?? Infinity)
       }
-      if (noCost) {
-        acc.noCost += 1
-        itemNoCost = true
+      acc.cumulative += wh.value
+      acc.last += wh.current
+      acc.revaluation += wh.revaluation
+      if (wh.qty > EPS && !wh.hasCost) {
+        if (acc === all) itemNoCost = true
+        else acc.noCost += 1
       }
     }
     if (itemNoCost) all.noCost += 1
@@ -777,7 +855,7 @@ function computeTotals(results: Map<string, LedgerItemResult>, warehouses: Map<s
       noCostProductCount: acc.noCost,
     }
   }
-  const named = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"))
+  const named = [...own.values()].sort((a, b) => a.first - b.first || a.name.localeCompare(b.name, "ru"))
   return [finish(all, null), ...named.map((acc) => finish(acc, acc.name))]
 }
 

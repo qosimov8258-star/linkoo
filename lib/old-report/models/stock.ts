@@ -51,7 +51,10 @@ const TYPE_LABEL: Record<string, string> = {
   none_in: "Прочее",
   none_out: "Прочее",
 }
-const TYPE_OPTIONS = [...new Set(Object.values(TYPE_LABEL))]
+/** A transfer leg of a production «Отгрузка» (an internal transfer with source 'shipment': a worker shift session's
+ * output handed over, lib/production-sessions-repo.ts) is no «Внутренний перевод». */
+const SHIPMENT_LABEL = "Отгрузка"
+const TYPE_OPTIONS = [...new Set([...Object.values(TYPE_LABEL), SHIPMENT_LABEL])]
 const COST_FIELDS = ["d_net_cost_sum", "d_net_cost_min", "d_net_cost_max", "net_cost_id", "net_cost_id_real"]
 const str = (value: unknown) => (value === null || value === undefined ? "" : String(value).trim())
 
@@ -103,6 +106,16 @@ async function loadMoves(context: RunContext, byParty: boolean): Promise<Move[]>
     }
   }
 
+  // The transfers that are production «Отгрузка» documents (the source column may be missing: read through to_jsonb).
+  const transferIds = [...new Set(rows.filter((row) => str(row.doc_type) === "internal_transfers").map((row) => Number(row.doc_id)))]
+  const shipments = new Set<number>()
+  if (transferIds.length) {
+    const found = (await db
+      .prepare("SELECT id FROM internal_transfers t WHERE id = ANY(@ids::int[]) AND COALESCE(to_jsonb(t) ->> 'source', '') = 'shipment'")
+      .all({ ids: transferIds })) as Array<{ id: number }>
+    for (const row of found) shipments.add(Number(row.id))
+  }
+
   const ledger = context.wants(...COST_FIELDS) ? await loadCostLedger(db) : null
   const moved = ledger ? documentLineValues(ledger) : null
   const costsByDay = new Map<string, Map<string, number>>()
@@ -136,7 +149,7 @@ async function loadMoves(context: RunContext, byParty: boolean): Promise<Move[]>
       product,
       qty: Number(row.qty) || 0,
       cost,
-      type: TYPE_LABEL[str(row.kind)] ?? str(row.kind),
+      type: docType === "internal_transfers" && shipments.has(docId) ? SHIPMENT_LABEL : (TYPE_LABEL[str(row.kind)] ?? str(row.kind)),
       docId,
       user: doc?.who ?? "",
       comment: doc?.comment ?? "",

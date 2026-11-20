@@ -1,11 +1,10 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
-import Image from "next/image"
-import { ArrowLeft, ArrowRight, Info, Loader2 } from "lucide-react"
+import { ImageOff, Info, Loader2 } from "lucide-react"
 
 import { PhotoViewer, RequestStatusIcon, RequestTypeBadge } from "@/components/analytics/inventory-management-detail"
-import { ReviewIcon, dayText, itemTitle, photoUrl, timeText } from "@/components/analytics/inventory-management-shared"
+import { ReviewIcon, dayText, itemTitle, timeText } from "@/components/analytics/inventory-management-shared"
 import { RefTable } from "@/components/ref/list-kit"
 import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -72,7 +71,22 @@ function useEmpty({ loading, error }: ListState) {
   return loading ? t("Загрузка...") : error ? "" : t("По вашему запросу ничего не найдено")
 }
 
-const detailBox = (node: ReactNode) => <div className="-mx-[15px] my-5 bg-[#f2f5f8] px-2 py-3 md:px-4">{node}</div>
+// Linko shows the item card in place of its row, 15 px wider than the list on each side, 20 px from the rows around it.
+// On a phone the card keeps to the visible width of the scrolling list (the view makes it the query container).
+const detailBox = (node: ReactNode) => (
+  <div className="bg-[#f2f5f8] py-5 md:-mx-[15px]">
+    <div className="max-md:sticky max-md:left-0 max-md:w-[100cqw]">{node}</div>
+  </div>
+)
+
+// Linko's lists are a 12-column grid between the row's 30 px paddings; every column but the first keeps 8 px on its
+// left (RefTable's cells keep 8 px on both sides, so the first cell and a right-aligned last one step out of theirs).
+const FIRST_CELL = "-ml-2 block"
+const LAST_CELL_RIGHT = "-mr-2 flex items-center justify-end gap-[10px] text-right"
+
+// Material arrow_downward / arrow_upward of История движений (16 px, 5 px before the title).
+const MD_ARROW_DOWN = "M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"
+const MD_ARROW_UP = "M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"
 
 export function ItemsTable({
   rows,
@@ -91,7 +105,7 @@ export function ItemsTable({
   const empty = useEmpty({ loading, error })
   const allChecked = rows.length > 0 && rows.every((row) => selected.includes(row.id))
   const heads = [
-    <span key="n" className="flex items-center gap-[10px]">
+    <span key="n" className="-ml-2 flex items-center gap-[10px]">
       {selectable && (
         <input
           type="checkbox"
@@ -112,19 +126,21 @@ export function ItemsTable({
     <SortHeader key="date" ordering={ordering} sortKey="date" onSort={onSort}>
       {t("Дата прикрепления")}
     </SortHeader>,
-    t("Дата проверки"),
+    <span key="checked" className={LAST_CELL_RIGHT}>
+      {t("Дата проверки")}
+    </span>,
   ].map((head) => (typeof head === "string" ? <span key={head}>{head}</span> : head))
   return (
     <RefTable
-      cols="123px 231px 231px 230px 231px 239px minmax(0,1fr)"
+      cols="minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr)"
       heads={heads}
       rows={rows}
       rowKey={(row) => row.id}
       onRowClick={(row) => onRow(row.id)}
-      rowClass={(row) => `${detailId === row.id ? "!bg-[#eef2ff]" : ""} ${row.deleted ? "text-[#9aa3b6] line-through decoration-[#e57373]/60" : ""}`}
+      rowClass={(row) => `${detailId === row.id ? "!hidden" : ""} ${row.deleted ? "text-[#9aa3b6] line-through decoration-[#e57373]/60" : ""}`}
       empty={empty}
       render={(row) => [
-        <span key="id" className="flex items-center gap-[10px]">
+        <span key="id" className="-ml-2 flex items-center gap-[10px]">
           {selectable && (
             <span onClick={(event) => event.stopPropagation()} className="flex">
               <input
@@ -153,10 +169,13 @@ export function ItemsTable({
           )}
         </span>,
         row.warehouse,
-        dayText(row.date, language),
-        <span key="review" className="flex items-center justify-between">
-          <span className="min-w-0">{dayText(row.reviewedAt || row.createdAt, language)}</span>
-          <ReviewIcon reviewed={row.isReviewed} t={t} />
+        // Linko's list fills an item without a date with the day it was registered (its card leaves it blank).
+        dayText(row.date || row.createdAt, language),
+        // Linko's «Дата проверки» prints the item's creation day (createdDate) right-aligned, 10 px before the icon; a
+        // date that wraps keeps its lines left-aligned (a bare text item of the flex row).
+        <span key="review" className={LAST_CELL_RIGHT}>
+          <span className="min-w-0 text-left">{dayText(row.createdAt, language)}</span>
+          <ReviewIcon reviewed={row.isReviewed} t={t} className="h-6 w-6" />
         </span>,
       ]}
       expanded={(row) => (detailId === row.id ? detailBox(renderDetail(row.id)) : null)}
@@ -168,35 +187,45 @@ export function LogsTable({ rows, ordering, onSort, loading, error }: { rows: In
   const { t, language } = useLanguage()
   const empty = useEmpty({ loading, error })
   const heads = [
-    <span key="item">{t("Инвентарь")}</span>,
+    <span key="item" className={FIRST_CELL}>
+      {t("Инвентарь")}
+    </span>,
     <SortHeader key="created" ordering={ordering} sortKey="created_date" onSort={onSort}>
       {t("Дата создания")}
     </SortHeader>,
     <SortHeader key="date" ordering={ordering} sortKey="date" onSort={onSort}>
       {t("Дата движения")}
     </SortHeader>,
-    <SortHeader key="client" ordering={ordering} sortKey="client" onSort={onSort}>
-      {t("Клиент")}
-    </SortHeader>,
+    <span key="client" className="block text-center">
+      <SortHeader ordering={ordering} sortKey="client" onSort={onSort}>
+        {t("Клиент")}
+      </SortHeader>
+    </span>,
     <span key="wh">{t("Склад")}</span>,
     <span key="cond">{t("Состояние")}</span>,
     <span key="type">{t("Тип")}</span>,
   ]
   return (
     <RefTable
-      cols="minmax(0,25fr) minmax(0,16fr) minmax(0,11fr) minmax(0,18fr) minmax(0,11fr) minmax(0,9fr) minmax(0,10fr)"
+      cols="minmax(0,3fr) minmax(0,2fr) minmax(0,1fr) minmax(0,3fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)"
+      // Linko's sortable headers keep room for the arrow, so «Дата движения» wraps.
+      headPad={30}
       heads={heads}
       rows={rows}
       rowKey={(row) => row.id}
       empty={empty}
       render={(row) => [
-        <span key="item" className="flex items-center gap-1.5">
-          {row.status === "take" ? <ArrowLeft className="h-4 w-4 shrink-0 text-[#e57373]" /> : <ArrowRight className="h-4 w-4 shrink-0 text-[#81c784]" />}
-          <span className={row.item.deleted ? "text-[#9aa3b6] line-through" : ""}>{itemTitle(row.item)}</span>
+        <span key="item" className="-ml-2 flex">
+          <svg viewBox="0 0 24 24" className={`mr-[5px] h-4 w-4 shrink-0 ${row.status === "take" ? "fill-[#e57373]" : "fill-[#81c784]"}`} aria-hidden>
+            <path d={row.status === "take" ? MD_ARROW_UP : MD_ARROW_DOWN} />
+          </svg>
+          <span className={`min-w-0 whitespace-pre-wrap ${row.item.deleted ? "text-[#9aa3b6] line-through" : ""}`}>{itemTitle(row.item)}</span>
         </span>,
         timeText(row.createdAt, language),
         dayText(row.date, language),
-        row.client?.name ?? "",
+        <span key="client" className="block text-center">
+          {row.client?.name ?? ""}
+        </span>,
         row.warehouse,
         t(row.condition),
         <span key="type" className="flex items-center gap-2 whitespace-nowrap" title={row.createdBy ? `${t("Создал")}: ${row.createdBy}` : undefined}>
@@ -215,39 +244,43 @@ export function LogsTable({ rows, ordering, onSort, loading, error }: { rows: In
 export function ChecksTable({ rows, loading, error }: { rows: InventoryCheck[] } & ListState) {
   const { t, language } = useLanguage()
   const empty = useEmpty({ loading, error })
-  const [photo, setPhoto] = useState<string | null>(null)
+  const [photo, setPhoto] = useState(false)
   return (
     <>
       <RefTable
-        cols="minmax(0,8fr) minmax(0,18fr) minmax(0,16fr) minmax(0,18fr) minmax(0,25fr) minmax(0,15fr)"
-        heads={["№", t("Клиент"), t("Создал"), t("Дата проверки"), t("Инвентарь"), t("Изображений")].map((head) => (
-          <span key={head}>{head}</span>
+        cols="minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,3fr) minmax(0,2fr)"
+        heads={["№", t("Клиент"), t("Создал"), t("Дата проверки"), t("Инвентарь"), t("Изображений")].map((head, index) => (
+          <span key={head} className={index === 0 ? FIRST_CELL : undefined}>
+            {head}
+          </span>
         ))}
         rows={rows}
         rowKey={(row) => row.id}
         empty={empty}
         render={(row) => [
-          <span key="id">
+          <span key="id" className={FIRST_CELL}>
             {row.id}
             <Comment text={row.comment} />
           </span>,
           row.client?.name ?? "",
           row.createdBy || t("Не указан"),
-          <span key="checked" className="flex items-center gap-2 whitespace-nowrap">
-            {row.createdAt ? timeText(row.createdAt, language) : t("Не указано")}
-            <ReviewIcon reviewed={row.isReviewed} t={t} className="h-4 w-4" />
+          row.createdAt ? timeText(row.createdAt, language) : t("Не указано"),
+          <span key="item" className={`whitespace-pre-wrap ${row.item.deleted ? "text-[#9aa3b6] line-through" : ""}`}>
+            {itemTitle(row.item, "  ")}
           </span>,
-          <span key="item" className={row.item.deleted ? "text-[#9aa3b6] line-through" : ""}>
-            {itemTitle(row.item)}
+          // Linko lists the review's own photos (90 px tiles, 5 px apart); its server no longer serves those files, so each
+          // tile shows the broken picture, and a click opens the viewer.
+          // (Linko pads the cell 10 px above and below; the row adds 7 of them.)
+          <span key="photos" className="flex flex-wrap items-center gap-[5px] py-[3px]">
+            {row.images.map((image, index) => (
+              <button key={`${image.id}-${index}`} type="button" onClick={() => setPhoto(true)} aria-label={t("Изображений")} className="relative mr-[6px] block h-[90px] w-[90px] overflow-hidden rounded-md bg-[#f5f5f5]">
+                <ImageOff className="absolute left-1 top-1 h-4 w-4 text-[#9e9e9e]" aria-hidden />
+              </button>
+            ))}
           </span>,
-          row.item.hasPhoto ? (
-            <button key="photo" type="button" onClick={() => setPhoto(photoUrl(row.item))} className="relative block h-[60px] w-[60px] overflow-hidden rounded-md bg-[#f5f5f5]">
-              <Image src={photoUrl(row.item)} alt="" fill unoptimized className="object-cover" />
-            </button>
-          ) : null,
         ]}
       />
-      {photo && <PhotoViewer src={photo} onClose={() => setPhoto(null)} />}
+      {photo && <PhotoViewer src={null} onClose={() => setPhoto(false)} />}
     </>
   )
 }
@@ -257,7 +290,8 @@ export function RequestsTable({ rows, detailId, onRow, renderDetail, loading, er
   const empty = useEmpty({ loading, error })
   return (
     <RefTable
-      cols="minmax(0,5fr) minmax(0,10fr) minmax(0,11fr) minmax(0,14fr) minmax(0,13fr) minmax(0,10fr) minmax(0,11fr) minmax(0,10fr) minmax(0,11fr) minmax(0,5fr)"
+      // Linko's widths of the request columns: 4 / 10 / 10 / 16 / 16 / 10 / 10 / 10 / 10 / 4 %.
+      cols="minmax(0,4fr) minmax(0,10fr) minmax(0,10fr) minmax(0,16fr) minmax(0,16fr) minmax(0,10fr) minmax(0,10fr) minmax(0,10fr) minmax(0,10fr) minmax(0,4fr)"
       heads={["№", t("Тип"), t("Клиент"), t("Тип инвентаря"), t("Инвентарь"), t("Запросил"), t("Дата запроса"), t("Обработал"), t("Дата обработки"), t("Статус")].map((head) => (
         <span key={head}>{head}</span>
       ))}

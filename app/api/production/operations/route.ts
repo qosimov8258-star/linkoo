@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server"
 
 import { requireRole } from "@/lib/rbac"
-import { errorResponse, guarded, parseBody, positiveIntParam, requireViewer, schemas } from "@/lib/production-api"
+import { guarded, parseBody, requireViewer, schemas } from "@/lib/production-api"
 import { createOperation, listOperations } from "@/lib/production-stages-repo"
 
-export async function GET(request: Request) {
+/** Like the reference, operations are global: always the whole list. A ?stageId= is ignored (new operations
+ * carry no stage, so narrowing by the stage an older version filed them under would hide them). */
+export async function GET() {
   const denied = await requireViewer()
   if (denied) return denied
-  // Like the reference, operations are not tied to the selected stage: without stageId the whole list is returned.
-  const stageId = positiveIntParam(new URL(request.url).searchParams.get("stageId"))
-  return NextResponse.json(await listOperations(stageId ?? undefined))
+  return NextResponse.json(await listOperations())
 }
 
+/** A new operation has no stage (the reference's carry none); a stageId in the body is ignored. */
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error

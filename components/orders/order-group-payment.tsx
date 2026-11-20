@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { useAppCurrency } from "@/lib/app-currency-context"
+import { amountDigits } from "@/lib/amount-precision"
 import { normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -13,7 +14,7 @@ import { RefDate, RefSelect } from "./order-ref-fields"
 type Cashbox = { id: number; name: string; currency: string }
 type Named = { id: number; name: string }
 
-/** The reference's "magnet" icon: puts the order's remaining amount into the cell / the whole column. */
+/** The reference's "magnet" icon (drawn turned a quarter left, open towards the cell like Linko's ⊃): puts the order's remaining amount into the cell / the whole column. */
 const MAGNET =
   "M960.288 60.176V31.168c0-17.68-14.32-32-32-32H703.664c-17.68 0-32 14.32-32 32v130.656c0 .048.032.096.032.144v397.52c0 96.32-54.336 174.656-150.656 174.656s-168.656-78.336-168.656-174.656V60.176h-.095V31.168c0-17.68-14.32-32-32-32H95.665c-17.68 0-32 14.32-32 32v130.656c0 .656.335 1.2.368 1.84V574.16c0 248.912 198.784 450.656 447.664 450.656S960.353 823.072 960.353 574.16V60.176zm-64 2.992v128.336H736.032V63.168h160.256zm-608 0v128.336H128.032V63.168h160.256zM511.68 960.832c-213.216 0-383.663-173.472-383.663-386.655V255.505h160.336v303.984c0 131.808 100.848 238.655 232.655 238.655S735.68 691.296 735.68 559.489V255.505h160.656v318.672c0 213.184-171.424 386.655-384.656 386.655z"
 
@@ -29,7 +30,7 @@ const longDate = (iso: string) => {
   const [year, month, day] = iso.split("-").map(Number)
   return year && month && day ? `${day} ${MONTHS[month - 1]} ${year} г.` : ""
 }
-const formatNumber = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+const formatNumber = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: amountDigits(3) })
 const currencyOf = (order: Order) => order.amount.trim().split(/\s+/).pop() || "SUM"
 /** What the cash desk still accepts for the order (the server's payable rest), else its unpaid rest. */
 const dueOf = (order: Order) => Math.max(0, order.payableRest ?? order.orderBalance ?? 0)
@@ -61,15 +62,21 @@ export function OrderGroupPayment({ orders, onClose, onSaved }: { orders: Order[
         .catch(() => set([]))
     // Настройки → Валюта приложения: payments go only into cashboxes of the app currency.
     load<Cashbox>("/api/cashboxes?sort=created", (rows) => setCashboxes(appCurrency ? rows.filter((row) => normCurrency(row.currency) === appCurrency) : rows))
+    // Linko opens the payment with the signed-in user's first branch and the user as «Ответственный персонал».
+    const me = fetch("/api/auth/me")
+      .then(async (response) => (response.ok ? ((await response.json()) as { employeeId?: number | null; branches?: Named[] }) : {}))
+      .catch(() => ({}) as { employeeId?: number | null; branches?: Named[] })
     load<Named>("/api/branches?sort=created", (all) => {
       const rows = all.filter((row, index) => all.findIndex((other) => other.name === row.name) === index)
       setBranches(rows)
-      // the reference preselects the first branch of its list
-      setBranch((current) => current || rows[0]?.name || "")
+      void me.then((user) => setBranch((current) => current || user.branches?.[0]?.name || rows[0]?.name || ""))
     })
-    load<{ id: number; name?: string; firstName?: string; lastName?: string }>("/api/employees", (rows) =>
-      setEmployees(rows.map((row) => ({ id: row.id, name: row.name || `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() }))),
-    )
+    load<{ id: number; name?: string; firstName?: string; lastName?: string }>("/api/employees", (rows) => {
+      setEmployees(rows.map((row) => ({ id: row.id, name: row.name || `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() })))
+      void me.then((user) => {
+        if (user.employeeId && rows.some((row) => row.id === user.employeeId)) setResponsible((current) => current || String(user.employeeId))
+      })
+    })
   }, [appCurrency])
 
   useEffect(() => {
@@ -182,7 +189,7 @@ export function OrderGroupPayment({ orders, onClose, onSaved }: { orders: Order[
                         onClick={() => orders.forEach((order) => fill(order.id, cashbox.id, dueOf(order)))}
                         className="flex h-10 w-10 items-center justify-center"
                       >
-                        <svg viewBox="0 0 1024 1024" className="h-4 w-4" style={{ fill: "#333" }}><path d={MAGNET} /></svg>
+                        <svg viewBox="0 0 1024 1024" className="h-4 w-4 -rotate-90" style={{ fill: "#333" }}><path d={MAGNET} /></svg>
                       </button>
                     </div>
                   </th>
@@ -210,7 +217,7 @@ export function OrderGroupPayment({ orders, onClose, onSaved }: { orders: Order[
                           <hr className="absolute inset-x-0 bottom-0 m-0 h-px border-0 bg-[#808080]/60" />
                         </div>
                         <button type="button" aria-label={t("Заполнить остаток")} onClick={() => fill(order.id, cashbox.id, dueOf(order))} className="flex h-10 w-10 shrink-0 items-center justify-center">
-                          <svg viewBox="0 0 1024 1024" className="h-4 w-4" style={{ fill: "#333" }}><path d={MAGNET} /></svg>
+                          <svg viewBox="0 0 1024 1024" className="h-4 w-4 -rotate-90" style={{ fill: "#333" }}><path d={MAGNET} /></svg>
                         </button>
                       </div>
                     </td>

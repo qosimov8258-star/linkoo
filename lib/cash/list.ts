@@ -26,7 +26,9 @@ import {
 // (unverified ones are in the clock dialog, deleted ones with withDeleted);
 // totals count live, verified rows only (= the ledger's cashbox balance). The
 // ledger (lib/finance) keeps reading the base tables, so this file never
-// affects balances.
+// affects balances. Rows imported from Linko take the type / order / client /
+// agent of Linko's own cash transaction from linko_cash_list_facts where the
+// merged local row lacks them; a supplier income is Linko's type 11.
 
 export type CashListQuery = {
   cashboxIds?: number[]
@@ -51,6 +53,8 @@ export type CashListQuery = {
   internalTransfer?: boolean
   /** Only real expenses: outflows that are not transfers, not internal and not excluded from P&L. */
   onlyNotInternal?: boolean
+  /** Only outgoing transfers whose receiving leg is not verified yet («Только не принятые переводы»). */
+  notAcceptedTransfer?: boolean
   /** Digits only = "№" (doc_no, exact; other pages link with ?search=<№>); else a case-insensitive substring of
    * comment / client / supplier / category / cashbox / employee / description / organization / branch. */
   search?: string
@@ -102,19 +106,24 @@ ops AS (
     COALESCE(e.internal_amount, e.amount::float8 * ${RATE("cb.cur")}) AS base_amount,
     COALESCE(e.custom_rate, ${RATE("cb.cur")}) AS rate,
     NULL::float8 AS debt_amount, ''::text AS debt_cur,
-    COALESCE(e.client_id, ck.id) AS client_id, e.client_name AS client_name, NULL::int AS supplier_id, ''::text AS supplier_name,
+    CASE WHEN e.client_id IS NULL AND COALESCE(e.client_name, '') = '' THEN lfc.client_id ELSE COALESCE(e.client_id, ck.id) END AS client_id,
+    CASE WHEN e.client_id IS NULL AND COALESCE(e.client_name, '') = '' THEN COALESCE(lfc.client_name, '') ELSE e.client_name END AS client_name,
+    NULL::int AS supplier_id, ''::text AS supplier_name,
     COALESCE(e.income_category_id, e.expense_category_id) AS category_id,
     CASE WHEN e.income_category_id IS NOT NULL THEN 'income' WHEN e.expense_category_id IS NOT NULL THEN 'expense' ELSE '' END AS category_kind,
     CASE WHEN e.category = 'Перевод' OR COALESCE(e.op_type, 0) IN (1, 2) THEN '' ELSE e.category END AS category_name,
     fin_place(e.branch) AS branch, fin_place(e.organization) AS organization, e.comment, e.description,
-    e.employee_id, e.employee_name, e.transfer_id, NULL::int AS order_id, e.supply_id, e.supply_expense_id, NULL::int AS money_request_id,
+    COALESCE(e.employee_id, lfc.agent_id) AS employee_id,
+    CASE WHEN e.employee_id IS NULL AND COALESCE(e.employee_name, '') = '' THEN COALESCE(lfc.agent_name, '') ELSE e.employee_name END AS employee_name,
+    e.transfer_id, lfc.order_id AS order_id, e.supply_id, e.supply_expense_id, NULL::int AS money_request_id,
     ''::text AS contract, e.amortization_from, e.amortization_to,
     (e.is_verified <> 0) AS verified, (e.is_deleted <> 0) AS deleted, ${ISO("fin_ts(NULLIF(e.verified_at, ''))")} AS verified_at,
     ${ISO("fin_ts(NULLIF(e.deleted_at, ''))")} AS deleted_at, NULL::int AS agent_cashbox_id, 0::int AS payment_count
   FROM cash_management_entries e JOIN cbx cb ON cb.id = e.cashbox_id
   LEFT JOIN ck ON e.client_id IS NULL AND e.client_name <> '' AND ck.k = fin_key(e.client_name)
+  LEFT JOIN linko_cash_list_facts lfc ON lfc.source = 'cash' AND lfc.row_id = e.id
   UNION ALL
-  SELECT 'customer', p.id, p.doc_no::bigint, COALESCE(p.op_type, CASE WHEN p.order_id IS NOT NULL THEN 3 ELSE 6 END),
+  SELECT 'customer', p.id, p.doc_no::bigint, COALESCE(lfp.op_type, p.op_type, CASE WHEN p.order_id IS NOT NULL THEN 3 ELSE 6 END),
     CASE WHEN p.accepted = 1 THEN COALESCE(fin_ts(p.accepted_at), fin_ts(NULLIF(p.payment_date, '')), fin_ts(p.paid_at), fin_ts(p.created_at, true))
          ELSE COALESCE(fin_ts(NULLIF(p.payment_date, '')), fin_ts(p.paid_at), fin_ts(p.created_at, true)) END,
     fin_ts(p.created_at, true), p.created_by,
@@ -123,21 +132,26 @@ ops AS (
     COALESCE(p.amount_sum_equivalent::float8, (${CASH_SIDE("p")}) * ${RATE("cb.cur")}),
     COALESCE(p.custom_rate, ${RATE("cb.cur")}),
     p.amount::float8, COALESCE(fin_cur(p.currency), @base::text),
-    COALESCE(p.client_id, ck.id), p.client, NULL::int, '',
+    CASE WHEN lfp.client_id IS NOT NULL THEN lfp.client_id ELSE COALESCE(p.client_id, ck.id) END, COALESCE(lfp.client_name, p.client), NULL::int, '',
     p.income_category_id, CASE WHEN p.income_category_id IS NOT NULL THEN 'income' ELSE '' END, p.income_category,
     fin_place(p.branch), fin_place(p.organization), CASE WHEN p.comment = 'Не указано' THEN '' ELSE p.comment END, '',
-    p.delivery_man_id, p.delivery_man, NULL::int, p.order_id, NULL::int, NULL::int, NULL::int, p.contract, '', '',
+    p.delivery_man_id, p.delivery_man, NULL::int, CASE WHEN lfp.row_id IS NOT NULL THEN lfp.order_id ELSE p.order_id END, NULL::int, NULL::int, NULL::int,
+    p.contract, '', '',
     (p.accepted = 1), (p.is_deleted <> 0), CASE WHEN p.accepted = 1 THEN ${ISO("fin_ts(p.accepted_at)")} ELSE '' END,
     ${ISO("fin_ts(NULLIF(p.deleted_at, ''))")}, p.agent_cashbox_id, 0
   FROM customer_payments p LEFT JOIN cbk ON cbk.k = fin_key(p.kassa) JOIN cbx cb ON cb.id = COALESCE(p.cashbox_id, cbk.id)
   LEFT JOIN ck ON p.client_id IS NULL AND ck.k = fin_key(p.client)
+  -- Linko's own cash transaction of an imported payment, while the payment still has the client / type / order it had then.
+  LEFT JOIN linko_cash_list_facts lfp ON lfp.source = 'customer' AND lfp.row_id = p.id AND lfp.local_op_type IS NOT DISTINCT FROM p.op_type
+    AND lfp.local_order_id IS NOT DISTINCT FROM p.order_id AND lfp.local_client_id IS NOT DISTINCT FROM p.client_id
   WHERE p.accept_id IS NULL
   UNION ALL
   SELECT 'acceptance', a.id, a.doc_no::bigint, 8, COALESCE(fin_ts(a.date), fin_ts(a.created_at, true)), fin_ts(a.created_at, true), a.created_by,
     cb.id, cb.name, cb.cur, cb.pt, cb.branch,
     CASE WHEN a.is_deleted <> 0 THEN a.amount::float8 ELSE COALESCE(x.amount, 0) END,
     CASE WHEN a.is_deleted <> 0 THEN a.amount::float8 * ${RATE("cb.cur")} ELSE x.base_amount END,
-    ${RATE("cb.cur")}, NULL::float8, '',
+    -- The rate the accepted payments were booked at (their base amounts over the cash), not today's rate.
+    CASE WHEN a.is_deleted = 0 AND COALESCE(x.amount, 0) <> 0 THEN x.base_amount / x.amount ELSE ${RATE("cb.cur")} END, NULL::float8, '',
     NULL::int, '', NULL::int, '', NULL::int, '', '',
     fin_place(a.branch), fin_place(a.organization), a.comment, '',
     a.agent_id, a.agent, NULL::int, NULL::int, NULL::int, NULL::int, NULL::int, '', '', '',
@@ -149,7 +163,7 @@ ops AS (
     FROM customer_payments p WHERE p.accept_id = a.id AND p.is_deleted = 0
   ) x ON true
   UNION ALL
-  SELECT 'supplier', sp.id, sp.doc_no::bigint, COALESCE(sp.op_type, 5),
+  SELECT 'supplier', sp.id, sp.doc_no::bigint, CASE WHEN sp.op_type = 4 THEN 11 ELSE COALESCE(sp.op_type, 5) END,
     COALESCE(fin_ts(sp.paid_at), fin_ts(NULLIF(sp.payment_date, '')), fin_ts(sp.created_at, true)), fin_ts(sp.created_at, true), sp.created_by,
     cb.id, cb.name, cb.cur, cb.pt, cb.branch,
     -(${CASH_SIDE("sp")}),
@@ -179,7 +193,10 @@ f AS (
     AND (@onlyId::int IS NULL OR (o.src = @onlySrc::text AND o.id = @onlyId::int))
     AND (cardinality(@sources::text[]) = 0 OR o.src = ANY(@sources::text[]))
     AND (cardinality(@cashboxes::int[]) = 0 OR o.cashbox_id = ANY(@cashboxes::int[]))
-    AND (cardinality(@types::int[]) = 0 OR o.op = ANY(@types::int[]))
+    -- Linko's «Приход» (4) / «Расход» (5) filter takes every money-in / money-out operation that is not a transfer.
+    AND (cardinality(@types::int[]) = 0 OR o.op = ANY(@types::int[])
+         OR (4 = ANY(@types::int[]) AND o.amount > 0 AND o.op NOT IN (1, 2))
+         OR (5 = ANY(@types::int[]) AND o.amount < 0 AND o.op NOT IN (1, 2)))
     AND (cardinality(@branches::text[]) = 0 OR fin_key(COALESCE(NULLIF(o.branch, ''), o.cb_branch)) = ANY(@branches::text[]))
     AND (cardinality(@orgs::text[]) = 0 OR fin_key(o.organization) = ANY(@orgs::text[]))
     AND (@pt::text = '' OR o.pt = @pt::text)
@@ -196,6 +213,8 @@ f AS (
          OR (o.category_kind = '' AND o.amount >= 0 AND fin_key(o.category_name) = ANY(@incCatNames::text[])))
     AND (NOT @internal::boolean OR o.internal)
     AND (NOT @onlyReal::boolean OR (o.amount < 0 AND o.op NOT IN (1, 2) AND NOT o.internal AND NOT o.no_pnl))
+    AND (NOT @notAccepted::boolean OR (o.op = 1 AND o.transfer_id IS NOT NULL AND EXISTS (SELECT 1 FROM cash_management_entries leg
+         WHERE leg.transfer_id = o.transfer_id AND leg.op_type = 2 AND leg.is_verified = 0 AND leg.is_deleted = 0)))
     AND (@q::text = '' OR (@qnum::bigint >= 0 AND o.doc_no = @qnum::bigint)
          OR (@qnum::bigint < 0 AND strpos(fin_key(concat_ws(' ', o.comment, o.client_name, o.supplier_name, o.category_name, o.cashbox_name,
                                      o.employee_name, o.description, o.organization, o.branch)), @q::text) > 0))
@@ -246,6 +265,7 @@ export function buildParams(query: CashListQuery, base: string, categories: Cate
     incCatNames: categories.filter((c) => c.kind === "income" && incCats.includes(c.id)).map((c) => nameKey(c.name)),
     internal: Boolean(query.internalTransfer),
     onlyReal: Boolean(query.onlyNotInternal),
+    notAccepted: Boolean(query.notAcceptedTransfer),
     q: search,
     qnum: /^\d{1,15}$/.test(search) ? Number(search) : -1,
   }

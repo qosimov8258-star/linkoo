@@ -18,6 +18,7 @@ const CONFIG: ExpenseReportConfig = {
   categoryFilter: true,
   excelTitle: "Статистика расходов на персонал",
   rowLinks: true,
+  flooredSums: true,
 }
 
 export function PayrollExpensesView() {

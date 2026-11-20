@@ -21,6 +21,7 @@ import {
   type NetCostTotals,
 } from "@/lib/net-cost-types"
 import { getStockCatalog } from "@/lib/stock/ledger"
+import { describeProductionLines } from "@/lib/stock/production-documents"
 
 // Reads of "Себестоимость" (list, header totals, detail, options) and the four
 // maintenance actions. Every read first brings the cached records in step with the
@@ -278,7 +279,57 @@ export async function getNetCostDetail(id: number): Promise<NetCostDetail | null
   }
   const { factor } = await shownCurrency(db)
   const documents = (record?.docs ?? []).map((doc) => (factor === 1 ? doc : { ...doc, cost: doc.cost * factor }))
-  return { ...inShown(toRecord(row), factor), balanceAfter: Number(row.balance_after), nextDate: row.next_day, comment, documents, negativeTransactions: negatives }
+  const shown = toRecord(row)
+  const idsOf = (docType: string) => [
+    ...[...documents, ...negatives].filter((doc) => doc.docType === docType).map((doc) => Number(doc.docId)),
+    ...(shown.sourceType === docType ? [shown.sourceId] : []),
+  ]
+  const shipments = await shipmentDocuments(db, idsOf("internal_transfers"))
+  // A production line is booked under its production_movements row id, which names no document: it is named by
+  // what it belongs to, as in the stock views (lib/stock/production-documents.ts): «Партия №166» opening the batch,
+  // a stage's «Активность» (a shift entry, no number) or reconciliation opening the stage.
+  const production = await describeProductionLines(db, idsOf("production_movements"))
+  const productionDocument = (id: number) => production.get(id) ?? { docType: "production_movements", docId: 0 }
+  const described = (doc: NetCostDocument): NetCostDocument => {
+    if (doc.docType === "internal_transfers") return { ...doc, ...shipments.get(Number(doc.docId)) }
+    if (doc.docType === "production_movements") return { ...doc, ...productionDocument(Number(doc.docId)) }
+    return doc
+  }
+  const sourceDocument =
+    shown.sourceType === "internal_transfers" ? shipments.get(shown.sourceId) : shown.sourceType === "production_movements" ? productionDocument(shown.sourceId) : undefined
+  return {
+    ...inShown(shown, factor),
+    balanceAfter: Number(row.balance_after),
+    nextDate: row.next_day,
+    comment,
+    documents: documents.map(described),
+    negativeTransactions: negatives.map(described),
+    ...(sourceDocument ? { sourceDocument } : {}),
+  }
+}
+
+/** A transfer that is a production «Отгрузка» (internal_transfers source 'shipment': a worker shift session's output
+ * handed over, lib/production-sessions-repo.ts) is no «Передача на склад» (the transfer list hides it): it is numbered
+ * by its session and opens in План приемок и передач (Приемка while on its way, История Приемки once accepted).
+ * Keyed by transfer id; ids that are no shipment are left out. */
+async function shipmentDocuments(db: PgDb, ids: number[]): Promise<Map<number, { docType: string; docId: number; href: string }>> {
+  const result = new Map<number, { docType: string; docId: number; href: string }>()
+  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))]
+  if (!unique.length) return result
+  // The source columns may be missing on an older schema: read through to_jsonb.
+  const rows = (await db
+    .prepare(
+      `SELECT t.id, NULLIF(to_jsonb(t)->>'source_id', '')::int AS session_id, COALESCE(t.status, '') AS status
+         FROM internal_transfers t
+        WHERE t.id = ANY(@ids::int[]) AND COALESCE(to_jsonb(t)->>'source', '') = 'shipment' AND NULLIF(to_jsonb(t)->>'source_id', '') IS NOT NULL`,
+    )
+    .all({ ids: unique })) as Array<{ id: number; session_id: number; status: string }>
+  for (const row of rows) {
+    const session = Number(row.session_id)
+    const tab = row.status === "принят" ? "receive_history" : "receive"
+    result.set(Number(row.id), { docType: "production_shipment", docId: session, href: `/analytics/receipt-transfer-plan?tab=${tab}&id=shipment-${session}` })
+  }
+  return result
 }
 
 export async function getNetCostOptions(): Promise<NetCostOptions> {

@@ -245,8 +245,9 @@ export function clientBalanceQuery(state: ClientBalanceState): BalanceQuery {
     groupBy: state.toggle === "types" ? "type" : undefined,
     search: state.search,
     ordering: state.ordering,
-    page: state.page,
-    pageSize: state.pageSize,
+    // Like Linko's total_by_types, the client-type view is not paged: every type is listed.
+    page: state.toggle === "types" ? undefined : state.page,
+    pageSize: state.toggle === "types" ? 0 : state.pageSize,
   }
 }
 

@@ -1,250 +1,478 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Plus, Trash2 } from "lucide-react"
+import { useCallback, useMemo, useRef, useState, type CSSProperties } from "react"
 
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
-import { CashModal, FormField, PrimaryButton, SearchSelect, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
-import { StockProductPicker, formatUnitTotals, validQty, type PickEntry } from "@/components/analytics/internal-transfers-picker"
-import { formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
-import { nowLocalIso } from "@/lib/finance/dates"
+import { CashModal, mutationError } from "@/components/analytics/cash-management-shared"
+import { StockProductPicker, type PickEntry } from "@/components/analytics/internal-transfers-picker"
+import { AmountField, DateInput, Spinner } from "@/components/analytics/stock-inventory-edit"
+import { InventorySelect, type InventoryOption } from "@/components/analytics/stock-inventory-select"
+import { RefTip } from "@/components/ref/ref-tip"
+import { formatMoney } from "@/lib/finance/currency"
+import { nowLocalIso, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
-import type { StockPickResult } from "@/lib/internal-transfers-types"
+import type { StockPickResult, StockPickRow } from "@/lib/internal-transfers-types"
 import type { WriteOff, WriteOffOptions } from "@/lib/write-offs-types"
 
-// Demo WriteOffCreateDialog (c142 module 5198, products 5199): "Списание
-// товара" — left "С какого склада", "Выберите дату", "Оставить комментарий";
-// right "Список товаров" with "добавить товары" (the warehouse's available
-// balance; disabled with "Выберите склад" until one is chosen) and an add row;
-// footer "Общее кол-во" + "Списать". The cost is the cost of goods (server).
-// "Брак" on a line writes off defective units (up to the defects on hand; no cost).
+// Linko's «СПИСАНИЕ ТОВАРА» (chunk 143 modules 5212 / 5213, ?openCreateDialog=true): a full-screen white page.
+// Left (25%): «С какого склада» *, «Выберите дату» * (calendar), «Оставить комментарий...». Right (75%): «Список
+// товаров» with «добавить товары» (disabled with the hint «Выберите склад» until a warehouse is chosen; here it opens the
+// warehouse's product list, Linko's button does nothing); once a warehouse is chosen the grey add row: «Наименование»
+// (name / Доступно / Браковано), «Серия» for products that keep series, «<box unit> (n)» for products with a box,
+// «Кол-во» + unit, ✓ (a product already on the list is not added again). Lines: Наименование | Серия | [Группа] | Кол-во
+// | ✎ 🗑 (✎ edits the line in place). Footer: «Общее кол-во: N ед (k групп)» (Σ whole units) and СПИСАТЬ. Mezon keeps
+// the products of the chosen warehouse (Linko lists every warehouse's) and the «Брак» mark of a line whose product has
+// defects there.
 
-type Line = { key: string; name: string; unit: string; article: string; cost: number; quantity: string; series: string; defect: boolean }
+type Line = { uid: number; row: StockPickRow; amount: string; box: string; series: InventoryOption | null; defect: boolean }
+
+let uids = 0
+
+const DOTS: CSSProperties = { backgroundImage: "linear-gradient(to right, #d9e0e5 2px, transparent 2px)", backgroundSize: "8px 2px", backgroundRepeat: "repeat-x" }
+/** Linko's dotted line under a table row, drawn on each cell. */
+const dotted = (on: boolean): CSSProperties | undefined => (on ? { ...DOTS, backgroundPosition: "0 100%" } : undefined)
+const productIdOf = (key: string) => {
+  const match = /^product:(\d+)$/.exec(key)
+  return match ? Number(match[1]) : null
+}
+/** lodash toInteger: whole units, anything that is not a number counts 0. */
+const wholeUnits = (value: string) => {
+  const number = Number(value.trim())
+  return Number.isFinite(number) ? Math.trunc(number) : 0
+}
+const amountOf = (value: string) => {
+  const number = Number(value.trim())
+  return Number.isFinite(number) ? number : 0
+}
+const round4 = (value: number) => String(Math.round(value * 10000) / 10000)
+
+// One series loader per product: an open select reloads only when its loader changes.
+const seriesLoaders = new Map<number, (search: string) => Promise<InventoryOption[]>>()
+const NO_OPTIONS = async (): Promise<InventoryOption[]> => []
+function seriesLoader(productId: number | null): (search: string) => Promise<InventoryOption[]> {
+  if (!productId) return NO_OPTIONS
+  let loader = seriesLoaders.get(productId)
+  if (!loader) {
+    loader = async (search: string) => {
+      try {
+        const response = await fetch(`/api/stock/series?${new URLSearchParams({ product: String(productId), search, pageSize: "50" })}`, { cache: "no-store" })
+        const body = response.ok ? ((await response.json()) as { results: Array<{ id: number; displayName: string }> }) : null
+        return (body?.results ?? []).map((row) => ({ id: row.id, text: row.displayName }))
+      } catch {
+        return []
+      }
+    }
+    seriesLoaders.set(productId, loader)
+  }
+  return loader
+}
+
+/** Linko's multi-line text field: the bold label on the line floats up with focus or text; 1 to 6 rows. */
+function CommentField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const [focused, setFocused] = useState(false)
+  const floated = focused || value !== ""
+  const rows = Math.min(6, Math.max(1, value.split("\n").length))
+  return (
+    <label className="group relative mt-[6px] block pb-[5px] pt-[24px]">
+      <span className={`pointer-events-none absolute left-0 font-semibold text-black transition-all ${floated ? "top-[4px] text-[10px] leading-[12px]" : "top-[24px] text-[13px] leading-[18px]"}`}>{label}</span>
+      <textarea
+        value={value}
+        rows={rows}
+        maxLength={2000}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className="block w-full resize-none bg-transparent text-[13px] leading-[18px] text-black outline-none"
+      />
+      <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-[#e0e0e0]">
+        <span className="absolute inset-x-0 -top-px h-[2px] origin-center scale-x-0 bg-[#5d6474] transition-[scale] duration-[450ms] group-focus-within:scale-x-100" />
+      </span>
+    </label>
+  )
+}
+
+function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} className="flex h-12 w-12 items-center justify-center rounded-full hover:bg-black/5">
+      {children}
+    </button>
+  )
+}
+
+const CHECK = "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
 
 export function WriteOffFormDialog({ options, onClose, onSaved }: { options: WriteOffOptions | null; onClose: () => void; onSaved: (writeOff: WriteOff) => void }) {
   const { t } = useLanguage()
-  const [warehouse, setWarehouse] = useState("")
-  const [date, setDate] = useState(nowLocalIso().slice(0, 16))
+  const [warehouse, setWarehouse] = useState<InventoryOption | null>(null)
+  const [date, setDate] = useState("")
   const [comment, setComment] = useState("")
   const [lines, setLines] = useState<Line[]>([])
+  const [addProduct, setAddProduct] = useState<InventoryOption<StockPickRow> | null>(null)
+  const [addSeries, setAddSeries] = useState<InventoryOption | null>(null)
+  const [addAmount, setAddAmount] = useState("")
+  const [addBox, setAddBox] = useState("")
+  const [editing, setEditing] = useState<{ uid: number; amount: string; box: string; series: InventoryOption | null } | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [addKey, setAddKey] = useState("")
-  const [addQty, setAddQty] = useState("")
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
-  const [showErrors, setShowErrors] = useState(false)
+  const [errors, setErrors] = useState<{ warehouse?: string; date?: string; list?: string }>({})
+  // Linko's 300ms spinner over «Серия» after a product change.
+  const [seriesBusy, setSeriesBusy] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
 
-  const products = useCashJson<StockPickResult>(warehouse ? `/api/write-offs/products?${buildCashQuery({ warehouse, date: date.slice(0, 10) })}` : null)
+  const name = String(warehouse?.id ?? "")
+  const products = useCashJson<StockPickResult>(name ? `/api/write-offs/products?${buildCashQuery({ warehouse: name, date: date || todayIso() })}` : null)
   const rows = useMemo(() => products.data?.rows ?? [], [products.data])
-  const rowMap = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows])
 
-  const upsert = (entries: PickEntry[]) => {
+  const warehouses = useMemo(() => options?.warehouses ?? [], [options])
+  const loadWarehouses = useCallback(
+    async (search: string) => {
+      const needle = search.trim().toLowerCase()
+      return warehouses.filter((value) => !needle || value.toLowerCase().includes(needle)).map((value) => ({ id: value, text: value }))
+    },
+    [warehouses],
+  )
+  // «Наименование»: the warehouse's products with a balance (Linko: exclude_zero_balances, 100 a page).
+  const loadProducts = useCallback(
+    async (search: string) => {
+      const needle = search.trim().toLowerCase()
+      return rows
+        .filter((row) => row.qty > 0 && (!needle || row.name.toLowerCase().includes(needle) || row.article.toLowerCase().includes(needle)))
+        .slice(0, 100)
+        .map((row) => ({ id: row.key, text: row.name, data: row }))
+    },
+    [rows],
+  )
+
+  const picked = addProduct?.data ?? null
+  const pickedBox = picked?.boxAmount && picked.boxAmount > 0 ? picked.boxAmount : 0
+  const unitText = (value: number, unit: string) => `${formatMoney(value)}${unit ? ` ${unit}` : ""}`
+
+  const clearAdd = () => {
+    setAddProduct(null)
+    setAddSeries(null)
+    setAddAmount("")
+    setAddBox("")
+  }
+  const addLine = () => {
+    if (!picked || !addAmount.trim() || !(amountOf(addAmount) > 0)) return
+    // Like Linko: a product already on the list is not added again, the add row is cleared all the same.
+    if (!lines.some((line) => line.row.key === picked.key)) {
+      setLines((current) => [
+        { uid: ++uids, row: picked, amount: addAmount.trim(), box: addBox.trim(), series: picked.trackExpiry ? addSeries : null, defect: picked.available <= 0 && picked.defectsAvailable > 0 },
+        ...current,
+      ])
+    }
+    clearAdd()
+    setErrors((current) => ({ ...current, list: undefined }))
+  }
+  const fromPicker = (entries: PickEntry[]) => {
     setLines((current) => {
       const next = [...current]
       const added: Line[] = []
       for (const { row, quantity } of entries) {
-        const index = next.findIndex((line) => line.key === row.key)
-        if (index >= 0) next[index] = { ...next[index], quantity }
-        else added.push({ key: row.key, name: row.name, unit: row.unit, article: row.article, cost: row.cost, quantity, series: "", defect: row.available <= 0 && row.defectsAvailable > 0 })
+        const index = next.findIndex((line) => line.row.key === row.key)
+        if (index >= 0) next[index] = { ...next[index], amount: quantity }
+        else added.push({ uid: ++uids, row, amount: quantity, box: "", series: null, defect: row.available <= 0 && row.defectsAvailable > 0 })
       }
       return [...added, ...next]
     })
-    setError("")
+    setErrors((current) => ({ ...current, list: undefined }))
   }
-  const addRow = () => {
-    const row = rowMap.get(addKey)
-    if (!row || !validQty(addQty)) return
-    upsert([{ row, quantity: addQty.trim(), price: "" }])
-    setAddKey("")
-    setAddQty("")
+  const applyEdit = () => {
+    if (!editing) return
+    setLines((current) =>
+      current.map((line) =>
+        line.uid === editing.uid
+          ? { ...line, amount: editing.amount.trim() ? editing.amount.trim() : line.amount, box: editing.box.trim() ? editing.box.trim() : line.box, series: editing.series ?? line.series }
+          : line,
+      ),
+    )
+    setEditing(null)
   }
 
-  const availableOf = (line: Line) => (line.defect ? rowMap.get(line.key)?.defectsAvailable : rowMap.get(line.key)?.available) ?? 0
-  const over = (line: Line) => parseAmount(line.quantity) > availableOf(line) + 1e-9
-  const costOf = (line: Line) => (line.defect ? 0 : line.cost)
-  const sumTotal = lines.reduce((sum, line) => sum + parseAmount(line.quantity) * costOf(line), 0)
-  // One total per unit (never kg and pieces added up): "12 dona, 1,5 kg".
-  const qtyTotals = formatUnitTotals(
-    lines.map((line) => ({ qty: parseAmount(line.quantity), unit: line.unit })),
-    t,
-  )
-  /** A line edit: the footer message of the last "Списать" is about the old state. */
-  const editLines = (update: (current: Line[]) => Line[]) => {
-    setLines(update)
-    setError("")
-  }
+  const total = lines.reduce((sum, line) => sum + wholeUnits(line.amount), 0)
+  const groups = lines.reduce((sum, line) => sum + (Number(line.box) || 0), 0)
+  const withBoxes = lines.some((line) => (line.row.boxAmount ?? 0) > 0)
 
   const submit = async () => {
-    setShowErrors(true)
-    setError("")
-    if (!warehouse) return setError(t("Склад не выбран"))
-    if (!lines.length) return setError(t("Добавьте товары"))
-    if (lines.some((line) => !validQty(line.quantity))) return setError(t("Укажите количество"))
+    const required = t("Это поле обязательно к заполнению")
+    const header = { warehouse: warehouse ? undefined : required, date: date ? undefined : required }
+    if (header.warehouse || header.date) return setErrors(header)
+    if (!lines.length) return setErrors({ list: t("Вы еще не выбрали ни одного товара.") })
     setBusy(true)
+    setErrors({})
+    const now = nowLocalIso()
     const result = await cashMutate<WriteOff>("POST", "/api/write-offs", {
-      warehouse,
-      date,
+      warehouse: name,
+      // The chosen day at the current time (Linko sends the picker's moment).
+      date: `${date}T${now.slice(11, 16)}`,
       comment,
-      items: lines.map((line) => ({ key: line.key, product: line.name, qty: parseAmount(line.quantity), series: line.series.trim(), ...(line.defect ? { defect: true } : {}) })),
+      items: lines.map((line) => ({ key: line.row.key, product: line.row.name, qty: amountOf(line.amount), series: line.series?.text ?? "", ...(line.defect ? { defect: true } : {}) })),
     })
     setBusy(false)
-    if (!result.ok) return setError(mutationError(result, t))
-    onSaved(result.data)
+    if (result.ok) return onSaved(result.data)
+    const message = mutationError(result, t)
+    if (result.field === "warehouse") return setErrors({ warehouse: message })
+    if (result.field === "date") return setErrors({ date: message })
+    const index = /^items\.(\d+)/.exec(result.field ?? "")?.[1]
+    const line = index === undefined ? null : lines[Number(index)]
+    setErrors({ list: `${message}${line ? `: ${line.row.name}` : ""}` })
   }
 
-  const field = "h-10 w-full rounded-md border border-[#dbe0e8] px-3 text-[14px] outline-none focus:border-[#1E4A9A]"
+  // Linko's add-row columns: Наименование 5 (4 with Серия, 3 with a box), Серия 3, box 2, Кол-во 4 (2 with Серия, 3 with a box), ✓ 1.
+  const nameSpan = pickedBox ? "col-span-3" : picked?.trackExpiry ? "col-span-4" : "col-span-5"
+  const amountSpan = picked?.trackExpiry ? "col-span-2" : pickedBox ? "col-span-3" : "col-span-4"
   return (
-    <CashModal
-      title={t("Списание товара")}
-      onClose={onClose}
-      size="full"
-      footer={
-        <>
-          <ul className="mr-auto flex flex-wrap gap-x-6 gap-y-1 text-[14px] text-[#586174]">
-            <li>
-              {t("Общее кол-во")}: <b className="text-[#17233b]">{qtyTotals}</b>
-            </li>
-            <li>
-              {t("Сумма")}: <b className="text-[#17233b]">{formatSum(sumTotal)}</b>
-            </li>
-          </ul>
-          {error && <span className="w-full text-right text-[13px] text-[#e57373] md:w-auto">{error}</span>}
-          <PrimaryButton tone="red" busy={busy} onClick={() => void submit()}>
-            {t("Списать")}
-          </PrimaryButton>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="flex flex-col gap-3 lg:w-[320px] lg:shrink-0">
-          <FormField label={t("С какого склада")} required error={showErrors && !warehouse ? t("Склад не выбран") : undefined}>
-            <SearchSelect
-              value={warehouse}
-              options={(options?.warehouses ?? []).map((name) => ({ value: name, label: name }))}
-              invalid={showErrors && !warehouse}
-              onChange={(value) => {
-                setWarehouse(value)
-                setLines([])
-                // "Склад не выбран" (or a stock refusal of the old warehouse) no longer applies.
-                setError("")
-              }}
-            />
-          </FormField>
-          <FormField label={t("Выберите дату")} required>
-            <input
-              type="datetime-local"
-              value={date}
-              max={nowLocalIso().slice(0, 16)}
-              onChange={(event) => {
-                setDate(event.target.value)
-                // A stock refusal is for the minimum balance from the old date onwards.
-                setError("")
-              }}
-              className={field}
-            />
-          </FormField>
-          <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} placeholder={`${t("Оставить комментарий")}...`} className={`${inputClass} h-auto py-2`} />
+    <>
+      <CashModal
+        title={t("Списание товара")}
+        size="screen"
+        onClose={() => {
+          if (!pickerOpen) onClose()
+        }}
+        footer={
+          <>
+            <span className="ml-[20px] text-[14px] text-black">
+              {t("Общее кол-во")}: <b className="text-[16px] font-semibold text-[#129fdd]">{formatMoney(total, 0)} {t("ед")}</b>
+              {groups ? <span className="ml-1 text-[16px] font-semibold text-[#129fdd]">({formatMoney(groups)} {t("групп")})</span> : null}
+            </span>
+            <button type="button" disabled={busy} onClick={() => void submit()} className="h-9 px-[16px] text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#129fdd]/10 disabled:opacity-50">
+              {t("Списать")}
+            </button>
+          </>
+        }
+      >
+        <div className="w-1/4 min-w-[260px] shrink-0 overflow-y-auto border-r border-[#efefef] px-[30px] py-[20px]">
+          <InventorySelect
+            className="mt-[5px]"
+            label={t("С какого склада")}
+            required
+            value={warehouse}
+            load={loadWarehouses}
+            error={errors.warehouse}
+            onChange={(next) => {
+              setWarehouse(next)
+              clearAdd()
+              setErrors((current) => ({ ...current, warehouse: undefined, list: undefined }))
+            }}
+          />
+          <DateInput
+            className="mt-[8px]"
+            label={t("Выберите дату")}
+            value={date}
+            error={errors.date}
+            onChange={(value) => {
+              setDate(value)
+              setErrors((current) => ({ ...current, date: undefined }))
+            }}
+          />
+          <CommentField label={`${t("Оставить комментарий")}...`} value={comment} onChange={setComment} />
         </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <strong>{t("Список товаров")}</strong>
-            <span title={warehouse ? undefined : t("Выберите склад")}>
-              <button type="button" disabled={!warehouse || !rows.length} onClick={() => setPickerOpen(true)} className="text-[13px] font-semibold uppercase text-[rgb(79,113,220)] disabled:opacity-40">
+        <div className="relative min-w-0 flex-1 overflow-y-auto">
+          <div className="flex items-center justify-between px-[30px] py-[10px]">
+            <strong className="text-[13px] font-semibold text-[#333]">{t("Список товаров")}</strong>
+            <RefTip text={warehouse ? "" : t("Выберите склад")} side="bottom" bold className="group/tip">
+              <button
+                type="button"
+                disabled={!warehouse || !rows.length}
+                onClick={() => setPickerOpen(true)}
+                className="h-[36px] rounded-[2px] px-[16px] text-[13px] text-black enabled:hover:bg-[rgba(153,153,153,0.2)] disabled:cursor-default"
+              >
                 {t("добавить товары")}
               </button>
-            </span>
+            </RefTip>
           </div>
-          {products.error && <p className="mt-2 text-[13px] text-[#e57373]">{t(products.error)}</p>}
+
           {warehouse && (
-            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_120px_auto] items-end gap-2">
-              <FormField label={t("Наименование")}>
-                <SearchSelect
-                  value={addKey}
-                  loading={products.loading}
-                  options={rows
-                    .filter((row) => row.available > 0 || row.defectsAvailable > 0)
-                    .map((row) => ({
-                      value: row.key,
-                      label: `${row.name} (${formatQty(Math.max(0, row.available), row.unit)}${row.defectsAvailable > 0 ? `; ${t("Брак")}: ${formatQty(row.defectsAvailable, row.unit)}` : ""})`,
-                      hint: row.article,
-                    }))}
-                  onChange={(value) => setAddKey(value)}
+            <div className="grid min-h-[74px] grid-cols-12 items-end bg-[#f1f5f8] px-[30px] pb-[10px]">
+              <div className={`${nameSpan} px-[8px]`}>
+                <InventorySelect<StockPickRow>
+                  label={t("Наименование")}
+                  value={addProduct}
+                  load={loadProducts}
+                  renderOption={(option) => (
+                    <>
+                      <span className="block">{option.text}</span>
+                      <span className="block font-semibold">
+                        {t("Доступно")}: {unitText(Math.max(0, option.data?.available ?? 0), option.data?.unit ?? "")}
+                      </span>
+                      <span className="block font-semibold">
+                        {t("Браковано")}: {unitText(option.data?.defects ?? 0, option.data?.unit ?? "")}
+                      </span>
+                    </>
+                  )}
+                  onChange={(next) => {
+                    setAddProduct(next)
+                    setAddSeries(null)
+                    setAddBox("")
+                    setSeriesBusy(true)
+                    window.clearTimeout(timer.current)
+                    timer.current = window.setTimeout(() => setSeriesBusy(false), 300)
+                  }}
                 />
-              </FormField>
-              <FormField label={t("Кол-во")}>
-                <input value={addQty} inputMode="decimal" onChange={(event) => setAddQty(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addRow()} className={field} />
-              </FormField>
-              <button type="button" onClick={addRow} disabled={!addKey || !validQty(addQty)} aria-label={t("Добавить")} className="flex h-10 w-10 items-center justify-center rounded-md bg-[rgb(79,113,220)] text-white disabled:opacity-40">
-                <Plus className="h-5 w-5" />
-              </button>
+              </div>
+              {picked?.trackExpiry && (
+                <div className="col-span-3 px-[8px]">
+                  {seriesBusy ? (
+                    <div className="flex h-[54px] items-end pb-[8px]">
+                      <Spinner size={20} />
+                    </div>
+                  ) : (
+                    <InventorySelect label={t("Серия")} value={addSeries} load={seriesLoader(productIdOf(picked.key))} onChange={setAddSeries} />
+                  )}
+                </div>
+              )}
+              {pickedBox > 0 && picked && (
+                <div className="col-span-2 px-[8px]">
+                  <AmountField
+                    label={`${picked.boxUnit || t("Группа")} (${unitText(pickedBox, picked.unit)})`}
+                    value={addBox}
+                    onChange={(value) => {
+                      setAddBox(value)
+                      setAddAmount(value ? round4(amountOf(value) * pickedBox) : "")
+                    }}
+                    onEnter={addLine}
+                  />
+                </div>
+              )}
+              <div className={`${amountSpan} flex items-end px-[8px]`}>
+                <div className="min-w-0 flex-1">
+                  <AmountField
+                    label={t("Кол-во")}
+                    value={addAmount}
+                    onChange={(value) => {
+                      setAddAmount(value)
+                      if (pickedBox) setAddBox(value ? round4(amountOf(value) / pickedBox) : "")
+                    }}
+                    onEnter={addLine}
+                  />
+                </div>
+                {picked?.unit && <span className="mb-[15px] ml-[15px] text-[13px]">{picked.unit}</span>}
+              </div>
+              <div className="col-span-1 px-[8px]">
+                <RefTip text={t("Применить")} side="bottom" className="group/tip">
+                  <IconButton label={t("Применить")} onClick={addLine}>
+                    <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[rgb(79,113,220)]" aria-hidden>
+                      <path d={CHECK} />
+                    </svg>
+                  </IconButton>
+                </RefTip>
+              </div>
             </div>
           )}
-          {lines.length ? (
-            <div className="mt-3 max-h-[52vh] overflow-auto">
-              <table className="w-full min-w-[600px] border-collapse text-[14px]">
-                <thead className="sticky top-0 bg-white">
-                  <tr className="border-b border-[#e1e5eb] text-left font-semibold">
-                    <th className="py-2 pr-3">{t("Наименование")}</th>
-                    <th className="py-2 pr-3">{t("Код товара")}</th>
-                    <th className="py-2 pr-3">{t("Серия")}</th>
-                    <th className="py-2 pr-3">{t("Кол-во")}</th>
-                    <th className="py-2 pr-3 text-right">{t("Себестоимость")}</th>
-                    <th className="py-2 pr-3 text-right">{t("Сумма")}</th>
-                    <th className="w-10" />
+
+          {errors.list && <div className="mx-[30px] mt-[10px] rounded-[2px] bg-[#ffebee] px-[15px] py-[10px] text-center text-[13px] text-[#f44336]">{errors.list}</div>}
+          {name && products.error && <div className="mx-[30px] mt-[10px] rounded-[2px] bg-[#ffebee] px-[15px] py-[10px] text-center text-[13px] text-[#f44336]">{t(products.error)}</div>}
+
+          {lines.length > 0 && (
+            <div className="px-[30px] py-[10px]">
+              <table className="w-full table-fixed border-collapse text-[13px] text-[#333]">
+                <thead>
+                  <tr className="h-[50px] text-left">
+                    <th style={dotted(true)} className="w-[30%] p-0 font-semibold">{t("Наименование")}</th>
+                    <th style={dotted(true)} className="w-[20%] px-[10px] font-semibold">{t("Серия")}</th>
+                    {withBoxes && <th style={dotted(true)} className="w-[15%] px-[10px] font-semibold">{t("Группа")}</th>}
+                    <th style={dotted(true)} className="w-[12%] px-[10px] font-semibold">{t("Кол-во")}</th>
+                    <th style={dotted(true)} className="w-[15%] px-[10px]" />
                   </tr>
                 </thead>
                 <tbody>
                   {lines.map((line, index) => {
-                    const bad = !validQty(line.quantity) || over(line)
-                    const row = rowMap.get(line.key)
+                    const box = line.row.boxAmount ?? 0
+                    const edit = editing?.uid === line.uid ? editing : null
+                    const dots = dotted(index < lines.length - 1)
                     return (
-                      <tr key={line.key} className="border-b border-dashed border-[#e1e5eb]">
-                        <td className="py-2 pr-3">
-                          {line.name}
-                          <span className={`block text-[12px] ${over(line) ? "text-[#e57373]" : "text-[#9aa3b6]"}`}>
-                            {line.defect ? t("Брак") : t("Доступно")}: {formatQty(Math.max(0, availableOf(line)), line.unit)}
-                          </span>
-                          {(line.defect || (row?.defectsAvailable ?? 0) > 0) && (
-                            <label className="mt-1 flex items-center gap-1.5 text-[12px] text-[#586174]">
+                      <tr key={line.uid} className="h-[50px]">
+                        <td style={dots} className="whitespace-pre-wrap break-words p-0">
+                          {line.row.name}
+                          {(line.defect || line.row.defectsAvailable > 0) && (
+                            <label className="ml-2 inline-flex items-center gap-1 text-[12px] text-[#586174]">
                               <input
                                 type="checkbox"
                                 checked={line.defect}
-                                onChange={(event) => editLines((current) => current.map((item, i) => (i === index ? { ...item, defect: event.target.checked } : item)))}
+                                onChange={(event) => setLines((current) => current.map((item) => (item.uid === line.uid ? { ...item, defect: event.target.checked } : item)))}
                                 className="h-3.5 w-3.5 accent-[rgb(79,113,220)]"
                               />
                               {t("Брак")}
                             </label>
                           )}
                         </td>
-                        <td className="py-2 pr-3 text-[#586174]">{line.article || "-"}</td>
-                        <td className="py-2 pr-3">
-                          <input
-                            value={line.series}
-                            maxLength={200}
-                            aria-label={`${t("Серия")}: ${line.name}`}
-                            onChange={(event) => editLines((current) => current.map((item, i) => (i === index ? { ...item, series: event.target.value } : item)))}
-                            className="h-9 w-[100px] border-b border-[#5d6474] bg-transparent px-1 outline-none"
-                          />
-                        </td>
-                        <td className="py-2 pr-3">
-                          <span className="flex items-center gap-1.5">
-                            <input
-                              value={line.quantity}
-                              inputMode="decimal"
-                              aria-label={`${t("Кол-во")}: ${line.name}`}
-                              onChange={(event) => editLines((current) => current.map((item, i) => (i === index ? { ...item, quantity: event.target.value } : item)))}
-                              className={`h-9 w-[90px] border-b bg-transparent px-1 outline-none ${bad ? "border-[#e57373] text-[#e57373]" : "border-[#5d6474]"}`}
+                        <td style={dots} className="px-[10px]">
+                          {edit && line.row.trackExpiry ? (
+                            <InventorySelect
+                              ariaLabel={`${t("Серия")}: ${line.row.name}`}
+                              value={edit.series ?? line.series}
+                              load={seriesLoader(productIdOf(line.row.key))}
+                              onChange={(next) => setEditing((current) => (current ? { ...current, series: next } : current))}
                             />
-                            <span className="text-[#586174]">{line.unit}</span>
-                          </span>
+                          ) : (
+                            line.series?.text ?? ""
+                          )}
                         </td>
-                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(costOf(line))}</td>
-                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(parseAmount(line.quantity) * costOf(line))}</td>
-                        <td className="py-2 text-right">
-                          <button type="button" onClick={() => editLines((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-[#9aa3b6] hover:text-[#e57373]">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                        {withBoxes && (
+                          <td style={dots} className="px-[10px]">
+                            {edit && box > 0 ? (
+                              <input
+                                value={edit.box}
+                                placeholder={line.box}
+                                aria-label={`${line.row.boxUnit || t("Группа")}: ${line.row.name}`}
+                                onChange={(event) => {
+                                  const value = event.target.value.replace(",", ".").replace(/[^\d.]/g, "")
+                                  setEditing((current) => (current ? { ...current, box: value, amount: value ? round4(amountOf(value) * box) : "" } : current))
+                                }}
+                                className="h-[40px] w-full border-b border-[#e0e0e0] bg-transparent outline-none"
+                              />
+                            ) : Number(line.box) ? (
+                              `${formatMoney(Number(line.box))} ${line.row.boxUnit} (${formatMoney(box)})`
+                            ) : null}
+                          </td>
+                        )}
+                        <td style={dots} className="px-[10px]">
+                          {edit ? (
+                            <input
+                              value={edit.amount}
+                              placeholder={line.amount}
+                              aria-label={`${t("Кол-во")}: ${line.row.name}`}
+                              onChange={(event) => {
+                                const value = event.target.value.replace(",", ".").replace(/[^\d.]/g, "")
+                                setEditing((current) => (current ? { ...current, amount: value, box: box > 0 && value ? round4(amountOf(value) / box) : current.box } : current))
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault()
+                                  applyEdit()
+                                }
+                              }}
+                              className="h-[40px] w-full border-b border-[#e0e0e0] bg-transparent outline-none"
+                            />
+                          ) : (
+                            unitText(amountOf(line.amount), line.row.unit)
+                          )}
+                        </td>
+                        <td style={dots} className="px-[10px]">
+                          <div className="flex justify-end">
+                            {edit ? (
+                              <IconButton label={t("Применить")} onClick={applyEdit}>
+                                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[rgb(79,113,220)]" aria-hidden>
+                                  <path d={CHECK} />
+                                </svg>
+                              </IconButton>
+                            ) : (
+                              <>
+                                <IconButton label={t("Изменить")} onClick={() => setEditing({ uid: line.uid, amount: "", box: "", series: null })}>
+                                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]" aria-hidden>
+                                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                  </svg>
+                                </IconButton>
+                                <IconButton label={t("Удалить")} onClick={() => setLines((current) => current.filter((item) => item.uid !== line.uid))}>
+                                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]" aria-hidden>
+                                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                                  </svg>
+                                </IconButton>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -252,26 +480,35 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
                 </tbody>
               </table>
             </div>
-          ) : (
-            <p className="py-16 text-center text-[13px] text-[#9aa3b6]">{warehouse ? t("Товаров нет") : t("Выберите склад")}</p>
+          )}
+
+          {name && products.loading && !products.data && (
+            <div className="absolute inset-0 z-[5] flex items-center justify-center bg-white/70">
+              <Spinner />
+            </div>
           )}
         </div>
-      </div>
+      </CashModal>
 
-      {pickerOpen && (
+      {pickerOpen && warehouse && (
         <StockProductPicker
           rows={rows}
-          warehouse={warehouse}
+          warehouse={name}
           mode="writeoff"
           currency=""
-          initial={new Map(lines.map((line) => [line.key, { quantity: line.quantity, price: "" }]))}
+          initial={new Map(lines.map((line) => [line.row.key, { quantity: line.amount, price: "" }]))}
           onClose={() => setPickerOpen(false)}
           onSubmit={(entries) => {
-            upsert(entries)
+            fromPicker(entries)
             setPickerOpen(false)
           }}
         />
       )}
-    </CashModal>
+      {busy && (
+        <div className="fixed inset-0 z-[1302] flex items-center justify-center bg-white/40">
+          <Spinner />
+        </div>
+      )}
+    </>
   )
 }

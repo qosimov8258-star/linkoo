@@ -19,6 +19,9 @@ type TrackingMapProps = {
   onMapClick?: (point: LatLng) => void
   /** Fits the map to `points` whenever `key` changes. */
   focus?: { key: number; points: LatLng[] } | null
+  /** A client pin's click (Linko's Территория opens the shop card; its details show on hover). Without it the pin
+   * opens its details in a popup. */
+  onClientClick?: (clientId: number) => void
 }
 
 // Linko's zones map opens on its DEFAULT_LOCATION (Tashkent) at zoom 13, not on all the zones and clients
@@ -31,7 +34,7 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char)
 }
 
-export function TrackingMap({ showClients, showZones, clients, zones, draft, onMapClick, focus }: TrackingMapProps) {
+export function TrackingMap({ showClients, showZones, clients, zones, draft, onMapClick, focus, onClientClick }: TrackingMapProps) {
   const { t } = useLanguage()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -39,6 +42,12 @@ export function TrackingMap({ showClients, showZones, clients, zones, draft, onM
   const zoneLayerRef = useRef<L.LayerGroup | null>(null)
   const draftLayerRef = useRef<L.LayerGroup | null>(null)
   const clickRef = useRef(onMapClick)
+  const clientClickRef = useRef(onClientClick)
+  const clientClickable = Boolean(onClientClick)
+
+  useEffect(() => {
+    clientClickRef.current = onClientClick
+  }, [onClientClick])
 
   useEffect(() => {
     clickRef.current = onMapClick
@@ -92,9 +101,12 @@ export function TrackingMap({ showClients, showZones, clients, zones, draft, onM
         `${escapeHtml(t("Зона"))}: ${escapeHtml(client.zone || t("Не указано"))}`,
         `<span style="color:${client.problem ? "#f2994a" : "#27ae60"};font-weight:600">${escapeHtml(status)}</span>`,
       ].filter(Boolean)
-      L.marker(client.position, { icon }).bindPopup(lines.join("<br>")).addTo(layer)
+      const marker = L.marker(client.position, { icon })
+      if (clientClickable) marker.bindTooltip(lines.join("<br>"), { direction: "top", offset: [0, -30] }).on("click", () => clientClickRef.current?.(client.id))
+      else marker.bindPopup(lines.join("<br>"))
+      marker.addTo(layer)
     }
-  }, [clients, t])
+  }, [clients, t, clientClickable])
 
   // Zone outlines: drawn ones solid, the ones around the clients dashed. Every zone in Linko's one style (Территория:
   // a light blue fill, about 20 % #039be5, and a dark navy 2 px outline), not a colour per zone.

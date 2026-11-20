@@ -26,9 +26,9 @@ function IncomeCategoriesGrid() {
   const { language } = useLanguage()
   const columns: CategoryColumn<IncomeCategory>[] = [
     { key: "name", title: "Наименование", width: "3fr", className: "break-words", render: (row) => row.name },
-    { key: "options", title: "Параметры", width: "5fr", render: (row) => <CategoryOptionChips options={row.options} /> },
+    { key: "options", indent: true, rowIndent: true, title: "Параметры", width: "5fr", render: (row) => <CategoryOptionChips options={row.options} /> },
     {
-      key: "created_date", indent: true,
+      key: "created_date", indent: true, rowIndent: true,
       title: "Дата создания",
       width: "2fr",
       ordering: "created_date",

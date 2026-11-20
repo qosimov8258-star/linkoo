@@ -3,7 +3,8 @@
 import { KeyRound, X } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
 
-import { PASSWORD_MIN, passwordProblem } from "@/lib/auth-policy"
+import { PasswordInput } from "@/components/ui/password-input"
+import { passwordHintFor, passwordMinFor, passwordProblem, type PasswordPolicy } from "@/lib/auth-policy"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const ALL_BRANCHES = "Все филиалы"
@@ -34,7 +35,13 @@ function useBranchNames() {
   return names
 }
 
-export type AccountUser = { displayName: string; username: string; role: "admin" | "manager" | "viewer" }
+export type AccountUser = {
+  displayName: string
+  username: string
+  role: "admin" | "manager" | "viewer"
+  /** The linked employee (Сотрудники), which decides the password rules (lib/auth-policy.ts). */
+  employeeId?: number | null
+}
 
 export const ROLE_LABELS: Record<AccountUser["role"], string> = {
   admin: "Администратор",
@@ -111,12 +118,15 @@ export function AccountDropdown({ selected, onSelect, signingOut = false, onSign
  * dismissed (only "Выйти") until the change succeeded. */
 export function ChangePasswordDialog({
   username,
+  policy = "standard",
   required = false,
   onChanged,
   onSignOut,
   onClose,
 }: {
   username: string
+  /** The account's password rules (lib/auth-policy.ts); the server checks them again. */
+  policy?: PasswordPolicy
   required?: boolean
   onChanged?: () => void
   onSignOut?: () => void
@@ -133,7 +143,7 @@ export function ChangePasswordDialog({
   async function submit(event: FormEvent) {
     event.preventDefault()
     setError("")
-    const problem = passwordProblem(newPassword, username)
+    const problem = passwordProblem(newPassword, username, policy)
     if (problem) return setError(t(problem))
     if (newPassword !== confirm) return setError(t("Пароли не совпадают"))
     setSaving(true)
@@ -157,7 +167,8 @@ export function ChangePasswordDialog({
     }
   }
 
-  const inputClass = "mt-1 block w-full border-b border-slate-300 py-2 text-[15px] text-slate-800 outline-none focus:border-[#1E4A9A]"
+  // The fields sit in PasswordInput, whose wrapper carries the top margin (mt-1).
+  const inputClass = "block w-full border-b border-slate-300 py-2 text-[15px] text-slate-800 outline-none focus:border-[#1E4A9A]"
   const locked = required && !done
 
   return (
@@ -184,25 +195,26 @@ export function ChangePasswordDialog({
           <div className="mb-6 space-y-4 text-[13px] font-medium text-slate-500">
             <label className="block">
               {t("Текущий пароль")}
-              <input type="password" autoFocus value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className={inputClass} autoComplete="current-password" />
+              <PasswordInput autoFocus value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className={inputClass} autoComplete="current-password" wrapperClassName="mt-1" toggleClassName="w-8 justify-end" />
             </label>
             <label className="block">
               {t("Новый пароль")}
-              <input
-                type="password"
+              <PasswordInput
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
                 required
-                minLength={PASSWORD_MIN}
+                minLength={passwordMinFor(policy)}
                 className={inputClass}
                 autoComplete="new-password"
+                wrapperClassName="mt-1"
+                toggleClassName="w-8 justify-end"
               />
             </label>
             <label className="block">
               {t("Повторите новый пароль")}
-              <input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} required className={inputClass} autoComplete="new-password" />
+              <PasswordInput value={confirm} onChange={(event) => setConfirm(event.target.value)} required className={inputClass} autoComplete="new-password" wrapperClassName="mt-1" toggleClassName="w-8 justify-end" />
             </label>
-            <p className="text-[12px] font-normal text-slate-400">{t("Не менее 8 символов; пароль не может состоять только из цифр.")}</p>
+            <p className="text-[12px] font-normal text-slate-400">{t(passwordHintFor(policy))}</p>
             {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
           </div>
         )}

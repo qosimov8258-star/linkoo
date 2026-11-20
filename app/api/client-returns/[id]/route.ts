@@ -20,7 +20,9 @@ export async function GET(_request: Request, { params }: RouteParams) {
   return NextResponse.json(row)
 }
 
-// PUT /api/client-returns/[id] — edits a pending return (409 once accepted / cancelled).
+// PUT /api/client-returns/[id] — edits a return («Изменение возврата»). A pending return of order lines: a manager;
+// an accepted one (its quantities, prices and own data only), a cancelled one or one without an order: an
+// administrator (Linko's can_change_completed_return_product_price), else 403.
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
@@ -29,7 +31,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const parsed = await parseBody(request, clientReturnUpdateSchema)
   if (parsed.error) return parsed.error
   try {
-    const row = await updateClientReturn(id, parsed.data, auth.user)
+    const row = await updateClientReturn(id, parsed.data, auth.user, { canChangeCompleted: auth.user.role === "admin" })
     if (!row) return NextResponse.json(NOT_FOUND, { status: 404 })
     return NextResponse.json(row)
   } catch (error) {

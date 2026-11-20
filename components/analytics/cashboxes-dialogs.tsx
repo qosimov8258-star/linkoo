@@ -148,7 +148,8 @@ export function CashboxDeleteDialog({
 // (references by the options of the form: Валюты, employees, branches), then saved through POST /api/cashboxes.
 
 type CashboxImport = Required<Pick<CashboxPayload, "name" | "currency" | "paymentType" | "vansell" | "orderNumber">> & {
-  cashierId: number
+  /** null: the cashbox has no cashier (the column may stay empty). */
+  cashierId: number | null
   branchId: number | null
 }
 
@@ -210,15 +211,15 @@ export function cashboxImportSpec(t: (text: string) => string): ExcelImportSpec<
         const orderNumber = !order ? 0 : /^\d{1,10}$/.test(order) && Number(order) <= MAX_ORDER_NUMBER ? Number(order) : null
         if (!values.currency) errors.push({ line, label: label("Валюта"), message: "Обязательное поле" })
         else if (!currency) errors.push({ line, label: `${values.name}, ${values.currency}`, message: "Валюта не найдена" })
-        else if (!values.cashier) errors.push({ line, label: label("Кассир"), message: "Обязательное поле" })
-        else if (!cashiers.length) errors.push({ line, label: `${values.name}, ${values.cashier}`, message: "Сотрудник не найден" })
-        else if (cashiers.length > 1) errors.push({ line, label: `${values.name}, ${values.cashier}`, message: "Найдено несколько сотрудников с таким именем" })
+        // «Кассир» is optional; a name that is given must be one employee.
+        else if (values.cashier && !cashiers.length) errors.push({ line, label: `${values.name}, ${values.cashier}`, message: "Сотрудник не найден" })
+        else if (values.cashier && cashiers.length > 1) errors.push({ line, label: `${values.name}, ${values.cashier}`, message: "Найдено несколько сотрудников с таким именем" })
         else if (branchId === undefined) errors.push({ line, label: `${values.name}, ${values.branch}`, message: "Филиал не найден" })
         else if (!values.paymentType) errors.push({ line, label: label("Тип оплаты"), message: "Обязательное поле" })
         else if (!paymentType) errors.push({ line, label: `${values.name}, ${values.paymentType}`, message: "Неизвестный тип оплаты" })
         else if (vansell === null) errors.push({ line, label: label("Вэнсел"), message: "Укажите да или нет" })
         else if (orderNumber === null) errors.push({ line, label: label("Порядковый номер"), message: "Введите целое число не меньше 0" })
-        else rows.push({ line, label: values.name, item: { name: values.name, currency, cashierId: cashiers[0], branchId, paymentType, vansell, orderNumber } })
+        else rows.push({ line, label: values.name, item: { name: values.name, currency, cashierId: cashiers[0] ?? null, branchId, paymentType, vansell, orderNumber } })
       }
       return { rows, errors: [...errors, ...repeatedInFile(rows, (row) => importKey(row.item.name))] }
     },

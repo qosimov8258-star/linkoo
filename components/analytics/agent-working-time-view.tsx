@@ -5,7 +5,6 @@ import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
 import { nextMatrixSort } from "@/components/ref/sort-arrows"
-import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-drawer"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 
@@ -221,7 +220,7 @@ export function AgentWorkingTimeView() {
         cells: [
           <span key="n" className="inline-flex items-center gap-[6px]">
             <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} /></svg>
-            <AgentLink employeeId={group.employeeId} name={group.agent} className="!text-white" />
+            {group.agent}
           </span>,
           ...agentValues(group.days, t).map(cell),
         ],
@@ -284,7 +283,6 @@ export function AgentWorkingTimeView() {
           <ReportSelectField label="Агент" value={agent} onChange={setAgent} options={agents} />
         </ReportFilters>
 
-        <AgentDrawerScope date={applied.to}>
         {matrixRows.length === 0 ? (
           <ReportEmpty />
         ) : (
@@ -298,7 +296,6 @@ export function AgentWorkingTimeView() {
             rows={matrixRows}
           />
         )}
-        </AgentDrawerScope>
       </ReportBand>
 
       {overlayOpen && (

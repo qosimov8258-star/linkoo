@@ -56,6 +56,10 @@ export type CustomerPaymentsQuery = {
   /** "Зона" (clients.zone). */
   zones?: string[]
   clientIds?: number[]
+  /** "Клиент" of the filter: financial accounts (Linko's client), the one the payment is booked on. */
+  accountIds?: number[]
+  /** "Тип оплаты" (Linko payment_type). */
+  paymentType?: "" | "cash" | "bank"
   /** "Создал". */
   createdBy?: string[]
   /** "Принял". */
@@ -194,6 +198,8 @@ export type CustomerPaymentOptions = {
   untyped: boolean
   cashboxes: Array<PaymentRef & { currency: string; type: "cash" | "bank"; branch: string }>
   clients: PaymentRef[]
+  /** Financial accounts (Linko's clients) for the «Клиент» filter of Оплаты от клиентов. */
+  accounts?: PaymentRef[]
   /** "Создал" / "Пользователь": stored creators ∪ users ∪ employees. */
   users: string[]
   acceptedBy: string[]

@@ -5,7 +5,7 @@ import { z } from "zod"
 
 import { isIsoDay } from "@/lib/finance/dates"
 import { parsePageParam } from "@/lib/stock/paging"
-import { TRANSFER_SORT_KEYS, type TransferListQuery } from "@/lib/internal-transfers-list"
+import { parseTransferOrdering, type TransferListQuery } from "@/lib/internal-transfers-list"
 import { isTransferError, type TransferChange, type TransferInput } from "@/lib/internal-transfers-repo"
 import { TRANSFER_ACTIONS, TRANSFER_STATUSES, type TransferStatus } from "@/lib/internal-transfers-types"
 import { strictId, strictNumber } from "@/lib/strict-number"
@@ -24,6 +24,15 @@ const lineSchema = z.object({
   amount: num,
   price: num,
   series: text(200),
+  /** Серия: a stock_series id of the line's product (null = none). */
+  seriesId: z.number().int().min(0).max(2_147_483_647).nullable().optional(),
+  /** The line keeps the series «Авто распределение по сериям» set. */
+  seriesAuto: z.boolean().optional(),
+  /** With seriesAuto: the series the distribution replaced («Отменить автораспределение» puts it back). */
+  seriesPrev: z
+    .object({ id: z.number().int().min(0).max(2_147_483_647).nullable().optional(), series: z.string().max(200).optional() })
+    .nullable()
+    .optional(),
   weight: num,
   /** Defective units (Брак). */
   defect: z.boolean().optional(),
@@ -81,6 +90,8 @@ export function toTransferInput(body: TransferBody): TransferInput {
       quantity: toNumber(line.quantity ?? line.amount),
       price: toNumber(line.price),
       series: line.series,
+      seriesId: line.seriesId ?? null,
+      ...(line.seriesAuto === true ? { seriesAuto: true, ...(line.seriesPrev ? { seriesPrev: line.seriesPrev } : {}) } : {}),
       defect: line.defect === true,
     })),
   }
@@ -114,7 +125,7 @@ export function parseTransferListQuery(url: string): TransferListQuery | null {
   const pageSize = Number(params.get("pageSize"))
   return {
     search: (params.get("search") ?? "").slice(0, 200),
-    ordering: TRANSFER_SORT_KEYS.includes(ordering.replace(/^-/, "")) ? ordering : "",
+    ordering: parseTransferOrdering(ordering),
     page: parsePageParam(params.get("page")),
     pageSize: Number.isFinite(pageSize) && pageSize >= 0 ? Math.min(5000, Math.floor(pageSize)) : 25,
     fromWarehouse: list("fromWarehouse"),

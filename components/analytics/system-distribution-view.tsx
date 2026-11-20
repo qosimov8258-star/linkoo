@@ -8,6 +8,7 @@ import { nextMatrixSort } from "@/components/ref/sort-arrows"
 import { ReportMatrix, matrixNumber, type MatrixHead, type MatrixRow } from "@/components/ref/report-matrix"
 import { AgentDrawerScope, AgentLink } from "@/components/tracking/agent-visit-drawer"
 import { DashboardDialog } from "./dashboard-dialog"
+import { periodInAddress, writePeriodToAddress } from "./report-period-address"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportListSelectField, ReportPage } from "@/components/ref/report-kit"
 
 /** [agent name, supervisor, numbers …]; the agent's employee id rides along for the drawer. */
@@ -68,6 +69,15 @@ export function SystemDistributionView() {
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
+
+  // Like Linko's report, a link or a reload opens the period of the address (?beginDate=…&endDate=…).
+  useEffect(() => {
+    const period = periodInAddress()
+    if (!period) return
+    setFrom(period.from)
+    setTo(period.to)
+    setApplied((current) => ({ ...current, ...period }))
+  }, [])
   const overlayOpen = dashboardOpen
 
   useEffect(() => {
@@ -156,7 +166,13 @@ export function SystemDistributionView() {
       <ReportHeader title="Системная дистрибуция" onExcel={downloadCsv} onDashboard={() => setDashboardOpen(true)} inDashboard={inDashboard} />
 
       <ReportBand>
-        <ReportFilters applyDisabled={from > to} onApply={() => setApplied({ from, to, position })}>
+        <ReportFilters
+          applyDisabled={from > to}
+          onApply={() => {
+            setApplied({ from, to, position })
+            writePeriodToAddress(from, to)
+          }}
+        >
           <ReportDateField label="Дата создания от" value={from} max={to} onChange={setFrom} />
           <ReportDateField label="Дата создания до" value={to} min={from} onChange={setTo} />
           <ReportListSelectField label="Должность" value={position} onChange={setPosition} options={positions} />

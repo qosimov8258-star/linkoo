@@ -138,11 +138,29 @@ export function VansellBalanceView() {
     const initial = readUrlState()
     setState(initial)
     setSearchInput(initial.search)
+    // Linko's dialog keys: ⊕ openAddDialog=<id>, ⊖ openCreateDialog=<id>, «Изменить лимит» bulkUpdateDialog=true.
+    const params = new URLSearchParams(window.location.search)
+    const add = params.get("openAddDialog") ?? ""
+    const expense = params.get("openCreateDialog") ?? ""
+    if (/^\d+$/.test(add)) setMovement({ kind: "add", employeeId: Number(add) })
+    else if (/^\d+$/.test(expense)) setMovement({ kind: "expense", employeeId: Number(expense) })
+    if (params.get("bulkUpdateDialog") === "true") setLimitOpen(true)
     setHydrated(true)
   }, [])
   useEffect(() => {
     if (hydrated) writeUrlState(state)
   }, [hydrated, state])
+  useEffect(() => {
+    if (!hydrated) return
+    const params = new URLSearchParams(window.location.search)
+    const set = (name: string, value: string) => (value ? params.set(name, value) : params.delete(name))
+    set("openAddDialog", movement?.kind === "add" ? String(movement.employeeId) : "")
+    set("openCreateDialog", movement?.kind === "expense" ? String(movement.employeeId) : "")
+    set("bulkUpdateDialog", limitOpen ? "true" : "")
+    const query = params.toString()
+    const next = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+    if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", next)
+  }, [hydrated, movement, limitOpen])
 
   // Demo search box: debounced 500 ms, server-side.
   useEffect(() => {
@@ -200,11 +218,13 @@ export function VansellBalanceView() {
           label: "Принятие оплаты",
           field: "payment_accepted",
           value: (balance) => (balance.cash_transfer_plus ?? 0) + (balance.bank_transfer_plus ?? 0),
-          hint: (
-            <span className="group relative inline-flex">
-              <Info className="h-4 w-4 cursor-help text-[#9aa3b6]" aria-label={`${t("Перечисление")} / ${t("Наличные")}`} />
-              <span className="pointer-events-none absolute left-1/2 top-6 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded bg-[#323232] px-3 py-2 text-[12px] font-normal leading-5 text-white shadow-lg group-hover:block">
-                {paymentHintLines(data?.totals ?? {}, visible, currencyLabel, t).map((line) => (
+          // Linko: an info icon before every currency line; its tooltip (to the left) splits that currency into
+          // «Перечисление» and «Наличные».
+          lineHint: (code) => (
+            <span className="group relative mr-[10px] inline-flex align-[-5px]">
+              <Info className="h-5 w-5 cursor-help text-[#666]" strokeWidth={1.75} aria-label={`${t("Перечисление")} / ${t("Наличные")}`} />
+              <span className="pointer-events-none absolute right-[calc(100%+8px)] top-1/2 z-20 hidden -translate-y-1/2 whitespace-nowrap rounded-[3px] bg-[#333] px-[21px] py-[8px] text-[13px] font-semibold leading-[20px] text-white group-hover:block">
+                {paymentHintLines(data?.totals ?? {}, [code], currencyLabel, t).map((line) => (
                   <span key={line} className="block">
                     {line}
                   </span>
@@ -290,7 +310,7 @@ export function VansellBalanceView() {
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] pb-[8px] pt-[15px]">
+        <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] mt-[7px] py-0">
           <BalanceFilterChip
             count={filterCount}
             onOpen={() => {
@@ -312,7 +332,6 @@ export function VansellBalanceView() {
             {canEdit && (
               <button type="button" onClick={() => setLimitOpen(true)} className="flex h-[30px] items-center gap-2 rounded-[3px] bg-[#1E4A9A] pl-2 pr-4 text-[13px] font-semibold text-white">
                 <Pencil className="h-4 w-4" /> {t("Изменить лимит")}
-                {selected.size > 0 && <span className="rounded-full bg-white/25 px-2 text-[12px]">{selected.size}</span>}
               </button>
             )}
             <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={(next) => update(next)} />

@@ -174,6 +174,9 @@ export async function listWarehouses(options: { active?: WarehouseActiveFilter; 
   return rows.map(rowToWarehouse)
 }
 
+/** Linko's name order (its database collation skips spaces and punctuation; Latin before Cyrillic). */
+const warehouseNameCollator = new Intl.Collator("en", { ignorePunctuation: true })
+
 const NAME_ORDER = "lower(name)"
 const ORDER_COLUMNS: Record<string, string> = {
   name: NAME_ORDER,
@@ -206,6 +209,14 @@ export async function listWarehousesPage(query: WarehouseListQuery): Promise<War
     AND (@needle = '' OR strpos(lower(concat_ws(' ', name, full_name, address, branch, manager)), @needle) > 0)
     AND (@branch = '' OR branch = @branch)`
   const params = { needle, branch: await selectedBranchName(), stockType: query.stockType ?? "" }
+  // The name order (the default) is Linko's database collation, which skips spaces and punctuation ("HANGUK12" before
+  // "HAnguk asliddin", "New Stock.1" before "new (vansell)"): sorted here, then paged.
+  if (!query.ordering || query.ordering === "name" || query.ordering === "-name") {
+    const all = (await db.prepare(`${SELECT} ${where}`).all(params)) as WarehouseRow[]
+    const sign = query.ordering === "-name" ? -1 : 1
+    all.sort((a, b) => sign * (warehouseNameCollator.compare(a.name ?? "", b.name ?? "") || Number(a.id) - Number(b.id)))
+    return { count: all.length, results: all.slice((page - 1) * pageSize, page * pageSize).map(rowToDetail) }
+  }
   const countRow = (await db.prepare(`SELECT COUNT(*) AS n FROM warehouses ${where}`).get(params)) as { n: string | number } | undefined
   const rows = (await db
     .prepare(`${SELECT} ${where} ORDER BY ${orderBy(query.ordering)} LIMIT @limit OFFSET @offset`)

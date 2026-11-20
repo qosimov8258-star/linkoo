@@ -15,6 +15,7 @@ import { DEFAULT_DETAIL_PAGE_SIZE, DETAIL_PAGE_SIZES, ExpenseDrilldownDialog } f
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import type { ExpenseReportItem, ExpenseReportList } from "@/lib/cash/reports"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { formatFixed } from "@/lib/amount-precision"
 import { currencyLabel, formatMoney, roundMoney } from "@/lib/finance/currency"
 import { formatDotDate, isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -46,6 +47,9 @@ export type ExpenseReportConfig = {
   excelTitle: string
   /** Drill-down rows open the cash page (staff report). */
   rowLinks?: boolean
+  /** Row sums floored to two decimals whatever Настройки → Округление сумм says (the staff report: Linko prints them
+   * with its floor(|sum|, 2) formatter); else its numberFormat (the setting's decimals). Both unsigned. */
+  flooredSums?: boolean
 }
 
 const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
@@ -194,7 +198,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
 
   const excelTable = (items: ExpenseReportItem[], currency: string) => [
     [t(config.nameLabel), `${t("Процентное соотношение")} %`, t("Сумма"), t("Валюта")],
-    ...items.map((row) => [row.name || t(config.emptyName), row.percent, roundMoney(row.amount), currencyLabel(currency)]),
+    ...items.map((row) => [row.name || t(config.emptyName), row.percent, roundMoney(Math.abs(row.amount)), currencyLabel(currency)]),
   ]
   const fileName = `${t(config.excelTitle)} ${formatDotDate(from)} - ${formatDotDate(to)}`
   const downloadPage = () => {
@@ -318,7 +322,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
                 <ShareBar percent={row.percent} />
               </span>
               <span className="whitespace-nowrap text-right md:col-span-3">
-                {formatMoney(row.amount)} {currencyLabel(base)}
+                {config.flooredSums ? formatFixed(Math.abs(row.amount), 2, { floor: true }) : formatMoney(Math.abs(row.amount))} {currencyLabel(base)}
               </span>
             </button>
           ))}
@@ -374,7 +378,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
 /** Demo LinearProgress: 10px #efefef track, #58bed9 fill at the share (0–100). */
 function ShareBar({ percent }: { percent: number }) {
   const value = Math.min(100, Math.max(0, percent))
-  const label = `${formatMoney(percent, 1)} %`
+  const label = `${formatFixed(percent, 1)} %`
   return (
     <span role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100} aria-label={label} title={label} className="block h-2.5 w-full overflow-hidden bg-[#efefef]">
       <span className="block h-full bg-[#58bed9]" style={{ width: `${value}%` }} />

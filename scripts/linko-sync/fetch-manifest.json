@@ -5,6 +5,10 @@
    "path": "sales/order/"
   },
   {
+   "name": "config",
+   "path": "config"
+  },
+  {
    "name": "order_products",
    "path": "sales/order_product/"
   },
@@ -141,7 +145,10 @@
   },
   {
    "name": "stock_transfers",
-   "path": "stock/stock_transfer/"
+   "path": "stock/stock_transfer/",
+   "params": {
+    "with_cancelled": "true"
+   }
   },
   {
    "name": "income_tasks",
@@ -264,11 +271,22 @@
   },
   {
    "name": "gear_checks",
-   "path": "main/gear_check/"
+   "path": "main/gear_check/",
+   "params": {
+    "with_image": "true"
+   }
   },
   {
    "name": "gear_conditions",
    "path": "main/gear_condition/"
+  },
+  {
+   "name": "gear_products",
+   "path": "main/product/",
+   "params": {
+    "is_gear": "True",
+    "is_raw": "false"
+   }
   },
   {
    "name": "manufacture_writeoffs",
@@ -337,6 +355,10 @@
   {
    "name": "order_product_exp",
    "path": "sales/order_product_exp/"
+  },
+  {
+   "name": "order_return_product_exp",
+   "path": "sales/order_return_product_exp/"
   },
   {
    "name": "contracts",
@@ -955,6 +977,10 @@
    "path": "stock/supply_return/{id}/"
   },
   {
+   "list": "providers",
+   "path": "stock/provider/{id}/"
+  },
+  {
    "list": "writeoffs",
    "path": "stock/writeoff_request/{id}/"
   },
@@ -993,6 +1019,14 @@
   {
    "list": "static_widgets",
    "path": "main/static_widget/{id}/"
+  },
+  {
+   "list": "gears",
+   "path": "main/gear/{id}/?thumbnail_type=large"
+  },
+  {
+   "list": "system_pages",
+   "path": "main/system-pages/{id}/"
   }
  ]
 }

@@ -40,6 +40,8 @@ export type TrackingClient = {
   clientId: number | null
   clientName: string
   address: string
+  /** «Ориентир» of the client ("" when none). */
+  landmark: string
   /** Client location (null when the client has none). */
   lat: number | null
   lng: number | null
