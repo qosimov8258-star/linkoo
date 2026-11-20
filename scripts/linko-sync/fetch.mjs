@@ -12,11 +12,12 @@
 // prices per price list, read product by product), transfer-logs («Логи» of the transfers between warehouses),
 // order-debt-transactions (each order's «Список оплат по заказу»), return-logs («Логи» of the client returns), return-marks (the marking codes of every client return line),
 // border-agents (the employees bound to each territory), market-users (each shop's «Агенты магазина», and its last
-// order / visit days, which only the shop's detail has).
+// order / visit days, which only the shop's detail has), day-plans (the tasks of each agent-day of «Время работы агента»).
 // LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
 // The raw files hold business data: backups/ is git-ignored, never commit them.
 import fs from "node:fs"
 import path from "node:path"
+import { fetchDayPlans } from "./fetch-day-plans.mjs"
 import { ROOT } from "./lib.mjs"
 
 const SERVER = process.env.LINKO_SERVER || "time3"
@@ -453,6 +454,11 @@ async function marketUsers() {
   console.log("market_users".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
 }
 
+// Время работы агента «Задачи»: the tasks of every agent-day of Linko's report (fetch-day-plans.mjs).
+async function dayPlans() {
+  save("day_plans", { tpl: "market/agent_plans/{agent}/?date={day}", data: await fetchDayPlans(get, months()) })
+}
+
 const STEPS = {
   lists,
   "price-list-items": priceListItems,
@@ -472,6 +478,7 @@ const STEPS = {
   "return-marks": returnMarks,
   "border-agents": borderAgents,
   "market-users": marketUsers,
+  "day-plans": dayPlans,
 }
 
 await login()

@@ -85,6 +85,7 @@ run import-field-records.mjs
 run import-route-plans.mjs
 run import-monthly-plans.mjs
 run import-visits.mjs
+run import-day-tasks.mjs
 run import-gps.mjs
 run import-employee-tracking.mjs
 run import-employee-cards.mjs
