@@ -308,18 +308,15 @@ async function production() {
   }
   const staffRows = rowsOf(await get(`/api/production/staff?stageId=${stage.id}`))
   const workers = [...(await employeesOf("Smena boshlig'i")), ...(await employeesOf("Liniya operatori")).slice(0, 12)]
+  // A staff row references a shift of Настройки → Смены by id (setup creates them from D.WORK_SHIFTS);
+  // the name, position and times are read live from the directory and the employee.
+  const shiftIds = new Map(rowsOf(await get("/api/work-shifts")).map((row) => [row.name, row.id]))
   for (const [index, worker] of workers.entries()) {
     if (staffRows.some((row) => row.employeeId === worker.id)) continue
-    const day = index % 2 === 0
-    await post("/api/production/staff", {
-      stageId: stage.id,
-      employeeId: worker.id,
-      employeeName: `${worker.firstName} ${worker.lastName}`,
-      position: worker.job,
-      shift: day ? "1-smena (kunduzgi)" : "2-smena (tungi)",
-      beginTime: day ? "08:00" : "20:00",
-      endTime: day ? "20:00" : "08:00",
-    })
+    const shiftName = index % 2 === 0 ? "1-smena (kunduzgi)" : "2-smena (tungi)"
+    const shiftId = shiftIds.get(shiftName)
+    if (!shiftId) throw new Error(`work shift missing: ${shiftName} (run the setup phase first)`)
+    await post("/api/production/staff", { stageId: stage.id, employeeId: worker.id, shiftId })
   }
   const raws = new Map(rowsOf(await get("/api/raw-materials")).map((row) => [row.name, row.id]))
   const recipes = rowsOf(await get(`/api/production/recipes?stageId=${stage.id}`))

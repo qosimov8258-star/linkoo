@@ -35,11 +35,26 @@ function referenceText(row: StatementRow, t: (text: string) => string) {
   return `${t(row.description === "Отход" ? "Отход" : "Передача")} № ${row.docNumber}`
 }
 
+/** An «Отгрузка» leg (a production shift session handed over to a warehouse, lib/finance/sources.ts transferLeg):
+ * its number is the session's, not a transfer's, so it reads «Отгрузка № 6» and links to the plan detail. */
+const SHIPMENT_TITLE = "Отгрузка"
+
 /** Linko texts: "Передача склада (Передача № 5)", "Оплата на кассу (Передача № 7)", "Передача (Отход № 181)", "Нет типа
- * (comment)"; a cash hand-in prints a space after the bracket («Оплата на кассу ( Передача № 635)»), a bank one does not. */
+ * (comment)"; a cash hand-in prints a space after the bracket («Оплата на кассу ( Передача № 635)»), a bank one does not.
+ * A production shipment reads «Отгрузка № 6». */
 function RowDescription({ row }: { row: StatementRow }) {
   const { t } = useLanguage()
   if (row.title === "Нет типа" || !row.docNumber) return <span>{describeStatementRow(row, t)}</span>
+  if (row.title === SHIPMENT_TITLE) {
+    const shipment = rowDescriptionText(row, t)
+    return row.href ? (
+      <Link href={row.href} className="text-[#129fdd] hover:underline">
+        {shipment}
+      </Link>
+    ) : (
+      <span>{shipment}</span>
+    )
+  }
   const reference = referenceText(row, t)
   return (
     <span>
@@ -58,6 +73,7 @@ function RowDescription({ row }: { row: StatementRow }) {
 
 function rowDescriptionText(row: StatementRow, t: (text: string) => string) {
   if (row.title === "Нет типа" || !row.docNumber) return describeStatementRow(row, t)
+  if (row.title === SHIPMENT_TITLE) return `${t(SHIPMENT_TITLE)} № ${row.docNumber}`
   return `${t(row.title)} (${row.column === "cash_transfer_plus" ? " " : ""}${referenceText(row, t)})`
 }
 

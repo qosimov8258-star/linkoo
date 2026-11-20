@@ -212,7 +212,8 @@ export async function runMonth(ctx) {
 
   async function produce(date, productName, amount, withDefect) {
     const recipe = recipeFor(productName)
-    const components = recipe.components.map((component) => ({ key: component.key ?? `${component.kind}:${component.itemId}`, amount: Math.round(component.amount * (amount / recipe.amount) * 100000) / 100000 }))
+    // Only the raw lines are consumed; ready lines (the product itself, by-products) are what the norm puts out.
+    const components = recipe.components.filter((component) => component.role !== "ready").map((component) => ({ key: component.key ?? `${component.kind}:${component.itemId}`, amount: Math.round(component.amount * (amount / recipe.amount) * 100000) / 100000 }))
     await ensureShopRaw(date, components.map((component) => [component.key, component.amount]))
     const party = await step(`partiya ${productName}`, () => post("/api/production/parties", { stageId: stage.id, date, comment: `${productName} — ${amount} dona` }))
     if (!party) return 0

@@ -359,6 +359,9 @@ export function runItemLedger(input: LedgerItemInput): LedgerItemResult {
     const balance = scope.qty
     const delta = next - scope.avg
     const known = scope.hasAvg || Math.abs(balance) > EPS
+    // Like the reference, a production record shows no «Сумма переоценки» («Не указано»). Display only: the summary
+    // «Общая сумма переоценки» and the movement report's Переоценка come from the warehouse's revaluation (wh.revaluation).
+    const shownRevaluation = known && fields.sourceType !== "production_movements"
     return {
       ...fields,
       scope: scope.key,
@@ -367,8 +370,8 @@ export function runItemLedger(input: LedgerItemInput): LedgerItemResult {
       prevCost: scope.hasAvg ? scope.avg : null,
       balance,
       balanceAfter: balance + fields.qty,
-      revaluation: known ? delta : null,
-      totalRevaluation: known ? delta * balance : null,
+      revaluation: shownRevaluation ? delta : null,
+      totalRevaluation: shownRevaluation ? delta * balance : null,
       negativeOk: true,
       timelapseOk: true,
       balanceOk: true,

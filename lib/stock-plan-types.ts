@@ -3,9 +3,10 @@ import type { StockMoveKind } from "@/lib/stock/types"
 // "План приемок и передач" (demo #/stock/receive …, chunks c88 / c89 / c90):
 // shared (client-safe) types and labels of /api/stock/plan/**.
 //   receive          Приемка          — supplies 'ожидает' + transfers 'в пути' to the warehouse + client returns 'pending'
+//                                       + «Отгрузка» (the hand-over of a production shift session) 'в пути'
 //   transfer         Передача         — transfers 'потвержден' from the warehouse + orders 'Есть на складе' with a warehouse
 //   movement         Движение товаров — every line of the stock ledger (lib/stock stockMovementsSql)
-//   receive_history  История Приемки  — accepted supplies, transfers and client returns
+//   receive_history  История Приемки  — accepted supplies, transfers, client returns and «Отгрузка»
 //   transfer_history История Передачи — given transfers and shipped orders
 
 export const PLAN_TABS = ["receive", "transfer", "movement", "receive_history", "transfer_history"] as const
@@ -21,8 +22,9 @@ export const PLAN_TAB_LABELS: Record<PlanTab, string> = {
   transfer_history: "История Передачи",
 }
 
-/** Task kinds (demo income_tasks / outcome_tasks `type`). */
-export type PlanTaskType = "supply" | "transfer" | "order_return" | "order" | "supply_return"
+/** Task kinds (demo income_tasks / outcome_tasks `type`). "shipment": Linko's «Отгрузка», the output of a production
+ * shift session handed over to a warehouse («Передать на склад»); its № is the session's. */
+export type PlanTaskType = "supply" | "transfer" | "order_return" | "order" | "supply_return" | "shipment"
 
 export const PLAN_TYPE_LABELS: Record<PlanTaskType, string> = {
   supply: "Поставка",
@@ -31,12 +33,13 @@ export const PLAN_TYPE_LABELS: Record<PlanTaskType, string> = {
   order: "Заказ",
   // A return to the supplier leaves its warehouse (Linko's outcome task type supply_return).
   supply_return: "Возврат с П.",
+  shipment: "Отгрузка",
 }
 
 /** Types offered by the "Тип" filter of each task tab (demo StockReceiveTypeSearchFiled / OrderTransferTypeSearchField). */
 export const PLAN_TAB_TYPES: Record<PlanTaskTab, PlanTaskType[]> = {
-  receive: ["supply", "transfer", "order_return"],
-  receive_history: ["supply", "transfer", "order_return"],
+  receive: ["supply", "transfer", "order_return", "shipment"],
+  receive_history: ["supply", "transfer", "order_return", "shipment"],
   transfer: ["order", "transfer", "supply_return"],
   transfer_history: ["order", "transfer", "supply_return"],
 }
@@ -93,6 +96,8 @@ export type PlanItemProduct = {
   productType: string
   qty: number
   unit: string
+  /** «Отгрузка» lines: defective units (Статус «Брак»; «ОК» otherwise). */
+  defect?: boolean
 }
 
 export type PlanItemDetail = {
@@ -117,7 +122,9 @@ export type PlanItemDetail = {
 
 // --- Движение товаров ---------------------------------------------------------------------
 
-/** "Тип" of a movement line (demo getStockReceivesType labels) and the ledger kinds behind it. */
+/** "Тип" of a movement line (demo getStockReceivesType labels) and the ledger kinds behind it. Like the reference,
+ * every production line — what a batch made and the raw it used — is a «Партия» (its № is the batch); the other
+ * stock adjustments kept with production (a balance copied from Linko, its «Работа с инвентарем») have no type there. */
 export const PLAN_MOVE_TYPES: Array<{ id: string; label: string; kinds: StockMoveKind[] }> = [
   { id: "supply", label: "Поставка", kinds: ["supply"] },
   { id: "supply_return", label: "Возврат с П.", kinds: ["supply_return"] },
@@ -128,7 +135,7 @@ export const PLAN_MOVE_TYPES: Array<{ id: string; label: string; kinds: StockMov
   // Linko names both sides of a production batch «Партия» (its manufacture return / writeoff lines).
   { id: "manufacture_in", label: "Партия", kinds: ["manufacture_in"] },
   { id: "manufacture_out", label: "Партия", kinds: ["manufacture_out"] },
-  { id: "none", label: "Партия", kinds: ["none_in", "none_out"] },
+  { id: "none", label: "", kinds: ["none_in", "none_out"] },
   { id: "inventory", label: "Инвентаризация", kinds: ["inventory_in", "inventory_out"] },
   // Filter-only entries: the reference filter lists the two transfer directions separately.
   { id: "transfer_in", label: "Передача", kinds: ["transfer_in"] },
@@ -165,8 +172,9 @@ export type PlanMovementRow = {
   kind: StockMoveKind
   docType: string
   docId: number
-  /** № shown: the document id (production: the batch / party id). */
-  docNumber: number
+  /** № shown: the document id (production: the batch / party id); null for a production line of no batch (a stage's
+   * shift entry, a stock adjustment), whose row id names no document. */
+  docNumber: number | null
   key: string
   name: string
   article: string
@@ -174,6 +182,9 @@ export type PlanMovementRow = {
   /** Signed quantity (+ in, − out). */
   qty: number
   isDefect: boolean
+  /** "Тип" of a line whose document is no plain ledger kind: «Отгрузка» for the legs of a production shift session's
+   * hand-over (planMoveType(kind) otherwise). */
+  typeLabel?: string
 }
 
 export type PlanMovementResult = { count: number; page: number; pageSize: number; results: PlanMovementRow[] }

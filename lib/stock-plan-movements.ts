@@ -53,7 +53,19 @@ function nameKey(value: string): string {
   return value.replace(/[  ]/g, " ").replace(/\s+/g, " ").trim().toLowerCase()
 }
 
-type LedgerRow = { day: string; warehouse: string; item_key: string; qty: number; kind: string; doc_type: string; doc_id: number; doc_no: number; is_defect: number; total?: string | number }
+type LedgerRow = {
+  day: string
+  warehouse: string
+  item_key: string
+  qty: number
+  kind: string
+  doc_type: string
+  doc_id: number
+  doc_no: number | null
+  is_defect: number
+  is_shipment?: boolean | null
+  total?: string | number
+}
 
 export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPaging, db: PgDb = getDb()): Promise<PlanMovementResult> {
   const t = await stockTables(db)
@@ -80,11 +92,15 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
     where.push("fin_key(m.warehouse) IN (SELECT fin_key(w) FROM unnest(@pl_wh::text[]) AS w)")
     params.pl_wh = filters.warehouses
   }
+  // The legs of an «Отгрузка» (a production shift session handed over) are no «Передача»: as Linko's type map
+  // (shipment → «Отгрузка»), they are named so, numbered by the session, and none of the filter's types.
+  const shipments = t.has("internal_transfers") && t.col("internal_transfers", "source") && t.col("internal_transfers", "source_id")
   if (filters.types.length) {
     const kinds = PLAN_MOVE_TYPES.filter((type) => filters.types.includes(type.id)).flatMap((type) => type.kinds)
     if (!kinds.length) return result
     where.push("m.kind = ANY(@pl_kinds::text[])")
     params.pl_kinds = kinds
+    if (shipments) where.push("NOT m.is_shipment")
   }
   if (filters.direction) where.push(filters.direction === "in" ? "m.qty > 0" : "m.qty < 0")
   if (filters.products.length) {
@@ -119,16 +135,27 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
     params.pl_to = filters.to
   }
 
-  // № of a production line is its batch (party), as in the demo (d_parent_id).
+  // № of a production line is its batch (party), as in the demo (d_parent_id); a line copied from Linko outside its
+  // batch (scripts/linko-sync: «Партия №64 — Linko #351641») names the batch in its comment. A production line of no
+  // batch (a stage's shift entry, a stock adjustment) has none: its row id names no document anybody can find.
   const withParty = t.has("production_movements") && t.col("production_movements", "party_id")
+  const shipmentNo = shipments ? "WHEN itr.source = 'shipment' THEN itr.source_id" : ""
+  const shipmentJoin = shipments ? "LEFT JOIN internal_transfers itr ON l.doc_type = 'internal_transfers' AND itr.id = l.doc_id" : ""
+  const isShipment = shipments ? "COALESCE(itr.source = 'shipment', false)" : "false"
   const source = withParty
-    ? `SELECT l.*, COALESCE(pm.party_id, l.doc_id) AS doc_no FROM (${ledger.sql}) l
-         LEFT JOIN production_movements pm ON l.doc_type = 'production_movements' AND pm.id = l.doc_id`
-    : `SELECT l.*, l.doc_id AS doc_no FROM (${ledger.sql}) l`
+    ? `SELECT l.*, CASE WHEN l.doc_type = 'production_movements'
+                        THEN COALESCE(pm.party_id, CASE WHEN pm.direction IN ('made', 'raw') THEN substring(pm.comment from '^Партия №([0-9]{1,9}) — Linko #')::int END)
+                        ${shipmentNo}
+                        ELSE l.doc_id END AS doc_no, ${isShipment} AS is_shipment
+         FROM (${ledger.sql}) l
+         LEFT JOIN production_movements pm ON l.doc_type = 'production_movements' AND pm.id = l.doc_id
+         ${shipmentJoin}`
+    : `SELECT l.*, CASE WHEN l.doc_type = 'production_movements' THEN NULL ${shipmentNo} ELSE l.doc_id END AS doc_no, ${isShipment} AS is_shipment
+         FROM (${ledger.sql}) l ${shipmentJoin}`
   const base = `FROM (${source}) m WHERE ${where.join(" AND ")}`
   const rows = (await db
     .prepare(
-      `SELECT m.day, m.warehouse, m.item_key, m.qty, m.kind, m.doc_type, m.doc_id, m.doc_no, m.is_defect, COUNT(*) OVER () AS total
+      `SELECT m.day, m.warehouse, m.item_key, m.qty, m.kind, m.doc_type, m.doc_id, m.doc_no, m.is_defect, m.is_shipment, COUNT(*) OVER () AS total
          ${base} ORDER BY ${orderBy(paging.ordering || "-day")} LIMIT @pl_limit OFFSET @pl_offset`,
     )
     .all({ ...params, pl_limit: pageSize, pl_offset: (page - 1) * pageSize })) as LedgerRow[]
@@ -154,13 +181,14 @@ export async function listPlanMovements(filters: PlanMoveFilters, paging: PlanPa
       kind: row.kind as StockMoveKind,
       docType: row.doc_type,
       docId: Number(row.doc_id),
-      docNumber: Number(row.doc_no),
+      docNumber: row.doc_no === null || row.doc_no === undefined ? null : Number(row.doc_no),
       key: row.item_key,
       name: item?.name ?? orphan?.name ?? (row.item_key.startsWith("name:") ? row.item_key.slice(5) : row.item_key),
       article: item?.article ?? "",
       unit: item?.unit || orphan?.unit || "",
       qty: Math.round((Number(row.qty) || 0) * 1e6) / 1e6,
       isDefect: Number(row.is_defect) === 1,
+      ...(row.is_shipment === true ? { typeLabel: "Отгрузка" } : {}),
     }
   })
   return result

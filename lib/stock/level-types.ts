@@ -118,6 +118,9 @@ export type StockReceipt = {
   /** Unit cost of the receipt (0 when the document has none). */
   unitCost: number
   isDefect: boolean
+  /** The document's own page, when it has one: a production «Отгрузка» (docType "production_shipment", docId = its
+   * shift session) opens in План приемок и передач. */
+  href?: string
 }
 
 export type StockItemDetail = {

@@ -23,9 +23,11 @@ export function ConfirmHost() {
   if (current.kind === "action") {
     return <ConfirmDialog title={current.title ?? ""} text={current.text} confirmLabel={current.confirmLabel ?? "Да"} onConfirm={() => finish(true)} onClose={() => finish(false)} />
   }
+  // The item of askDelete / askCancel is the name of the thing (stored data): rawItem keeps it from the page
+  // translator, the band looks the same.
   return current.kind === "cancel" ? (
-    <ConfirmDialog title="Подтверждение отмены" kind="cancel" item={current.item} confirmLabel="Да" onConfirm={() => finish(true)} onClose={() => finish(false)} />
+    <ConfirmDialog title="Подтверждение отмены" kind="cancel" item={current.item} rawItem confirmLabel="Да" onConfirm={() => finish(true)} onClose={() => finish(false)} />
   ) : (
-    <ConfirmDialog title={current.item ?? "Удалить"} onConfirm={() => finish(true)} onClose={() => finish(false)} />
+    <ConfirmDialog title={current.item ?? "Удалить"} rawItem onConfirm={() => finish(true)} onClose={() => finish(false)} />
   )
 }

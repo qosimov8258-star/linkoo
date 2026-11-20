@@ -727,6 +727,10 @@ const BOOTSTRAP_COLUMNS: Record<string, ReadonlyArray<readonly [string, string]>
     ["cancelled_at", TEXT_EMPTY],
     ["cancelled_by", TEXT_EMPTY],
     ["currency", TEXT_EMPTY],
+    // A production «Отгрузка» (source 'shipment', source_id = the worker shift session): read by the stock
+    // ledger, the plan, the movement report and finance (ensureTransfersSchema also adds its unique index).
+    ["source", TEXT_EMPTY],
+    ["source_id", "INTEGER"],
   ],
   // lib/supplier-incomings-repo.ts
   supplier_incomings: [

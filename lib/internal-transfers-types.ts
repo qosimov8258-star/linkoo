@@ -161,7 +161,17 @@ export type Transfer = {
   cancelledAt: string
   cancelledBy: string
   updatedAt: string
+  /** "shipment": an «Отгрузка» of a production shift session («Передать на склад», sourceId = the session): it is
+   * only accepted (Приемка) or its acceptance undone (История Приемки), never edited, deleted or listed among the
+   * transfers. "" (or absent): an ordinary transfer. */
+  source?: TransferSource
+  sourceId?: number | null
 }
+
+export type TransferSource = "" | "shipment"
+
+/** Actions an «Отгрузка» (source "shipment") allows: Linko's shipment done / cancel. */
+export const SHIPMENT_ACTIONS: TransferAction[] = ["accept", "cancel_accepted"]
 
 export type TransferListResult = { count: number; page: number; pageSize: number; results: Transfer[] }
 

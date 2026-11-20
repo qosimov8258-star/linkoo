@@ -4,6 +4,8 @@
 // 2026 г., 14:05", "08.10.2026"). Business days are counted in Asia/Tashkent.
 // The SQL twin of parseAnyDate is fin_ts() in lib/finance/schema.ts.
 
+import { MONTH_NAMES } from "@/lib/calendar-locale"
+
 export const FINANCE_TIME_ZONE = "Asia/Tashkent"
 /** Asia/Tashkent has no DST: UTC+5 all year. */
 const TZ_OFFSET_MINUTES = 5 * 60
@@ -142,28 +144,8 @@ const INTL_LOCALES: Record<string, string> = { ru: "ru-RU", en: "en-GB" }
 
 // Browsers often lack ICU month names for uz-Latn / tk (they print "M10"),
 // so those two languages use explicit tables.
-const MONTHS: Record<string, { long: string[]; short: string[] }> = {
-  ru: {
-    // The reference app's moment "ru" locale in its "DD MMM YYYY" / "D MMMM" formats (the genitive "format"
-    // forms): "06 июля 2026", "23 июня 2026", "05 мая 2026" — Intl ru prints "июл." / "июн." instead.
-    long: ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"],
-    short: ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."],
-  },
-  uz: {
-    // The reference app's moment "uz" locale (updateLocale).
-    long: ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentyabr", "oktyabr", "noyabr", "dekabr"],
-    short: ["yan", "fev", "mar", "apr", "may", "iyun", "iyul", "avg", "sen", "okt", "noy", "dek"],
-  },
-  en: {
-    // moment "en": Intl en-GB prints "Sept", the reference prints "Sep".
-    long: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-    short: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-  },
-  tk: {
-    long: ["ýanwar", "fewral", "mart", "aprel", "maý", "iýun", "iýul", "awgust", "sentýabr", "oktýabr", "noýabr", "dekabr"],
-    short: ["ýan", "few", "mar", "apr", "maý", "iýn", "iýl", "awg", "sen", "okt", "noý", "dek"],
-  },
-}
+// The app's month names (one source with the form calendar): lib/calendar-locale.ts.
+const MONTHS: Record<string, { long: string[]; short: string[] }> = MONTH_NAMES
 
 function dateFromIso(iso: string) {
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number)

@@ -238,6 +238,9 @@ const ID_REFERENCES: ReadonlyArray<{ table: string; column: string; nameColumn?:
   { table: "cash_management_entries", column: "employee_id", nameColumn: "employee_name" },
   { table: "production_staff", column: "employee_id", nameColumn: "employee_name" },
   { table: "production_stages", column: "responsible_id", nameColumn: "responsible" },
+  // A worker's shift sessions on a production stage (Активность → «Смены»; the name is the snapshot shown once the
+  // employee is gone).
+  { table: "production_shift_sessions", column: "employee_id", nameColumn: "employee_name" },
   { table: "cash_entry_staff", column: "employee_id" },
   { table: "employee_balance_transactions", column: "employee_id" },
   { table: "deliverer_balance_transactions", column: "employee_id" },

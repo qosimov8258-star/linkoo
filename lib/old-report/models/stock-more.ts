@@ -15,7 +15,8 @@ import { dayGroups, distinct, dmy, perKey, plain, round, sum, yesNo, type GroupD
 //                                                batch used and what it made, on the day of the line or
 //                                                («… по дате партии») on the day of the batch;
 //   stock_transfer_product                       «Продукт передач со склада»: the lines of the transfers between
-//                                                warehouses that are not cancelled;
+//                                                warehouses that are not cancelled (a production «Отгрузка», an
+//                                                internal transfer with source 'shipment', is no transfer: left out);
 //   supply_expense                               «Доп. расход поставок»: the additional expenses of the supplier
 //                                                incomings (for the readers of purchases).
 
@@ -118,7 +119,8 @@ const MADE_GROUPS: Record<string, GroupDef<P>> = {
   manufacture_party_id: p((row) => row.party ?? ""),
   manufacture_party_date: { label: (row) => dmy(row.partyDay), sort: (row) => row.partyDay },
   manufacture_party_comment: p((row) => row.partyComment),
-  product: p((row) => row.name),
+  // The reference lists a batch's products case-insensitively («toshkent suv» before «Un»; Latin before Cyrillic).
+  product: { label: (row) => row.name, sort: (row) => row.name.toLowerCase() },
   user_id: p((row) => row.user),
   created_date_day: madeDays.byDay,
   created_date_week: madeDays.byWeek,
@@ -205,7 +207,8 @@ export const stockTransferProductModel = defineModel<T>({
         `SELECT d.id, d.from_warehouse, d.to_warehouse, d.status, d.comment, d.items, d.currency, d.created_at, to_jsonb(d) ->> 'given_by' AS given_by,
                 to_jsonb(d) ->> 'accepted_by' AS accepted_by, d.created_by, to_char((${dayTs})::date, 'YYYY-MM-DD') AS day
            FROM internal_transfers d
-          WHERE d.status NOT IN ('отменен', 'cancelled') AND (${dayTs})::date BETWEEN @from::date AND @to::date`,
+          WHERE d.status NOT IN ('отменен', 'cancelled') AND COALESCE(to_jsonb(d) ->> 'source', '') <> 'shipment'
+            AND (${dayTs})::date BETWEEN @from::date AND @to::date`,
       )
       .all({ from: context.from, to: context.to })) as Record<string, unknown>[]
     if (!rows.length) return []

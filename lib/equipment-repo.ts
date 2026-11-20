@@ -1,90 +1,65 @@
 import "server-only"
 
-import { z } from "zod"
+import { getProductionDb } from "@/lib/production-schema"
+import {
+  createEquipment as createStageEquipment,
+  deleteEquipment as deleteStageEquipment,
+  getEquipment as getStageEquipment,
+  listEquipment as listStageEquipment,
+  updateEquipment as updateStageEquipment,
+  type ProductionEquipment,
+} from "@/lib/production-stages-repo"
 
-import { getDb } from "@/lib/db"
-
-// "Оборудования" (demo #/equipment, API manufacture/equipment/): Id | Наименование | Производство.
-// The "Производство" select reads manufacturings (demo manufacture/manufacturing/).
-
-async function ensureSchema(db: ReturnType<typeof getDb>) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS manufacturings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS equipment (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      manufacturing_id INTEGER,
-      photo TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `)
-}
+// Настройки → «Оборудования» (Linko #/equipment: Id | Наименование | Производство). Linko's settings page and
+// the stage tab «Оборудование» read and write one list (manufacture/equipment/), so this is a view of the
+// production equipment (lib/production-stages-repo.ts, table production_equipment): a machine added, renamed,
+// moved or deleted here is the stage tab's machine, and the other way round. «Производство» is the stage; its
+// options are the production stages themselves (Linko manufacture/manufacturing/).
+// (The machines of the older separate `equipment` table were moved once, see lib/production-schema.ts.)
 
 export type Equipment = { id: number; name: string; manufacturingId: number | null; manufacturing: string }
+/** `photo`: where the picture is read (its URL), "" without one. */
 export type EquipmentDetail = Equipment & { photo: string }
-export type EquipmentInput = { name: string; manufacturingId: number | null; photo: string | null | undefined }
-export const equipmentInputSchema = z.object({
-  name: z.string().trim().min(1),
-  manufacturingId: z.number().int().positive().nullable().optional(),
-  photo: z.string().max(3_000_000).nullable().optional(),
-})
+/** `photo` undefined keeps the stored picture, null / "" removes it, a data URL replaces it. */
+export type EquipmentInput = { name: string; manufacturingId: number; photo: string | null | undefined }
 
 export type Manufacturing = { id: number; name: string }
 
-type Row = { id: number; name: string; manufacturing_id: number | null; manufacturing: string | null; photo?: string }
+const toEquipment = (row: ProductionEquipment): Equipment => ({ id: row.id, name: row.name, manufacturingId: row.stageId, manufacturing: row.stageName })
+const toDetail = (row: ProductionEquipment): EquipmentDetail => ({ ...toEquipment(row), photo: row.image })
 
-const SELECT = `SELECT e.id, e.name, e.manufacturing_id, m.name AS manufacturing FROM equipment e LEFT JOIN manufacturings m ON m.id = e.manufacturing_id`
-
-const toEquipment = (row: Row): Equipment => ({ id: row.id, name: row.name, manufacturingId: row.manufacturing_id, manufacturing: row.manufacturing ?? "" })
-
+/** Every stage's machines, newest first (as the stage tab lists them); `search` matches the name. */
 export async function listEquipment(search = ""): Promise<Equipment[]> {
-  const db = getDb()
-  await ensureSchema(db)
-  const needle = search.trim().toLowerCase()
-  const rows = (await db.prepare(`${SELECT} WHERE (@needle = '' OR strpos(lower(e.name), @needle) > 0) ORDER BY e.id ASC`).all({ needle })) as Row[]
-  return rows.map(toEquipment)
+  const needle = search.trim().toLocaleLowerCase("ru")
+  const rows = await listStageEquipment()
+  return rows.filter((row) => !needle || row.name.toLocaleLowerCase("ru").includes(needle)).map(toEquipment)
 }
 
 export async function getEquipment(id: number): Promise<EquipmentDetail | null> {
-  const db = getDb()
-  await ensureSchema(db)
-  const row = (await db.prepare(`SELECT e.id, e.name, e.manufacturing_id, m.name AS manufacturing, e.photo FROM equipment e LEFT JOIN manufacturings m ON m.id = e.manufacturing_id WHERE e.id = ?`).get(id)) as Row | undefined
-  return row ? { ...toEquipment(row), photo: row.photo ?? "" } : null
+  const row = await getStageEquipment(id)
+  return row ? toDetail(row) : null
 }
 
+/** A new machine of the stage `manufacturingId` (Linko creates it «не работает»). */
 export async function createEquipment(input: EquipmentInput): Promise<EquipmentDetail> {
-  const db = getDb()
-  await ensureSchema(db)
-  const result = await db.prepare("INSERT INTO equipment (name, manufacturing_id, photo) VALUES (@name, @manufacturingId, @photo)").run({ name: input.name, manufacturingId: input.manufacturingId, photo: input.photo ?? "" })
-  return (await getEquipment(Number(result.lastInsertRowid)))!
+  return toDetail(await createStageEquipment({ stageId: input.manufacturingId, name: input.name, image: input.photo ?? undefined }))
 }
 
-/** `photo` undefined keeps the stored picture, null / "" removes it. */
+/** Name, stage (a move: refused while the machine is in use) and picture; the status stays. */
 export async function updateEquipment(id: number, input: EquipmentInput): Promise<EquipmentDetail | null> {
-  const db = getDb()
-  await ensureSchema(db)
-  if (!(await getEquipment(id))) return null
-  await db
-    .prepare(`UPDATE equipment SET name = @name, manufacturing_id = @manufacturingId, photo = CASE WHEN @keep THEN photo ELSE @photo END, updated_at = datetime('now') WHERE id = @id`)
-    .run({ id, name: input.name, manufacturingId: input.manufacturingId, keep: input.photo === undefined, photo: input.photo ?? "" })
-  return getEquipment(id)
+  const row = await updateStageEquipment(id, { stageId: input.manufacturingId, name: input.name, image: input.photo === undefined ? undefined : (input.photo ?? "") })
+  return row ? toDetail(row) : null
 }
 
+/** A machine in use stays: 409 «Удаление невозможно из-за связи с другими данными» with the usage list. */
 export async function deleteEquipment(id: number): Promise<boolean> {
-  const db = getDb()
-  await ensureSchema(db)
-  return (await db.prepare("DELETE FROM equipment WHERE id = ?").run(id)).changes > 0
+  return deleteStageEquipment(id)
 }
 
-/** Newest first, like the demo's manufacture/manufacturing/ select. */
+/** The production stages, newest first (Linko manufacture/manufacturing/); `search` matches the name. */
 export async function listManufacturings(search = ""): Promise<Manufacturing[]> {
-  const db = getDb()
-  await ensureSchema(db)
-  const needle = search.trim().toLowerCase()
-  return (await db.prepare("SELECT id, name FROM manufacturings WHERE (@needle = '' OR strpos(lower(name), @needle) > 0) ORDER BY id DESC").all({ needle })) as Manufacturing[]
+  const db = await getProductionDb()
+  const needle = search.trim().toLocaleLowerCase("ru")
+  const rows = (await db.prepare("SELECT id, name FROM production_stages ORDER BY id DESC").all()) as Manufacturing[]
+  return rows.filter((row) => !needle || row.name.toLocaleLowerCase("ru").includes(needle)).map((row) => ({ id: row.id, name: row.name }))
 }

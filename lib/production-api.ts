@@ -3,11 +3,13 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z, type ZodType } from "zod"
 
+import { canReadPurchases } from "@/lib/company-money"
 import { dbErrorResponse } from "@/lib/db-errors"
 import { getCurrentUser } from "@/lib/current-user"
 import { docYearOk } from "@/lib/document-dates"
 import { isIsoDay } from "@/lib/finance/dates"
 import { isProductionError, parseItemKey } from "@/lib/production-schema"
+import { equipmentSchema, staffSchema, staffUpdateSchema } from "@/lib/production-staffeq-schemas"
 import { cleanJsonText, NOT_JSON_MESSAGE, notSignedInResponse, type ParsedBody, parseIdSegment, zodErrorBody } from "@/lib/validation"
 import { dbId, strictNum } from "@/lib/strict-number"
 
@@ -21,6 +23,45 @@ export async function routeId({ params }: RouteParams): Promise<number | null> {
 export async function requireViewer() {
   const user = await getCurrentUser()
   return user ? null : notSignedInResponse()
+}
+
+// ACCESS: who reads production and its costs. Like every other section of the app, any signed-in user reads the
+// production pages (only the writes need production.manage, lib/capabilities-catalog.ts). What the goods cost follows
+// the rule of Склад → Себестоимость (/api/cost-of-goods answers 403 to anyone else): lib/company-money.ts
+// canReadPurchases — the readers of company money and the holders of procurement, stock, production or catalogue
+// rights. The others (agents, deliverers…) read the quantities without the cost figures.
+
+export type ProductionReader = { canSeeCost: boolean; error?: undefined } | { canSeeCost?: undefined; error: NextResponse }
+
+/** The signed-in reader of a production page (401 otherwise) and whether they may see what the goods cost. */
+export async function requireProductionReader(): Promise<ProductionReader> {
+  const user = await getCurrentUser()
+  if (!user) return { error: notSignedInResponse() }
+  return { canSeeCost: canReadPurchases(user) }
+}
+
+/** Fields of a line that carry what the goods cost: a batch line's / summary's cost and total, a picker item's cost. */
+const COST_FIELD = /cost|price|^total$|^sum$|^value$/i
+
+function withoutCostFields(line: unknown): unknown {
+  if (!line || typeof line !== "object" || Array.isArray(line)) return line
+  return Object.fromEntries(Object.entries(line).map(([key, value]) => [key, COST_FIELD.test(key) ? null : value]))
+}
+
+/** A batch detail as its reader may see it: unchanged for a reader of costs; for anyone else every cost figure is
+ * null (each line's and summary's cost and total, the batch's totalRawCost). `canSeeCost` tells the page whether
+ * to show the Себестоимость / Сумма columns and the Итого. */
+export function withCostVisibility(data: object, canSeeCost: boolean): Record<string, unknown> & { canSeeCost: boolean } {
+  if (canSeeCost) return { ...data, canSeeCost }
+  const shown: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(data)) shown[key] = Array.isArray(value) ? value.map(withoutCostFields) : /cost/i.test(key) ? null : value
+  return { ...shown, canSeeCost }
+}
+
+/** Picker items (GET /api/production/items) as their reader may see them: without the unit cost for a reader who
+ * may not see costs. */
+export function itemsWithCostVisibility(items: readonly object[], canSeeCost: boolean): unknown[] {
+  return canSeeCost ? [...items] : items.map(withoutCostFields)
 }
 
 export function errorResponse(message: string, status = 400, extra?: Record<string, unknown>) {
@@ -83,7 +124,8 @@ const DATE_ERROR = "Неверная дата"
 /** A real calendar day "YYYY-MM-DD" (2026-13-45 and 2026-02-31 are refused). */
 const dateString = z
   .string({ error: DATE_ERROR })
-  .regex(/^\d{4}-\d{2}-\d{2}$/, DATE_ERROR)
+  // `abort`: a value that is no "YYYY-MM-DD" at all («17.11.2026») is reported once, not twice.
+  .regex(/^\d{4}-\d{2}-\d{2}$/, { error: DATE_ERROR, abort: true })
   // A real day of a sane year (2000..2100, lib/document-dates.ts).
   .refine((value) => isIsoDay(value) && docYearOk(value), DATE_ERROR)
 const QTY_ERROR = "Количество должно быть больше 0 и не больше 1 000 000 000"
@@ -99,10 +141,12 @@ const image = z
   .max(3_000_000, "Изображение слишком большое")
   .refine((value) => value === "" || /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(value) || /^(https?:\/\/|\/(?!\/))[^\s"'<>\\]*$/.test(value), "Неверный формат изображения")
   .default("")
-const TIME_ERROR = "Время должно быть в формате ЧЧ:ММ"
-const time = z.string().trim().refine((value) => value === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(value), TIME_ERROR).default("")
 const id = dbId()
 const optionalId = dbId().nullable().default(null)
+/** «Добавление партии» (LIST): the reference's messages for a missing stage and a long comment. */
+export const PARTY_STAGE_REQUIRED = "Необходимо выбрать цех"
+export const PARTY_COMMENT_MAX = 500
+export const PARTY_COMMENT_ERROR = "Убедитесь, что в этом поле не больше 500 символов."
 
 /** "product:12" / "raw_material:5" catalog key, validated and split. */
 export const itemKeySchema = z
@@ -119,58 +163,65 @@ export const itemKeySchema = z
 export const itemLinesSchema = z.array(z.object({ key: itemKeySchema, amount })).min(1, "Добавьте хотя бы один товар").max(500)
 
 export const schemas = {
-  stage: z.object({
-    name,
-    warehouse: z.string({ error: "Укажите склад" }).trim().min(1, "Укажите склад").max(255),
-    responsible: z.string().trim().max(255).default(""),
-    responsibleId: optionalId.optional(),
-  }),
-  equipment: z.object({
-    stageId: id,
-    name,
-    // Omitted: a new machine is "работает" (as the form starts it), an edit keeps its status.
-    status: z.enum(["0", "1"]).optional(),
-    image,
-  }),
+  // Склад and Ответственный by id (the dialog), else by name (older clients); the id wins.
+  stage: z
+    .object({
+      name,
+      warehouseId: optionalId.optional(),
+      warehouse: z.string({ error: "Укажите склад" }).trim().max(255, "Не более 255 символов").default(""),
+      responsible: z.string({ error: "Неверное значение" }).trim().max(255, "Не более 255 символов").default(""),
+      responsibleId: optionalId.optional(),
+    })
+    .refine((value) => Boolean(value.warehouseId) || value.warehouse !== "", { message: "Укажите склад", path: ["warehouse"] }),
+  // STAFFEQ: a machine of the stage tab (lib/production-staffeq-schemas.ts, with Linko's field messages).
+  equipment: equipmentSchema,
+  // Operations are global like the reference's (no stage: a stageId sent by older clients is dropped). Their
+  // titles may be longer than other names (the reference keeps 256+ characters); an «Оборудование» operation's
+  // machine is checked by the repo (lib/production-stages-repo.ts).
   operation: z.object({
-    stageId: id,
-    title: name,
+    title: z.string({ error: "Заполните наименование" }).trim().min(1, "Заполните наименование").max(2000, "Не более 2000 символов"),
     duration: strictNum(z.number().int().min(0).max(MAX_QTY).default(0)),
     type: z.enum(["equipment", "human"]),
     equipmentId: optionalId,
   }),
-  staff: z.object({
-    stageId: id,
-    employeeId: optionalId,
-    employeeName: z.string().trim().max(255).default(""),
-    position: z.string().trim().max(255).default(""),
-    shift: z.string().trim().max(100).default(""),
-    beginTime: time,
-    endTime: time,
-  }),
+  // STAFFEQ: a staff row = an employee on a shift of the Смены directory; an edit changes the shift only.
+  staff: staffSchema,
+  staffUpdate: staffUpdateSchema,
+  // PRODUCTS: a stage product. Its equipment is required, as the reference's (400 «equipment: Это поле
+  // обязательно к заполнению»); the product must be a catalog product on no other stage (the repo checks).
   recipe: z.object({
     stageId: id,
     key: itemKeySchema,
-    equipmentId: optionalId,
+    equipmentId: dbId("Укажите оборудование"),
     amount,
     components: z.array(z.object({ role: z.enum(["raw", "ready"]), key: itemKeySchema, amount })).max(500).default([]),
   }),
+  // «Изменение нормы»: a stageId other than the current one moves the product there (the reference's «Производство»).
   recipeUpdate: z.object({
+    stageId: id.optional(),
     equipmentId: optionalId,
     amount,
   }),
   recipeComponent: z.object({ role: z.enum(["raw", "ready"]), key: itemKeySchema, amount }),
   componentAmount: z.object({ amount }),
-  party: z.object({
-    stageId: id,
-    date: dateString,
-    comment: text(),
+  // «Прикрепить операцию»: every chosen operation to every selected stage product.
+  productOperations: z.object({
+    recipeIds: z.array(id, { error: "Выберите хотя бы один продукт" }).min(1, "Выберите хотя бы один продукт").max(500, "Неверные данные"),
+    operationIds: z.array(id, { error: "Выберите хотя бы одну операцию" }).min(1, "Выберите хотя бы одну операцию").max(200, "Неверные данные"),
   }),
+  // LIST («Добавление партии»): the reference's own refusals — no stage («Необходимо выбрать цех»), a comment of more
+  // than 500 characters. The day is a stock day: never after today (lib/production-stock.ts assertMovementDay).
+  party: z.object({
+    stageId: dbId(PARTY_STAGE_REQUIRED),
+    date: dateString,
+    comment: z.string({ error: "Неверные данные" }).trim().max(PARTY_COMMENT_MAX, PARTY_COMMENT_ERROR).default(""),
+  }),
+  // «Изменение партии»: the comment has the limit of «Добавление партии» (the reference refuses more than 500 characters).
   partyUpdate: z.object({
     stageId: id,
     status: z.enum(["pending", "finished", "cancelled"]),
     date: dateString,
-    comment: text(),
+    comment: z.string({ error: "Неверные данные" }).trim().max(PARTY_COMMENT_MAX, PARTY_COMMENT_ERROR).default(""),
   }),
   partyItems: z.object({
     direction: z.enum(["made", "raw"]),
@@ -184,35 +235,29 @@ export const schemas = {
     comment: text(),
     image,
   }),
+  // «Автодобавление»: the stage product and the amount made. Like the reference, the server works the consumed raw
+  // materials out from the product's norm; components a client still sends are ignored (dropped by the schema).
   autoFinish: z.object({
     recipeId: id,
     amount,
     comment: text(),
-    components: z.array(z.object({ key: itemKeySchema, amount })).max(500).default([]),
   }),
+  // Активность (ACTIVITY): a shift entry. The shift is one of the Смены directory, by id (shiftId) or by
+  // its name (shift); the activity repo refuses any other (400).
   activity: z.object({
     stageId: id,
     direction: z.enum(["made", "raw"]),
     date: dateString,
+    shiftId: optionalId,
     shift: z.string().trim().max(100).default(""),
     equipmentId: optionalId,
     worker: z.string().trim().max(255).default(""),
     items: z.array(z.object({ key: itemKeySchema, amount, isDefect: z.boolean().default(false) })).min(1, "Добавьте хотя бы один товар").max(500),
   }),
-  inventory: z.object({
-    stageId: id,
-    date: dateString,
-    comment: text(),
-    lines: z
-      .array(
-        z.object({
-          key: itemKeySchema,
-          actual: strictNum(z.number({ error: "Фактическое количество: от 0 до 1 000 000 000" }).finite().min(0, "Фактическое количество: от 0 до 1 000 000 000").max(MAX_QTY, "Фактическое количество: от 0 до 1 000 000 000"), "Фактическое количество: от 0 до 1 000 000 000"),
-        }),
-      )
-      .min(1, "Нет строк для сверки")
-      .max(5000),
-  }),
+  // «Изменить» of a shift entry in «Записи»: its new amount.
+  activityAmount: z.object({ amount }),
+  // «Сверить» is the warehouse's inventory (Склад → Инвентаризация, /api/stock/inventories) now; the stage's
+  // own earlier reconciliations are read only (GET /api/production/inventories).
 }
 
 /** Shared response for the batch movement endpoints (add made / raw / defect,
@@ -224,6 +269,18 @@ export function movementResponse(result: object | "not_found" | "not_pending" | 
   return NextResponse.json(result)
 }
 
+/** A query day: a real "YYYY-MM-DD" of a sane year (2000..2100, lib/document-dates.ts), as the body schemas take it. */
 export function isDateParam(value: string | null): value is string {
-  return !!value && isIsoDay(value)
+  return !!value && isIsoDay(value) && docYearOk(value)
+}
+
+/** 400 «Неверная дата» (with the field) for the first named query day that is given but is no valid day
+ * (isDateParam: malformed, or a year outside 2000..2100); null when each is missing or valid. A route then keeps
+ * its «… обязательны» answer for the values that are really missing. */
+export function dateParamError(params: URLSearchParams, ...names: string[]): NextResponse | null {
+  for (const name of names) {
+    const value = params.get(name)
+    if (value !== null && value !== "" && !isDateParam(value)) return errorResponse(DATE_ERROR, 400, { field: name })
+  }
+  return null
 }

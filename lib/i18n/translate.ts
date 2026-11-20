@@ -118,6 +118,15 @@ function translatePhrases(lang: TargetLanguage, text: string): string {
 const SHORTAGE = /^(.*?)Недостаточно товара на складе «([^»]*)»: (.+?)(; … \(\+\d+\))?$/
 const SHORTAGE_PART = /^(.+) — (доступно|нужно) (.+?), (требуется|доступно) (.+)$/
 
+// The defective units of an item are named "<item> (брак)" in the stock refusals (lib/internal-transfers-stock.ts,
+// lib/production-stock.ts): the mark is a dictionary word, the name is data.
+const DEFECT_MARK = " (брак)"
+
+/** An item name of a stock refusal with its « (брак)» mark translated ("Un (брак)" → "Un (defect)"). */
+function withDefectMark(lang: TargetLanguage, name: string): string {
+  return name.endsWith(DEFECT_MARK) ? `${name.slice(0, -DEFECT_MARK.length)} (${dictionaries[lang]["брак"] ?? "брак"})` : name
+}
+
 function translateShortage(lang: TargetLanguage, text: string): string | null {
   const match = SHORTAGE.exec(text)
   if (!match) return null
@@ -125,6 +134,7 @@ function translateShortage(lang: TargetLanguage, text: string): string | null {
   const head = dictionary["Недостаточно товара на складе"]
   if (!head) return null
   const word = (key: string) => (key === "нужно" ? (dictionary["нужно"] ?? dictionary["требуется"]) : dictionary[key]) ?? key
+  const item = (name: string) => withDefectMark(lang, name)
   // Items are split at "; " unless the piece is not a whole "<item> — доступно …" (a name with "; ").
   const parts: string[] = []
   let carry = ""
@@ -136,11 +146,44 @@ function translateShortage(lang: TargetLanguage, text: string): string | null {
       continue
     }
     carry = ""
-    parts.push(`${part[1]} — ${word(part[2])} ${part[3]}, ${word(part[4])} ${part[5]}`)
+    parts.push(`${item(part[1])} — ${word(part[2])} ${part[3]}, ${word(part[4])} ${part[5]}`)
   }
   if (carry || !parts.length) return null
   const prefix = match[1].trim() ? `${translate(lang, match[1].trim())} ` : match[1]
   return `${prefix}${head} «${match[2]}»: ${parts.join("; ")}${match[4] ?? ""}`
+}
+
+// Production's stock refusals in the reference's own words (lib/production-stock.ts productionShortageMessage):
+// "<item> недостаточно на складе <W>. Доступно: A, необходимо: R", several joined by "; " (then "; … (+N)"), behind
+// an optional "Не возможно отменить. " / "удалить. " / "изменить. ". The fixed words are dictionary keys; the item,
+// the warehouse and the quantities are data and stay as they are.
+const PRODUCTION_SHORTAGE_PART = /^(.+) недостаточно на складе (.+)\. Доступно: (\S+), необходимо: (\S+)$/
+
+function translateProductionShortage(lang: TargetLanguage, text: string): string | null {
+  if (!text.includes(" недостаточно на складе ")) return null
+  const dictionary = dictionaries[lang]
+  const [short, available, required] = ["недостаточно на складе", "Доступно", "необходимо"].map((key) => dictionary[key])
+  if (!short || !available || !required) return null
+  let body = text
+  const head = /^(Не возможно [а-яё]+\.) /.exec(body)
+  if (head) body = body.slice(head[0].length)
+  const more = /; … \(\+\d+\)$/.exec(body)?.[0] ?? ""
+  if (more) body = body.slice(0, -more.length)
+  // Items are split at "; " unless the piece is not a whole "<item> недостаточно …" (a name with "; ").
+  const parts: string[] = []
+  let carry = ""
+  for (const piece of body.split("; ")) {
+    const joined = carry ? `${carry}; ${piece}` : piece
+    const part = PRODUCTION_SHORTAGE_PART.exec(joined)
+    if (!part) {
+      carry = joined
+      continue
+    }
+    carry = ""
+    parts.push(`${withDefectMark(lang, part[1])} ${short} ${part[2]}. ${available}: ${part[3]}, ${required}: ${part[4]}`)
+  }
+  if (carry || !parts.length) return null
+  return `${head ? `${translate(lang, head[1])} ` : ""}${parts.join("; ")}${more}`
 }
 
 // Uses the original Russian source text as the dictionary key, so any string
@@ -156,7 +199,7 @@ export function translate(lang: LanguageCode, text: string): string {
   const exact = dictionary[text]
   if (exact !== undefined) return exact
   if (!/[А-Яа-яЁё]/.test(text)) return text
-  const shortage = translateShortage(lang, text)
+  const shortage = translateShortage(lang, text) ?? translateProductionShortage(lang, text)
   if (shortage !== null) return shortage
 
   const numbers: string[] = []

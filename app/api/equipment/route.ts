@@ -1,20 +1,23 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { createEquipment, equipmentInputSchema, listEquipment } from "@/lib/equipment-repo"
+import { createEquipment, listEquipment } from "@/lib/equipment-repo"
 import { getCurrentUser } from "@/lib/current-user"
+import { guarded, parseBody } from "@/lib/production-api"
+import { equipmentSettingsSchema } from "@/lib/production-staffeq-schemas"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+
+// Настройки → «Оборудования»: the production equipment of every stage (lib/equipment-repo.ts).
 
 export async function GET(request: NextRequest) {
   if (!(await getCurrentUser())) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json(await listEquipment(request.nextUrl.searchParams.get("search") ?? ""))
+  return guarded(async () => NextResponse.json(await listEquipment(request.nextUrl.searchParams.get("search") ?? "")))
 }
 
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-  const parsed = await parseJsonBody(request, equipmentInputSchema)
+  const parsed = await parseBody(request, equipmentSettingsSchema)
   if (parsed.error) return parsed.error
-  const item = await createEquipment({ name: parsed.data.name, manufacturingId: parsed.data.manufacturingId ?? null, photo: parsed.data.photo })
-  return NextResponse.json(item, { status: 201 })
+  const input = parsed.data
+  return guarded(async () => NextResponse.json(await createEquipment({ name: input.name, manufacturingId: input.manufacturingId, photo: input.photo }), { status: 201 }))
 }

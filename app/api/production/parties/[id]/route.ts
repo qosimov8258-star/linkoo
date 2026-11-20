@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server"
 
 import { requireRole } from "@/lib/rbac"
-import { errorResponse, guarded, notFound, parseBody, requireViewer, routeId, schemas, type RouteParams } from "@/lib/production-api"
-import { deleteParty, getPartyDetail, updateParty } from "@/lib/production-batches-repo"
+import { errorResponse, guarded, notFound, parseBody, requireProductionReader, routeId, schemas, withCostVisibility, type RouteParams } from "@/lib/production-api"
+import { deleteParty, getPartyDetail, STAGE_WAREHOUSE_LOCKED, updateParty } from "@/lib/production-batches-repo"
 import { parseIdSegment } from "@/lib/validation"
 
 export async function GET(_request: Request, context: RouteParams) {
-  const denied = await requireViewer()
-  if (denied) return denied
+  // ACCESS: the cost figures only for the readers of costs (lib/production-api.ts requireProductionReader).
+  const reader = await requireProductionReader()
+  if (reader.error) return reader.error
   const id = parseIdSegment((await context.params).id)
   const party = id ? await getPartyDetail(id) : null
-  return party ? NextResponse.json(party) : notFound("Партия не найдена")
+  return party ? NextResponse.json(withCostVisibility(party, reader.canSeeCost)) : notFound("Партия не найдена")
 }
 
 export async function PUT(request: Request, context: RouteParams) {
@@ -24,7 +25,7 @@ export async function PUT(request: Request, context: RouteParams) {
     const result = await updateParty(id, parsed.data)
     if (result === "not_found") return notFound("Партия не найдена")
     if (result === "stage_not_found") return notFound("Этап не найден")
-    if (result === "stage_locked") return errorResponse("В партии уже есть товары — этап изменить нельзя", 409)
+    if (result === "stage_locked") return errorResponse(STAGE_WAREHOUSE_LOCKED, 409)
     return NextResponse.json(result)
   })
 }

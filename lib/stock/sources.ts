@@ -254,8 +254,12 @@ export function buildMovementsSql(t: StockTables): string {
   // made value ÷ good units and defective units are worth 0. A batch with no
   // good output (yet) books its output at the document cost. These are the
   // values booked on the lines; the cost ledger (lib/net-cost-sync.ts) values
-  // a batch's good output again from the values it issued the batch's raw
-  // lines at, and shift output from its recipe norms at the ledger averages.
+  // a batch's good output again from the values it issued the batch's good raw
+  // lines at (spoiled raw leaves the stock but is no part of the output), and
+  // shift output from its recipe norms at the ledger averages.
+  // A batch's defective output (Бракованный товар) never enters the warehouse,
+  // as in the reference: the batch only records it. A shift entry's brak output
+  // (Активность) does enter it, as defective units.
   if (t.has("production_movements")) {
     const parties = t.has("production_parties")
     const exact = t.col("production_movements", "item_kind") && t.col("production_movements", "item_id")
@@ -270,6 +274,8 @@ export function buildMovementsSql(t: StockTables): string {
     const byParty = hasDefect && t.col("production_movements", "party_id")
     // Batch lines imported from Linko that Linko never booked into the stock (in_stock = 0) stay on the batch only.
     const inStock = t.col("production_movements", "in_stock") ? " AND COALESCE(m.in_stock, 1) = 1" : ""
+    // So does a batch's defective output (see above).
+    const batchBrak = byParty ? ` AND NOT (m.direction = 'made' AND ${defect} AND m.party_id IS NOT NULL)` : ""
     // fin_ts once per distinct date text (many movements share a day).
     ctes.push("stk_pm_dates AS MATERIALIZED (SELECT DISTINCT date FROM production_movements)")
     ctes.push("stk_pm_days AS MATERIALIZED (SELECT date, to_char(fin_ts(date), 'YYYY-MM-DD') AS day FROM stk_pm_dates)")
@@ -299,7 +305,7 @@ export function buildMovementsSql(t: StockTables): string {
         `FROM production_movements m ${parties ? "LEFT JOIN production_parties p ON p.id = m.party_id" : ""} ${join}
          LEFT JOIN stk_pm_days pd ON pd.date = m.date
          ${byParty ? "LEFT JOIN stk_pm_made pm ON pm.party_id = m.party_id" : ""}
-         WHERE m.direction IN ('made', 'raw', 'adjust') AND ${parties ? "(p.id IS NULL OR p.status <> 'cancelled')" : "true"}${inStock}`,
+         WHERE m.direction IN ('made', 'raw', 'adjust') AND ${parties ? "(p.id IS NULL OR p.status <> 'cancelled')" : "true"}${inStock}${batchBrak}`,
       ),
     )
   }
@@ -392,7 +398,7 @@ export function buildMovementsSql(t: StockTables): string {
 
 /** Pending quantities, as the reference (Linko stock/reserved_product) counts them: reserved by
  * orders still in the warehouse ("Есть на складе" and the unconfirmed "Не подтвержден") and by
- * confirmed internal transfers waiting to leave ("потвержден", at the source); internal
+ * the good lines of confirmed internal transfers waiting to leave ("потвержден", at the source); internal
  * transfers given but not yet accepted ("в пути", towards the target) and supplies not yet
  * accepted ("ожидает", towards their warehouse) are in transit. Columns:
  * warehouse, item_key, reserved, transit. No parameters. */
@@ -417,11 +423,13 @@ export function buildPendingSql(t: StockTables, options: { blocking?: boolean } 
       FROM internal_transfers tr CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("tr.items")}) AS l(j)
       ${KEY_JOIN("n", "l.j ->> 'product'")}
       WHERE tr.status = 'в пути' AND fin_key(l.j ->> 'product') <> ''`)
+    // A Брак line moves defective units: it never reserves good ones (lib/internal-transfers-repo.ts applyAction
+    // "give" gives back only the good lines of a confirmed transfer's own reservation; both change together).
     parts.push(`SELECT tr.from_warehouse::text AS warehouse, (${lineKey})::text AS item_key, (${jsonNum("l.j", "quantity")})::double precision AS reserved,
         0::double precision AS transit
       FROM internal_transfers tr CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("tr.items")}) AS l(j)
       ${KEY_JOIN("n", "l.j ->> 'product'")}
-      WHERE tr.status = 'потвержден' AND fin_key(l.j ->> 'product') <> ''`)
+      WHERE tr.status = 'потвержден' AND fin_key(l.j ->> 'product') <> '' AND ${jsonFlag("l.j", "defect")} = 0`)
   }
   if (!options.blocking && t.has("supplier_incomings")) {
     // Linko's «В пути» (stock/all_balances?in_way=true `given`) is what supplies still waiting to be accepted

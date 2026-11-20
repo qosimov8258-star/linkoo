@@ -1,7 +1,10 @@
 "use client"
 
-import { useRef, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
+
+import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
+import { todayIso } from "@/lib/finance/dates"
 
 /** Material radio row of the reference's full-screen dialogs: 34 px row, 24 px mark, 13 px label. */
 export function MaterialRadio({
@@ -51,6 +54,9 @@ export function MaterialDate({
   className = "",
   compact,
   display,
+  calendar,
+  open,
+  onOpenChange,
 }: {
   label: string
   required?: boolean
@@ -65,8 +71,42 @@ export function MaterialDate({
   compact?: boolean
   /** Text shown for the chosen date (defaults to dd.mm.yyyy). */
   display?: string
+  /** The reference's Material calendar dialog (ОТМЕНА / OK) instead of the browser's own date picker: no browser
+   * bubbles in the browser's language; the caller checks the day (min / max are not applied). */
+  calendar?: boolean
+  /** With `calendar`: whether the calendar is open, when the caller opens it itself (e.g. right after another field
+   * was chosen, as the reference's forms do). Left out, the field keeps that state on its own (a click opens it). */
+  open?: boolean
+  /** With `calendar`: told every time the calendar opens or closes (a click, ОТМЕНА, OK, Escape). */
+  onOpenChange?: (open: boolean) => void
 }) {
   const input = useRef<HTMLInputElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const [ownPicking, setOwnPicking] = useState(false)
+  const picking = open ?? ownPicking
+  const setPicking = useCallback(
+    (next: boolean) => {
+      if (open === undefined) setOwnPicking(next)
+      onOpenChange?.(next)
+    },
+    [open, onOpenChange],
+  )
+  // Opened by the caller: the focus moves on to this field (a key typed then is not taken by the field before it).
+  useEffect(() => {
+    if (open) trigger.current?.focus()
+  }, [open])
+  // While the calendar is open, Escape closes the calendar only (not the dialog under it).
+  useEffect(() => {
+    if (!picking) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      event.stopPropagation()
+      setPicking(false)
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [picking, setPicking])
   return (
     <div className={`relative h-[38px] border-b ${error ? "border-[#f44336]" : "border-[#e0e0e0]"} ${className}`}>
       {value ? (
@@ -88,17 +128,31 @@ export function MaterialDate({
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-[14px] h-6 w-6 fill-[#bdbdbd]" aria-hidden>
         <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z" opacity=".6" />
       </svg>
-      <input
-        ref={input}
-        type="date"
-        value={value}
-        min={min}
-        max={max}
-        onChange={(event) => onChange(event.target.value)}
-        onClick={() => input.current?.showPicker?.()}
-        aria-label={label}
-        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-      />
+      {calendar ? (
+        <button ref={trigger} type="button" onClick={() => setPicking(true)} aria-label={label} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      ) : (
+        <input
+          ref={input}
+          type="date"
+          value={value}
+          min={min}
+          max={max}
+          onChange={(event) => onChange(event.target.value)}
+          onClick={() => input.current?.showPicker?.()}
+          aria-label={label}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+      )}
+      {calendar && picking && (
+        <DatePickerDialog
+          value={value || todayIso()}
+          onCancel={() => setPicking(false)}
+          onPick={(next) => {
+            onChange(next)
+            setPicking(false)
+          }}
+        />
+      )}
       {error && <div className="absolute left-0 top-[40px] text-[12px] leading-4 text-[#f44336]">{error}</div>}
     </div>
   )
@@ -142,6 +196,9 @@ export function MaterialDialog({
   maxHeight,
   closeInset = 10,
   modal = false,
+  closeOnBackdrop = true,
+  closeOnEscape = false,
+  bodyOverflow = "auto",
 }: {
   title: ReactNode
   onClose: () => void
@@ -159,8 +216,24 @@ export function MaterialDialog({
   modal?: boolean
   /** Renders the box as a form (the footer submit button then submits it). */
   onSubmit?: () => void
+  /** false: a click on the dimmed backdrop leaves the dialog open (the reference's modal forms keep what was typed). */
+  closeOnBackdrop?: boolean
+  /** Escape closes the dialog (unless a control inside it used the key, e.g. to close its own list). */
+  closeOnEscape?: boolean
+  /** "visible": a short form's body does not scroll, so a field's dropdown can reach past the dialog's edge instead
+   * of being cut off inside it (the reference draws such lists over the page). */
+  bodyOverflow?: "auto" | "visible"
   children: ReactNode
 }) {
+  useEffect(() => {
+    if (!closeOnEscape) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return
+      onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [closeOnEscape, onClose])
   const Box = onSubmit ? "form" : "div"
   const header = (
     <div className="flex h-[60px] shrink-0 items-center border-b border-[#efefef] pl-[30px]" style={{ paddingRight: closeInset }}>
@@ -174,7 +247,7 @@ export function MaterialDialog({
     <div
       className={`fixed inset-0 flex justify-center overflow-y-auto bg-black/45 font-sans text-[13px] text-black ${top === undefined ? "items-center" : "items-start"}`}
       style={{ zIndex, paddingTop: top }}
-      onMouseDown={modal ? undefined : onClose}
+      onMouseDown={modal || !closeOnBackdrop ? undefined : onClose}
     >
       <Box
         role="dialog"
@@ -193,7 +266,7 @@ export function MaterialDialog({
       >
         {footer ? (
           <>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className={`min-h-0 flex-1 ${bodyOverflow === "visible" ? "" : "overflow-y-auto"}`}>
               {header}
               {children}
             </div>
@@ -305,6 +378,58 @@ export function MaterialInput({
         onChange={(event) => onChange(event.target.value)}
         className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent text-[13px] outline-none"
       />
+    </div>
+  )
+}
+
+/** One line of the multi-line field (px). */
+const TEXT_LINE = 18
+
+/**
+ * Material multi-line text field (the reference's «Комментарий...»): the label is the placeholder and floats above the
+ * text once there is some (or the field has focus); one row that grows to `maxRows`, then scrolls. Enter makes a new
+ * line: it never submits the form.
+ */
+export function MaterialTextArea({
+  label,
+  value,
+  onChange,
+  error,
+  maxRows = 3,
+  className = "",
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  /** Message under the field (the line turns red). */
+  error?: string
+  maxRows?: number
+  className?: string
+}) {
+  const area = useRef<HTMLTextAreaElement>(null)
+  const [focused, setFocused] = useState(false)
+  const floating = focused || value !== ""
+  useEffect(() => {
+    const element = area.current
+    if (!element) return
+    element.style.height = "0px"
+    // scrollHeight = the text + the 6 px bottom padding; the 1 px line is added on top (border-box).
+    element.style.height = `${Math.min(element.scrollHeight, TEXT_LINE * maxRows + 6) + 1}px`
+  }, [value, maxRows])
+  return (
+    <div className={`relative pt-[18px] ${className}`}>
+      <span className={`pointer-events-none absolute left-0 text-black transition-all ${floating ? "top-[2px] text-[10px] font-bold leading-3" : "top-[18px] text-[13px] font-semibold leading-[18px]"}`}>{label}</span>
+      <textarea
+        ref={area}
+        rows={1}
+        value={value}
+        aria-label={label}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className={`block w-full resize-none overflow-y-auto border-b bg-transparent pb-[6px] text-[13px] leading-[18px] text-black outline-none ${error ? "border-[#f44336]" : "border-[#e8e8e8]"}`}
+      />
+      {error && <div className="mt-[3px] text-[12px] leading-4 text-[#f44336]">{error}</div>}
     </div>
   )
 }

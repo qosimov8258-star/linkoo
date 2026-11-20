@@ -30,6 +30,10 @@ import {
 //   История Приемки   Поставка → {action:"unaccept"}; Передача → {action:"cancel_accepted"};
 //                     an accepted Возврат cannot be undone (no action)
 //   История Передачи  Передача still 'в пути' → {action:"cancel_given"}
+//   Отгрузка (the output of a production shift session, «Передать на склад»): Приемка → POST
+//                     /api/stock/plan/shipments/[id] {action:"accept", date} (Linko's done/ {date}: the date only);
+//                     История Приемки → {action:"cancel_accepted"} (back to Приемка). Linko's lines show Статус
+//                     «ОК» / «Брак», and the side panel Начало приемки / Конец приемки / Принял.
 // An action is offered only when the user has the permission its endpoint needs.
 
 type PlanAction = {
@@ -43,6 +47,8 @@ type PlanAction = {
   body: Record<string, string>
   /** Transfer give / accept: the dialog also asks for the date and a comment (POST …/action {date?, comment?}). */
   withNote: boolean
+  /** The comment field of that dialog (an «Отгрузка» is confirmed with its date only, as in Linko). */
+  withComment: boolean
   /** Permission the endpoint asks for (lib/capabilities-catalog.ts). */
   permission: PlanPermission
 }
@@ -53,16 +59,27 @@ export function planActionFor(tab: PlanTaskTab, row: Pick<PlanTaskRow, "type" | 
     method: "POST" as const,
     body: { action },
     withNote: action === "give" || action === "accept",
+    withComment: action === "give" || action === "accept",
     permission: "stock.manage" as const,
   })
-  const supply = (action: string) => ({ url: `/api/supplier-incomings/${row.id}`, method: "PATCH" as const, body: { action }, withNote: false, permission: "procurement.manage" as const })
+  const shipment = (action: "accept" | "cancel_accepted") => ({
+    url: `/api/stock/plan/shipments/${row.id}`,
+    method: "POST" as const,
+    body: { action },
+    withNote: action === "accept",
+    withComment: false,
+    permission: "stock.manage" as const,
+  })
+  const supply = (action: string) => ({ url: `/api/supplier-incomings/${row.id}`, method: "PATCH" as const, body: { action }, withNote: false, withComment: false, permission: "procurement.manage" as const })
   const confirm = { label: "Принять", title: "Подтвердить Запрос", tone: "blue" as const, success: "Успешно принять" }
   const cancel = { label: "Отменить Запрос", title: "Отменить Запрос", tone: "red" as const, success: "Успешно отменено" }
   if (tab === "receive" && row.type === "supply" && row.status === "ожидает") return { ...confirm, ...supply("accept") }
   if (tab === "receive" && row.type === "transfer" && row.status === "в пути") return { ...confirm, ...transfer("accept") }
   if (tab === "receive" && row.type === "order_return" && row.status === "pending") {
-    return { ...confirm, url: `/api/stock/plan/returns/${row.id}/accept`, method: "POST", body: {}, withNote: false, permission: "stock.manage" }
+    return { ...confirm, url: `/api/stock/plan/returns/${row.id}/accept`, method: "POST", body: {}, withNote: false, withComment: false, permission: "stock.manage" }
   }
+  if (tab === "receive" && row.type === "shipment" && row.status === "в пути") return { ...confirm, ...shipment("accept") }
+  if (tab === "receive_history" && row.type === "shipment" && row.status === "принят") return { ...cancel, ...shipment("cancel_accepted") }
   if (tab === "transfer" && row.type === "transfer" && row.status === "потвержден") return { ...confirm, label: "Передать", success: "Успешно передан", ...transfer("give") }
   if (tab === "receive_history" && row.type === "supply" && row.status === "принят") return { ...cancel, ...supply("unaccept") }
   if (tab === "receive_history" && row.type === "transfer" && row.status === "принят") return { ...cancel, ...transfer("cancel_accepted") }
@@ -115,7 +132,7 @@ export function StockPlanDetail({
       if (action.withNote) {
         // The transfer endpoint dates the action now unless another day is chosen.
         if (note.date && note.date !== todayIso()) body.date = note.date
-        if (note.comment.trim()) body.comment = note.comment.trim()
+        if (action.withComment && note.comment.trim()) body.comment = note.comment.trim()
       }
       const response = await fetch(action.url, { method: action.method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       const result = (await response.json().catch(() => null)) as { error?: string } | null
@@ -132,8 +149,13 @@ export function StockPlanDetail({
   const products = data?.products ?? []
   const units = new Set(products.map((product) => product.unit))
   const total = products.reduce((sum, product) => sum + product.qty, 0)
+  const shipment = row.type === "shipment"
   const info: Array<[string, string]> = []
-  if (data) {
+  if (data && shipment) {
+    // Linko's shipment panel: Начало приемки (when the goods left the stage) / Конец приемки / Принял.
+    const unset = t("Не установлено")
+    info.push(["От кого", data.fromName], ["Начало приемки", data.givenAt ? planDate(data.givenAt, language) : unset], ["Конец приемки", data.acceptedAt ? planDate(data.acceptedAt, language) : unset], ["Принял", data.acceptedBy || unset])
+  } else if (data) {
     if (receive) info.push(["От кого", data.fromName])
     else info.push(["Кому", data.toName])
     if (tab === "receive_history") info.push(["Дата приемки", planDate(data.acceptedAt, language)], ["Принял", data.acceptedBy])
@@ -152,6 +174,12 @@ export function StockPlanDetail({
         <span className="font-semibold">
           {t(PLAN_TYPE_LABELS[row.type])} № {row.id}
         </span>
+        {/* Linko's shipment header: № | who handed it over | Отгрузка | when | the warehouse. */}
+        {shipment && data && (
+          <span className="text-[13px] text-[#586174]">
+            {[data.createdBy, data.createdAt ? planDate(data.createdAt, language) : "", data.toName].filter(Boolean).join(" · ")}
+          </span>
+        )}
         {row.type === "order" && !isHistoryTab(tab) && <span className="text-[13px] text-[#9aa3b6]">{t("Заказы обрабатываются в модуле заказов")}</span>}
         <div className="ml-auto flex items-center gap-2">
           {action && (
@@ -184,8 +212,9 @@ export function StockPlanDetail({
                 <thead>
                   <tr className="border-b border-dotted border-[#cfd5df] font-semibold">
                     <td className="py-3 pr-3">{t("Товар")}</td>
-                    <td className="py-3 pr-3">{t("Тип товара")}</td>
+                    <td className="py-3 pr-3">{t(shipment ? "Тип" : "Тип товара")}</td>
                     <td className="py-3 text-right">{t("Кол-во")}</td>
+                    {shipment && <td className="py-3 pl-3 text-right">{t("Статус")}</td>}
                   </tr>
                 </thead>
                 <tbody>
@@ -194,13 +223,14 @@ export function StockPlanDetail({
                       <td className="py-3 pr-3">{product.name}</td>
                       <td className="py-3 pr-3 text-[#586174]">{product.productType || "—"}</td>
                       <td className="whitespace-nowrap py-3 text-right">{planQty(product.qty, product.unit, t)}</td>
+                      {shipment && <td className={`py-3 pl-3 text-right ${product.defect ? "text-[#e57373]" : ""}`}>{product.defect ? t("Брак") : t("ОК")}</td>}
                     </tr>
                   ))}
                 </tbody>
                 {units.size === 1 && (
                   <tfoot>
                     <tr>
-                      <td colSpan={3} className="py-3 font-bold">
+                      <td colSpan={shipment ? 4 : 3} className="py-3 font-bold">
                         {t("Общее количество")} {planQty(total, [...units][0], t)}
                       </td>
                     </tr>
@@ -237,9 +267,11 @@ export function StockPlanDetail({
               <FormField label={t("Дата")}>
                 <input type="date" value={note.date} max={todayIso()} onChange={(event) => setNote((value) => ({ ...value, date: event.target.value }))} className={inputClass} />
               </FormField>
-              <FormField label={t("Комментарий")}>
-                <textarea value={note.comment} onChange={(event) => setNote((value) => ({ ...value, comment: event.target.value }))} rows={2} className={`${inputClass} h-auto py-2`} />
-              </FormField>
+              {action.withComment && (
+                <FormField label={t("Комментарий")}>
+                  <textarea value={note.comment} onChange={(event) => setNote((value) => ({ ...value, comment: event.target.value }))} rows={2} className={`${inputClass} h-auto py-2`} />
+                </FormField>
+              )}
             </div>
           )}
         </ConfirmDialog>

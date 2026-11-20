@@ -7,6 +7,7 @@ import { nameKey, placeName } from "@/lib/finance/entities"
 import { computeStockBalances, computeStockPending, movementsQuery, type StockBalanceRow } from "@/lib/stock/balances"
 import { loadStockCatalog } from "@/lib/stock/catalog"
 import { getWarehouseItemCosts } from "@/lib/stock/costs"
+import { describeProductionLines } from "@/lib/stock/production-documents"
 import { stockTables, type StockTables } from "@/lib/stock/schema"
 import { jsonLines } from "@/lib/stock/sources"
 import type {
@@ -132,6 +133,44 @@ async function orphanItems(keys: string[], db: PgDb, t: StockTables): Promise<Ma
     for (const name of names) if (!result.has(`name:${name}`)) result.set(`name:${name}`, { name, unit: "" })
   }
   return result
+}
+
+/** A production «Отгрузка» (an internal transfer with source 'shipment': a worker shift session's output handed over,
+ * lib/production-sessions-repo.ts) is no «Внутреннее перемещение» (the transfer list hides it): it is numbered by its
+ * session and opens in План приемок и передач (История Приемки: a receipt is an accepted one). In place. */
+async function describeShipments(receipts: StockReceipt[], db: PgDb, t: StockTables): Promise<void> {
+  if (!t.col("internal_transfers", "source") || !t.col("internal_transfers", "source_id")) return
+  const ids = [...new Set(receipts.filter((receipt) => receipt.docType === "internal_transfers" && receipt.docId > 0).map((receipt) => receipt.docId))]
+  if (!ids.length) return
+  const rows = (await db
+    .prepare("SELECT id, source_id, COALESCE(status, '') AS status FROM internal_transfers WHERE id = ANY(@stk_ids::int[]) AND source = 'shipment' AND source_id IS NOT NULL")
+    .all({ stk_ids: ids })) as Array<{ id: number; source_id: number; status: string }>
+  const shipments = new Map(rows.map((row) => [Number(row.id), row]))
+  for (const receipt of receipts) {
+    const shipment = receipt.docType === "internal_transfers" ? shipments.get(receipt.docId) : undefined
+    if (!shipment) continue
+    const session = Number(shipment.source_id)
+    receipt.docType = "production_shipment"
+    receipt.docId = session
+    receipt.href = `/analytics/receipt-transfer-plan?tab=${shipment.status === "принят" ? "receive_history" : "receive"}&id=shipment-${session}`
+  }
+}
+
+/** A production receipt is booked under its production_movements row id, which names no document: it is named by
+ * what it belongs to, as in Движение товаров (lib/stock/production-documents.ts): «Партия №100» opening the batch,
+ * a stage's «Активность» (a shift entry, no number) or reconciliation opening the stage. In place. */
+async function describeProduction(receipts: StockReceipt[], db: PgDb, t: StockTables): Promise<void> {
+  if (!t.has("production_movements")) return
+  const ids = receipts.filter((receipt) => receipt.docType === "production_movements" && receipt.docId > 0).map((receipt) => receipt.docId)
+  if (!ids.length) return
+  const lines = await describeProductionLines(db, ids)
+  for (const receipt of receipts) {
+    if (receipt.docType !== "production_movements") continue
+    const document = lines.get(receipt.docId) ?? { docType: "production_movements", docId: 0 }
+    receipt.docType = document.docType
+    receipt.docId = document.docId
+    if (document.href) receipt.href = document.href
+  }
 }
 
 type Conversion = { factor: number; unit: string }
@@ -440,6 +479,8 @@ export async function getStockItemDetail(key: string, query: Pick<StockLevelQuer
       unitCost: row.qty ? round(Number(row.value) / Number(row.qty), 6) : 0,
       isDefect: Number(row.is_defect) === 1,
     }))
+  await describeShipments(receipts, db, ctx.tables)
+  await describeProduction(receipts, db, ctx.tables)
 
   return {
     key,

@@ -18,7 +18,8 @@ export async function PUT(request: Request, context: RouteParams) {
   })
 }
 
-/** 409 {error, usage} while batches or shift entries reference the stage. */
+/** 409 {error, usage} while anything still references the stage (batches, products, staff, equipment, shift
+ * entries, counts); never a silent cascade. Its operations are global and stay. */
 export async function DELETE(_request: Request, context: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error

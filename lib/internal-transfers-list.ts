@@ -73,8 +73,13 @@ export function parseTransferOrdering(value: string): string {
 
 const inNames = (column: string, param: string) => `fin_key(${column}) IN (SELECT fin_key(x) FROM unnest(@${param}::text[]) AS x)`
 
+/** The «Отгрузка» documents of production shift sessions (source 'shipment') are no transfers between warehouses:
+ * as in Linko, they are listed only in Склад → План приемок и передач (Приемка / История Приемки). Their detail stays
+ * readable by id (GET /api/internal-transfers/[id]) for the links of the stock movements. */
+const NOT_SHIPMENT = "COALESCE(t.source, '') <> 'shipment'"
+
 function where(query: TransferListQuery): { sql: string; params: Record<string, unknown> } {
-  const parts: string[] = []
+  const parts: string[] = [NOT_SHIPMENT]
   const params: Record<string, unknown> = {}
   if (query.ids.length) {
     parts.push("t.id = ANY(@ids::int[])")
@@ -156,7 +161,7 @@ export async function listTransfers(query: TransferListQuery): Promise<TransferL
 export async function listAllTransfers(): Promise<Transfer[]> {
   await ensureTransfersSchema()
   await syncTransferValues()
-  const rows = (await getDb().prepare("SELECT * FROM internal_transfers ORDER BY id DESC").all()) as TransferRow[]
+  const rows = (await getDb().prepare(`SELECT * FROM internal_transfers t WHERE ${NOT_SHIPMENT} ORDER BY id DESC`).all()) as TransferRow[]
   return rows.map(rowToTransfer)
 }
 
@@ -187,7 +192,7 @@ export async function transferOptions(): Promise<TransferOptions> {
     getStockOptions(db),
     transferWarehouses(),
     loadCurrencyContext(db),
-    db.prepare("SELECT DISTINCT created_by AS name FROM internal_transfers WHERE btrim(created_by) <> '' ORDER BY 1").all() as Promise<Array<{ name: string }>>,
+    db.prepare(`SELECT DISTINCT created_by AS name FROM internal_transfers t WHERE btrim(created_by) <> '' AND ${NOT_SHIPMENT} ORDER BY 1`).all() as Promise<Array<{ name: string }>>,
   ])
   return {
     warehouses,

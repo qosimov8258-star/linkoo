@@ -189,6 +189,7 @@ export function CashModal({
   footerButtons = "text",
   closeInset = 10,
   dismissible = true,
+  footerAutoHeight = false,
 }: {
   title: ReactNode
   onClose: () => void
@@ -207,6 +208,8 @@ export function CashModal({
   closeInset?: number
   /** false: only the X closes it, not Escape or a click outside (the reference's modal forms). */
   dismissible?: boolean
+  /** The footer grows past its 57 px with what it holds (a long error beside the action) instead of clipping it. */
+  footerAutoHeight?: boolean
 }) {
   const { t } = useLanguage()
   useEffect(() => {
@@ -254,7 +257,7 @@ export function CashModal({
         <div className="min-h-0 flex-1 overflow-y-auto px-[30px] pb-[10px] pt-[15px]">{children}</div>
         {footer && (
           <div
-            className={`flex h-[57px] shrink-0 items-center justify-end gap-4 border-t border-[#efefef] pr-[26px] ${
+            className={`flex ${footerAutoHeight ? "min-h-[57px] py-[8px]" : "h-[57px]"} shrink-0 items-center justify-end gap-4 border-t border-[#efefef] pr-[26px] ${
               footerButtons === "filled"
                 ? "[&_button]:!h-9 [&_button]:!rounded-[2px] [&_button]:!px-5 [&_button]:!text-[13px] [&_button]:!font-bold"
                 : `[&_button]:!h-9 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!min-w-[56px] [&_button]:!px-0 [&_button]:!text-[13px] [&_button]:!font-semibold [&_button]:!uppercase ${footerButtons === "danger" ? "[&_button]:!text-[#f44336]" : "[&_button]:!text-[#129fdd]"} [&_button]:!shadow-none [&_button]:hover:!underline`
@@ -374,6 +377,7 @@ export function SearchSelect({
   loading,
   allowClear = true,
   variant = "box",
+  rawLabels = false,
 }: {
   variant?: "box" | "underline"
   value: string
@@ -386,6 +390,10 @@ export function SearchSelect({
   onSearch?: (text: string) => void
   loading?: boolean
   allowClear?: boolean
+  /** The labels and hints are stored data (stage, warehouse, employee names): the page translator leaves the option
+   * labels, their hints and the selected label alone, so an app text in a hint must already go through t(). The
+   * picker's own texts are unchanged. */
+  rawLabels?: boolean
 }) {
   const { t } = useLanguage()
   const underline = variant === "underline"
@@ -434,7 +442,9 @@ export function SearchSelect({
         }}
         className={`${inputClass} flex items-center justify-between gap-2 pr-12 text-left ${invalid ? "!border-[#f44336]" : ""}`}
       >
-        <span className={`truncate ${label ? "" : "sel-ph text-[#9aa3b6]"}`}>{label || (underline ? "" : placeholder || t("Выберите"))}</span>
+        <span className={`truncate ${label ? "" : "sel-ph text-[#9aa3b6]"}`} {...(rawLabels && label ? { "data-no-translate": "" } : {})}>
+          {label || (underline ? "" : placeholder || t("Выберите"))}
+        </span>
       </button>
       <span className="pointer-events-none absolute right-1 top-[15px] text-[#9e9e9e]">
         <span className="block h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[#9e9e9e]" />
@@ -473,8 +483,14 @@ export function SearchSelect({
                 style={option.depth ? { paddingLeft: 12 + option.depth * 18 } : undefined}
                 className={`flex w-full flex-col px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8] ${option.value === value ? "font-semibold" : ""} ${option.value === value || index === active ? "bg-[#f2f5f8]" : ""}`}
               >
-                <span className="truncate">{option.label}</span>
-                {option.hint && <span className="truncate text-[12px] text-[#9aa3b6]">{option.hint}</span>}
+                <span className="truncate" {...(rawLabels ? { "data-no-translate": "" } : {})}>
+                  {option.label}
+                </span>
+                {option.hint && (
+                  <span className="truncate text-[12px] text-[#9aa3b6]" {...(rawLabels ? { "data-no-translate": "" } : {})}>
+                    {option.hint}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -575,6 +591,7 @@ export function ConfirmDialog({
   tone = "red",
   kind,
   item,
+  rawItem,
   warning,
   busy,
   error,
@@ -590,6 +607,8 @@ export function ConfirmDialog({
   kind?: "cancel" | "request"
   /** Text of the grey band under the question (delete: the title; cancel: this). */
   item?: string
+  /** The band holds stored data (a name, lib/ask-confirm's item): the page translator leaves it alone. */
+  rawItem?: boolean
   /** The reference's pink warning body (red bold text, red «ДА»), e.g. cancelling an already accepted supply. */
   warning?: ReactNode
   text?: ReactNode
@@ -619,9 +638,12 @@ export function ConfirmDialog({
       zIndex={160}
       dismissible={dismissible}
       footerButtons={warning ? "danger" : "text"}
+      footerAutoHeight={Boolean(error)}
       footer={
         <>
-          {error && <span className="mr-auto text-[12px] text-[#f44336]">{error}</span>}
+          {/* The footer has no left padding of its own: the error is inset like the body (30 px) and kept off the
+              button; a long one (a shortage list) wraps and the footer grows with it, so all of it can be read. */}
+          {error && <span className="ml-[30px] mr-auto min-w-0 text-[12px] leading-[16px] text-[#f44336]">{error}</span>}
           <PrimaryButton tone={tone} busy={busy} onClick={onConfirm}>
             {t(confirmLabel)}
           </PrimaryButton>
@@ -638,7 +660,11 @@ export function ConfirmDialog({
         {requesting && <p>{t("Подтверждение запроса")}</p>}
         {requesting && text && <div className="-mx-[30px] mt-[19px] flex h-[55px] items-center bg-[#f2f5f8] px-[30px] font-semibold">{text}</div>}
         {(deleting || cancelling) && !textHasQuestion && <p>{question}</p>}
-        {(showItem || (cancelling && item)) && <div className="-mx-[30px] mt-[19px] flex h-[55px] items-center bg-[#f2f5f8] px-[30px] font-semibold">{cancelling && item ? item : title}</div>}
+        {(showItem || (cancelling && item)) && (
+          <div className="-mx-[30px] mt-[19px] flex h-[55px] items-center bg-[#f2f5f8] px-[30px] font-semibold">
+            {rawItem ? <span data-no-translate>{cancelling && item ? item : title}</span> : cancelling && item ? item : title}
+          </div>
+        )}
         {text && !requesting && !(cancelling && item) && <p className={(deleting || cancelling) && !textHasQuestion ? "mt-2" : ""}>{text}</p>}
         {children}
       </div>

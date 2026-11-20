@@ -3,7 +3,8 @@ import { guarded, movementResponse, notFound, parseBody, schemas, type RoutePara
 import { autoFinishParty } from "@/lib/production-batches-repo"
 import { parseIdSegment } from "@/lib/validation"
 
-/** "Автодобавление": made product + consumed components, then finish. */
+/** "Автодобавление": the product made and its amount; the server books the raw materials its norm consumes for that
+ * amount (like the reference, the client sends no components), then finishes the batch. */
 export async function POST(request: Request, context: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
@@ -11,13 +12,9 @@ export async function POST(request: Request, context: RouteParams) {
   if (!id) return notFound("Партия не найдена")
   const parsed = await parseBody(request, schemas.autoFinish)
   if (parsed.error) return parsed.error
-  const { recipeId, amount, comment, components } = parsed.data
+  const { recipeId, amount, comment } = parsed.data
   return guarded(async () => {
-    const result = await autoFinishParty(
-      id,
-      { recipeId, amount, comment, components: components.map(({ key, amount: norm }) => ({ kind: key.kind, id: key.id, amount: norm })) },
-      auth.user.displayName,
-    )
+    const result = await autoFinishParty(id, { recipeId, amount, comment }, auth.user.displayName)
     if (result === "recipe_not_found") return notFound("Продукт этапа не найден")
     return movementResponse(result)
   })

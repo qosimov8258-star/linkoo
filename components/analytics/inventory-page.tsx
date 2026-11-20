@@ -216,8 +216,10 @@ export function InventoryPage() {
     }
   }
 
-  // ?openInventoryCreateDialog=true opens the create dialog (reference deep link).
+  // ?openInventoryCreateDialog=true opens the create dialog (reference deep link); with &pdStock=<warehouse name>
+  // (the production stage's «Сверить») that warehouse is preselected in it.
   const wantCreate = useRef(searchParams.get("openInventoryCreateDialog") === "true")
+  const [createWarehouse, setCreateWarehouse] = useState(() => (searchParams.get("openInventoryCreateDialog") === "true" ? (searchParams.get("pdStock") ?? "").trim() : ""))
   useEffect(() => {
     if (!canEdit || !wantCreate.current) return
     wantCreate.current = false
@@ -351,8 +353,13 @@ export function InventoryPage() {
         <InventoryFormDialog
           inventory={null}
           options={options.data}
-          onClose={() => setForm(undefined)}
+          initialWarehouse={form === null ? createWarehouse || undefined : undefined}
+          onClose={() => {
+            setCreateWarehouse("")
+            setForm(undefined)
+          }}
           onSaved={(saved, created, text) => {
+            setCreateWarehouse("")
             setForm(undefined)
             notify(t(text))
             list.reload()
