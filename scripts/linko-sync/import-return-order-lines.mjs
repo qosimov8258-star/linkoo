@@ -13,25 +13,26 @@
 //
 //   node scripts/linko-sync/import-return-order-lines.mjs
 //   CARDS=backups/linko-raw/2026-11-19/verify-edit-form node scripts/linko-sync/import-return-order-lines.mjs [--dry-run]
-//   (raw: order_products — RAW, else the newest backups/linko-raw/<date> that has it)
+//   (raw: order_products — <RAW>/order_products.json when RAW is set, else the newest backups/linko-raw/<date> that
+//   has it; CARDS is an explicit folder and is read as given)
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { ROOT, capturedOrSkip, connect, ensureRegistry, override, register, runId } from "./lib.mjs"
 
 const DRY = process.argv.includes("--dry-run")
 
+/** <RAW>/<name>.json (skipped when RAW lacks it), else the newest backups/linko-raw/<date> that has it. */
 function rawFile(name) {
-  if (process.env.RAW) return path.join(process.env.RAW, `${name}.json`)
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.readdirSync(base).filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day) && fs.existsSync(path.join(base, day, `${name}.json`))).sort()
-  if (!days.length) throw new Error(`No raw ${name}.json under ${base}: run scripts/linko-sync/fetch.mjs first`)
-  return path.join(base, days[days.length - 1], `${name}.json`)
+  const file = capturedOrSkip(`${name}.json`)
+  if (!file) throw new Error(`No raw ${name}.json under backups/linko-raw: run scripts/linko-sync/fetch.mjs first`)
+  return file
 }
 
 /** Captured return cards: {id → Linko's detail} from CARDS (a folder of single answers). */
 function capturedCards() {
-  const folder = process.env.CARDS ? path.resolve(ROOT, process.env.CARDS) : ""
+  const value = override("CARDS", { base: ROOT })
+  const folder = value ? path.resolve(ROOT, value) : ""
   const cards = new Map()
   if (!folder) return cards
   for (const name of fs.readdirSync(folder)) {

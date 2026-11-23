@@ -8,7 +8,7 @@
 // The parity rows ("Reference balance alignment", the 2026-09-30 baselines) of these tables are removed.
 //
 //   node scripts/linko-sync/import-finance-ledgers.mjs   (raw: fin_salary_acts, fin_branch_transactions, fin_vansell_transactions)
-import { connect, currencyCode, ensureRegistry, raw, register, runId } from "./lib.mjs"
+import { connect, currencyCode, ensureRegistry, raw, register, runId, tableExists } from "./lib.mjs"
 import { bumpIdSequence, counter, deleteOthers, localIso, money, name, putRow, text, utcText } from "./finance-lib.mjs"
 
 const CURRENCY = { 1: "SUM", 2: "USD", 3: "EUR" }
@@ -101,9 +101,13 @@ try {
     )
   }
 
-  stats.del("deliverer_balance_transactions", await deleteOthers(client, run, "deliverer_balance_transactions", new Set()))
+  // No app module creates this table (only the parity seed did): a database without it has none of those rows.
+  const deliverers = await tableExists(client, "deliverer_balance_transactions")
+  if (deliverers) stats.del("deliverer_balance_transactions", await deleteOthers(client, run, "deliverer_balance_transactions", new Set()))
 
-  for (const table of ["employee_balance_transactions", "branch_balance_transactions", "vansell_transactions", "deliverer_balance_transactions"]) await bumpIdSequence(client, table)
+  for (const table of ["employee_balance_transactions", "branch_balance_transactions", "vansell_transactions", ...(deliverers ? ["deliverer_balance_transactions"] : [])]) {
+    await bumpIdSequence(client, table)
+  }
   // Which branches Linko lists in Баланс филиалов (show_balance and not its own "is_main").
   await client.query("ALTER TABLE branches ADD COLUMN IF NOT EXISTS in_balance INTEGER")
   for (const b of raw("branches")) {

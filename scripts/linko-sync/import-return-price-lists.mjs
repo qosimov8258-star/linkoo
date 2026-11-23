@@ -5,19 +5,14 @@
 //
 //   node scripts/linko-sync/import-return-price-lists.mjs     (raw file: order_returns_detail; RAW=<dir> picks the folder)
 import fs from "node:fs"
-import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { capturedOrSkip, connect, ensureRegistry, register, runId } from "./lib.mjs"
 
-/** The newest backups/linko-raw/<date> folder that holds the file (a later partial download may lack it). */
+/** <RAW>/<name>.json (skipped when RAW lacks it), else the newest backups/linko-raw/<date> folder that holds the file
+ * (a later partial download may lack it). */
 function rawFile(name) {
-  if (process.env.RAW) return path.join(process.env.RAW, `${name}.json`)
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day)).sort().reverse() : []
-  for (const day of days) {
-    const file = path.join(base, day, `${name}.json`)
-    if (fs.existsSync(file)) return file
-  }
+  const file = capturedOrSkip(`${name}.json`)
+  if (file) return file
   throw new Error(`No raw ${name}.json under backups/linko-raw: run scripts/linko-sync/fetch.mjs first`)
 }
 

@@ -10,7 +10,7 @@
 //
 //   node scripts/linko-sync/import-supplies.mjs   (raw: supplies, supplies_detail, supply_expenses, supply_logs)
 //   DRY=1 node scripts/linko-sync/import-supplies.mjs   lists the supplies and columns it would change, then rolls back
-import { bumpSequence, connect, currencyCode, ensureRegistry, fullName, isoDay, raw, register, runId, sqlDateTime, upsertById } from "./lib.mjs"
+import { bumpSequence, columnExists, connect, currencyCode, demoSeeded, ensureRegistry, fullName, isoDay, raw, register, runId, sqlDateTime, upsertById } from "./lib.mjs"
 
 const STATUS = { 0: "ожидает", 1: "ожидает", 2: "принят", 3: "ожидает", 4: "отменен" }
 const PAYMENT = { cash: "Наличные", bank: "Банковский счет", card: "Пластиковая карта" }
@@ -47,11 +47,16 @@ try {
   await client.query("ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS linko_paid DOUBLE PRECISION")
   await client.query("ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS distribute_type TEXT NOT NULL DEFAULT 'cost'")
   await client.query("ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS bind_to_provider INTEGER NOT NULL DEFAULT 0")
+  // ref_items: the reference lines of an earlier version of the app, which a database made then still has (emptied
+  // here); a newer database has no such column.
+  const refItems = (await columnExists(client, "supplier_incomings", "ref_items")) ? { ref_items: "[]" } : {}
   const ids = list.map((row) => row.id)
 
   // 1. Supplies that are not Linko's: only the ones a demo / parity seed wrote are removed.
   const seeded = new Set(
-    (await client.query("SELECT row_id FROM demo_seed_rows WHERE table_name = 'supplier_incomings'")).rows.map((r) => Number(r.row_id)),
+    (await demoSeeded(client, "supplier_incomings"))
+      ? (await client.query("SELECT row_id FROM demo_seed_rows WHERE table_name = 'supplier_incomings'")).rows.map((r) => Number(r.row_id))
+      : [],
   )
   const foreign = (await client.query("SELECT * FROM supplier_incomings WHERE NOT (id = ANY($1::int[]))", [ids])).rows
   const kept = []
@@ -125,7 +130,7 @@ try {
       time: "",
       comment: doc.comment ?? "",
       items: JSON.stringify(items),
-      ref_items: "[]",
+      ...refItems,
       currency: currencyCode(doc.currency),
       invoice_date: doc.invoice_date ? isoDay(doc.invoice_date) : "",
       invoice_comment: doc.invoice_comment ?? "",

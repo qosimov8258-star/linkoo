@@ -246,9 +246,9 @@ export function navSectionLabel(pathname: string): string | null {
  * its balances …), else navSectionLabel (the dashboard and the reports → Аналитика; settings pages → none).
  */
 export function navTabLabel(pathname: string): string | null {
-  // A page in two menus (KPI план филиалов: Персонал and Финансы) lights the first one, the section the reference names
-  // for it.
-  const menu = navItems.find((item) => item.label !== "Аналитика" && item.matches(pathname))
+  // A page in two menus (KPI план филиалов: Персонал and Финансы) lights the later one, Финансы (the user's choice,
+  // although Linko names Персонал).
+  const menu = [...navItems].reverse().find((item) => item.label !== "Аналитика" && item.matches(pathname))
   return menu?.label ?? navSectionLabel(pathname)
 }
 

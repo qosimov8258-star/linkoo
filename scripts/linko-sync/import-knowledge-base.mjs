@@ -6,24 +6,26 @@
 // they would have to be downloaded from Linko's file server; the local article keeps the file it has.
 //
 // Source: main/knowledge/ — backups/linko-raw/2026-11-20/knowledge-base/knowledge.json (a read-only capture of the
-// #/knowledge-base screen's own GET), else the `knowledge` file of the newest full download.
+// #/knowledge-base screen's own GET), else the `knowledge` file of the newest full download. With RAW=<folder> only
+// <RAW>/knowledge-base/knowledge.json, else <RAW>/knowledge.json (skipped when neither is there).
 //
 //   node scripts/linko-sync/import-knowledge-base.mjs [--dry-run]      (KB_FILE=<file> reads another capture)
 import fs from "node:fs"
-import path from "node:path"
 
-import { ROOT, bumpSequence, connect, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
+import { bumpSequence, captured, connect, ensureRegistry, hasRaw, raw, register, runId, skipUnlessInRaw } from "./lib.mjs"
 
 const dryRun = process.argv.includes("--dry-run")
-const captured = process.env.KB_FILE ?? path.join(ROOT, "backups", "linko-raw", "2026-11-20", "knowledge-base", "knowledge.json")
+// KB_FILE, else <RAW>/knowledge-base/knowledge.json (with RAW nothing outside it), else the first account's capture.
+const capture = captured("knowledge-base/knowledge.json", { env: "KB_FILE", legacy: "2026-11-20/knowledge-base/knowledge.json" })
 
 function articles() {
-  if (fs.existsSync(captured)) {
-    const body = JSON.parse(fs.readFileSync(captured, "utf8"))
+  if (capture && fs.existsSync(capture)) {
+    const body = JSON.parse(fs.readFileSync(capture, "utf8"))
     return Array.isArray(body) ? body : body.data ?? body.results ?? []
   }
   if (hasRaw("knowledge")) return raw("knowledge")
-  throw new Error(`No knowledge base data: ${captured} or the knowledge file of a full download`)
+  skipUnlessInRaw(null, "knowledge-base/knowledge.json or knowledge.json")
+  throw new Error(`No knowledge base data: ${capture} or the knowledge file of a full download`)
 }
 
 const list = articles()

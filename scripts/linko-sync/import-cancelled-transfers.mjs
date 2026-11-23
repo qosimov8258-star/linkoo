@@ -8,7 +8,8 @@
 //
 // Source: a read-only capture of Linko's screens (the list with with_cancelled=true, each cancelled card and its
 // «Логи» tab) in backups/linko-raw/2026-11-20/stock-transfers-cancelled (stock_transfers_detail.json,
-// stock_transfers_logs.json); CANCELLED_DIR=<folder> picks another one. A full download that has them
+// stock_transfers_logs.json); CANCELLED_DIR=<folder> picks another one, RAW=<folder> reads only
+// <RAW>/stock-transfers-cancelled (the step is skipped when it is not there). A full download that has them
 // (stock_transfers_detail with cancelled documents) is imported by import-stock-docs.mjs instead.
 //
 // Fields as import-stock-docs.mjs maps a transfer, with what Linko keeps on a cancelled one: the hand-over and
@@ -20,9 +21,10 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, bumpSequence, connect, currencyCode, ensureRegistry, fullName, register, ruShortDate, runId, sqlDateTime, upsertById } from "./lib.mjs"
+import { bumpSequence, capturedOrSkip, connect, currencyCode, ensureRegistry, fullName, register, ruShortDate, runId, sqlDateTime, upsertById } from "./lib.mjs"
 
-const dir = process.env.CANCELLED_DIR ?? path.join(ROOT, "backups", "linko-raw", "2026-11-20", "stock-transfers-cancelled")
+// CANCELLED_DIR, else <RAW>/stock-transfers-cancelled (skipped when RAW lacks it), else the first account's capture.
+const dir = capturedOrSkip("stock-transfers-cancelled", { env: "CANCELLED_DIR", legacy: "2026-11-20/stock-transfers-cancelled" })
 const read = (name) => {
   const file = path.join(dir, `${name}.json`)
   if (!fs.existsSync(file)) throw new Error(`Capture missing: ${file}`)

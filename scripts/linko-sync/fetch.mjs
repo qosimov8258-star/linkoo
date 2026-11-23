@@ -1,5 +1,6 @@
-// Downloads the data of a Linko account (read-only GET requests only) into backups/linko-raw/<YYYY-MM-DD>/ — the raw
-// files the import-*.mjs scripts read. Nothing is ever written to Linko.
+// Downloads the data of a Linko account (read-only GET requests only) into backups/linko-raw/<YYYY-MM-DD>/ (the first
+// account, time3) or backups/linko-raw-<server>/<YYYY-MM-DD>/ (any other LINKO_SERVER) — the raw files the import-*.mjs
+// scripts read — and marks the folder with its server (source.json). Nothing is ever written to Linko.
 //
 //   LINKO_SERVER=time3 LINKO_USER=admin LINKO_PASS=… node scripts/linko-sync/fetch.mjs            (everything)
 //   … node scripts/linko-sync/fetch.mjs lists details returns-patch manufacture-returns           (some steps)
@@ -13,18 +14,22 @@
 // order-debt-transactions (each order's «Список оплат по заказу»), return-logs («Логи» of the client returns), return-marks (the marking codes of every client return line),
 // border-agents (the employees bound to each territory), market-users (each shop's «Агенты магазина», and its last
 // order / visit days, which only the shop's detail has).
-// LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere.
+// extras (not part of the run without arguments; `… fetch.mjs extras`, or one of them by name): the inputs of the
+// capture-based importers, which the first account got from read-only captures of Linko's screens — knowledge-base,
+// finance-cash, stock-transfers-cancelled, draft-order-details, client-promotion-details, salary-cards, product-detail,
+// sales-orders-list, shop-drawer (see "extras" below). They read the lists already in RAW: run them after lists / months.
+// LINKO_TOKEN=… instead of LINKO_USER / LINKO_PASS reuses an existing session token. RAW=<folder> writes elsewhere; it
+// needs LINKO_SERVER, and a folder that already belongs to another server (source.json, or its place) is refused.
 // The raw files hold business data: backups/ is git-ignored, never commit them.
 import fs from "node:fs"
 import path from "node:path"
-import { ROOT } from "./lib.mjs"
+import { fetchTarget, markFolder } from "./lib.mjs"
 
-const SERVER = process.env.LINKO_SERVER || "time3"
-const BASE = `https://${SERVER}.linko.uz/ru/api/v1/`
 const DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent" }).format(new Date())
-const RAW = process.env.RAW || path.join(ROOT, "backups", "linko-raw", DAY)
+// The folder is created (and marked) only after the step names are checked and the sign-in worked.
+const { server: SERVER, dir: RAW } = fetchTarget(DAY)
+const BASE = `https://${SERVER}.linko.uz/ru/api/v1/`
 const MAX = Number(process.env.MAXC || 4)
-fs.mkdirSync(RAW, { recursive: true })
 
 // --- HTTP ------------------------------------------------------------------------------------------------------------
 
@@ -39,7 +44,13 @@ async function login() {
   })
   const body = await response.json().catch(() => ({}))
   token = body.token || body.key || body.auth_token || ""
-  if (!response.ok || !token) throw new Error(`Linko sign-in failed (${response.status})`)
+  if (!response.ok || !token) {
+    // Linko's own reason («Неверный логин или пароль», a 2FA request …); the request's password is never printed.
+    const reason = [body.detail, body.message, ...[].concat(body.non_field_errors ?? []), ...[].concat(body.username ?? []), ...[].concat(body.password ?? [])]
+      .filter((text) => typeof text === "string" && text)
+      .join(" ")
+    throw new Error(`Linko sign-in failed (${response.status})${reason ? `: ${reason}` : ` (fields: ${Object.keys(body).join(", ") || "none"})`}`)
+  }
 }
 
 let active = 0
@@ -199,6 +210,9 @@ async function monthLists() {
     quiz_plan: ["main/quiz_plan/", (y, m) => ({ year: y, month: m, is_approved: "all" })],
     staff_balance: ["staff/staff_balance/", (y, m) => ({ year: y, month: m })],
     kpi_balance: ["staff/performance_indicator/balance/", (y, m) => ({ year: y, month: m })],
+    // When Linko last recalculated the month's staff_balance («данные за»): import-kpi-balances.ts recomputes the
+    // snapshot as of that moment.
+    kpi_last_date: ["staff/staff_balance/last_date/", (y, m) => ({ year: y, month: m })],
   }
   for (const [name, [p, params]] of Object.entries(defs)) {
     const out = {}
@@ -453,6 +467,282 @@ async function marketUsers() {
   console.log("market_users".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
 }
 
+// --- extras: the inputs of the capture-based importers ---------------------------------------------------------------
+// The first account (time3) got these files from read-only captures of Linko's screens (the SPA's own GET answers, in
+// backups/linko-raw/2026-11-19 and 2026-11-20). These steps GET the same endpoints and write the same file at the same
+// path below RAW (RAW/<path>: where import-*.mjs reads it when RAW is set), each in the layout its importer reads. They
+// loop over the ids of the lists already in RAW. A list is written only when every page of it came back; in an
+// {id: answer} file the ids Linko failed for are left out and printed.
+
+const now = () => new Date().toISOString()
+
+/** Writes RAW/<relPath> with the body exactly as given (no {fetched, data} wrapper unless the body has one). */
+function saveCapture(relPath, body) {
+  const file = path.join(RAW, relPath)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify(body))
+}
+
+const inRawFile = (name) => fs.existsSync(path.join(RAW, `${name}.json`))
+
+/** Whether a list file's `data` is complete: an array (the lists step saves Linko's error object, or null, when Linko
+ * failed for the list); `months`: an object of month lists (salary_months). */
+const isList = (data, months = false) => (months ? Boolean(data) && typeof data === "object" && !Array.isArray(data) : Array.isArray(data))
+
+/** The `data` of a list already in RAW, or null: the step says which file it lacks (or that Linko failed for it) and
+ * writes nothing. */
+function needRaw(name, step, { months = false } = {}) {
+  if (!inRawFile(name)) {
+    console.log(`${step}: skipped, ${name}.json is not in ${RAW} (run the step that downloads it first)`)
+    return null
+  }
+  const data = load(name)
+  if (isList(data, months)) return data
+  console.log(`${step}: skipped, ${name}.json is not a complete list (Linko failed for it: run the step that downloads it again)`)
+  return null
+}
+
+/** The rows of an optional list in RAW: [] when it is not there; a list Linko failed for is reported and left out. */
+function optionalList(name, step) {
+  if (!inRawFile(name)) return []
+  const data = load(name)
+  if (isList(data)) return data
+  console.log(`${step}: ${name}.json is not a complete list (Linko failed for it), its rows are left out`)
+  return []
+}
+
+/** The rows of an answer: a plain array or a page's results; null for anything else. */
+const rowsOf = (json) => (Array.isArray(json) ? json : Array.isArray(json?.results) ? json.results : null)
+
+/** Every row of a list ({rows, count}), or null when Linko failed for it or for one of its pages. */
+async function allRows(p, params = {}, pageSize = 500) {
+  const r = await getAll(p, params, pageSize)
+  return r.status === 200 && !r.error && Array.isArray(r.rows) ? { rows: r.rows, count: r.count ?? r.rows.length } : null
+}
+
+/** All pages of a list as the one page Linko answers ({count, next, previous, results}), or null. */
+async function onePage(p, params, pageSize = 1000) {
+  const list = await allRows(p, params, pageSize)
+  return list && { count: list.count, next: null, previous: null, results: list.rows }
+}
+
+/** One GET per id, MAX at a time: { ok: {id: answer}, failed: [id] }. `pick` keeps a part of an answer (null = failed). */
+async function eachId(ids, pathOf, { params, pick = (json) => json } = {}) {
+  const ok = {}
+  const failed = []
+  await Promise.all(
+    [...new Set(ids.map(Number).filter((id) => id > 0))].map(async (id) => {
+      const r = await get(pathOf(id), params?.(id))
+      const value = r.status === 200 && r.json && !r.json.__raw ? pick(r.json) : null
+      if (value == null) failed.push(id)
+      else ok[id] = value
+    }),
+  )
+  return { ok, failed: failed.sort((a, b) => a - b) }
+}
+
+const report = (file, count, failed = []) =>
+  console.log(file.padEnd(44), count, failed.length ? `Linko failed ${failed.length}: ${failed.slice(0, 30).join(",")}${failed.length > 30 ? " …" : ""}` : "")
+
+// База знания (import-knowledge-base.mjs): main/knowledge/ as the #/knowledge-base screen reads it.
+async function knowledgeBase() {
+  const file = "knowledge-base/knowledge.json"
+  const list = await allRows("main/knowledge/")
+  if (!list) return report(file, "Linko failed, not written")
+  saveCapture(file, { path: "main/knowledge/", params: {}, fetched: now(), count: list.count, data: list.rows })
+  report(file, list.rows.length)
+}
+
+// Управления кассой (import-cash-list-facts.mjs): the list's own=True rows and the unverified transactions (the clock
+// badge), which the own=True list leaves out. Both or neither: the importer reads the two together.
+async function financeCash() {
+  const lists = [
+    ["cash_transactions_live", "finance/transaction/", { own: "True" }],
+    ["unverified_transactions", "finance/transaction/unverified_transactions/", {}],
+  ]
+  const got = await Promise.all(lists.map(([, p, params]) => allRows(p, params)))
+  if (got.some((list) => !list)) return report("finance-cash/", "Linko failed, not written")
+  const fetched = now()
+  lists.forEach(([name, p, params], index) => {
+    const query = new URLSearchParams(params).toString()
+    saveCapture(`finance-cash/${name}.json`, { path: query ? `${p}?${query}` : p, fetched, count: got[index].count, data: got[index].rows })
+    report(`finance-cash/${name}.json`, got[index].rows.length)
+  })
+}
+
+// Передачи между складами → «Показать отмененные передачи» (import-cancelled-transfers.mjs): the list with the cancelled
+// transfers, each cancelled transfer's card and its «Логи».
+async function stockTransfersCancelled() {
+  const dir = "stock-transfers-cancelled"
+  const params = { with_cancelled: "true" }
+  const list = await allRows("stock/stock_transfer/", params, 100)
+  if (!list) return report(`${dir}/`, "Linko failed, not written")
+  const ids = list.rows.filter((row) => row.status === "cancelled" || row.status === "canceled").map((row) => row.id)
+  const [details, logs] = await Promise.all([
+    eachId(ids, (id) => `stock/stock_transfer/${id}/`),
+    eachId(ids, (id) => `stock/stock_transfer/${id}/logs/`, { pick: rowsOf }),
+  ])
+  const fetched = now()
+  saveCapture(`${dir}/stock_transfers.json`, { path: "stock/stock_transfer/", params, fetched, count: list.count, data: list.rows })
+  saveCapture(`${dir}/stock_transfers_detail.json`, { tpl: "stock/stock_transfer/{id}/", fetched, data: details.ok })
+  saveCapture(`${dir}/stock_transfers_logs.json`, { tpl: "stock/stock_transfer/{id}/logs/", fetched, data: logs.ok })
+  report(`${dir}/stock_transfers_detail.json`, Object.keys(details.ok).length, details.failed)
+  report(`${dir}/stock_transfers_logs.json`, Object.keys(logs.ok).length, logs.failed)
+}
+
+// Интеграция → draft card (import-draft-orders.mjs): sales/draft_order/<id>/ of every draft (its product lines).
+async function draftOrderDetails() {
+  const file = "draft_order_details.json"
+  const list = needRaw("draft_orders", file)
+  if (!list) return
+  const { ok, failed } = await eachId(list.map((row) => row.id), (id) => `sales/draft_order/${id}/`)
+  saveCapture(file, { path: "sales/draft_order/{id}/", fetched: now(), data: ok })
+  report(file, Object.keys(ok).length, failed)
+}
+
+// Бонусы клиентов (import-client-bonuses.mjs): each client's bonus dialog (all its entries), for every client Linko's
+// list gives a last entry (a client without one has none).
+async function clientPromotionDetails() {
+  const file = "client_promotion_details.json"
+  const list = needRaw("client_promotions", file)
+  if (!list) return
+  const out = {}
+  const failed = []
+  await Promise.all(
+    list
+      .filter((row) => row.last_created)
+      .map(async (row) => {
+        const entries = await allRows(`sales/client_promotion/${row.id}/detail/`, {}, 100)
+        if (entries) out[row.id] = entries.rows
+        else failed.push(row.id)
+      }),
+  )
+  saveCapture(file, { path: "sales/client_promotion/{id}/detail/", params: { page_size: 100 }, fetched: now(), data: out })
+  report(file, Object.keys(out).length, failed.sort((a, b) => a - b))
+}
+
+// Зарплата и установка планов → row card (import-salary-cards.mjs): staff/salary/<id>/ of every salary record of the
+// month lists (step "months"), with the record's year and month as the card page asks for it.
+async function salaryCards() {
+  const file = "salary_cards.json"
+  const months = needRaw("salary_months", file, { months: true })
+  if (!months) return
+  const missingMonths = Object.entries(months).filter(([, rows]) => !Array.isArray(rows)).map(([month]) => month)
+  if (missingMonths.length) console.log(`${file}: the month lists Linko failed for are not covered: ${missingMonths.join(", ")}`)
+  const rows = new Map(Object.values(months).filter(Array.isArray).flat().map((row) => [Number(row.id), row]))
+  const { ok, failed } = await eachId([...rows.keys()], (id) => `staff/salary/${id}/`, { params: (id) => ({ year: rows.get(id).year, month: rows.get(id).month }) })
+  saveCapture(file, { fetched: now(), path: "staff/salary/<id>/?year&month", data: ok })
+  report(file, Object.keys(ok).length, failed)
+}
+
+// Продукты / Сырье → card (import-product-cards.mjs, import-raw-cards.mjs): main/product/<id>/ of every product, raw
+// material and deleted product ({id: card}, no wrapper), and the «Удалённые» tab's list (show_deleted=true, as Linko's
+// page answer: {count, next, previous, results}; only its deleted rows are kept).
+async function productDetail() {
+  const file = "product-detail/products_detail.json"
+  const products = needRaw("products", file)
+  if (!products) return
+  const deleted = await allRows("main/product/", { show_deleted: "true" })
+  const deletedRows = deleted ? deleted.rows.filter((row) => row.is_delete === true) : []
+  const lists = ["products_raw", "products_notraw"].flatMap((name) => optionalList(name, file))
+  const { ok, failed } = await eachId([...products, ...lists, ...deletedRows].map((row) => row.id), (id) => `main/product/${id}/`)
+  saveCapture(file, ok)
+  report(file, Object.keys(ok).length, failed)
+  if (!deleted) return report("product-detail/products_show_deleted.json", "Linko failed, not written")
+  saveCapture("product-detail/products_show_deleted.json", { count: deletedRows.length, next: null, previous: null, results: deletedRows })
+  report("product-detail/products_show_deleted.json", `${deletedRows.length} deleted (Linko answered ${deleted.rows.length} rows)`)
+}
+
+// Заказы (import-order-filter-facts.mjs, import-order-line-returns.mjs): the whole order list as the Заказы screen asks
+// for it (status=&exclude=true, saved under that query), each order's card (sales/order/<id>/: order-details.json, and
+// one file per order, order-cards/sales_order_<id>_.json, as the order card captures were saved) and the cards of the
+// products on the orders' lines (product-details.json; taken from product-detail/products_detail.json when it has them).
+async function salesOrdersList() {
+  const dir = "sales-orders-list"
+  const list = await allRows("sales/order/", { status: "", exclude: "true" })
+  const known = optionalList("orders", `${dir}/`)
+  if (!list && !known.length) return report(`${dir}/`, "Linko failed, not written")
+  if (list) saveCapture(`${dir}/ids-linko.json`, { "status=&exclude=true": list.rows })
+  report(`${dir}/ids-linko.json`, list ? list.rows.length : "Linko failed, not written")
+
+  const orders = await eachId([...(list?.rows ?? []), ...known].map((row) => row.id), (id) => `sales/order/${id}/`, { pick: (json) => (json.id ? json : null) })
+  saveCapture(`${dir}/order-details.json`, orders.ok)
+  for (const [id, card] of Object.entries(orders.ok)) saveCapture(`order-cards/sales_order_${id}_.json`, card)
+  report(`${dir}/order-details.json + order-cards/`, Object.keys(orders.ok).length, orders.failed)
+
+  const productIds = [...new Set(Object.values(orders.ok).flatMap((card) => (card.products ?? []).map((line) => Number(line.product?.id ?? line.product))))].filter((id) => id > 0)
+  const cardsFile = path.join(RAW, "product-detail", "products_detail.json")
+  const cardsInRaw = fs.existsSync(cardsFile) ? JSON.parse(fs.readFileSync(cardsFile, "utf8")) : {}
+  const more = await eachId(productIds.filter((id) => !cardsInRaw[id]?.id), (id) => `main/product/${id}/`)
+  const cards = {}
+  for (const id of productIds.sort((a, b) => a - b)) {
+    const card = cardsInRaw[id]?.id ? cardsInRaw[id] : more.ok[id]
+    if (card) cards[id] = card
+  }
+  saveCapture(`${dir}/product-details.json`, cards)
+  report(`${dir}/product-details.json`, Object.keys(cards).length, more.failed)
+}
+
+// Карточка клиента → ЗАДАЧИ, КЛИЕНТ → ДЕТАЛИ / ЛОГИ (import-shop-drawer.mjs, import-shop-closed.mjs, import-shop-state.mjs,
+// import-series.mjs): what fetch-shop-drawer.mjs reads for each shop of markets.json, all pages of each list —
+// market/market/<id>/?with_extra_message=1&with_plan=1&detail_gear=true, its detail_plans, its market_logs and
+// market_logs?type=<t> of each type it has twice or more — into shop_drawer.json ({data: {shopId: {market, plans, logs,
+// logsByType}}}). Progress goes to shop_drawer.json.part (no importer reads it): a run stopped half-way continues from it.
+async function shopDrawer() {
+  const file = "shop_drawer.json"
+  const markets = needRaw("markets", file)
+  if (!markets) return
+  const partFile = path.join(RAW, `${file}.part`)
+  const out = fs.existsSync(partFile)
+    ? JSON.parse(fs.readFileSync(partFile, "utf8"))
+    : { path: "market/market/{id}/ + detail_plans + market_logs (+ ?type=) (shop drawer)", fetched: now(), data: {} }
+  const todo = markets.map((market) => Number(market.id)).filter((id) => !out.data[id] || out.data[id].error)
+  console.log(`${file}: ${todo.length} shops to read${Object.keys(out.data).length ? ` (continuing ${path.basename(partFile)})` : ""}`)
+  let done = 0
+  await Promise.all(
+    todo.map(async (id) => {
+      const [market, plans, logs] = await Promise.all([
+        get(`market/market/${id}/`, { with_extra_message: 1, with_plan: 1, detail_gear: "true" }),
+        onePage(`market/market/${id}/detail_plans/`),
+        onePage("market/market_logs/", { market: id }),
+      ])
+      let complete = market.status === 200 && Number(market.json?.id) === id && Boolean(plans && logs)
+      const logsByType = {}
+      if (complete) {
+        const counts = {}
+        for (const log of logs.results) counts[log.type] = (counts[log.type] ?? 0) + 1
+        for (const type of ["order", "order_return", "client_transaction", "market"]) {
+          if ((counts[type] ?? 0) < 2) continue
+          const page = await onePage("market/market_logs/", { market: id, type })
+          if (page) logsByType[type] = page
+          else complete = false
+        }
+      }
+      out.data[id] = complete ? { market: market.json, plans, logs, logsByType } : { error: "incomplete" }
+      if (++done % 200 === 0) {
+        fs.writeFileSync(partFile, JSON.stringify(out))
+        console.log(`${file}: ${done}/${todo.length}`)
+      }
+    }),
+  )
+  saveCapture(file, out)
+  fs.rmSync(partFile, { force: true })
+  report(file, Object.keys(out.data).length, Object.entries(out.data).filter(([, entry]) => entry.error).map(([id]) => Number(id)))
+}
+
+const EXTRAS = {
+  "knowledge-base": knowledgeBase,
+  "finance-cash": financeCash,
+  "stock-transfers-cancelled": stockTransfersCancelled,
+  "draft-order-details": draftOrderDetails,
+  "client-promotion-details": clientPromotionDetails,
+  "salary-cards": salaryCards,
+  // Before sales-orders-list, which takes the line products' cards from its file.
+  "product-detail": productDetail,
+  "sales-orders-list": salesOrdersList,
+  "shop-drawer": shopDrawer,
+}
+
 const STEPS = {
   lists,
   "price-list-items": priceListItems,
@@ -474,11 +764,15 @@ const STEPS = {
   "market-users": marketUsers,
 }
 
+// Without arguments every step of STEPS (not the extras); "extras" stands for all of EXTRAS, in their order.
+const ALL = { ...STEPS, ...EXTRAS }
+const wanted = process.argv.slice(2).length ? process.argv.slice(2).flatMap((step) => (step === "extras" ? Object.keys(EXTRAS) : [step])) : Object.keys(STEPS)
+for (const step of wanted) if (!ALL[step]) throw new Error(`Unknown step ${step}: ${Object.keys(ALL).join(", ")}, extras`)
 await login()
-const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(STEPS)
+markFolder(RAW, SERVER)
+console.log(`Linko server ${SERVER} → ${RAW}`)
 for (const step of wanted) {
-  if (!STEPS[step]) throw new Error(`Unknown step ${step}: ${Object.keys(STEPS).join(", ")}`)
   console.log(`== ${step}`)
-  await STEPS[step]()
+  await ALL[step]()
 }
 console.log(`Raw data in ${RAW}`)

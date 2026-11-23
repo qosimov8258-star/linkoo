@@ -5,7 +5,8 @@
 // contacts or reserve.
 //
 // Source: providers_detail.json of the raw folder (fetch.mjs «details» step, manifest entry «providers»), else the
-// read-only capture backups/linko-raw/2026-11-20/providers_detail.json; PROVIDERS_DETAIL=<file> picks another one.
+// read-only capture backups/linko-raw/2026-11-20/providers_detail.json (never with RAW set); PROVIDERS_DETAIL=<file> picks
+// another one.
 // Only suppliers with the same id here are touched; a supplier whose contacts, reserve and date are already equal is
 // left alone, so a second run changes nothing.
 //
@@ -13,9 +14,13 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, hasRaw, rawDir, register, runId, sqlDateTime } from "./lib.mjs"
+import { ROOT, capturedOrSkip, connect, ensureRegistry, hasRaw, override, rawDir, register, runId, sqlDateTime } from "./lib.mjs"
 
-const file = process.env.PROVIDERS_DETAIL ?? (hasRaw("providers_detail") ? path.join(rawDir(), "providers_detail.json") : path.join(ROOT, "backups", "linko-raw", "2026-11-20", "providers_detail.json"))
+// PROVIDERS_DETAIL, else the raw folder's file (with RAW: <RAW>/providers_detail.json, skipped when it is not there),
+// else the first account's capture of 2026-11-20.
+const file =
+  override("PROVIDERS_DETAIL") ??
+  (hasRaw("providers_detail") ? path.join(rawDir(), "providers_detail.json") : capturedOrSkip("providers_detail.json", { legacy: "2026-11-20/providers_detail.json" }))
 const details = JSON.parse(fs.readFileSync(file, "utf8")).data
 const run = runId("supplier-details")
 const dry = process.env.DRY === "1"

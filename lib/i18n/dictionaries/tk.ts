@@ -7116,4 +7116,6 @@ export const tk: Record<string, string> = {
   "Выберите смену": "Çalyşygy saýlaň",
   "Работник не работает в этой смене на этапе": "Işgär bu tapgyrda bu çalyşykda işlemeýär",
   "Смены работников": "Işgärleriň çalyşyklary",
+  "Факт этого типа KPI не рассчитывается": "Bu görnüşdäki KPI-niň hakyky görkezijisi hasaplanmaýar",
+  "Факт.": "Hakyky.",
 }

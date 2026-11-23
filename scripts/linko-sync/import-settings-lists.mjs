@@ -11,6 +11,14 @@
 import { connect, ensureRegistry, fullName, raw, register, runId } from "./lib.mjs"
 
 const run = runId("settings-lists")
+/** Registers a row the upsert above inserted or changed; one that came out as it was is left out of the registry. */
+async function registerChange(client, table, id, before) {
+  if (before) {
+    const after = (await client.query(`SELECT * FROM ${table} WHERE id = $1`, [id])).rows[0]
+    if (JSON.stringify(after) === JSON.stringify(before)) return
+  }
+  await register(client, run, table, id, before ? "update" : "insert", before ?? null)
+}
 const client = await connect()
 await ensureRegistry(client)
 const stats = { telegram: 0, transports: 0, shifts: 0, subscribers: 0 }
@@ -41,7 +49,7 @@ try {
          created_date = EXCLUDED.created_date, last_active = EXCLUDED.last_active, source = 'linko'`,
       values,
     )
-    await register(client, run, "telegram_users", u.telegram_id, before ? "update" : "insert", before ?? null)
+    await registerChange(client, "telegram_users", u.telegram_id, before)
     stats.telegram++
   }
 
@@ -58,7 +66,7 @@ try {
       values,
     )
     await client.query("UPDATE transports SET updated_at = to_char(now() AT TIME ZONE 'UTC' + interval '1 second', 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1 AND updated_at = created_at", [t.id])
-    await register(client, run, "transports", t.id, before ? "update" : "insert", before ?? null)
+    await registerChange(client, "transports", t.id, before)
     stats.transports++
   }
   await client.query("SELECT setval(pg_get_serial_sequence('transports', 'id'), GREATEST((SELECT MAX(id) FROM transports), 1))")
@@ -71,7 +79,7 @@ try {
       [s.id, s.name ?? "", s.begin_time ?? "", s.end_time ?? ""],
     )
     await client.query("UPDATE work_shifts SET updated_at = to_char(now() AT TIME ZONE 'UTC' + interval '1 second', 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1 AND updated_at = created_at", [s.id])
-    await register(client, run, "work_shifts", s.id, before ? "update" : "insert", before ?? null)
+    await registerChange(client, "work_shifts", s.id, before)
     stats.shifts++
   }
   await client.query("SELECT setval(pg_get_serial_sequence('work_shifts', 'id'), GREATEST((SELECT MAX(id) FROM work_shifts), 1))")
@@ -80,18 +88,23 @@ try {
   const templates = raw("notification_templates")
   const known = new Set((await client.query("SELECT id FROM notification_templates")).rows.map((r) => r.id))
   const before = (await client.query("SELECT * FROM notification_template_users ORDER BY id")).rows
-  await client.query("DELETE FROM notification_template_users")
-  let id = Math.max(1000, ...before.map((row) => row.id + 1))
+  const wanted = []
   for (const template of templates) {
     if (!known.has(template.id)) continue
-    for (const user of template.users ?? []) {
-      const userId = typeof user === "object" ? user.id : user
-      await client.query("INSERT INTO notification_template_users (id, template_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [id++, template.id, userId])
-      stats.subscribers++
-    }
+    for (const user of template.users ?? []) wanted.push([template.id, Number(typeof user === "object" ? user.id : user)])
   }
-  await client.query("SELECT setval(pg_get_serial_sequence('notification_template_users', 'id'), GREATEST((SELECT MAX(id) FROM notification_template_users), 1))")
-  await register(client, run, "notification_template_users", "all", "replace", before)
+  stats.subscribers = wanted.length
+  // The links are replaced only when Linko's subscribers differ from the stored ones (a re-run keeps their ids).
+  const pairs = (rows) => [...new Set(rows.map(([templateId, userId]) => `${templateId}:${userId}`))].sort()
+  if (JSON.stringify(pairs(before.map((row) => [row.template_id, Number(row.user_id)]))) !== JSON.stringify(pairs(wanted))) {
+    await client.query("DELETE FROM notification_template_users")
+    let id = Math.max(1000, ...before.map((row) => row.id + 1))
+    for (const [templateId, userId] of wanted) {
+      await client.query("INSERT INTO notification_template_users (id, template_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [id++, templateId, userId])
+    }
+    await client.query("SELECT setval(pg_get_serial_sequence('notification_template_users', 'id'), GREATEST((SELECT MAX(id) FROM notification_template_users), 1))")
+    await register(client, run, "notification_template_users", "all", "replace", before)
+  }
 
   await client.query("COMMIT")
 } catch (error) {

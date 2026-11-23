@@ -10,26 +10,22 @@
 // Every change is registered in linko_sync_rows (an update with the previous values).
 //
 //   node scripts/linko-sync/import-raw-cards.mjs          (DRY=1 only reports)
-//   (raw: backups/linko-raw/<day>/product-detail/products_detail.json {id: card} — the newest day that has it, or
-//    RAW=<folder of that file>)
+//   (raw: backups/linko-raw/<day>/product-detail/products_detail.json {id: card} — the newest day that has it;
+//    with RAW=<folder> only <RAW>/product-detail/products_detail.json or <RAW>/products_detail.json, the step skipped
+//    without it)
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { connect, ensureRegistry, productCardsFile, register, runId } from "./lib.mjs"
 
-function rawFolder() {
-  if (process.env.RAW) return process.env.RAW
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort().reverse() : []
-  const day = days.find((name) => fs.existsSync(path.join(base, name, "product-detail", "products_detail.json")))
-  return day ? path.join(base, day, "product-detail") : null
-}
-
-const folder = rawFolder()
-if (!folder) {
+// <RAW>/product-detail/products_detail.json or <RAW>/products_detail.json (skipped when RAW has neither), else the newest
+// backups/linko-raw/<date> that has it (lib.mjs productCardsFile); the folder of that file holds the other captures.
+const cardsFile = productCardsFile()
+if (!cardsFile) {
   console.log("raw cards: no raw product-detail/products_detail.json (capture the product cards first)")
   process.exit(0)
 }
+const folder = path.dirname(cardsFile)
 const cards = Object.values(JSON.parse(fs.readFileSync(path.join(folder, "products_detail.json"), "utf8"))).filter(
   (card) => card && card.id && !card.__status && !card.__error && card.is_raw && !card.is_delete,
 )

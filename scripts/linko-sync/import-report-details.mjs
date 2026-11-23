@@ -175,7 +175,10 @@ try {
     const number = product.stock_number === null || product.stock_number === undefined ? "" : String(product.stock_number)
     if (number && String(current.order_number ?? "") !== number) patch.order_number = number
     const codeText = String(product.code ?? "").trim()
-    if (codeText && String(current.integration_code ?? "") !== codeText) patch.integration_code = codeText
+    // Linko's list answers a product's first barcode as its `code`: such a code is no «Код для интеграции» (the card's
+    // code is import-product-cards.mjs's, as import-base-catalog.mjs leaves it), or the two steps would swap it each run.
+    const codeIsBarcode = (product.barcodes ?? []).some((barcode) => String(barcode ?? "").trim() === codeText)
+    if (codeText && !codeIsBarcode && String(current.integration_code ?? "") !== codeText) patch.integration_code = codeText
     const columns = Object.keys(patch)
     if (!columns.length) continue
     await client.query(`UPDATE products SET ${columns.map((column, index) => `${column} = $${index + 2}`).join(", ")} WHERE id = $1`, [product.id, ...columns.map((column) => patch[column])])
