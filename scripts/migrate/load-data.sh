@@ -37,6 +37,13 @@ mkdir -p backups
 
 pg() { $COMPOSE exec -T postgres "$@"; }
 
+# The package must be readable by THIS server's pg_restore before anything is dropped: a dump made by a newer
+# pg_dump (e.g. 18 against this postgres 16) fails with "unsupported version", and would leave an empty database.
+if ! pg pg_restore --list < "$DUMP" > /dev/null; then
+  echo "This server's pg_restore cannot read $DUMP (made by a newer pg_dump?). Nothing was changed." >&2
+  exit 1
+fi
+
 echo "1/4 backup of $DB_NAME -> backups/backup-$STAMP.dump"
 pg pg_dump -U "$DB_USER" -Fc "$DB_NAME" > "backups/backup-$STAMP.dump"
 
