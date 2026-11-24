@@ -18,7 +18,10 @@
 //   node scripts/linko-sync/import-finance-cash.mjs
 //   raw: client_transactions, cash_transactions, provider_transactions, cashboxes, fin_staff_expense_items,
 //        fin_cashback_details, fin_cashback_requests, fin_contracts_all
-import { connect, currencyCode, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
+import fs from "node:fs"
+import path from "node:path"
+
+import { captured, connect, currencyCode, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
 import {
   bumpCashDocSequence,
   bumpIdSequence,
@@ -56,6 +59,16 @@ const cashboxes = new Map(raw("cashboxes").map((c) => [c.id, c]))
 const staffItems = raw("fin_staff_expense_items")
 const cashbackRows = Object.values(raw("fin_cashback_details")).flatMap((rows) => (Array.isArray(rows) ? rows : []))
 const contracts = new Map(raw("fin_contracts_all").map((c) => [c.id, c]))
+// The transactions Linko keeps unverified (finance-cash/unverified_transactions.json, the capture
+// import-cash-list-facts.mjs reads; not in cash_transactions): that step writes them into cash_management_entries and
+// their detalization, and their receiving transfer leg names the header's receiving organization and branch. They are
+// kept here and their leg is read the same way, so the two steps never undo each other on a re-run.
+const unverifiedDir = captured("finance-cash", { env: "RAW_CASH", legacy: "2026-11-20/finance-cash" })
+const unverifiedFile = unverifiedDir ? path.join(unverifiedDir, "unverified_transactions.json") : null
+const unverified = unverifiedFile && fs.existsSync(unverifiedFile)
+  ? (JSON.parse(fs.readFileSync(unverifiedFile, "utf8")).data ?? []).filter((c) => c.is_verified === false && !c.is_delete)
+  : []
+const unverifiedInto = new Map(unverified.filter((c) => c.type === 2 && c.transfer?.id).map((c) => [c.transfer.id, c]))
 
 const cashById = new Map(cashTx.map((c) => [c.id, c]))
 const payments = clientTx.filter((x) => x.type === 1)
@@ -97,17 +110,19 @@ try {
     else if ((c.type === 3 || c.type === 6) && paymentsByCash.has(c.id)) continue // the customer_payments row is this money
     else entryIds.add(c.id)
   }
+  // Kept as well: the unverified entries import-cash-list-facts.mjs writes (this step writes only entryIds).
+  const keptEntryIds = new Set([...entryIds, ...unverified.map((c) => c.id)])
   const paymentIds = new Set(payments.map((p) => p.id))
   const transferIds = new Set(cashTx.filter((c) => c.transfer?.id).map((c) => c.transfer.id))
   const staffIds = new Set(staffItems.map((s) => s.id))
-  const childIds = new Set(cashTx.flatMap((c) => (c.transaction_child ?? []).map((x) => x.id)))
+  const childIds = new Set([...cashTx, ...unverified].flatMap((c) => (c.transaction_child ?? []).map((x) => x.id)))
   const loyaltyIds = new Set(cashbackRows.map((r) => r.id))
 
   stats.del("cash_entry_staff", await deleteOthers(client, run, "cash_entry_staff", staffIds))
   stats.del("cash_entry_children", await deleteOthers(client, run, "cash_entry_children", childIds))
   stats.del("customer_payments", await deleteOthers(client, run, "customer_payments", paymentIds))
   stats.del("cash_acceptances", await deleteOthers(client, run, "cash_acceptances", acceptanceIds))
-  stats.del("cash_management_entries", await deleteOthers(client, run, "cash_management_entries", entryIds))
+  stats.del("cash_management_entries", await deleteOthers(client, run, "cash_management_entries", keptEntryIds))
   stats.del("cash_transfers", await deleteOthers(client, run, "cash_transfers", transferIds))
   stats.del("supplier_payments", await deleteOthers(client, run, "supplier_payments", supplierPaymentIds))
   stats.del("loyalty_card_transactions", await deleteOthers(client, run, "loyalty_card_transactions", loyaltyIds))
@@ -282,9 +297,9 @@ try {
         rate: fromCur !== toCur && amountFrom ? Math.round((amountTo / amountFrom) * 1e9) / 1e9 : null,
         percentage: 0,
         from_organization: text(out?.division?.name),
-        to_organization: text(into?.division?.name),
+        to_organization: text((into ?? unverifiedInto.get(id))?.division?.name),
         from_branch: text(out?.branch?.name),
-        to_branch: text(into?.branch?.name),
+        to_branch: text((into ?? unverifiedInto.get(id))?.branch?.name),
         date: localIso((out ?? into).date),
         comment: text(t.comment),
         accumulated_from: text(t.accumulated_money_begin_date),
@@ -435,8 +450,10 @@ try {
   for (const table of ["customer_payments", "cash_management_entries", "supplier_payments", "cash_acceptances", "cash_transfers", "cash_entry_staff", "cash_entry_children", "loyalty_card_transactions", "cashback_withdrawal_requests"]) {
     await bumpIdSequence(client, table)
   }
+  const docBefore = Number((await client.query("SELECT last_value FROM cash_doc_seq")).rows[0]?.last_value ?? 0)
   const docNo = await bumpCashDocSequence(client)
-  await register(client, run, "cash_doc_seq", "cash_doc_seq", "setval", { value: docNo })
+  // Registered only when the numbering moved (a re-run that changes nothing writes nothing).
+  if (docBefore !== Math.max(docNo, 1)) await register(client, run, "cash_doc_seq", "cash_doc_seq", "setval", { value: docNo })
   await client.query("COMMIT")
   stats.print(`finance cash: ${cashTx.length} cash transactions, ${payments.length} client payments, ${supplierByCash.size} supplier payments (Linko)`)
 } catch (error) {

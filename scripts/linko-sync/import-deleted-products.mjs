@@ -6,7 +6,7 @@
 // (demo_seed_rows).
 //
 //   node scripts/linko-sync/import-deleted-products.mjs
-import { connect, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
+import { connect, demoSeeded, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
 
 const run = runId("deleted-products")
 const live = new Set(raw("products").map((p) => p.id))
@@ -66,7 +66,9 @@ try {
     added++
   }
   // Local products Linko does not have, created by demo seeds only: deleted (kept as rows, like Linko's deleted ones).
-  const demo = (await client.query("SELECT p.id FROM products p JOIN demo_seed_rows d ON d.table_name = 'products' AND d.row_id = p.id::text WHERE COALESCE(p.deleted, 0) = 0")).rows
+  const demo = (await demoSeeded(client, "products"))
+    ? (await client.query("SELECT p.id FROM products p JOIN demo_seed_rows d ON d.table_name = 'products' AND d.row_id = p.id::text WHERE COALESCE(p.deleted, 0) = 0")).rows
+    : []
   for (const row of demo) {
     if (live.has(row.id)) continue
     await client.query("UPDATE products SET deleted = 1, updated_at = datetime('now') WHERE id = $1", [row.id])

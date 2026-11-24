@@ -12,7 +12,9 @@
 // "Результативно" even when the order was cancelled later; the linked order is the first one still standing), else a
 // refusal, else a photo report, else 'no_sale' (Linko: a visit without an order is "Отказано"). The refusals and photo reports
 // are linked to their visit (field_refusals / field_photo_reports .visit_id, one each).
-// Imported visits carry client_key 'linko:…'; a re-run replaces them (local app visits are never touched).
+// Imported visits carry client_key 'linko:…'. A re-run keeps each one's id (matched by employee and key), updates what
+// changed, removes the ones it no longer makes and leaves links that are already right alone, so a run that changes
+// nothing writes nothing (local app visits are never touched).
 //
 //   node scripts/linko-sync/import-visits.mjs        (raw: visit_sessions, orders, rejections, merch_reports)
 import { connect, ensureRegistry, raw, register, runId, utcIso } from "./lib.mjs"
@@ -90,21 +92,59 @@ try {
   }
   const plannedOn = (employeeId, clientId, day) => ((plans.get(`${employeeId}|${clientId}`) ?? 0) & (1 << (isoDow(day) - 1))) !== 0
 
-  // Replace the visits of an earlier run (and their links).
-  await client.query("UPDATE field_refusals SET visit_id = NULL WHERE visit_id IN (SELECT id FROM field_visits WHERE client_key LIKE 'linko:%')")
-  await client.query("UPDATE field_photo_reports SET visit_id = NULL WHERE visit_id IN (SELECT id FROM field_visits WHERE client_key LIKE 'linko:%')")
-  const removed = (await client.query("DELETE FROM field_visits WHERE client_key LIKE 'linko:%'")).rowCount
+  // The visits of an earlier run, by employee and key: kept under their ids.
+  const earlier = new Map((await client.query("SELECT * FROM field_visits WHERE client_key LIKE 'linko:%'")).rows.map((row) => [`${row.employee_id}|${row.client_key}`, row]))
+  const kept = new Set()
+  const changes = { insert: 0, update: 0, removed: 0, links: 0 }
+  const sameValue = (a, b) => {
+    if (a == null || b == null) return a == null && b == null
+    if (a instanceof Date || b instanceof Date) return new Date(a).getTime() === new Date(b).getTime()
+    if (typeof a === "number" || typeof b === "number") return Math.abs(Number(a) - Number(b)) < 1e-9
+    return String(a) === String(b)
+  }
 
   const insertVisit = async (v) => {
-    const row = (
-      await client.query(
-        `INSERT INTO field_visits (client_key, user_id, employee_id, client_id, started_at, start_lat, start_lng, finished_at, end_lat, end_lng,
-           result, order_id, comment, planned, client_lat, client_lng, distance_m, created_at, updated_at)
-         VALUES ($1, 0, $2, $3, $4, $5, $6, $7, $5, $6, $8, $9, '', $10, $11, $12, $13, $7, $7) RETURNING id`,
-        [v.key, v.employeeId, v.clientId, new Date(v.startMs).toISOString(), v.lat, v.lng, new Date(v.endMs).toISOString(), v.result, v.orderId, v.planned, v.clientLat, v.clientLng, v.distance],
-      )
-    ).rows[0]
+    const at = (time) => new Date(time).toISOString()
+    const values = {
+      user_id: 0,
+      employee_id: v.employeeId,
+      client_id: v.clientId,
+      started_at: at(v.startMs),
+      start_lat: v.lat,
+      start_lng: v.lng,
+      finished_at: at(v.endMs),
+      end_lat: v.lat,
+      end_lng: v.lng,
+      result: v.result,
+      order_id: v.orderId,
+      comment: "",
+      planned: v.planned,
+      client_lat: v.clientLat,
+      client_lng: v.clientLng,
+      distance_m: v.distance,
+      created_at: at(v.endMs),
+      updated_at: at(v.endMs),
+    }
     stats.results[v.result] = (stats.results[v.result] ?? 0) + 1
+    const columns = Object.keys(values)
+    const current = earlier.get(`${v.employeeId}|${v.key}`)
+    if (current) {
+      kept.add(Number(current.id))
+      const changed = columns.filter((column) => !sameValue(current[column], values[column]))
+      if (changed.length) {
+        await client.query(`UPDATE field_visits SET ${changed.map((column, i) => `${column} = $${i + 2}`).join(", ")} WHERE id = $1`, [current.id, ...changed.map((column) => values[column])])
+        changes.update++
+      }
+      return Number(current.id)
+    }
+    const row = (
+      await client.query(`INSERT INTO field_visits (client_key, ${columns.join(", ")}) VALUES ($1, ${columns.map((_, i) => `$${i + 2}`).join(", ")}) RETURNING id`, [
+        v.key,
+        ...columns.map((column) => values[column]),
+      ])
+    ).rows[0]
+    changes.insert++
+    kept.add(Number(row.id))
     return Number(row.id)
   }
   const resultOf = (events) => {
@@ -114,11 +154,14 @@ try {
     if (events.reports.length) return { result: "photo_report", orderId: null }
     return { result: "no_sale", orderId: null }
   }
+  // The refusal / photo report each visit links (the first one of its events; the first visit wins), written once every
+  // visit is in place.
+  const wantedLinks = { field_refusals: new Map(), field_photo_reports: new Map() }
   const link = async (visitId, events) => {
     const refusal = [...events.refusals].sort((a, b) => a.at - b.at)[0]
-    if (refusal) await client.query("UPDATE field_refusals SET visit_id = $1 WHERE id = $2 AND visit_id IS NULL", [visitId, refusal.id])
+    if (refusal && !wantedLinks.field_refusals.has(refusal.id)) wantedLinks.field_refusals.set(refusal.id, visitId)
     const report = [...events.reports].sort((a, b) => a.at - b.at)[0]
-    if (report) await client.query("UPDATE field_photo_reports SET visit_id = $1 WHERE id = $2 AND visit_id IS NULL", [visitId, report.id])
+    if (report && !wantedLinks.field_photo_reports.has(report.id)) wantedLinks.field_photo_reports.set(report.id, visitId)
   }
 
   for (const group of groups.values()) {
@@ -179,7 +222,25 @@ try {
     await link(id, group)
     stats.fromEvents++
   }
-  await register(client, run, "field_visits", "linko:*", "replace", { removed, sessions: stats.sessions, fromEvents: stats.fromEvents })
+  // Links: a row linked to an imported visit (or to none) gets the one this run wants; links to the app's own visits stay.
+  const imported = "SELECT id FROM field_visits WHERE client_key LIKE 'linko:%'"
+  for (const [table, wanted] of Object.entries(wantedLinks)) {
+    for (const row of (await client.query(`SELECT id, visit_id FROM ${table} WHERE visit_id IN (${imported})`)).rows) {
+      if (wanted.get(Number(row.id)) === Number(row.visit_id)) continue
+      await client.query(`UPDATE ${table} SET visit_id = NULL WHERE id = $1`, [row.id])
+      if (!wanted.has(Number(row.id))) changes.links++
+    }
+    for (const [id, visitId] of wanted) {
+      changes.links += (await client.query(`UPDATE ${table} SET visit_id = $1 WHERE id = $2 AND visit_id IS NULL`, [visitId, id])).rowCount
+    }
+  }
+  // The imported visits this run no longer makes (nothing links them any more).
+  const gone = [...earlier.values()].map((row) => Number(row.id)).filter((id) => !kept.has(id))
+  if (gone.length) changes.removed = (await client.query("DELETE FROM field_visits WHERE id = ANY($1::int[])", [gone])).rowCount
+  stats.changes = changes
+  if (changes.insert || changes.update || changes.removed || changes.links) {
+    await register(client, run, "field_visits", "linko:*", "replace", { ...changes, sessions: stats.sessions, fromEvents: stats.fromEvents })
+  }
   await client.query("COMMIT")
 } catch (error) {
   await client.query("ROLLBACK")
@@ -190,5 +251,6 @@ try {
 console.log(
   `visits: ${sessions.length} timed visits + events of ${groups.size} client-days → ${stats.sessions} timed, ${stats.fromEvents} from orders / refusals / reports;`,
   JSON.stringify(stats.results),
+  JSON.stringify(stats.changes ?? {}),
   stats.skippedEmployees.size ? `employees missing: ${[...stats.skippedEmployees].join(",")}` : "",
 )

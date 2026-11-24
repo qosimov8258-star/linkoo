@@ -6,6 +6,8 @@
 //                                                                              pills: Linko sends a type in its own order)
 // into backups/linko-raw/<YYYY-MM-DD>/shop_drawer.json ({fetched, data: {shopId: {market, plans, logs, logsByType}}}), the file
 // import-shop-drawer.mjs reads. A re-run continues where the last one stopped (shops already saved are skipped).
+// The same as `fetch.mjs shop-drawer`. RAW=<download folder> (with LINKO_SERVER) reads that folder's markets.json and
+// writes there; another server than the first account needs RAW (its own markets.json).
 //
 //   LINKO_SERVER=time3 LINKO_TOKEN=… node scripts/linko-sync/fetch-shop-drawer.mjs           (every shop of markets.json)
 //   SHOPS=4567,3503 LINKO_TOKEN=… node scripts/linko-sync/fetch-shop-drawer.mjs              (some shops)
@@ -13,14 +15,12 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, rawDir } from "./lib.mjs"
+import { FIRST_SERVER, fetchTarget, markFolder, rawDir } from "./lib.mjs"
 
-const SERVER = process.env.LINKO_SERVER || "time3"
-const BASE = `https://${SERVER}.linko.uz/ru/api/v1/`
 const DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent" }).format(new Date())
-const OUT_DIR = process.env.RAW || path.join(ROOT, "backups", "linko-raw", DAY)
+const { server: SERVER, dir: OUT_DIR } = fetchTarget(DAY)
+const BASE = `https://${SERVER}.linko.uz/ru/api/v1/`
 const OUT = path.join(OUT_DIR, "shop_drawer.json")
-fs.mkdirSync(OUT_DIR, { recursive: true })
 
 let token = process.env.LINKO_TOKEN || ""
 async function login() {
@@ -55,13 +55,19 @@ async function get(p) {
 
 function shopIds() {
   if (process.env.SHOPS) return process.env.SHOPS.split(",").map(Number).filter((id) => id > 0)
+  // The shops of the same account: RAW's markets.json, else the first account's newest download.
+  if (!process.env.RAW && SERVER !== FIRST_SERVER) throw new Error(`LINKO_SERVER=${SERVER}: set RAW to that server's download folder (its markets.json)`)
   const file = path.join(rawDir(), "markets.json")
-  return JSON.parse(fs.readFileSync(file, "utf8")).data.map((market) => Number(market.id))
+  const markets = JSON.parse(fs.readFileSync(file, "utf8")).data
+  if (!Array.isArray(markets)) throw new Error(`${file} is not a complete list (Linko failed for it): download it again`)
+  return markets.map((market) => Number(market.id))
 }
 
+const ids = shopIds()
 await login()
+markFolder(OUT_DIR, SERVER)
 const out = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT, "utf8")) : { fetched: new Date().toISOString(), data: {} }
-const todo = shopIds().filter((id) => !out.data[id] || out.data[id].error)
+const todo = ids.filter((id) => !out.data[id] || out.data[id].error)
 console.log(`shop drawer: ${todo.length} shops to fetch`)
 let done = 0
 for (const id of todo) {

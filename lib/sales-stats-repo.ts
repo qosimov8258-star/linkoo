@@ -63,7 +63,16 @@ type OrderRow = {
   /** Business day (Asia/Tashkent) of created_at. */
   day: string
 }
-type ItemRow = { order_id: number; quantity: number; unit_price: number; discount_percent: number | null; product_type: string | null; brand: string | null }
+type ItemRow = {
+  order_id: number
+  quantity: number
+  /** The part of the line the client returned (order_items.return_quantity; 0 on a database without it). */
+  returned: number | null
+  unit_price: number
+  discount_percent: number | null
+  product_type: string | null
+  brand: string | null
+}
 
 const UNSET = "Не указано"
 
@@ -111,7 +120,8 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
   const items = ids.length
     ? ((await db
         .prepare(
-          `SELECT i.order_id, i.quantity, i.unit_price, i.discount_percent, p.type AS product_type, p.brand AS brand
+          `SELECT i.order_id, i.quantity, COALESCE((to_jsonb(i) ->> 'return_quantity')::double precision, 0) AS returned,
+                  i.unit_price, i.discount_percent, p.type AS product_type, p.brand AS brand
            FROM order_items i LEFT JOIN products p ON p.id = i.product_id
            WHERE i.order_id = ANY(@ids::int[])`,
         )
@@ -163,7 +173,12 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
     if (has(filters.agents) && !filters.agents!.includes(order.agent)) continue
     const total = factInBase(order)
     const orderItems = itemsByOrder.get(order.id) ?? []
-    const gross = orderItems.reduce((sum, item) => sum + item.quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100), 0)
+    // The order's fact price is split over its lines by what each line sold net of its own returns, so a return
+    // lowers the product types it took back, not every line of the order. Without a net (all returned): by gross.
+    const lineGross = (item: ItemRow) => item.quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100)
+    const lineNet = (item: ItemRow) => (item.quantity - Number(item.returned ?? 0)) * item.unit_price * (1 - (item.discount_percent ?? 0) / 100)
+    const gross = orderItems.reduce((sum, item) => sum + lineGross(item), 0)
+    const net = orderItems.reduce((sum, item) => sum + lineNet(item), 0)
     const kept = orderItems.filter(
       (item) =>
         (!has(filters.productTypes) || filters.productTypes!.includes(item.product_type ?? UNSET)) &&
@@ -174,7 +189,7 @@ export async function getSalesStats(begin: string, end: string, filters: SalesFi
       lines.push({ order, amount: total, productType: UNSET })
     } else {
       for (const item of kept) {
-        const share = gross > 0 ? (item.quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100)) / gross : 1 / orderItems.length
+        const share = net > 0 ? lineNet(item) / net : gross > 0 ? lineGross(item) / gross : 1 / orderItems.length
         lines.push({ order, amount: total * share, productType: item.product_type || UNSET })
       }
     }

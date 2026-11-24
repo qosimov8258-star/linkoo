@@ -7117,4 +7117,6 @@ export const en: Record<string, string> = {
   "Выберите смену": "Select a shift",
   "Работник не работает в этой смене на этапе": "The worker does not work this shift at the stage",
   "Смены работников": "Worker shifts",
+  "Факт этого типа KPI не рассчитывается": "The fact of this KPI type is not calculated",
+  "Факт.": "Fact.",
 }

@@ -10,19 +10,12 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, currencyCode, ensureRegistry, fullName, register, runId } from "./lib.mjs"
+import { ROOT, capturedOrSkip, connect, currencyCode, ensureRegistry, fullName, register, runId } from "./lib.mjs"
 
 const FILE = "order_debt_transactions.json"
 
-function rawFile() {
-  if (process.env.RAW) return path.join(process.env.RAW, FILE)
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort().reverse() : []
-  const day = days.find((name) => fs.existsSync(path.join(base, name, FILE)))
-  return day ? path.join(base, day, FILE) : null
-}
-
-const file = rawFile()
+// <RAW>/order_debt_transactions.json (skipped when RAW lacks it), else the newest backups/linko-raw/<date> that has it.
+const file = capturedOrSkip(FILE)
 if (!file || !fs.existsSync(file)) {
   console.log(`order payment lines: no raw ${FILE} (run fetch.mjs order-debt-transactions or capture the cards first)`)
   process.exit(0)

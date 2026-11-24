@@ -15,25 +15,14 @@
 // the new line with the same key; and the clients' «Реализация по» (clients.realization_by, read by «По типу указанному
 // у клиента») follows Linko's market.use_stock_lifo from shop_drawer.json.
 import fs from "node:fs"
-import path from "node:path"
 
-import { ROOT, bumpSequence, connect, ensureRegistry, register, runId, upsertById } from "./lib.mjs"
+import { bumpSequence, captured, capturedOrSkip, connect, ensureRegistry, register, runId, upsertById } from "./lib.mjs"
 
-/** The `data` of the newest raw file of that name, or undefined. */
+/** The `data` of the raw file of that name (<RAW>/<name>.json only when RAW is set, else the newest
+ * backups/linko-raw/<date> that has it), or undefined. */
 function latest(name) {
-  const dirs = process.env.RAW
-    ? [process.env.RAW]
-    : fs
-        .readdirSync(path.join(ROOT, "backups", "linko-raw"))
-        .filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day))
-        .sort()
-        .reverse()
-        .map((day) => path.join(ROOT, "backups", "linko-raw", day))
-  for (const dir of dirs) {
-    const file = path.join(dir, `${name}.json`)
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8")).data
-  }
-  return undefined
+  const file = captured(`${name}.json`)
+  return file ? JSON.parse(fs.readFileSync(file, "utf8")).data : undefined
 }
 
 function required(name) {
@@ -41,6 +30,8 @@ function required(name) {
   if (data === undefined) throw new Error(`Raw file missing: ${name}.json`)
   return data
 }
+// With RAW set, a folder without one of the required files skips the step before anything is written.
+for (const name of ["series", "order_products", "order_returns_detail"]) capturedOrSkip(`${name}.json`)
 
 const day = (value) => /^\d{4}-\d{2}-\d{2}/.exec(String(value ?? ""))?.[0] ?? null
 const num = (value) => Number(value) || 0

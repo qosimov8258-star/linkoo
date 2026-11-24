@@ -15,23 +15,11 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
+import { ROOT, captured, connect, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
 
 const run = runId("shop-state")
 // float4 keeps ~7 significant digits: a copied point is at most a few millionths of a degree off.
 const ROUNDING = 1e-4
-
-/** RAW, else the newest backups/linko-raw/<date> folder that has shop_drawer.json. */
-function drawerFile() {
-  if (process.env.RAW) return path.join(process.env.RAW, "shop_drawer.json")
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort().reverse() : []
-  for (const day of days) {
-    const file = path.join(base, day, "shop_drawer.json")
-    if (fs.existsSync(file)) return file
-  }
-  return null
-}
 
 /** Map(shop id → { active, lat, lon }) and where it came from. */
 function readShops() {
@@ -47,7 +35,9 @@ function readShops() {
       realization: typeof market.use_stock_lifo === "boolean" ? (market.use_stock_lifo ? "LIFO" : "FIFO") : "",
     })
   }
-  const file = drawerFile()
+  // <RAW>/shop_drawer.json, else the newest backups/linko-raw/<date> that has it; then the raw folder's markets.json
+  // (with RAW both inside RAW only).
+  const file = captured("shop_drawer.json")
   if (file && fs.existsSync(file)) {
     const body = JSON.parse(fs.readFileSync(file, "utf8"))
     for (const [id, entry] of Object.entries(body.data ?? {})) add(entry?.market, id)

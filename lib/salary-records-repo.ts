@@ -5,6 +5,7 @@ import { getEmployee } from "@/lib/employees-repo"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
+import { kpiBonusesOf, kpiCardBalances, kpiSheetRows, recalculateKpiBalances, type KpiComputedRow } from "@/lib/kpi-performance-repo"
 
 /**
  * "Зарплата и установка планов" (the reference's staff/salary): one record per employee and month with the fixed salary,
@@ -96,8 +97,10 @@ function ensureSchema(): Promise<void> {
             currency TEXT NOT NULL DEFAULT '', amount DOUBLE PRECISION NOT NULL DEFAULT 0, created_date TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '')`,
         )
         // The KPI balances of a record's month as the reference stored them at its «Перерасчет KPI» (its staff/salary/<id>/
-        // "balances"): per employee, KPI and reached level (a multi-level KPI has a row per level) the level, plan, sales, returns, fact, forecast, daily plan and bonus.
-        // The row card of the list shows them; scripts/linko-sync/import-salary-cards.mjs fills them.
+        // "balances"): per employee, KPI and level of the bonus chain (a multi-level KPI has a row per level, each with its
+        // part of the bonus) the level, plan, sales, returns, fact, forecast, daily plan and bonus.
+        // The row card of the list shows them; scripts/linko-sync/import-salary-cards.mjs copies Linko's, «Перерасчет KPI»
+        // (recalculate below) rewrites those of the records it recomputes.
         await tx.exec(
           `CREATE TABLE IF NOT EXISTS salary_kpi_balances (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL,
@@ -224,9 +227,9 @@ async function userInfo(userId: number) {
   }
 }
 
-async function touchLastDate(db: ReturnType<typeof getDb>, month: number, year: number) {
+async function touchLastDate(db: ReturnType<typeof getDb>, month: number, year: number, at?: string) {
   // Local (Asia/Tashkent) time like the reference's last_date and the branch KPI recalculation, not UTC.
-  const now = nowLocalIso()
+  const now = at ?? nowLocalIso()
   await db
     .prepare(
       `INSERT INTO salary_last_dates (month, year, last_date) VALUES (?, ?, ?)
@@ -404,19 +407,45 @@ export async function copyMonth(
   return done
 }
 
-/** "Перерасчет KPI": re-derives the totals of the month and stamps the "ДАННЫЕ ЗА" date. */
+/** The salary card's KPI balances of a record (salary_kpi_balances) replaced by the rows of a recalculation at `at`. */
+async function replaceCardBalances(db: ReturnType<typeof getDb>, userId: number, month: number, year: number, rows: KpiComputedRow[], at: string) {
+  await db.prepare("DELETE FROM salary_kpi_balances WHERE user_id = ? AND month = ? AND year = ?").run(userId, month, year)
+  const insert = db.prepare(
+    `INSERT INTO salary_kpi_balances (user_id, month, year, kpi_id, kpi_name, plan_type, level, level_from, level_to, calculation_type, plan,
+       sales, returns, fact, bonus, forecast, daily_plan, daily_sales, daily_returns, daily_fact, last_date)
+     VALUES (@userId, @month, @year, @kpiId, @kpiName, @planType, @level, @levelFrom, @levelTo, @calculationType, @plan,
+       @sales, @returns, @fact, @bonus, @forecast, @dailyPlan, @dailySales, @dailyReturns, @dailyFact, @at)`,
+  )
+  for (const balance of kpiCardBalances(rows)) await insert.run({ ...balance, userId, month, year, at })
+}
+
+/** "Перерасчет KPI" (also «Перерасчет» of «Выполнения KPI»): recomputes the month's KPI facts, levels and bonuses
+ * (lib/kpi-performance-repo.ts) and writes each record's bonuses per currency (a KPI without a currency pays in the base
+ * currency) and totals, like Linko's salary calculation, and the KPI balances of its row card (salary_kpi_balances: in
+ * Linko the card shows the balances of the last «Перерасчет KPI»). A credited («Зачислить») record keeps the bonuses it
+ * was credited with and its card. One transaction, the month's records locked like «Зачислить» does, so a record
+ * credited meanwhile is not rewritten. Stamps the "ДАННЫЕ ЗА" date (the same moment as «данные за» of «Выполнения KPI»). */
 export async function recalculate(month: number, year: number): Promise<number> {
   await ensureSchema()
-  const db = getDb()
-  const records = await allSalaryRecords(month, year)
-  for (const record of records) {
-    const t = totals(record.salary, record.currency, record.currencies)
-    await db
-      .prepare("UPDATE salary_records SET currencies = ?, total_bonus = ?, total_salary = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify(t.currencies), t.totalBonus, t.totalSalary, record.id)
-  }
-  await touchLastDate(db, month, year)
-  return records.length
+  const at = nowLocalIso()
+  return withTransaction(async (db) => {
+    const locked = (await db.prepare("SELECT * FROM salary_records WHERE month = ? AND year = ? ORDER BY user_id FOR UPDATE").all(month, year)) as Row[]
+    const rows = await recalculateKpiBalances(month, year, { at })
+    const bonuses = await kpiBonusesOf(month, year)
+    const records = locked.map(rowToRecord).sort((a, b) => a.id - b.id)
+    for (const record of records) {
+      if (!record.isApproved) await replaceCardBalances(db, record.userId, month, year, rows.filter((row) => row.userId === record.userId), at)
+      const currencies = record.isApproved
+        ? record.currencies
+        : [...(bonuses.get(record.userId) ?? new Map<string, number>()).entries()].map(([name, totalBonus]) => ({ name, totalBonus, totalSalary: totalBonus }))
+      const t = totals(record.salary, record.currency, currencies)
+      await db
+        .prepare("UPDATE salary_records SET currencies = ?, total_bonus = ?, total_salary = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(JSON.stringify(t.currencies), t.totalBonus, t.totalSalary, record.id)
+    }
+    await touchLastDate(db, month, year, at)
+    return records.length
+  })
 }
 
 /** KPI statistics of one month for the "Скачать EXCEL" sheet: the KPI columns (reference order) and, per employee, the work days and the facts. */
@@ -425,10 +454,12 @@ export type SalaryKpiStats = {
   rows: Record<number, { workDays: number | null; workedDays: number | null; facts: Record<string, Array<number | null>> }>
 }
 
-/** No KPI statistics are stored for this company yet, so the sheet carries the salary columns only. (The reference
- * account's monthly statistics that the removed demo scripts wrote into salary_kpi_columns / _rows / _facts are not read.) */
+/** The month's stored «Выполнения KPI» rows (the last «Перерасчет»): per employee and KPI [plan, sales, returns, fact,
+ * % (one decimal), level, bonus]. A KPI whose fact this app does not compute leaves those cells empty. The work days
+ * are not filled. (The demo tables salary_kpi_columns / _rows / _facts are not read.) */
 export async function salaryKpiStats(month: number, year: number): Promise<SalaryKpiStats> {
-  void month
-  void year
-  return { columns: [], rows: {} }
+  const sheet = await kpiSheetRows(month, year)
+  const rows: SalaryKpiStats["rows"] = {}
+  for (const [userId, facts] of sheet.facts) rows[userId] = { workDays: null, workedDays: null, facts }
+  return { columns: sheet.columns, rows }
 }

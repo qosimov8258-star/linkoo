@@ -26,21 +26,16 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, bumpSequence, connect, ensureRegistry, fullName, register, runId, upsertById, utcIso } from "./lib.mjs"
+import { bumpSequence, capturedOrSkip, connect, ensureRegistry, fullName, register, runId, upsertById, utcIso } from "./lib.mjs"
 
-function rawFolder() {
-  if (process.env.RAW) return process.env.RAW
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort().reverse() : []
-  const day = days.find((name) => fs.existsSync(path.join(base, name, "gears.json")))
-  return day ? path.join(base, day) : null
-}
-
-const folder = rawFolder()
-if (!folder) {
+// <RAW>/gears.json (skipped when RAW lacks it), else the newest backups/linko-raw/<date> that has it; the other gear
+// files are read from the same folder.
+const gearsFile = capturedOrSkip("gears.json")
+if (!gearsFile) {
   console.log("gears: no raw gears.json (run fetch.mjs first)")
   process.exit(0)
 }
+const folder = path.dirname(gearsFile)
 function load(name) {
   const file = path.join(folder, `${name}.json`)
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null

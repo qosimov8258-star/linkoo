@@ -2,14 +2,30 @@
 // field_route_plans, which the route pages, the day status of Отслеживание and the visit reports read.
 // Linko week_day 1..7 = Monday..Sunday (ISO) → the weekday bit mask; "every N weeks" only when Linko's every_weeks
 // is set (else weekly, as Linko plans them). Linko keeps no start date: plans count from the account's first month
-// (START env, default 2024-09-01). Reference ids are kept.
+// (START env; else, with RAW, the month of the download's first shop or order; without RAW the first account's
+// 2024-09-01). Reference ids are kept.
 //
 //   node scripts/linko-sync/import-route-plans.mjs        (raw file: market_plans)
-import { connect, ensureRegistry, raw, register, runId } from "./lib.mjs"
+import { connect, ensureRegistry, hasRaw, raw, rawEnv, register, runId } from "./lib.mjs"
 
-const START = process.env.START || "2024-09-01"
-const run = runId("route-plans")
+/** The first day of the month of the account's first shop or order in the download, or null. */
+function firstMonth() {
+  const dates = ["markets", "orders"]
+    .filter(hasRaw)
+    .flatMap((name) => {
+      const rows = raw(name)
+      return Array.isArray(rows) ? rows : []
+    })
+    .map((row) => String(row.created_date ?? ""))
+    .filter((value) => /^\d{4}-\d{2}/.test(value))
+    .sort()
+  return dates.length ? `${dates[0].slice(0, 7)}-01` : null
+}
+
 const plans = raw("market_plans")
+const START = process.env.START || (rawEnv() ? firstMonth() : "2024-09-01")
+if (!START && plans.length) throw new Error("route plans: RAW has no shop or order with a date to start the plans from: set START=<YYYY-MM-DD>")
+const run = runId("route-plans")
 
 const client = await connect()
 await ensureRegistry(client)

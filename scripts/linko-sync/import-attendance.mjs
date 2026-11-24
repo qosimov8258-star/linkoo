@@ -79,7 +79,8 @@ try {
       }
     }
   }
-  await register(client, run, "attendance_days", "linko:*", "import", { ...stats.marks })
+  // The run's summary, when it wrote marks (a run that finds every mark as it is writes nothing).
+  if (stats.marks.insert || stats.marks.update) await register(client, run, "attendance_days", "linko:*", "import", { ...stats.marks })
   await client.query("COMMIT")
 } catch (error) {
   await client.query("ROLLBACK")

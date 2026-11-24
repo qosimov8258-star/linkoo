@@ -3,7 +3,8 @@
 // download (order_products.return_amount); a return Linko cancelled after that download leaves the copy one return
 // ahead (order 1561: 2 there, 1 in Linko since its second return was cancelled). This step reads the order cards
 // captured later with the read-only harness (Linko's sales/order/{id}/ answers, files sales_order_<id>_.json under
-// backups/linko-raw/<date>/…, the newest capture of an order wins) and sets each copied line (matched by
+// backups/linko-raw/<date>/…, or only those inside RAW=<folder>, the newest capture of an order wins; skipped when RAW
+// holds none) and sets each copied line (matched by
 // order_items.linko_order_product_id, else by the only line of that product) to Linko's return_amount.
 // Every change is registered in linko_sync_rows with the previous value. --dry-run prints the changes and writes nothing.
 //
@@ -11,17 +12,16 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { ROOT, captureRoots, connect, ensureRegistry, register, runId, skipUnlessInRaw } from "./lib.mjs"
 
 const DRY = process.argv.includes("--dry-run")
 const run = runId("order-line-returns")
 const FILE = /^sales_order_(\d+)_\.json$/
 
-/** Map(order id → { file, body }) of the newest capture of each order (by date folder, then file time). */
+/** Map(order id → { file, body }) of the newest capture of each order (by date folder, then file time). With RAW set only
+ * the captures inside RAW are read, else those of every backups/linko-raw/<date>. */
 function readCaptures() {
-  const base = path.join(ROOT, "backups", "linko-raw")
   const found = new Map()
-  if (!fs.existsSync(base)) return found
   const walk = (dir, day) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name)
@@ -36,7 +36,7 @@ function readCaptures() {
       }
     }
   }
-  for (const day of fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort()) walk(path.join(base, day), day)
+  for (const { dir, day } of captureRoots()) walk(dir, day)
   const orders = new Map()
   for (const [id, entry] of found) {
     try {
@@ -50,6 +50,7 @@ function readCaptures() {
 }
 
 const captures = readCaptures()
+if (!captures.size) skipUnlessInRaw(null, "sales_order_<id>_.json")
 const client = await connect()
 await ensureRegistry(client)
 const stats = { orders: captures.size, missingOrders: [], unmatched: [], same: 0, changed: [] }

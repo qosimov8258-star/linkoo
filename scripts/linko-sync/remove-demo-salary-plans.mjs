@@ -3,7 +3,7 @@
 // (staff/salary, already in salary_records) and what was credited (salary_credits). This removes the demo plans.
 //
 //   node scripts/linko-sync/remove-demo-salary-plans.mjs
-import { connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { connect, demoSeeded, ensureRegistry, register, runId } from "./lib.mjs"
 
 const run = runId("salary-plans")
 const client = await connect()
@@ -11,9 +11,9 @@ await ensureRegistry(client)
 let removed = 0
 try {
   await client.query("BEGIN")
-  const rows = (await client.query(
-    "SELECT s.* FROM salary_plans s JOIN demo_seed_rows d ON d.table_name = 'salary_plans' AND d.row_id = s.id::text",
-  )).rows
+  const rows = (await demoSeeded(client, "salary_plans"))
+    ? (await client.query("SELECT s.* FROM salary_plans s JOIN demo_seed_rows d ON d.table_name = 'salary_plans' AND d.row_id = s.id::text")).rows
+    : []
   for (const row of rows) {
     await client.query("DELETE FROM salary_plans WHERE id = $1", [row.id])
     await register(client, run, "salary_plans", row.id, "delete", row)

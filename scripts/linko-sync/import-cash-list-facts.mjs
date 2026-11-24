@@ -15,14 +15,16 @@
 //
 //   node scripts/linko-sync/import-cash-list-facts.mjs        (DRY_RUN=1: report, then roll back)
 //   raw: backups/linko-raw/2026-11-20/finance-cash/{cash_transactions_live,unverified_transactions}.json (read-only
-//        harness captures; RAW_CASH=<dir> picks another folder), client_transactions (full copy)
+//        harness captures; RAW_CASH=<dir> picks another folder, RAW=<folder> reads only <RAW>/finance-cash and
+//        skips the step without it), client_transactions (full copy)
 import fs from "node:fs"
 import path from "node:path"
 
-import { connect, currencyCode, ensureRegistry, raw, register, ROOT, runId } from "./lib.mjs"
+import { capturedOrSkip, connect, currencyCode, ensureRegistry, raw, register, runId } from "./lib.mjs"
 import { counter, localIso, money, name, num, putRow, rateType, text, utcText } from "./finance-lib.mjs"
 
-const dir = process.env.RAW_CASH || path.join(ROOT, "backups", "linko-raw", "2026-11-20", "finance-cash")
+// RAW_CASH, else <RAW>/finance-cash (skipped when RAW lacks it), else the first account's capture of 2026-11-20.
+const dir = capturedOrSkip("finance-cash", { env: "RAW_CASH", legacy: "2026-11-20/finance-cash" })
 const readRaw = (file) => JSON.parse(fs.readFileSync(path.join(dir, `${file}.json`), "utf8")).data
 
 const cashTx = readRaw("cash_transactions_live")

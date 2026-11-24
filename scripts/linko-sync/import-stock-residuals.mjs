@@ -7,7 +7,8 @@
 // 1. equipment issues / returns from Linko's stock history (type "gear"), on their own day;
 // 2. what is left between Linko's balance and this database's (after every document is imported) per product and
 //    warehouse, on the day Linko's stock history starts.
-// Re-running replaces the movements of earlier runs. Run it LAST, after every other import, with the local app running:
+// Re-running replaces the movements of earlier runs. Run it LAST, after every other import, with the local app running
+// on the same database (checked first: the products the app lists must be this database's, else nothing is written):
 //
 //   LOCAL_URL=http://localhost:3002 LOCAL_COOKIE='linko_session=…' node scripts/linko-sync/import-stock-residuals.mjs
 import { connect, ensureRegistry, raw, register, runId } from "./lib.mjs"
@@ -18,22 +19,49 @@ const GEAR = `${MARK}инвентарь`
 const REST = `${MARK}остаток без документа`
 const LOCAL_URL = process.env.LOCAL_URL || "http://localhost:3002"
 const LOCAL_COOKIE = process.env.LOCAL_COOKIE || ""
+// The default address serves the first account's copy: another database's balances must come from its own app.
+if (process.env.TARGET_DB && !process.env.LOCAL_URL) {
+  console.log(`skipped: TARGET_DB=${process.env.TARGET_DB} needs LOCAL_URL of the app running on that database`)
+  process.exit(0)
+}
 
 const balances = raw("all_balances_by_stock")
 const history = raw("barcode_history")
 const costs = new Map(raw("products_net_costs").map((p) => [p.id, Number(p.net_cost) || 0]))
 const start = history.reduce((min, h) => (h.created_date < min ? h.created_date : min), "9999").slice(0, 10)
 
-async function localBalances() {
+async function localRows() {
   const response = await fetch(`${LOCAL_URL}/api/stock/balances?pageSize=0`, { headers: { cookie: LOCAL_COOKIE } })
   if (!response.ok) throw new Error(`local stock API answered ${response.status}: set LOCAL_URL / LOCAL_COOKIE`)
-  const body = await response.json()
+  return (await response.json()).rows ?? []
+}
+
+async function localBalances() {
   const map = new Map()
-  for (const row of body.rows ?? []) for (const s of row.stocks ?? []) map.set(`${row.key}|${s.warehouse}`, Number(s.total) || 0)
+  for (const row of await localRows()) for (const s of row.stocks ?? []) map.set(`${row.key}|${s.warehouse}`, Number(s.total) || 0)
   return map
 }
 
+/** Stops before anything is written unless the app at LOCAL_URL serves this database: the products its stock page lists
+ * (every product of its database) must be this database's, by id and name. An app on another database would book that
+ * database's balances here. */
+async function checkLocalApp(client) {
+  const listed = (await localRows()).filter((row) => String(row.key).startsWith("product:"))
+  const names = new Map((await client.query("SELECT id, name FROM products")).rows.map((p) => [`product:${p.id}`, String(p.name ?? "").trim()]))
+  const same = listed.filter((row) => names.get(String(row.key)) === String(row.name ?? "").trim()).length
+  if ((names.size > 0 && listed.length === 0) || same < listed.length / 2) {
+    throw new Error(
+      `Refusing: the app at ${LOCAL_URL} does not serve this database (${same} of the ${listed.length} products it lists are this database's ` +
+        `${names.size}, by id and name). Start the app on this database and set LOCAL_URL to it.`,
+    )
+  }
+}
+
 const client = await connect()
+await checkLocalApp(client).catch(async (error) => {
+  await client.end()
+  throw error
+})
 await ensureRegistry(client)
 const stats = { removed: 0, gear: 0, rest: 0 }
 try {

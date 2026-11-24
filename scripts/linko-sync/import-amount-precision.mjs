@@ -10,14 +10,13 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { ROOT, capturedOrSkip, connect, ensureRegistry, register, runId } from "./lib.mjs"
 
+/** <RAW>/config.json (skipped when RAW lacks it), else the newest backups/linko-raw/<date>/config.json. */
 function configFile() {
-  if (process.env.RAW) return path.join(process.env.RAW, "config.json")
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name) && fs.existsSync(path.join(base, name, "config.json"))).sort() : []
-  if (!days.length) throw new Error("No config.json in backups/linko-raw/<date>/: run scripts/linko-sync/fetch.mjs lists first")
-  return path.join(base, days[days.length - 1], "config.json")
+  const file = capturedOrSkip("config.json")
+  if (!file) throw new Error("No config.json in backups/linko-raw/<date>/: run scripts/linko-sync/fetch.mjs lists first")
+  return file
 }
 
 /** Linko reads the setting with Number(value) || default: an integer 1..10 is kept, anything else is "not set". */
