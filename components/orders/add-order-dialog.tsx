@@ -707,7 +707,8 @@ export function AddOrderDialog({
             required
             placeholderLabel
             searchable
-            searchOnly
+            // The list shows the newest 50 clients as soon as the field opens; typing narrows it (the user's choice:
+            // Linko's select stays empty until something is typed).
             limit={50}
             value={shopId || editShopName}
             onChange={(value) => { setEditShopName(""); chooseShop(value) }}
