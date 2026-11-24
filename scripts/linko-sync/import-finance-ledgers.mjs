@@ -8,7 +8,10 @@
 // The parity rows ("Reference balance alignment", the 2026-09-30 baselines) of these tables are removed.
 //
 //   node scripts/linko-sync/import-finance-ledgers.mjs   (raw: fin_salary_acts, fin_branch_transactions, fin_vansell_transactions)
-import { connect, currencyCode, ensureRegistry, raw, register, runId, tableExists } from "./lib.mjs"
+import fs from "node:fs"
+import path from "node:path"
+
+import { connect, currencyCode, ensureRegistry, raw, rawDir, register, runId, tableExists } from "./lib.mjs"
 import { bumpIdSequence, counter, deleteOthers, localIso, money, name, putRow, text, utcText } from "./finance-lib.mjs"
 
 const CURRENCY = { 1: "SUM", 2: "USD", 3: "EUR" }
@@ -118,14 +121,19 @@ try {
     await register(client, run, "branches", b.id, "update", { in_balance: before.in_balance })
   }
   // From this moment the branch and van-sell ledgers add the app's own document movements (Tashkent wall clock, as the
-  // ledger's timestamps).
+  // ledger's timestamps): the moment Linko's movements were downloaded (the raw file's own timestamp; they are the
+  // ledger up to then), so a re-run of the same download keeps it. A file without that timestamp takes the import
+  // moment, as before.
   await client.query("CREATE TABLE IF NOT EXISTS linko_history (ledger TEXT PRIMARY KEY, until TEXT NOT NULL)")
-  for (const ledger of ["branch", "vansell"]) {
-    await client.query(
-      `INSERT INTO linko_history (ledger, until) VALUES ($1, to_char(now() AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD HH24:MI:SS'))
-       ON CONFLICT (ledger) DO UPDATE SET until = EXCLUDED.until`,
-      [ledger],
-    )
+  for (const [ledger, file] of [["branch", "fin_branch_transactions"], ["vansell", "fin_vansell_transactions"]]) {
+    const fetched = JSON.parse(fs.readFileSync(path.join(rawDir(), `${file}.json`), "utf8")).fetched
+    const until = fetched
+      ? new Date(new Date(fetched).getTime() + 5 * 3600_000).toISOString().slice(0, 19).replace("T", " ")
+      : (await client.query("SELECT to_char(now() AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD HH24:MI:SS') AS now")).rows[0].now
+    const before = (await client.query("SELECT until FROM linko_history WHERE ledger = $1", [ledger])).rows[0]?.until ?? null
+    if (before === until) continue
+    await client.query("INSERT INTO linko_history (ledger, until) VALUES ($1, $2) ON CONFLICT (ledger) DO UPDATE SET until = EXCLUDED.until", [ledger, until])
+    await register(client, run, "linko_history", ledger, before === null ? "insert" : "update", before === null ? null : { until: before })
   }
   await client.query("COMMIT")
   stats.print(`manual ledgers: employees ${employeeManual.length}, branches ${branchManual.length}, van-sell ${vansellManual.length} (Linko)`)

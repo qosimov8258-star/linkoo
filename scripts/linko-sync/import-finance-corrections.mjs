@@ -4,8 +4,12 @@
 // client's balance is now made of its real orders, returns, payments, withdrawals and these corrections. Linko has no
 // separate opening balances, so the parity baselines in clients.balance are cleared too.
 //
-//   node scripts/linko-sync/import-finance-corrections.mjs        (raw: client_transactions)
-import { connect, currencyCode, ensureRegistry, raw, register, runId } from "./lib.mjs"
+// The «Срок долга» Linko keeps per account (sales/client_balances) and per shop (sales/market_balance) go into the
+// deadlines of Сверка счетов / Сверка магазина: a deadline is added only when it differs from the latest stored one.
+//
+//   node scripts/linko-sync/import-finance-corrections.mjs        (raw: client_transactions, client_balances,
+//                                                                  market_balances when downloaded)
+import { connect, currencyCode, ensureRegistry, hasRaw, raw, register, runId, tableExists } from "./lib.mjs"
 import { bumpIdSequence, counter, deleteOthers, localIso, money, name, putRow, text, utcText } from "./finance-lib.mjs"
 
 const rows = raw("client_transactions").filter((x) => x.type === 9)
@@ -62,6 +66,25 @@ try {
     deadlines++
   }
   console.log(`account payment deadlines added: ${deadlines}`)
+
+  // "Срок долга" of Сверка магазина (sales/market_balance payment_deadline, row id = the shop = clients.id): the shop
+  // variant reads client_payment_deadlines (lib/finance-store-reconciliation.ts), the app creates that table.
+  if (hasRaw("market_balances")) {
+    const shops = raw("market_balances").filter((shop) => shop.payment_deadline)
+    if (shops.length && !(await tableExists(client, "client_payment_deadlines"))) {
+      console.log(`shop payment deadlines: skipped, client_payment_deadlines does not exist yet (open Сверка магазина once)`)
+    } else {
+      let added = 0
+      for (const shop of shops) {
+        const latest = (await client.query("SELECT payment_deadline FROM client_payment_deadlines WHERE client_id = $1 ORDER BY id DESC LIMIT 1", [shop.id])).rows[0]
+        if (latest?.payment_deadline === shop.payment_deadline) continue
+        const row = (await client.query("INSERT INTO client_payment_deadlines (client_id, payment_deadline, created_by) VALUES ($1, $2, '') RETURNING id", [shop.id, shop.payment_deadline])).rows[0]
+        await register(client, run, "client_payment_deadlines", row.id, "insert")
+        added++
+      }
+      console.log(`shop payment deadlines added: ${added} (${shops.length} shops with one in Linko)`)
+    }
+  }
   await client.query("COMMIT")
   stats.print(`client corrections: ${rows.length} Linko type-9 transactions`)
 } catch (error) {

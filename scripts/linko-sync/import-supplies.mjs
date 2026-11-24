@@ -194,23 +194,26 @@ try {
       stats.expenses++
     }
     const wantLogs = (logsOf.get(id) ?? []).sort((a, b) => a.id - b.id)
-    const beforeLogs = (await client.query("SELECT count(*)::int AS n FROM supplier_incoming_logs WHERE incoming_id = $1", [id])).rows[0].n
-    if (wantLogs.length || beforeLogs) {
+    const logRows = wantLogs.map((l) => [
+      LOG_ACTION[l.action] ?? l.action ?? "",
+      l.comment ?? "",
+      fullName(l.created_by) || fullName(l.updated_by),
+      sqlDateTime(l.created_date) ?? "",
+      l.status == null ? "" : String(l.status),
+      l.date ? isoDay(l.date) : "",
+    ])
+    const storedLogs = (
+      await client.query("SELECT action, details, user_name, created_at, status, event_date FROM supplier_incoming_logs WHERE incoming_id = $1 ORDER BY id", [id])
+    ).rows.map((row) => [row.action, row.details, row.user_name, row.created_at, row.status, row.event_date].map((value) => (value == null ? "" : String(value))))
+    stats.logs += logRows.length
+    // Replaced only when they differ from Linko's (a re-run keeps the rows and their ids).
+    if (JSON.stringify(storedLogs) !== JSON.stringify(logRows)) {
       await client.query("DELETE FROM supplier_incoming_logs WHERE incoming_id = $1", [id])
-      for (const l of wantLogs) {
+      for (const values of logRows) {
         await client.query(
           "INSERT INTO supplier_incoming_logs (incoming_id, action, details, user_name, created_at, status, event_date) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-          [
-            id,
-            LOG_ACTION[l.action] ?? l.action ?? "",
-            l.comment ?? "",
-            fullName(l.created_by) || fullName(l.updated_by),
-            sqlDateTime(l.created_date) ?? "",
-            l.status == null ? "" : String(l.status),
-            l.date ? isoDay(l.date) : "",
-          ],
+          [id, ...values],
         )
-        stats.logs++
       }
     }
   }

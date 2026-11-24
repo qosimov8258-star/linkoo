@@ -702,10 +702,9 @@ function statsOf(model: Model, selection: Selection): OrderDebtStats {
   for (const { client, line } of selection.lines) if (!client.wrong) add(line.currency, line.bucket, line.remaining)
   for (const item of Object.values(amounts)) for (const key of Object.keys(item) as Array<keyof BucketAmounts>) item[key] = roundMoney(item[key])
   const wrong = selection.clients.filter((client) => client.wrong && client.info.id !== null)
-  // Like the reference, the oldest counter also counts the orders of the previous (30-120 days) bucket: its list shows 316 for
-  // 315 + 1 orders, while the money stays split by bucket.
-  const count = (sets: Record<DebtBucket, Set<number>>) =>
-    Object.fromEntries(DEBT_BUCKETS.map((bucket) => [bucket, bucket === "fourth" ? new Set([...sets.third, ...sets.fourth]).size : sets[bucket].size])) as Record<DebtBucket, number>
+  // Each counter counts the orders of its own bucket, like the money (a reference account with 6 orders of 30-120 days
+  // and none older shows 6 / 0).
+  const count = (sets: Record<DebtBucket, Set<number>>) => Object.fromEntries(DEBT_BUCKETS.map((bucket) => [bucket, sets[bucket].size])) as Record<DebtBucket, number>
   return {
     config: model.config,
     today: model.today,

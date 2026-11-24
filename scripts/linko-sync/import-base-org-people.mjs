@@ -514,6 +514,10 @@ try {
     values.access_right_id = rightId && rightNames.has(rightId) ? rightId : null
     values.job_id = jobId && jobNames.has(jobId) ? jobId : null
     values.position = [rightNames.get(values.access_right_id), jobNames.get(values.job_id)].map(text).filter(Boolean).join(" · ")
+    // The app's start-up (lib/db.ts normalizeEmployeePositions) rewrites a position holding exactly one "|" (its older
+    // "access|job" form) into "a · b"; a name with a "|" ("Агент | Функции") gets the same form here, or every run and
+    // every app start would undo each other.
+    if (/^[^|]*\|[^|]*$/.test(values.position)) values.position = values.position.split("|").map(text).filter(Boolean).join(" · ")
     const accesses = Array.isArray(row?.accesses) ? row.accesses : Array.isArray(card?.accesses) ? card.accesses : null
     const shift = row && "shift" in row ? row.shift : card?.shift
     const linkoDetails = {}

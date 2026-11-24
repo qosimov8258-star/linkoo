@@ -110,7 +110,8 @@ try {
     else if ((c.type === 3 || c.type === 6) && paymentsByCash.has(c.id)) continue // the customer_payments row is this money
     else entryIds.add(c.id)
   }
-  for (const c of unverified) entryIds.add(c.id)
+  // Kept as well: the unverified entries import-cash-list-facts.mjs writes (this step writes only entryIds).
+  const keptEntryIds = new Set([...entryIds, ...unverified.map((c) => c.id)])
   const paymentIds = new Set(payments.map((p) => p.id))
   const transferIds = new Set(cashTx.filter((c) => c.transfer?.id).map((c) => c.transfer.id))
   const staffIds = new Set(staffItems.map((s) => s.id))
@@ -121,7 +122,7 @@ try {
   stats.del("cash_entry_children", await deleteOthers(client, run, "cash_entry_children", childIds))
   stats.del("customer_payments", await deleteOthers(client, run, "customer_payments", paymentIds))
   stats.del("cash_acceptances", await deleteOthers(client, run, "cash_acceptances", acceptanceIds))
-  stats.del("cash_management_entries", await deleteOthers(client, run, "cash_management_entries", entryIds))
+  stats.del("cash_management_entries", await deleteOthers(client, run, "cash_management_entries", keptEntryIds))
   stats.del("cash_transfers", await deleteOthers(client, run, "cash_transfers", transferIds))
   stats.del("supplier_payments", await deleteOthers(client, run, "supplier_payments", supplierPaymentIds))
   stats.del("loyalty_card_transactions", await deleteOthers(client, run, "loyalty_card_transactions", loyaltyIds))

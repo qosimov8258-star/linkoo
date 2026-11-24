@@ -15,9 +15,11 @@
 //   created_at    the creation moment in UTC ("2026-04-21 09:05:00"; import-report-details.mjs writes the same)
 //   total / return / fact price, weight, discount %, «Остаток» (total_balance), paid (card's total_paid), payment
 //   method and name (custom_payment_type), due date (next payment date, else the payment date), deal and delivery
-//   type, branch, price list, contract number, transport number, «Не правильный долг» (is_wrong_debt), the invoice
-//   contract (Linko's object as JSON)
+//   type, branch, price list, contract number (Linko's plain `contract` text; the first copy left it empty), transport
+//   number, «Не правильный долг» (is_wrong_debt), the invoice contract (Linko's object as JSON)
 //   the client's debts the card printed when the order was downloaded (operative / actual debt and their currencies)
+// On the first copy a run changes only what Linko changed since its import (a few weights, totals, payment methods)
+// and fills the contract numbers.
 // A new order gets them all, plus the fields import-orders.mjs owns (status, client id, currency, warehouse,
 // organization, payment type and day), so the row is whole even before that step runs. An existing order gets the
 // columns that follow Linko's order (everything above except the creation moments, the list's `created` text and the
@@ -70,7 +72,9 @@ function followed(row, doc) {
   const pick = (key) => (row[key] !== undefined && row[key] !== null ? row[key] : doc[key])
   return {
     client: text(row.client?.name ?? doc.client?.name ?? market.name),
-    zone: text(market.border?.title),
+    // The shop's territory: the list's, else the card's (some accounts' order list gives the shop's border as null
+    // while the order card and the shop list carry it).
+    zone: text((row.market?.border ?? doc.market?.border)?.title),
     type: text(market.market_type?.name),
     product: text((row.division ?? doc.division)?.name),
     delivery: shortDate(pick("date_delivery")),
@@ -82,7 +86,9 @@ function followed(row, doc) {
     total_price: number(pick("total_price")),
     return_price: number(row.total_return_price ?? doc.return_amount) ?? 0,
     fact_price: number(row.fact_price),
-    weight: number(pick("total_weight")) ?? 0,
+    // A weight Linko gives as 0 is left to the app: its start-up computes the weight of an order with lines and weight
+    // 0 from the lines (lib/orders-repo.ts ORDER_WEIGHT_BACKFILL), which this step would otherwise undo on every run.
+    ...(Number(pick("total_weight")) > 0 ? { weight: Number(pick("total_weight")) } : {}),
     discount_percent: number(pick("discount_percent")) ?? 0,
     pay_method: pick("payment_type") === "bank" ? "bank" : "cash",
     order_balance: number(pick("total_balance")),
@@ -107,6 +113,7 @@ function initial(row, doc) {
   return {
     created: listMoment(row.created_date ?? doc.created_date),
     created_at: utcText(row.created_date ?? doc.created_date),
+    weight: 0,
     balance: "",
     negative: 0,
     operative_debt: number(doc.total_balance_client ?? row.market_internal_balance),
