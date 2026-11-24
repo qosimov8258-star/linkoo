@@ -10,7 +10,7 @@
 //
 //   node scripts/linko-sync/import-supplies.mjs   (raw: supplies, supplies_detail, supply_expenses, supply_logs)
 //   DRY=1 node scripts/linko-sync/import-supplies.mjs   lists the supplies and columns it would change, then rolls back
-import { bumpSequence, connect, currencyCode, ensureRegistry, fullName, isoDay, raw, register, runId, sqlDateTime, upsertById } from "./lib.mjs"
+import { bumpSequence, columnExists, connect, currencyCode, demoSeeded, ensureRegistry, fullName, isoDay, raw, register, runId, sqlDateTime, upsertById } from "./lib.mjs"
 
 const STATUS = { 0: "ожидает", 1: "ожидает", 2: "принят", 3: "ожидает", 4: "отменен" }
 const PAYMENT = { cash: "Наличные", bank: "Банковский счет", card: "Пластиковая карта" }
@@ -47,11 +47,16 @@ try {
   await client.query("ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS linko_paid DOUBLE PRECISION")
   await client.query("ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS distribute_type TEXT NOT NULL DEFAULT 'cost'")
   await client.query("ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS bind_to_provider INTEGER NOT NULL DEFAULT 0")
+  // ref_items: the reference lines of an earlier version of the app, which a database made then still has (emptied
+  // here); a newer database has no such column.
+  const refItems = (await columnExists(client, "supplier_incomings", "ref_items")) ? { ref_items: "[]" } : {}
   const ids = list.map((row) => row.id)
 
   // 1. Supplies that are not Linko's: only the ones a demo / parity seed wrote are removed.
   const seeded = new Set(
-    (await client.query("SELECT row_id FROM demo_seed_rows WHERE table_name = 'supplier_incomings'")).rows.map((r) => Number(r.row_id)),
+    (await demoSeeded(client, "supplier_incomings"))
+      ? (await client.query("SELECT row_id FROM demo_seed_rows WHERE table_name = 'supplier_incomings'")).rows.map((r) => Number(r.row_id))
+      : [],
   )
   const foreign = (await client.query("SELECT * FROM supplier_incomings WHERE NOT (id = ANY($1::int[]))", [ids])).rows
   const kept = []
@@ -125,7 +130,7 @@ try {
       time: "",
       comment: doc.comment ?? "",
       items: JSON.stringify(items),
-      ref_items: "[]",
+      ...refItems,
       currency: currencyCode(doc.currency),
       invoice_date: doc.invoice_date ? isoDay(doc.invoice_date) : "",
       invoice_comment: doc.invoice_comment ?? "",
@@ -189,23 +194,26 @@ try {
       stats.expenses++
     }
     const wantLogs = (logsOf.get(id) ?? []).sort((a, b) => a.id - b.id)
-    const beforeLogs = (await client.query("SELECT count(*)::int AS n FROM supplier_incoming_logs WHERE incoming_id = $1", [id])).rows[0].n
-    if (wantLogs.length || beforeLogs) {
+    const logRows = wantLogs.map((l) => [
+      LOG_ACTION[l.action] ?? l.action ?? "",
+      l.comment ?? "",
+      fullName(l.created_by) || fullName(l.updated_by),
+      sqlDateTime(l.created_date) ?? "",
+      l.status == null ? "" : String(l.status),
+      l.date ? isoDay(l.date) : "",
+    ])
+    const storedLogs = (
+      await client.query("SELECT action, details, user_name, created_at, status, event_date FROM supplier_incoming_logs WHERE incoming_id = $1 ORDER BY id", [id])
+    ).rows.map((row) => [row.action, row.details, row.user_name, row.created_at, row.status, row.event_date].map((value) => (value == null ? "" : String(value))))
+    stats.logs += logRows.length
+    // Replaced only when they differ from Linko's (a re-run keeps the rows and their ids).
+    if (JSON.stringify(storedLogs) !== JSON.stringify(logRows)) {
       await client.query("DELETE FROM supplier_incoming_logs WHERE incoming_id = $1", [id])
-      for (const l of wantLogs) {
+      for (const values of logRows) {
         await client.query(
           "INSERT INTO supplier_incoming_logs (incoming_id, action, details, user_name, created_at, status, event_date) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-          [
-            id,
-            LOG_ACTION[l.action] ?? l.action ?? "",
-            l.comment ?? "",
-            fullName(l.created_by) || fullName(l.updated_by),
-            sqlDateTime(l.created_date) ?? "",
-            l.status == null ? "" : String(l.status),
-            l.date ? isoDay(l.date) : "",
-          ],
+          [id, ...values],
         )
-        stats.logs++
       }
     }
   }

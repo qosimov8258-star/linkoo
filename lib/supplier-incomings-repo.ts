@@ -1144,27 +1144,41 @@ async function refreshProductCostsByName(names: string[]): Promise<void> {
 
 export type SupplyHistoryLine = { incomingId: number; date: string; acceptedAt: string; qty: number; unitCost: number; averageCost: number }
 
+/** The product a supply line is looked up for: its catalog key ("product:12", what a line copied from Linko or picked
+ * from the catalog carries) and its name (for a line without a key). */
+type SupplyProduct = { key: string; name: string }
+
+/** The supply lines' JSON array of `i`, [] for a broken value. */
+const SUPPLY_LINES_SQL = `COALESCE(CASE WHEN pg_input_is_valid(i.items, 'jsonb') THEN CASE WHEN jsonb_typeof(i.items::jsonb) = 'array' THEN i.items::jsonb END END, '[]'::jsonb)`
+
+/** A supply holds a line of the product (@key / @name): by the line's catalog key, by the name only for a line without
+ * one, so two products of the same name never share their supplies. */
+const SUPPLY_HAS_PRODUCT_SQL = `EXISTS (SELECT 1 FROM jsonb_array_elements(${SUPPLY_LINES_SQL}) e
+  WHERE e ->> 'key' = @key OR (COALESCE(e ->> 'key', '') = '' AND fin_key(e ->> 'product') = fin_key(@name)))`
+
+/** The cost lines (supplyCostLines) of `incoming` that are the product's, each with its supply line. */
+function productCostLines(incoming: Incoming, product: SupplyProduct) {
+  const name = nameKey(product.name)
+  const items = incoming.items
+  return supplyCostLines(incoming)
+    .map((line, index) => ({ line, item: items[index] }))
+    .filter(({ line, item }) => line.qty > 0 && (item?.key ? item.key === product.key : nameKey(line.product) === name))
+    .map(({ line }) => line)
+}
+
 /** Accepted supplies of one product, oldest first, in the BASE currency (each supply at its
  * acceptance rate, each expense at its own rate, spread like the stock ledger does), with the
  * running quantity-weighted average after each of them. */
-export async function productSupplyHistory(productName: string, db?: PgDb): Promise<SupplyHistoryLine[]> {
+export async function productSupplyHistory(product: SupplyProduct, db?: PgDb): Promise<SupplyHistoryLine[]> {
   const executor = db ?? (await incomingsDb())
-  const lines = `COALESCE(CASE WHEN pg_input_is_valid(i.items, 'jsonb') THEN CASE WHEN jsonb_typeof(i.items::jsonb) = 'array' THEN i.items::jsonb END END, '[]'::jsonb)`
-  const incomings = await loadIncomings(
-    executor,
-    `WHERE i.status = 'принят' AND EXISTS (SELECT 1 FROM jsonb_array_elements(${lines}) e WHERE fin_key(e ->> 'product') = fin_key(@name))`,
-    { name: productName },
-    "ORDER BY i.accepted_at, i.id",
-  )
+  const incomings = await loadIncomings(executor, `WHERE i.status = 'принят' AND ${SUPPLY_HAS_PRODUCT_SQL}`, { key: product.key, name: product.name }, "ORDER BY i.accepted_at, i.id")
   const rates = await currencyRates(executor)
-  const key = nameKey(productName)
   const history: SupplyHistoryLine[] = []
   let qty = 0
   let value = 0
   for (const incoming of incomings) {
     const rate = positive(incoming.rateToBase) ?? rates.rateOf(incoming.currency) ?? 1
-    for (const line of supplyCostLines(incoming)) {
-      if (nameKey(line.product) !== key || !(line.qty > 0)) continue
+    for (const line of productCostLines(incoming, product)) {
       const unitCost = line.unitCost * rate
       qty += line.qty
       value += line.qty * unitCost
@@ -1246,22 +1260,21 @@ export type ProductSupplyLine = { incomingId: number; date: string; qty: number;
 export type ProductCostInfo = { initialCost: number; currentCost: number; history: SupplyHistoryLine[]; lines: ProductSupplyLine[]; baseCurrency: string }
 
 /** Every supply (accepted or waiting) that carries the product, newest first, like the reference panel. */
-async function productSupplyLines(productName: string, db: PgDb, history: SupplyHistoryLine[]): Promise<ProductSupplyLine[]> {
+async function productSupplyLines(product: SupplyProduct, db: PgDb, history: SupplyHistoryLine[]): Promise<ProductSupplyLine[]> {
   const incomings = await loadIncomings(
     db,
     // Linko's stock/supply_product_history leaves out the supplies an inventory booked (provider «Инвенторизация»).
-    "WHERE i.status IN ('принят', 'ожидает') AND COALESCE(i.is_inventory, 0) = 0 AND i.items LIKE @pattern",
-    { pattern: `%${JSON.stringify(productName).slice(1, -1)}%` },
+    `WHERE i.status IN ('принят', 'ожидает') AND COALESCE(i.is_inventory, 0) = 0 AND ${SUPPLY_HAS_PRODUCT_SQL}`,
+    { key: product.key, name: product.name },
     "ORDER BY i.id",
   )
   const rates = await currencyRates(db)
-  const key = nameKey(productName)
-  const onHand = (await availableByKey(db)).get(key) ?? 0
+  // Доступно is keyed by the stock ledger's item key ("product:12").
+  const onHand = (await availableByKey(db)).get(product.key) ?? 0
   const lines: ProductSupplyLine[] = []
   for (const incoming of incomings) {
     const rate = positive(incoming.rateToBase) ?? rates.rateOf(incoming.currency) ?? 1
-    for (const line of supplyCostLines(incoming)) {
-      if (nameKey(line.product) !== key || !(line.qty > 0)) continue
+    for (const line of productCostLines(incoming, product)) {
       const accepted = incoming.status === "принят"
       const average = accepted ? history.find((item) => item.incomingId === incoming.id)?.averageCost ?? null : null
       lines.push({ incomingId: incoming.id, date: accepted ? incoming.date : "", qty: line.qty, onStock: 0, unitCost: accepted ? round6(line.unitCost * rate) : 0, averageCost: average, accepted })
@@ -1281,8 +1294,9 @@ export async function getProductCostInfo(productId: number): Promise<ProductCost
     | { name: string; cost: number; initial_cost: number | null }
     | undefined
   if (!product) return null
-  const [history, costs, rates] = await Promise.all([productSupplyHistory(product.name, db), getItemCosts({}, db), currencyRates(db)])
-  const lines = await productSupplyLines(product.name, db, history)
+  const supplied = { key: `product:${productId}`, name: product.name }
+  const [history, costs, rates] = await Promise.all([productSupplyHistory(supplied, db), getItemCosts({}, db), currencyRates(db)])
+  const lines = await productSupplyLines(supplied, db, history)
   const current = costs.get(`product:${productId}`)
   return {
     initialCost: Number(product.initial_cost ?? product.cost) || 0,

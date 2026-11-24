@@ -232,12 +232,13 @@ export function BranchKpiDetailPanel({
             </tr>
           </thead>
           <tbody>
-            {lines.map((line) => {
+            {lines.map((line, index) => {
               const supported = line.factAmount !== null
               const factStyle = supported ? { background: percentColor(line.factPercent), color: "#fff" } : undefined
               const forecastStyle = supported ? { background: percentColor(line.forecastPercent), color: "#fff" } : undefined
               return (
-                <tr key={line.performanceIndicator.id}>
+                // an employee's card lists a multi-level KPI once per level
+                <tr key={`${line.performanceIndicator.id}:${line.performanceIndicatorLevel?.level ?? ""}:${index}`}>
                   <td className={`${cell} cursor-pointer`} onClick={() => onOpenIndicator(line.performanceIndicator.id)}>
                     {line.performanceIndicator.name}
                     {!supported && <span className="block text-[11px] font-normal text-[#999]">{t("нет данных в системе")}</span>}

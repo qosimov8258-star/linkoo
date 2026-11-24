@@ -323,9 +323,20 @@ the importers at another database of the same server; a remote host is refused u
   plan (task, day, comment), so the task drawer shows «Просмотреть» as Linko's; a photo stored by the app is kept.
 - **Зарплата и установка планов → row card** (`import-salary-cards.mjs`): the KPI balances Linko stored for each salary
   record at its «Перерасчет KPI» (`staff/salary/<id>/` → `balances`: level, plan, sales, returns, fact, forecast, daily
-  plan, bonus; one row per KPI and reached level) go to `salary_kpi_balances`, which the record's card shows. Source:
-  `salary_cards.json` (`{<linko salary id>: card}`, read-only captures of Linko's card pages, newest
-  `backups/linko-raw/<date>/` that has it, or `RAW=<folder>`); a re-run replaces a record's rows with the newer copy.
+  plan, bonus; one row per KPI and level of its bonus chain, each with that level's part of the bonus) go to
+  `salary_kpi_balances`, which the record's card shows. Source: `salary_cards.json` (`{<linko salary id>: card}`,
+  read-only captures of Linko's card pages, newest `backups/linko-raw/<date>/` that has it, or `RAW=<folder>`); a re-run
+  replaces a record's rows with the newer copy. «Перерасчет KPI» in the app rewrites the rows of every record it
+  recomputes (not a credited one) from its own engine, in the same shape (the card's balances are Linko's staff
+  balances of the last recalculation, split by level, the daily plan unrounded).
+- **Выполнения KPI**: Linko stores a snapshot per month (`staff/staff_balance`) when someone presses «Перерасчет» and
+  never updates it. `import-kpi-balances.ts` (tsx, run by `run-all.sh` after the orders with their logs, returns,
+  payments, visits and holidays it reads; the KPIs and employees must be in the database already) recomputes each
+  stored month with the app's engine (`lib/kpi-performance-repo.ts`) as of Linko's recalculation moment, for the
+  employees / KPIs / plans of Linko's snapshot — only those inputs are copied, never a fact or a bonus. It reads
+  `staff_balance_months.json` and `kpi_last_date_months.json` (`fetch.mjs` step `months`) from the newest
+  `backups/linko-raw/<date>/` that has both (`RAW=<folder>` for another, `DRY=1` only lists the months) and writes only
+  `kpi_staff_balances` / `kpi_balance_dates`: salary records and their cards keep Linko's figures.
 - **Reservations** follow Linko: unconfirmed orders ("Не подтвержден") and confirmed transfers reserve stock.
 - **Same names**: document lines carry the catalog key (`"key": "product:<id>"`), supplies and supplier returns the
   supplier id, shops their financial account — so Linko products, suppliers and accounts that share a name stay apart.

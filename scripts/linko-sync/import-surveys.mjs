@@ -9,7 +9,7 @@
 //   The 36 example rows of the old survey_plans table (registered in demo_seed_rows) are removed too.
 //
 //   node scripts/linko-sync/import-surveys.mjs     (raw: quizzes, quiz_plan_months)
-import { connect, ensureRegistry, fullName, raw, register, runId, sqlDateTime, upsertById, bumpSequence } from "./lib.mjs"
+import { connect, demoSeeded, ensureRegistry, fullName, raw, register, runId, sqlDateTime, upsertById, bumpSequence } from "./lib.mjs"
 
 const run = runId("surveys")
 const client = await connect()
@@ -94,9 +94,9 @@ try {
   await bumpSequence(client, "surveys")
 
   // «План опроса»: the old example rows, then Linko's plan of every month.
-  const demoPlans = (await client.query(
-    "SELECT s.* FROM survey_plans s JOIN demo_seed_rows d ON d.table_name = 'survey_plans' AND d.row_id = s.id::text",
-  )).rows
+  const demoPlans = (await demoSeeded(client, "survey_plans"))
+    ? (await client.query("SELECT s.* FROM survey_plans s JOIN demo_seed_rows d ON d.table_name = 'survey_plans' AND d.row_id = s.id::text")).rows
+    : []
   for (const row of demoPlans) {
     await client.query("DELETE FROM survey_plans WHERE id = $1", [row.id])
     await register(client, run, "survey_plans", row.id, "delete", row)

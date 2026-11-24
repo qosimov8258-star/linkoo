@@ -3,7 +3,7 @@
 // The tables are brought to the shape lib/tasks-repo.ts gives them (same idempotent DDL) before writing.
 //
 //   node scripts/linko-sync/import-tasks.mjs        (raw files: tasks, tasks_detail)
-import { connect, ensureRegistry, fullName, raw, register, runId, utcIso } from "./lib.mjs"
+import { connect, demoSeeded, ensureRegistry, fullName, raw, register, runId, utcIso } from "./lib.mjs"
 
 const run = runId("tasks")
 const list = raw("tasks")
@@ -42,12 +42,14 @@ try {
     CREATE INDEX IF NOT EXISTS tasks_employee_id_idx ON tasks (employee_id);`)
 
   const linkoIds = list.map((task) => Number(task.id))
-  const demo = (
-    await client.query(
-      `SELECT t.id FROM tasks t JOIN demo_seed_rows d ON d.table_name = 'tasks' AND d.row_id = t.id::text WHERE NOT (t.id = ANY($1::int[]))`,
-      [linkoIds],
-    )
-  ).rows.map((row) => Number(row.id))
+  const demo = (await demoSeeded(client, "tasks"))
+    ? (
+        await client.query(
+          `SELECT t.id FROM tasks t JOIN demo_seed_rows d ON d.table_name = 'tasks' AND d.row_id = t.id::text WHERE NOT (t.id = ANY($1::int[]))`,
+          [linkoIds],
+        )
+      ).rows.map((row) => Number(row.id))
+    : []
   if (demo.length) {
     await client.query("DELETE FROM task_plans WHERE task_id = ANY($1::int[])", [demo])
     await client.query("DELETE FROM tasks WHERE id = ANY($1::int[])", [demo])

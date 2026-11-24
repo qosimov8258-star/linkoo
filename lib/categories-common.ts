@@ -283,9 +283,10 @@ export async function cascadeCategoryRename(db: PgDb, kind: CategoryKind, id: nu
 export function categoryOrderBy(ordering: string | undefined, collation: string, extra: Record<string, string> = {}): string {
   const name = `lower(c.name) COLLATE ${collation}`
   // Names equal but for case: lower case first, as the reference lists them ("оплата за поставку", "Оплата за Поставку").
+  // The very same name twice: the newer category first, as the reference lists them.
   const exact = `c.name COLLATE ${collation}`
   const map: Record<string, string> = {
-    name: `${name} ASC, ${exact} ASC, c.id ASC`,
+    name: `${name} ASC, ${exact} ASC, c.id DESC`,
     "-name": `${name} DESC, ${exact} DESC, c.id DESC`,
     id: "c.id ASC",
     "-id": "c.id DESC",

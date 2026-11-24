@@ -13,24 +13,19 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { capturedOrSkip, connect, ensureRegistry, register, runId } from "./lib.mjs"
 
 const DETAILS = "client_promotion_details.json"
 const LIST = "client_promotions.json"
 
-function rawFolder() {
-  if (process.env.RAW) return process.env.RAW
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort().reverse() : []
-  const day = days.find((name) => fs.existsSync(path.join(base, name, DETAILS)))
-  return day ? path.join(base, day) : null
-}
-
-const folder = rawFolder()
-if (!folder) {
+// <RAW>/client_promotion_details.json (skipped when RAW lacks it), else the newest backups/linko-raw/<date> that has it;
+// the list is read from the same folder.
+const detailsFile = capturedOrSkip(DETAILS)
+if (!detailsFile) {
   console.log(`client bonuses: no raw ${DETAILS} (capture the clients' bonus dialogs first)`)
   process.exit(0)
 }
+const folder = path.dirname(detailsFile)
 const details = JSON.parse(fs.readFileSync(path.join(folder, DETAILS), "utf8")).data ?? {}
 const listFile = path.join(folder, LIST)
 const list = fs.existsSync(listFile) ? (JSON.parse(fs.readFileSync(listFile, "utf8")).data ?? []) : []

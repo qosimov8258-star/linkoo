@@ -7,13 +7,15 @@
 // Source: read-only captures of Linko's billing API (the screen's own GETs) in backups/linko-raw/2026-11-20/permission-tags:
 //   permissions.json = client/permission/?tag=general, tags.json = client/permission_tag/?search=&page_size=50.
 //
-//   node scripts/linko-sync/import-permission-tags.mjs [--dry-run]      (TAGS_DIR=<folder> reads other captures)
+//   node scripts/linko-sync/import-permission-tags.mjs [--dry-run]      (TAGS_DIR=<folder> reads other captures;
+//   with RAW=<folder> only <RAW>/permission-tags is read)
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { capturedOrSkip, connect, ensureRegistry, register, runId } from "./lib.mjs"
 
-const dir = process.env.TAGS_DIR ?? path.join(ROOT, "backups", "linko-raw", "2026-11-20", "permission-tags")
+// TAGS_DIR, else <RAW>/permission-tags (skipped when RAW lacks it), else the first account's capture of 2026-11-20.
+const dir = capturedOrSkip("permission-tags", { env: "TAGS_DIR", legacy: "2026-11-20/permission-tags" })
 const read = (name) => {
   const file = path.join(dir, name)
   if (!fs.existsSync(file)) throw new Error(`Capture missing: ${file}`)

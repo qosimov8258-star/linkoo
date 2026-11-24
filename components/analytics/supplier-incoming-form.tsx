@@ -341,6 +341,7 @@ export function SupplierIncomingForm({
   onClose,
   onSubmit,
   onQuickAddSupplier,
+  onQuickAddOrganization,
   onAddItem,
   onUpdateItem,
   onRemoveItem,
@@ -377,8 +378,9 @@ export function SupplierIncomingForm({
   /** The page's save (may be async: the form waits for it before checking whether a notice covers it). */
   onSubmit: (event: FormEvent) => void | Promise<void>
   onQuickAddSupplier: () => void
-  /** Linko's form has no «+добавить» next to «Организация»; kept for callers, unused. */
-  onQuickAddOrganization?: () => void
+  /** «+добавить» next to «Организация»: the shared organization dialog of the Организация page (kept at the user's request,
+   * although Linko's form has none). */
+  onQuickAddOrganization: () => void
   onAddItem: (item: { product: string; qty: number; cost: number; expiry: string; series: string }) => void
   onUpdateItem: (id: number, patch: { product: string; qty: number; cost: number; expiry: string; series: string }) => void
   onRemoveItem: (id: number) => void
@@ -513,7 +515,7 @@ export function SupplierIncomingForm({
               <TextField top={259} left={30} width={FLUID} label={t("Оставить комментарий...")} value={draft.comment} onChange={(value) => set({ comment: value })} />
             </div>
             <div className="relative h-[330px] border-r border-[#e0e0e0]">
-              <SelectField menu searchable top={58} left={21} width={FLUID} label={t("Организация")} required value={draft.organization} options={plain(organizationOptions)} onChange={(value) => set({ organization: value })} onClear={() => set({ organization: "" })} />
+              <SelectField menu searchable top={58} left={21} width={FLUID} label={t("Организация")} required value={draft.organization} options={plain(organizationOptions)} onChange={(value) => set({ organization: value })} onClear={() => set({ organization: "" })} addLabel={t("+добавить")} onAdd={() => { stepBack(); onQuickAddOrganization() }} addWidth={78} />
               <SelectField menu searchable top={120} left={21} width={FLUID} label={t("Валюта оплаты")} required value={draft.currency} options={plain(currencyOptions)} onChange={(value) => set({ currency: value })} onClear={() => set({ currency: "" })} />
               <SelectField menu searchable top={182} left={21} width={FLUID} label={t("Тип оплаты")} required value={draft.paymentType} options={paymentTypeOptions} onChange={(value) => set({ paymentType: value })} onClear={() => set({ paymentType: "" })} />
             </div>

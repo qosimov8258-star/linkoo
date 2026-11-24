@@ -7,26 +7,14 @@
 //
 //   node scripts/linko-sync/import-salary-cards.mjs
 import fs from "node:fs"
-import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, register, runId } from "./lib.mjs"
+import { capturedOrSkip, connect, ensureRegistry, register, runId } from "./lib.mjs"
 
 const run = runId("salary-cards")
 const NAME = "salary_cards"
 
-/** RAW, else the newest backups/linko-raw/<date> folder that has the file. */
-function rawFile() {
-  if (process.env.RAW) return path.join(process.env.RAW, `${NAME}.json`)
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort().reverse() : []
-  for (const day of days) {
-    const file = path.join(base, day, `${NAME}.json`)
-    if (fs.existsSync(file)) return file
-  }
-  return null
-}
-
-const file = rawFile()
+// <RAW>/salary_cards.json (skipped when RAW lacks it), else the newest backups/linko-raw/<date> that has it.
+const file = capturedOrSkip(`${NAME}.json`)
 if (!file || !fs.existsSync(file)) {
   console.log("salary cards: no raw salary_cards.json")
   process.exit(0)

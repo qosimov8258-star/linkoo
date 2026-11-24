@@ -7099,4 +7099,6 @@ export const uz: Record<string, string> = {
   "Выберите смену": "Smenani tanlang",
   "Работник не работает в этой смене на этапе": "Ishchi bu bosqichda ushbu smenada ishlamaydi",
   "Смены работников": "Ishchilar smenalari",
+  "Факт этого типа KPI не рассчитывается": "Bu turdagi KPI fakti hisoblanmaydi",
+  "Факт.": "Fakt.",
 }

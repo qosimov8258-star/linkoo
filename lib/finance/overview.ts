@@ -30,8 +30,10 @@ import { syncTransferValues } from "@/lib/internal-transfers-repo"
 // liability that was booked before. So only plain cashbox expenses count, and of those
 // not the ones whose category settles a balance (its options) or is excluded from P&L.
 
-/** Category options that make a payment a settlement (see above). */
-const SETTLEMENT_OPTIONS: ReadonlySet<CategoryOptionKey> = new Set<CategoryOptionKey>(["supply", "provider", "supply_expense", "client", "client_contract", "client_card_out"])
+/** Category options that make a payment a settlement (see above). Not «Доп. расход» (supply_expense): only an entry
+ * linked to a supply's extra cost is part of the cost of goods, and that one is a SUPPLY_EXPENSE operation (left out by
+ * SETTLEMENT_OPS); any other entry of such a category is a cost of the period, as on the P&L tab. */
+const SETTLEMENT_OPTIONS: ReadonlySet<CategoryOptionKey> = new Set<CategoryOptionKey>(["supply", "provider", "client", "client_contract", "client_card_out"])
 /** Operation types that are settlements (or transfer legs), whatever their category. */
 const SETTLEMENT_OPS: ReadonlySet<CashOpType> = new Set<CashOpType>([
   CASH_OP.FROM_TRANSFER,

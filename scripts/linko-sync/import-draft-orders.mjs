@@ -6,39 +6,28 @@
 // whole — and, where the draft's card was captured (draft_order_details: sales/draft_order/<id>/), its product lines
 // (`products`: product id and name, quantity and sum, the card's table). A draft deleted here stays deleted.
 //
-// Raw files: the newest backups/linko-raw/<date>/draft_orders.json and draft_order_details.json (or RAW=<folder>).
+// Raw files: the newest backups/linko-raw/<date>/draft_orders.json and draft_order_details.json (with RAW=<folder> only
+// those of RAW).
 //
 //   node scripts/linko-sync/import-draft-orders.mjs
 //   node scripts/linko-sync/import-draft-orders.mjs --dry-run  (prints what would change, writes nothing)
 import fs from "node:fs"
-import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, fullName, register, ruShortDate, ruShortDateTime, runId } from "./lib.mjs"
+import { captured, capturedOrSkip, connect, ensureRegistry, fullName, register, ruShortDate, ruShortDateTime, runId } from "./lib.mjs"
 
 const DRY_RUN = process.argv.includes("--dry-run")
 const KIND = "draft-order"
 const text = (value) => (value == null ? "" : String(value))
 
-/** The `data` of the newest raw file of that name, or undefined. */
+/** The `data` of the raw file of that name (<RAW>/<name>.json only when RAW is set, else the newest
+ * backups/linko-raw/<date> that has it), or undefined. */
 function latest(name) {
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const dirs = process.env.RAW
-    ? [process.env.RAW]
-    : fs.existsSync(base)
-      ? fs
-          .readdirSync(base)
-          .filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day))
-          .sort()
-          .reverse()
-          .map((day) => path.join(base, day))
-      : []
-  for (const dir of dirs) {
-    const file = path.join(dir, `${name}.json`)
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8")).data
-  }
-  return undefined
+  const file = captured(`${name}.json`)
+  return file ? JSON.parse(fs.readFileSync(file, "utf8")).data : undefined
 }
 
+// With RAW set, a folder without draft_orders.json skips the step.
+capturedOrSkip("draft_orders.json")
 const list = latest("draft_orders")
 if (!Array.isArray(list)) throw new Error("Raw file missing: draft_orders.json (run fetch.mjs first)")
 const details = latest("draft_order_details") ?? {}

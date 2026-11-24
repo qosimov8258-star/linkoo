@@ -9,18 +9,22 @@
 //   Linko still names on orders (the order filter's «Тип товара» / «Бренд» match an order by its lines' products).
 // Sources: the full download (orders_detail, orders) and, when present, the newer read-only captures of
 // backups/linko-raw/2026-11-20/sales-orders-list (ids-linko.json: the whole order list; order-details.json: order
-// details; product-details.json: main/product/<id>/). The newest value wins. Every change is registered in
+// details; product-details.json: main/product/<id>/; with RAW=<folder> only <RAW>/sales-orders-list, and none when it
+// is not there). The newest value wins. Every change is registered in
 // linko_sync_rows with the previous value, like the other importers.
 //
 //   node scripts/linko-sync/import-order-filter-facts.mjs   (raw: orders_detail, orders)
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
+import { captured, connect, ensureRegistry, hasRaw, raw, register, runId } from "./lib.mjs"
 
 const run = runId("order-filter-facts")
-const LIVE = process.env.LIVE_DIR ?? path.join(ROOT, "backups", "linko-raw", "2026-11-20", "sales-orders-list")
+// LIVE_DIR, else <RAW>/sales-orders-list (with RAW nothing outside it), else the first account's capture of 2026-11-20.
+const LIVE = captured("sales-orders-list", { env: "LIVE_DIR", legacy: "2026-11-20/sales-orders-list" })
+if (!LIVE) console.log("skipped: sales-orders-list not in RAW (only the full download is read)")
 const live = (name) => {
+  if (!LIVE) return null
   const file = path.join(LIVE, name)
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null
 }

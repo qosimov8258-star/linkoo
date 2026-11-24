@@ -14,24 +14,13 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { ROOT, connect, currencyCode, ensureRegistry, fullName, register, runId } from "./lib.mjs"
+import { ROOT, capturedOrSkip, connect, currencyCode, ensureRegistry, fullName, register, runId } from "./lib.mjs"
 
 const run = runId("shop-drawer")
 const NAME = "shop_drawer"
 
-/** RAW, else the newest backups/linko-raw/<date> folder that has the file (later folders may hold other files only). */
-function rawFile() {
-  if (process.env.RAW) return path.join(process.env.RAW, `${NAME}.json`)
-  const base = path.join(ROOT, "backups", "linko-raw")
-  const days = fs.existsSync(base) ? fs.readdirSync(base).filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort().reverse() : []
-  for (const day of days) {
-    const file = path.join(base, day, `${NAME}.json`)
-    if (fs.existsSync(file)) return file
-  }
-  return null
-}
-
-const file = rawFile()
+// <RAW>/shop_drawer.json (skipped when RAW lacks it), else the newest backups/linko-raw/<date> that has it.
+const file = capturedOrSkip(`${NAME}.json`)
 if (!file || !fs.existsSync(file)) {
   console.log("shop drawer: no raw shop_drawer.json (run fetch-shop-drawer.mjs first)")
   process.exit(0)
@@ -105,6 +94,8 @@ try {
   for (const statement of DDL) await client.query(statement)
   const shops = new Set((await client.query("SELECT id FROM clients")).rows.map((row) => Number(row.id)))
   const cards = new Set((await client.query("SELECT client_id FROM linko_market_cards")).rows.map((row) => Number(row.client_id)))
+  // A shop's stored rows of a table, to register only what a re-run really changed.
+  const stored = async (table, shopId, order) => JSON.stringify((await client.query(`SELECT * FROM ${table} WHERE client_id = $1 ORDER BY ${order}`, [shopId])).rows)
   for (const [key, entry] of entries) {
     const shopId = Number(key)
     const market = entry?.market
@@ -126,6 +117,7 @@ try {
     }))
     const names = (items) => JSON.stringify((Array.isArray(items) ? items : []).map((item) => String(item?.name ?? "")).filter(Boolean))
     const optionNames = JSON.stringify((Array.isArray(market.market_options) ? market.market_options : []).map((option) => String(option?.option_name ?? "")).filter(Boolean))
+    const cardBefore = await stored("linko_market_cards", shopId, "client_id")
     await client.query(
       `INSERT INTO linko_market_cards (client_id, price_list_id, price_list_name, inn_is_correct, created_by, market_class, class_divisions, last_payment_date, fetched_at,
                                        without_bonus, promotions, kpis, option_names, last_reject_comment)
@@ -152,9 +144,11 @@ try {
         String(market.last_reject_comment ?? ""),
       ],
     )
-    await register(client, run, "linko_market_cards", shopId, cards.has(shopId) ? "update" : "insert")
+    if (!cards.has(shopId)) await register(client, run, "linko_market_cards", shopId, "insert")
+    else if ((await stored("linko_market_cards", shopId, "client_id")) !== cardBefore) await register(client, run, "linko_market_cards", shopId, "update")
     stats.cards++
 
+    const plansBefore = await stored("linko_market_plans", shopId, "id")
     await client.query("DELETE FROM linko_market_plans WHERE client_id = $1", [shopId])
     for (const [position, plan] of plans.entries()) {
       await client.query(
@@ -182,13 +176,14 @@ try {
       )
       stats.plans++
     }
-    await register(client, run, "linko_market_plans", shopId, "replace")
+    if ((await stored("linko_market_plans", shopId, "id")) !== plansBefore) await register(client, run, "linko_market_plans", shopId, "replace")
 
     // Each type's own order (market_logs?type=<t>); a type with one entry has no other order.
     const typeOrder = new Map()
     for (const [type, page] of Object.entries(entry.logsByType ?? {})) {
       for (const [index, log] of (list(page) ?? []).entries()) typeOrder.set(`${type}:${Number(log.id)}`, index)
     }
+    const logsBefore = await stored("linko_market_logs", shopId, "type, id")
     await client.query("DELETE FROM linko_market_logs WHERE client_id = $1", [shopId])
     for (const [position, log] of logs.entries()) {
       await client.query(
@@ -212,7 +207,7 @@ try {
       )
       stats.logs++
     }
-    await register(client, run, "linko_market_logs", shopId, "replace")
+    if ((await stored("linko_market_logs", shopId, "type, id")) !== logsBefore) await register(client, run, "linko_market_logs", shopId, "replace")
   }
   await client.query("COMMIT")
 } catch (error) {
