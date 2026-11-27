@@ -13,7 +13,7 @@
 // prices per price list, read product by product), transfer-logs («Логи» of the transfers between warehouses),
 // order-debt-transactions (each order's «Список оплат по заказу»), return-logs («Логи» of the client returns), return-marks (the marking codes of every client return line),
 // border-agents (the employees bound to each territory), market-users (each shop's «Агенты магазина», and its last
-// order / visit days, which only the shop's detail has).
+// order / visit days, which only the shop's detail has), day-plans (the tasks of each agent-day of «Время работы агента»).
 // extras (not part of the run without arguments; `… fetch.mjs extras`, or one of them by name): the inputs of the
 // capture-based importers, which the first account got from read-only captures of Linko's screens — knowledge-base,
 // finance-cash, stock-transfers-cancelled, draft-order-details, client-promotion-details, salary-cards, product-detail,
@@ -23,6 +23,7 @@
 // The raw files hold business data: backups/ is git-ignored, never commit them.
 import fs from "node:fs"
 import path from "node:path"
+import { fetchDayPlans } from "./fetch-day-plans.mjs"
 import { fetchTarget, markFolder } from "./lib.mjs"
 
 const DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent" }).format(new Date())
@@ -467,6 +468,11 @@ async function marketUsers() {
   console.log("market_users".padEnd(36), Object.keys(out).length, failed ? `Linko failed ${failed}` : "")
 }
 
+// Время работы агента «Задачи»: the tasks of every agent-day of Linko's report (fetch-day-plans.mjs).
+async function dayPlans() {
+  save("day_plans", { tpl: "market/agent_plans/{agent}/?date={day}", data: await fetchDayPlans(get, months()) })
+}
+
 // --- extras: the inputs of the capture-based importers ---------------------------------------------------------------
 // The first account (time3) got these files from read-only captures of Linko's screens (the SPA's own GET answers, in
 // backups/linko-raw/2026-11-19 and 2026-11-20). These steps GET the same endpoints and write the same file at the same
@@ -762,6 +768,7 @@ const STEPS = {
   "return-marks": returnMarks,
   "border-agents": borderAgents,
   "market-users": marketUsers,
+  "day-plans": dayPlans,
 }
 
 // Without arguments every step of STEPS (not the extras); "extras" stands for all of EXTRAS, in their order.

@@ -3,15 +3,17 @@ import "server-only"
 import { listAttendance } from "@/lib/attendance-repo"
 import { ensureAttendanceSchema } from "@/lib/attendance-schema"
 import type { AttendanceType } from "@/lib/attendance-types"
+import { loadRateBook } from "@/lib/currency-rates-repo"
 import { getDb } from "@/lib/db"
 import { DOC_MAX_YEAR, DOC_MIN_YEAR } from "@/lib/document-dates"
 import { FieldError, FIELD_MESSAGES } from "@/lib/field-activity/errors"
 import { fieldEventTotals, listFieldEvents } from "@/lib/field-activity/events"
 import { lastLocations } from "@/lib/field-activity/gps-repo"
-import { dayStartMs, haversineMeters } from "@/lib/field-activity/input"
+import { addDays, dayStartMs, haversineMeters } from "@/lib/field-activity/input"
 import { dayStatus, plannedClients, PLANNED_ON_DAY_SQL } from "@/lib/field-activity/routes-repo"
 import { columnsOf, ensureFieldSchema } from "@/lib/field-activity/schema"
 import { MAX_PAGE_SIZE, MAX_VISIT_MS } from "@/lib/field-activity/types"
+import { baseReportCurrency, loadCurrencyContext } from "@/lib/finance/context"
 import { roundMoney } from "@/lib/finance/currency"
 import { isIsoDay, parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
@@ -25,6 +27,8 @@ import { ensureFinanceSchema } from "@/lib/finance/schema"
 // - visits, refusals and planned routes: lib/field-activity/** (field_visits, field_refusals,
 //   field_route_plans), the same data as Активность and Отслеживание;
 // - sales: the order events of lib/field-activity/events.ts (counted orders, in the base currency);
+//   Время работы агента reads the documents themselves (orders, deliveries, customer payments, client
+//   returns: the tasks of Linko's day plan, at their own moments and days — see that section);
 // - attendance: Посещаемость (lib/attendance-repo.ts, /api/work-attendance).
 // Agents are employees, identified by employees.id. This module has no tables of its own; the
 // older agent_visits / agent_routes / attendance_recalc_days tables of existing databases are left
@@ -606,76 +610,457 @@ export async function getVisitStats(begin: string, end: string, employeeIds?: nu
 // ---------------------------------------------------------------------------
 // Время работы агента
 // ---------------------------------------------------------------------------
+//
+// Linko's report agent_work_hour, «Показать по» (its data_type):
+// - «Время нахождения» (service_time, the default): the days with a measured stay at a client (a visit checked in and
+//   out at different moments), by the day of the check-in; first / last activity = the first check-in / the last
+//   check-out of those stays; time at the clients = the stays added up.
+// - «Задачи» (today_plan): the days on which a task of Linko's day plan was done. A task is done at its moment, on its
+//   day: a visit at its check-out (with its stay, if measured), an order made (a cancelled one is not done, an
+//   unconfirmed one is), an order delivered — on the order's delivery date, whenever it was delivered —, a payment
+//   taken in the field (not one entered into a cashbox and accepted at once), a return made (not cancelled), a refusal,
+//   a photo report. First / last activity = the first / last of the day's moments; time at the clients = the stays of
+//   the day's visits.
+// Both: plan / visited by plan / outside it / not visited = the day's planned and visited clients, АКБ = the clients
+// of the orders the employee made that day (not cancelled), Сумма заказов = those orders after their returns
+// (fact_price, less the returns made in the app since), each at the rate Linko booked it at, else at its currency's
+// rate when it was made (Валюты history), in the base currency or the app currency.
+//
+// The days of the history copied from Linko (up to linko_history 'day_tasks') read Linko's own day plans
+// (linko_day_tasks, scripts/linko-sync/import-day-tasks.mjs): its tasks at their moments (to the microsecond), the
+// visits it planned for the day (the routes of that time), its service times. Later days are computed from the app's
+// documents, with the plan of the routes as they are now (clientDays). The report shows these facts as Linko does
+// (components/analytics/agent-working-time-view.tsx).
+
+/** «Показать по» of Время работы агента: «Задачи» (today_plan) / «Время нахождения» (service_time), Linko's ids. */
+export type WorkTimeBasis = "today_plan" | "service_time"
+export const WORK_TIME_BASES: readonly WorkTimeBasis[] = ["today_plan", "service_time"]
 
 export type WorkTimeRow = {
   employeeId: number
   agent: string
   date: string
-  /** "HH:mm" of the first visit start / the last visit end. */
+  /** Local "YYYY-MM-DDTHH:mm:ss.ffffff" of the first / the last activity (the last may be on another day; null on a
+   * «Время нахождения» day whose only service was never ended). */
+  firstAt: string
+  lastAt: string | null
+  /** "HH:mm" of firstAt / lastAt ("" without one). */
   first: string
   last: string
+  /** Seconds (with their fraction) from the first to the last activity. */
   totalSec: number
+  /** How many moments of activity the day has (tasks done at different moments; check-ins and check-outs). */
+  moments: number
+  /** Seconds (with their fraction) at the clients. */
   storeSec: number
   plan: number
   visitedPlan: number
   visitedOutside: number
   notVisited: number
   akb: number
-  /** Counted orders of the day in `currency` (the base currency). */
+  /** The day's orders in `currency` (the base currency, or the app currency when one is chosen). */
   sales: number
   currency: string
 }
 
-/** Per employee and day with visits: first / last activity, time at the clients and the plan. */
-export async function getWorkTime(begin: string, end: string, employeeIds?: number[]): Promise<WorkTimeRow[]> {
-  const days = await clientDays(begin, end, employeeIds)
-  const { baseCurrency, orders } = await orderFacts(begin, end, employeeIds)
-  type Acc = { first: string; last: string; storeSec: number; plan: number; visitedPlan: number; visitedOutside: number; clients: Set<string>; sales: number }
-  const acc = new Map<string, Acc>()
-  const entry = (employeeId: number, day: string) => {
-    const key = `${employeeId}|${day}`
-    let value = acc.get(key)
-    if (!value) acc.set(key, (value = { first: "", last: "", storeSec: 0, plan: 0, visitedPlan: 0, visitedOutside: 0, clients: new Set(), sales: 0 }))
-    return value
+const LOCAL_TEXT_US = `'YYYY-MM-DD"T"HH24:MI:SS.US'`
+
+/** One employee-day of activity (see WorkTimeRow). */
+type ActiveDay = { employeeId: number; day: string; firstAt: string; lastAt: string | null; totalSec: number; moments: number; storeSec: number }
+
+type ActiveDayRow = { employee_id: number; day: string; first_at: string; last_at: string | null; total_sec: number | null; moments: number; store_sec: number | null }
+
+const toActiveDays = (rows: ActiveDayRow[]): ActiveDay[] =>
+  rows.map((row) => ({
+    employeeId: Number(row.employee_id),
+    day: row.day,
+    firstAt: row.first_at,
+    lastAt: row.last_at,
+    totalSec: Math.max(0, Number(row.total_sec) || 0),
+    moments: Number(row.moments) || 0,
+    storeSec: Math.max(0, Number(row.store_sec) || 0),
+  }))
+
+type Span = { from: string; to: string }
+
+/** The days [from, to] split at the end of the history copied from Linko: the days read from Linko's day plans and the
+ * days computed from the app's documents (null = none). */
+async function workTimeSpans(from: string, to: string): Promise<{ linko: Span | null; app: Span | null }> {
+  const db = getDb()
+  const ready = (await db
+    .prepare("SELECT to_regclass('linko_day_tasks') IS NOT NULL AND to_regclass('linko_history') IS NOT NULL AS ok")
+    .get()) as { ok: boolean } | undefined
+  const last = ready?.ok
+    ? (((await db.prepare("SELECT left(until, 10) AS day FROM linko_history WHERE ledger = 'day_tasks'").get()) as { day: string } | undefined)?.day ?? null)
+    : null
+  if (!last || !isIsoDay(last) || last < from) return { linko: null, app: { from, to } }
+  if (last >= to) return { linko: { from, to }, app: null }
+  return { linko: { from, to: last }, app: { from: addDays(last, 1), to } }
+}
+
+const onlyEmployees = (column: string, employeeIds?: number[]) => (employeeIds ? `AND ${column} = ANY(@employeeIds::int[])` : "")
+
+/** Linko's «Задачи» days: its tasks done in each day plan. */
+async function linkoTaskDays(span: Span, employeeIds?: number[]): Promise<ActiveDay[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT t.employee_id, to_char(t.plan_day, 'YYYY-MM-DD') AS day,
+              to_char(MIN(t.done_at), ${LOCAL_TEXT_US}) AS first_at, to_char(MAX(t.done_at), ${LOCAL_TEXT_US}) AS last_at,
+              EXTRACT(EPOCH FROM MAX(t.done_at) - MIN(t.done_at))::float8 AS total_sec,
+              COUNT(DISTINCT t.done_at)::int AS moments,
+              COALESCE(SUM(t.stay_sec) FILTER (WHERE t.type = 'service_time'), 0)::float8 AS store_sec
+         FROM linko_day_tasks t
+        WHERE t.status = 'done' AND t.done_at IS NOT NULL AND t.plan_day BETWEEN @from::date AND @to::date ${onlyEmployees("t.employee_id", employeeIds)}
+        GROUP BY 1, 2`,
+    )
+    .all({ from: span.from, to: span.to, employeeIds: employeeIds ?? [] })) as ActiveDayRow[]
+  return toActiveDays(rows)
+}
+
+/** Linko's «Время нахождения» days: its service times, by the day they started — with the services it began and never
+ * ended (linko_open_services: a start, no end, no stay). */
+async function linkoStayDays(span: Span, employeeIds?: number[]): Promise<ActiveDay[]> {
+  const db = getDb()
+  const open = ((await db.prepare("SELECT to_regclass('linko_open_services') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined)?.ok
+  const rows = (await db
+    .prepare(
+      `WITH s AS (
+         SELECT t.employee_id, t.started_at, t.started_at + t.stay_sec * interval '1 second' AS ended, t.stay_sec
+           FROM linko_day_tasks t
+          WHERE t.type = 'service_time' AND t.status = 'done' AND t.started_at IS NOT NULL AND t.stay_sec IS NOT NULL
+         ${open ? "UNION ALL SELECT o.employee_id, o.started_at, NULL::timestamp, NULL::float8 FROM linko_open_services o" : ""}
+       )
+       SELECT s.employee_id, to_char(s.started_at::date, 'YYYY-MM-DD') AS day,
+              to_char(MIN(s.started_at), ${LOCAL_TEXT_US}) AS first_at, to_char(MAX(s.ended), ${LOCAL_TEXT_US}) AS last_at,
+              COALESCE(EXTRACT(EPOCH FROM MAX(s.ended) - MIN(s.started_at)), 0)::float8 AS total_sec,
+              (COUNT(*) + COUNT(s.ended))::int AS moments,
+              COALESCE(SUM(s.stay_sec), 0)::float8 AS store_sec
+         FROM s
+        WHERE s.started_at >= @from::timestamp AND s.started_at < @to::timestamp ${onlyEmployees("s.employee_id", employeeIds)}
+        GROUP BY 1, 2`,
+    )
+    .all({ from: `${span.from}T00:00:00`, to: `${addDays(span.to, 1)}T00:00:00`, employeeIds: employeeIds ?? [] })) as ActiveDayRow[]
+  return toActiveDays(rows)
+}
+
+/** «Время нахождения» of the app's days: the employee-days with a measured stay or a visit not ended yet (check-in
+ * day; a visit in progress counts its start, as Linko's unfinished service). */
+async function stayDays(span: Span, employeeIds?: number[]): Promise<ActiveDay[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT v.employee_id, to_char((${local("v.started_at")})::date, 'YYYY-MM-DD') AS day,
+              to_char(MIN(${local("v.started_at")}), ${LOCAL_TEXT_US}) AS first_at,
+              to_char(MAX(${local("v.finished_at")}), ${LOCAL_TEXT_US}) AS last_at,
+              COALESCE(EXTRACT(EPOCH FROM MAX(v.finished_at) - MIN(v.started_at)), 0)::float8 AS total_sec,
+              (COUNT(*) + COUNT(v.finished_at))::int AS moments,
+              COALESCE(SUM(EXTRACT(EPOCH FROM (v.finished_at - v.started_at))), 0)::float8 AS store_sec
+         FROM field_visits v
+        WHERE (v.finished_at > v.started_at OR v.finished_at IS NULL)
+          AND v.started_at >= @fromUtc::timestamptz AND v.started_at < @toUtc::timestamptz
+          ${onlyEmployees("v.employee_id", employeeIds)}
+        GROUP BY 1, 2`,
+    )
+    .all({ ...utcBounds(span.from, span.to), employeeIds: employeeIds ?? [] })) as ActiveDayRow[]
+  return toActiveDays(rows)
+}
+
+/** Employees by the finance name key of a document's text column (lowest id), as the field event stream matches them. */
+const EMPLOYEE_KEYS = "ek AS (SELECT fin_key(first_name || ' ' || last_name) AS k, MIN(id) AS id FROM employees GROUP BY 1)"
+const byName = (alias: string, column: string) => `LEFT JOIN ek ${alias} ON fin_key(${column}) <> '' AND ${alias}.k = fin_key(${column})`
+
+/** «Задачи» of the app's days: the employee-days with a task done (see above), from the app's documents. */
+async function taskDays(span: Span, employeeIds?: number[]): Promise<ActiveDay[]> {
+  const db = getDb()
+  const s = await ensureFinanceSchema(db)
+  const logs = (await columnsOf(["order_logs"])).get("order_logs")
+  const colOr = (table: string, column: string, expr: string, fallback = "NULL") => (s.col(table, column) ? expr : fallback)
+  // Every source: (employee_id, at = the local moment, day = the plan day when it is not the moment's day, stay seconds,
+  // tasks = how many of Linko's tasks the row is).
+  const select = (employee: string, at: string, day = "NULL", stay = "0", tasks = "1") =>
+    `SELECT (${employee})::int AS employee_id, (${at})::timestamp AS at, (${day})::date AS day, (${stay})::float8 AS stay, (${tasks})::int AS tasks`
+  const sources = [
+    // A visit is done when it ends (Linko's visit task: the check-out), with its stay (a second task, «Обслуживание»).
+    `${select("v.employee_id", local("v.finished_at"), "NULL", "GREATEST(EXTRACT(EPOCH FROM (v.finished_at - v.started_at)), 0)", "CASE WHEN v.finished_at > v.started_at THEN 2 ELSE 1 END")}
+       FROM field_visits v WHERE v.finished_at >= @fromUtc::timestamptz AND v.finished_at < @toUtc::timestamptz`,
+    `${select("f.employee_id", local("f.happened_at"))} FROM field_refusals f WHERE f.happened_at >= @fromUtc::timestamptz AND f.happened_at < @toUtc::timestamptz`,
+    `${select("r.employee_id", local("r.happened_at"))} FROM field_photo_reports r WHERE r.happened_at >= @fromUtc::timestamptz AND r.happened_at < @toUtc::timestamptz`,
+  ]
+  if (s.has("orders") && s.col("orders", "status") && s.col("orders", "created_at")) {
+    if (s.col("orders", "agent")) {
+      // An order made: done when made, unless cancelled.
+      sources.push(
+        `${select("oe.id", "fin_ts(o.created_at, true)")} FROM orders o ${byName("oe", "o.agent")}
+          WHERE fin_ts(o.created_at, true) >= @from::timestamp AND fin_ts(o.created_at, true) < @to::timestamp AND o.status <> 'Отменен'`,
+      )
+    }
+    if (s.col("orders", "delivery_man")) {
+      // An order delivered: on its delivery date (Linko plans the delivery there), at the moment it was delivered —
+      // the last «Доставлено» entry of its Логи (status code 3; Linko's own task time for 47 of its 48 deliveries of
+      // Dec 2025 / Mar 2026), else the order's shipping moment.
+      const deliveredAt = [
+        logs?.has("status") && logs.has("created_at") ? "(SELECT MAX(fin_ts(l.created_at)) FROM order_logs l WHERE l.order_id = d.id AND l.status IN ('3', 'Доставлено'))" : "",
+        colOr("orders", "shipped_at", "fin_ts(d.shipped_at, true)", ""),
+        colOr("orders", "updated_at", "fin_ts(d.updated_at, true)", ""),
+        "fin_ts(d.created_at, true)",
+      ].filter(Boolean)
+      sources.push(
+        `${select("de.id", "x.at", "COALESCE(x.planned, x.at::date)")}
+           FROM (SELECT d.delivery_man, COALESCE(${deliveredAt.join(", ")}) AS at, ${colOr("orders", "delivery", "fin_ts(NULLIF(d.delivery, ''))::date")} AS planned
+                   FROM orders d WHERE d.status = 'Доставлено') x
+           ${byName("de", "x.delivery_man")}
+          WHERE COALESCE(x.planned, x.at::date) BETWEEN @fromDay::date AND @toDay::date`,
+      )
+    }
   }
-  for (const day of days) {
-    const target = entry(day.employeeId, day.day)
-    if (day.planned) target.plan += 1
-    if (!day.visits) continue
-    if (day.planned) target.visitedPlan += 1
-    else target.visitedOutside += 1
-    target.storeSec += day.storeSec
-    if (day.firstStart && (!target.first || day.firstStart < target.first)) target.first = day.firstStart
-    if (day.lastEnd && day.lastEnd > target.last) target.last = day.lastEnd
+  const P = "customer_payments"
+  if (s.has(P) && s.col(P, "amount")) {
+    // A payment taken in the field (by the agent, else the courier), at the payment's moment (lib/cash/customer-payments.ts).
+    // Linko makes a task of a payment the agent takes (it waits in the agent's cash until a cashier accepts it), not of
+    // one entered into a cashbox and accepted at once: in Dec 2025 / Mar 2026 its 7 payment tasks are the 7 payments
+    // accepted later than made (6 of them through an agent cash), its 76 other payments were accepted when made.
+    const paidAt = [colOr(P, "payment_date", "fin_ts(NULLIF(p.payment_date, ''))", ""), colOr(P, "paid_at", "fin_ts(p.paid_at)", ""), colOr(P, "created_at", "fin_ts(p.created_at, true)", "")].filter(Boolean)
+    const at = `COALESCE(${paidAt.join(", ")})`
+    const who = [colOr(P, "agent", "pa.id", ""), colOr(P, "delivery_man_id", "pde.id", ""), colOr(P, "delivery_man", "pd.id", "")].filter(Boolean)
+    const field = [
+      colOr(P, "agent_cashbox_id", "p.agent_cashbox_id IS NOT NULL", ""),
+      colOr(P, "accepted", "COALESCE(p.accepted, 0) = 0", ""),
+      colOr(P, "accepted_at", `fin_ts(NULLIF(p.accepted_at, '')) > ${at} + interval '1 minute'`, ""),
+    ].filter(Boolean)
+    if (paidAt.length && who.length && field.length) {
+      sources.push(
+        `${select(`COALESCE(${who.join(", ")})`, at)}
+           FROM ${P} p
+           ${s.col(P, "agent") ? byName("pa", "p.agent") : ""}
+           ${s.col(P, "delivery_man_id") ? "LEFT JOIN employees pde ON pde.id = p.delivery_man_id" : ""}
+           ${s.col(P, "delivery_man") ? byName("pd", "p.delivery_man") : ""}
+          WHERE ${at} >= @from::timestamp AND ${at} < @to::timestamp AND (${field.join(" OR ")})
+            ${s.col(P, "is_deleted") ? "AND COALESCE(p.is_deleted, 0) = 0" : ""}`,
+      )
+    }
   }
+  const R = "client_returns"
+  if (s.has(R) && s.col(R, "created_at") && s.col(R, "status")) {
+    // A return made (not cancelled), by whoever made it, else its agent / deliverer. A copied Linko return keeps its
+    // moment (local) in return_date; an app return has a plain day there and its moment in created_at (UTC).
+    const at = s.col(R, "return_date")
+      ? "CASE WHEN length(btrim(r.return_date)) > 10 THEN fin_ts(r.return_date) ELSE fin_ts(r.created_at, true) END"
+      : "fin_ts(r.created_at, true)"
+    const who = [colOr(R, "created_by", "rc.id", ""), colOr(R, "agent", "ra.id", ""), colOr(R, "deliverer", "rd.id", "")].filter(Boolean)
+    if (who.length) {
+      sources.push(
+        `${select(`COALESCE(${who.join(", ")})`, at)}
+           FROM ${R} r
+           ${s.col(R, "created_by") ? byName("rc", "r.created_by") : ""}
+           ${s.col(R, "agent") ? byName("ra", "r.agent") : ""}
+           ${s.col(R, "deliverer") ? byName("rd", "r.deliverer") : ""}
+          WHERE COALESCE(r.status, '') <> 'cancelled' AND ${at} >= @from::timestamp AND ${at} < @to::timestamp`,
+      )
+    }
+  }
+  const rows = (await db
+    .prepare(
+      `WITH ${EMPLOYEE_KEYS},
+       t AS (${sources.join("\nUNION ALL\n")})
+       SELECT t.employee_id, to_char(COALESCE(t.day, t.at::date), 'YYYY-MM-DD') AS day,
+              to_char(MIN(t.at), ${LOCAL_TEXT_US}) AS first_at, to_char(MAX(t.at), ${LOCAL_TEXT_US}) AS last_at,
+              EXTRACT(EPOCH FROM MAX(t.at) - MIN(t.at))::float8 AS total_sec,
+              SUM(t.tasks)::int AS moments, SUM(t.stay)::float8 AS store_sec
+         FROM t
+        WHERE t.employee_id IS NOT NULL AND t.at IS NOT NULL AND COALESCE(t.day, t.at::date) BETWEEN @fromDay::date AND @toDay::date
+          ${onlyEmployees("t.employee_id", employeeIds)}
+        GROUP BY 1, 2`,
+    )
+    .all({
+      ...utcBounds(span.from, span.to),
+      from: `${span.from}T00:00:00`,
+      to: `${addDays(span.to, 1)}T00:00:00`,
+      fromDay: span.from,
+      toDay: span.to,
+      employeeIds: employeeIds ?? [],
+    })) as ActiveDayRow[]
+  return toActiveDays(rows)
+}
+
+/** The day plan's visits per "employeeId|day": planned, planned and visited, visited outside the plan. */
+type PlanFigures = { plan: number; visitedPlan: number; visitedOutside: number }
+
+/** Linko's days: the visits it planned (its routes of that time) and the ones done. */
+async function linkoPlans(span: Span, employeeIds?: number[]): Promise<Map<string, PlanFigures>> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT t.employee_id, to_char(t.plan_day, 'YYYY-MM-DD') AS day,
+              COUNT(*) FILTER (WHERE t.type = 'visit')::int AS plan,
+              COUNT(*) FILTER (WHERE t.type = 'visit' AND t.status = 'done')::int AS visited_plan,
+              COUNT(*) FILTER (WHERE t.type = 'no_plan_visit' AND t.status = 'done')::int AS visited_outside
+         FROM linko_day_tasks t
+        WHERE t.plan_day BETWEEN @from::date AND @to::date ${onlyEmployees("t.employee_id", employeeIds)}
+        GROUP BY 1, 2`,
+    )
+    .all({ from: span.from, to: span.to, employeeIds: employeeIds ?? [] })) as Array<{ employee_id: number; day: string; plan: number; visited_plan: number; visited_outside: number }>
+  return new Map(rows.map((row) => [`${Number(row.employee_id)}|${row.day}`, { plan: Number(row.plan), visitedPlan: Number(row.visited_plan), visitedOutside: Number(row.visited_outside) }]))
+}
+
+/** The app's days: the clients planned by the routes and the clients visited (clientDays). */
+async function appPlans(span: Span, employeeIds?: number[]): Promise<Map<string, PlanFigures>> {
+  const out = new Map<string, PlanFigures>()
+  for (const day of await clientDays(span.from, span.to, employeeIds)) {
+    const key = `${day.employeeId}|${day.day}`
+    const value = out.get(key) ?? { plan: 0, visitedPlan: 0, visitedOutside: 0 }
+    if (day.planned) value.plan += 1
+    if (day.visits) {
+      if (day.planned) value.visitedPlan += 1
+      else value.visitedOutside += 1
+    }
+    out.set(key, value)
+  }
+  return out
+}
+
+/** An order of a day's АКБ / Сумма заказов. */
+type DayOrder = { employeeId: number; day: string; orderId: number; clientKey: string }
+
+/** Linko's days: the orders whose task was done in the day plan. */
+async function linkoOrders(span: Span, employeeIds?: number[]): Promise<DayOrder[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT t.employee_id, to_char(t.plan_day, 'YYYY-MM-DD') AS day, t.order_id, t.client_id
+         FROM linko_day_tasks t
+        WHERE t.type = 'order' AND t.status = 'done' AND t.order_id IS NOT NULL AND t.plan_day BETWEEN @from::date AND @to::date
+          ${onlyEmployees("t.employee_id", employeeIds)}`,
+    )
+    .all({ from: span.from, to: span.to, employeeIds: employeeIds ?? [] })) as Array<{ employee_id: number; day: string; order_id: number; client_id: number | null }>
+  return rows.map((row) => ({
+    employeeId: Number(row.employee_id),
+    day: row.day,
+    orderId: Number(row.order_id),
+    clientKey: row.client_id === null || row.client_id === undefined ? `order:${Number(row.order_id)}` : `id:${Number(row.client_id)}`,
+  }))
+}
+
+/** The app's days: the orders the employees made (not cancelled). */
+async function madeOrders(span: Span, employeeIds?: number[]): Promise<DayOrder[]> {
+  const db = getDb()
+  const s = await ensureFinanceSchema(db)
+  if (!s.has("orders") || !s.col("orders", "agent") || !s.col("orders", "status") || !s.col("orders", "created_at")) return []
+  const clientId = s.col("orders", "client_id") ? "COALESCE(o.client_id, oc.id)" : "oc.id"
+  const rows = (await db
+    .prepare(
+      `WITH ${EMPLOYEE_KEYS},
+       ck AS (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1)
+       SELECT oe.id AS employee_id, to_char(fin_ts(o.created_at, true)::date, 'YYYY-MM-DD') AS day, o.id,
+              ${clientId} AS client_id, ${s.col("orders", "client") ? "COALESCE(o.client, '')" : "''"} AS client_name
+         FROM orders o
+         JOIN ek oe ON fin_key(o.agent) <> '' AND oe.k = fin_key(o.agent)
+         ${s.col("orders", "client") ? `LEFT JOIN ck oc ON ${s.col("orders", "client_id") ? "o.client_id IS NULL AND " : ""}oc.k = fin_key(o.client)` : "LEFT JOIN ck oc ON false"}
+        WHERE fin_ts(o.created_at, true) >= @from::timestamp AND fin_ts(o.created_at, true) < @to::timestamp AND o.status <> 'Отменен'
+          ${onlyEmployees("oe.id", employeeIds)}`,
+    )
+    .all({ from: `${span.from}T00:00:00`, to: `${addDays(span.to, 1)}T00:00:00`, employeeIds: employeeIds ?? [] })) as Array<{
+    employee_id: number
+    day: string
+    id: number
+    client_id: number | null
+    client_name: string
+  }>
+  return rows.map((row) => ({
+    employeeId: Number(row.employee_id),
+    day: row.day,
+    orderId: Number(row.id),
+    clientKey: row.client_id !== null && row.client_id !== undefined ? `id:${Number(row.client_id)}` : `name:${String(row.client_name).trim().toLowerCase()}`,
+  }))
+}
+
+/** Each order's Сумма заказов: after its returns (fact_price, less the returns made in the app since the copy), at the
+ * rate Linko booked it at, else at its currency's rate when it was made, in the base currency or the app currency. */
+async function orderAmounts(ids: number[]): Promise<{ currency: string; amounts: Map<number, number> }> {
+  const db = getDb()
+  const s = await ensureFinanceSchema(db)
+  const shown = baseReportCurrency(await loadCurrencyContext(db))
+  if (!ids.length || !s.has("orders") || !s.col("orders", "created_at")) return { currency: shown.code, amounts: new Map() }
+  const book = await loadRateBook(db)
+  const booked = (await columnsOf(["linko_document_rates"])).has("linko_document_rates")
+  const colOr = (table: string, column: string, expr: string, fallback = "NULL") => (s.col(table, column) ? expr : fallback)
+  const currency = `COALESCE(${colOr("orders", "currency", "fin_cur(o.currency)")}, ${colOr("orders", "amount", "(SELECT MIN(a.currency) FROM fin_amounts(o.amount) a)")})`
+  const textTotal = colOr("orders", "amount", "(SELECT SUM(a.amount) FROM fin_amounts(o.amount) a)")
+  // The returns made in the app since the copy (orders-repo withReturned): Linko's own ones are in return_price already.
+  const R = "client_returns"
+  const viaLines = s.has("client_return_items") && s.col("client_return_items", "order_item_id")
+    ? " OR r.order_id IS NULL AND (SELECT oi.order_id FROM client_return_items ri JOIN order_items oi ON oi.id = ri.order_item_id WHERE ri.return_id = r.id ORDER BY ri.id LIMIT 1) = o.id"
+    : ""
+  const appReturns = s.has(R) && s.col(R, "order_id") && s.col(R, "amount")
+    ? `(SELECT SUM(r.amount) FROM ${R} r WHERE (r.order_id = o.id${viaLines}) AND COALESCE(r.status, '') <> 'cancelled' ${s.col(R, "client_credit") ? "AND r.client_credit IS NULL" : ""})`
+    : "0"
+  const rows = (await db
+    .prepare(
+      `SELECT o.id, o.created_at, ${currency} AS currency,
+              COALESCE(${colOr("orders", "fact_price", "o.fact_price")}, COALESCE(${colOr("orders", "total_price", "o.total_price")}, ${textTotal}, 0) - COALESCE(${colOr("orders", "return_price", "o.return_price")}, 0))::float8 AS fact,
+              COALESCE(${appReturns}, 0)::float8 AS app_returned,
+              ${booked ? `(SELECT b.rate FROM linko_document_rates b WHERE b.src = 'order' AND b.src_id = o.id AND b.cur = ${currency} LIMIT 1)` : "NULL"}::float8 AS booked_rate
+         FROM orders o
+        WHERE o.id = ANY(@ids::int[])`,
+    )
+    .all({ ids })) as Array<{ id: number; created_at: string; currency: string | null; fact: number | null; app_returned: number | null; booked_rate: number | null }>
+  const amounts = new Map<number, number>()
+  for (const row of rows) {
+    const rate = (row.booked_rate !== null && Number(row.booked_rate) > 0 ? Number(row.booked_rate) : null) ?? book.rateAt(row.currency, row.created_at)
+    const fact = (Number(row.fact) || 0) - (Number(row.app_returned) || 0)
+    amounts.set(Number(row.id), rate === null ? 0 : fact * rate * shown.factor)
+  }
+  return { currency: shown.code, amounts }
+}
+
+/** Per employee and day of activity (see «Показать по» above): first / last activity, time at the clients, the plan
+ * and the orders. */
+export async function getWorkTime(begin: string, end: string, employeeIds?: number[], basis: WorkTimeBasis = "service_time"): Promise<WorkTimeRow[]> {
+  checkPeriod(begin, end)
+  if (employeeIds && !employeeIds.length) return []
+  await ensureFieldSchema()
+  const spans = await workTimeSpans(begin, end)
+  const active: ActiveDay[] = []
+  if (spans.linko) active.push(...(basis === "today_plan" ? await linkoTaskDays(spans.linko, employeeIds) : await linkoStayDays(spans.linko, employeeIds)))
+  if (spans.app) active.push(...(basis === "today_plan" ? await taskDays(spans.app, employeeIds) : await stayDays(spans.app, employeeIds)))
+  if (!active.length) return []
+
+  const plans = new Map<string, PlanFigures>([
+    ...(spans.linko ? await linkoPlans(spans.linko, employeeIds) : []),
+    ...(spans.app ? await appPlans(spans.app, employeeIds) : []),
+  ])
+  const orders = [...(spans.linko ? await linkoOrders(spans.linko, employeeIds) : []), ...(spans.app ? await madeOrders(spans.app, employeeIds) : [])]
+  const { currency, amounts } = await orderAmounts([...new Set(orders.map((order) => order.orderId))])
+  const sales = new Map<string, { clients: Set<string>; amount: number }>()
   for (const order of orders) {
-    const target = acc.get(`${order.employeeId}|${order.day}`)
-    if (!target) continue
-    target.sales += order.amountBase
-    target.clients.add(order.clientKey)
+    const key = `${order.employeeId}|${order.day}`
+    const value = sales.get(key) ?? { clients: new Set<string>(), amount: 0 }
+    value.clients.add(order.clientKey)
+    value.amount += amounts.get(order.orderId) ?? 0
+    sales.set(key, value)
   }
-  const worked = [...acc.entries()].filter(([, value]) => value.first)
-  const info = await agentInfo([...new Set(worked.map(([key]) => Number(key.split("|")[0])))])
-  return worked
-    .map(([key, value]): WorkTimeRow => {
-      const [id, date] = key.split("|")
-      const employeeId = Number(id)
-      const span = Math.round((Date.parse(`${value.last}Z`) - Date.parse(`${value.first}Z`)) / 1000)
+
+  const info = await agentInfo([...new Set(active.map((day) => day.employeeId))])
+  return active
+    .map((day): WorkTimeRow => {
+      const key = `${day.employeeId}|${day.day}`
+      const plan = plans.get(key)
+      const sold = sales.get(key)
       return {
-        employeeId,
-        agent: info.get(employeeId)?.name ?? `#${employeeId}`,
-        date,
-        first: clock(value.first),
-        last: clock(value.last),
-        totalSec: Math.max(span, value.storeSec),
-        storeSec: value.storeSec,
-        plan: value.plan,
-        visitedPlan: value.visitedPlan,
-        visitedOutside: value.visitedOutside,
-        notVisited: Math.max(value.plan - value.visitedPlan, 0),
-        akb: value.clients.size,
-        sales: roundMoney(value.sales),
-        currency: baseCurrency,
+        employeeId: day.employeeId,
+        agent: info.get(day.employeeId)?.name ?? `#${day.employeeId}`,
+        date: day.day,
+        firstAt: day.firstAt,
+        lastAt: day.lastAt,
+        first: clock(day.firstAt),
+        last: clock(day.lastAt ?? ""),
+        totalSec: day.totalSec,
+        moments: day.moments,
+        storeSec: day.storeSec,
+        plan: plan?.plan ?? 0,
+        visitedPlan: plan?.visitedPlan ?? 0,
+        visitedOutside: plan?.visitedOutside ?? 0,
+        notVisited: Math.max((plan?.plan ?? 0) - (plan?.visitedPlan ?? 0), 0),
+        akb: sold?.clients.size ?? 0,
+        // Kept to 6 decimals (float noise off): the table rounds to 3 only when it shows a day or an agent's sum.
+        sales: roundMoney(sold?.amount ?? 0, 6),
+        currency,
       }
     })
     .sort((a, b) => a.agent.localeCompare(b.agent, "ru") || a.employeeId - b.employeeId || a.date.localeCompare(b.date))
