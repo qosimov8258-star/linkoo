@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import { AssistantButton } from "@/components/bug-report/assistant-button"
 import { analyticsReports } from "@/lib/analytics-catalog"
 import { passwordPolicyFor } from "@/lib/auth-policy"
 import { todayIso } from "@/lib/finance/dates"
@@ -510,7 +511,11 @@ export function TopNav() {
         {/* As in the reference, the tabs sit halfway between the logo and the account block (two equal spacers); the
             Mezon logo is 60px wider than the reference's, so from xl the tabs move 30px left of that middle and keep the
             reference's positions. Below 1100 px (from lg, 1024) the items are a little tighter (padding and icon gap), so
-            the Russian menu and the account block fit: at 1024 they ran to 1049 px and widened every page. */}
+            the Russian menu and the account block fit: at 1024 they ran to 1049 px and widened every page. Wider, the
+            tabs get the reference's wide padding (18/25), but from 1439 to 1519 px a narrower one (12/19): with the AI
+            button (50 px) the wide row is 1481 px, which at 1440 scrolled every page sideways and cut off the chevron;
+            the narrower one is 1397 px, so it fits with a classic 17 px scrollbar, and the wide row does from 1520.
+            (Tailwind's max-[1439px] means width < 1439px, so the ranges meet at 1439.) */}
         <div className="hidden flex-1 lg:block" />
 
         <nav ref={navRef} className="hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex xl:-ml-[30px] xl:mr-[30px]">
@@ -544,7 +549,7 @@ export function TopNav() {
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
                 aria-current={isCurrent ? "location" : undefined}
-                className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] max-[1099px]:gap-[3px] max-[1099px]:pl-[3px] max-[1099px]:pr-[3px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
+                className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] min-[1439px]:max-[1520px]:pl-[12px] min-[1439px]:max-[1520px]:pr-[19px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] max-[1099px]:gap-[3px] max-[1099px]:pl-[3px] max-[1099px]:pr-[3px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
                     ? "bg-[#1E4A9A] shadow-[inset_0_-3px_0_#C9962B] hover:bg-[#1E4A9A]"
                     : isCurrent
@@ -574,6 +579,7 @@ export function TopNav() {
 
         <div ref={accountRef} className="hidden h-full shrink-0 items-center lg:flex">
           <div className="flex h-full items-center border-x border-white/[0.12]">
+          <AssistantButton />
           <div ref={notificationsRef}>
             <button
               type="button"
@@ -610,7 +616,7 @@ export function TopNav() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/nav/gear.svg" alt="" className="h-6 w-6" />
             </button>
-            {settingsOpen && <SettingsMenu onClose={() => setSettingsOpen(false)} />}
+            {settingsOpen && <SettingsMenu onClose={() => setSettingsOpen(false)} isAdmin={account?.role === "admin"} />}
           </div>
           </div>
           <button

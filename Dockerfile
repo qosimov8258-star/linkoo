@@ -21,6 +21,8 @@ RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# The AI helper reads the system manual at run time (lib/bug-reports/manual.ts: docs/ai-qollanma.md).
+COPY --from=builder --chown=nextjs:nodejs /app/docs ./docs
 
 USER nextjs
 EXPOSE 3000

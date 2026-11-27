@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "i18n:check": "node scripts/i18n-check.mjs",
+    "test": "node --conditions=react-server --import tsx --test \"tests/**/*.test.ts\"",
     "prebuild": "node scripts/i18n-check.mjs"
   },
   "dependencies": {
@@ -22,7 +23,9 @@
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "lucide-react": "^1.16.0",
+    "modern-screenshot": "^4.7.0",
     "next": "16.4.6",
+    "openai": "^7.65.0",
     "pg": "^8.23.0",
     "react": "^19",
     "react-dom": "^19",

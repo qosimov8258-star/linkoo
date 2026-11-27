@@ -15,10 +15,12 @@ const languages: { code: LanguageCode; label: string }[] = [
 
 interface SettingsMenuProps {
   onClose: () => void
+  /** The signed-in user is an admin: the menu also links the admin-only pages (Сообщения об ошибках). */
+  isAdmin?: boolean
 }
 
 /** Right-hand "Настройки" drawer: the whole panel (header included) scrolls, like the reference. */
-export function SettingsMenu({ onClose }: SettingsMenuProps) {
+export function SettingsMenu({ onClose, isAdmin }: SettingsMenuProps) {
   const { language, setLanguage, t } = useLanguage()
 
   return (
@@ -89,6 +91,16 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
               )}
             </ul>
           ))}
+          {isAdmin && (
+            <ul className="mb-[20px] pb-[10px]">
+              <li className="text-[13px] font-bold leading-4">{t("Система")}</li>
+              <li className="pl-[20px] pt-[10px]">
+                <Link href="/admin/bug-reports" onClick={onClose} className="block text-[13px] leading-[16.25px] hover:text-[#1E4A9A]">
+                  {t("Сообщения об ошибках")}
+                </Link>
+              </li>
+            </ul>
+          )}
         </div>
       </div>
     </>

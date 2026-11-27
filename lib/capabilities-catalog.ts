@@ -199,8 +199,9 @@ export const ROUTE_PERMISSIONS: ReadonlyArray<{ prefix: string; code: string }> 
  * only their own rows there — the route scopes every query to the caller and answers 404 for
  * anybody else's — so no permission code applies, and no broader prefix above may claim them.
  * Уведомления (/api/notifications/**): the caller's own notifications (list, mark viewed,
- * mark all viewed, delete). */
-export const SELF_SERVICE_PREFIXES: ReadonlyArray<string> = ["/api/notifications"]
+ * mark all viewed, delete). Xato haqida xabar (/api/bug-reports/**): any signed-in user reports a
+ * bug and answers the AI helper on their own report (viewers too; the routes check the owner). */
+export const SELF_SERVICE_PREFIXES: ReadonlyArray<string> = ["/api/notifications", "/api/bug-reports"]
 
 /** True for a path of a self-service resource (SELF_SERVICE_PREFIXES). */
 export function isSelfServiceRoute(pathname: string): boolean {

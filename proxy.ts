@@ -9,7 +9,8 @@ import { SESSION_COOKIE, signRequestMark, verifySession } from "@/lib/session"
 // check. Kept small and explicit rather than guessing at every resource.
 // /api/user-sessions and /api/auth are deliberately excluded: they are
 // self-service endpoints scoped to the caller's own account.
-const ADMIN_ONLY_PREFIXES = ["/api/access-rights", "/api/permissions", "/api/capabilities", "/api/users"]
+// /api/admin: the administrator's own tools (Xato xabarlari, /api/admin/bug-reports).
+const ADMIN_ONLY_PREFIXES = ["/api/access-rights", "/api/permissions", "/api/capabilities", "/api/users", "/api/admin"]
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024 // 2MB — generous for JSON payloads, blocks abusive uploads
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
