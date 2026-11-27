@@ -16,6 +16,8 @@ const repriceSchema = z.object({
     .array(
       z.object({
         product: z.string().trim().min(1, "Выберите товар").max(500),
+        // The supply line's catalog key («product:12» / «raw_material:3»); the name is the fallback.
+        key: z.string().trim().regex(/^(product|raw_material):\d{1,10}$/).optional(),
         price: strictNum(z.number({ error: "Цена должна быть числом" }).min(0, "Цена не может быть отрицательной").max(MAX_MONEY, "Слишком большая цена"), "Цена должна быть числом"),
       }),
     )

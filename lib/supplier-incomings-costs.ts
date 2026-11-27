@@ -10,6 +10,8 @@ import { getIncoming } from "@/lib/supplier-incomings-repo"
 /** One line of the supply card's «Себестоимость» tab (Linko's stock/supply_product/with_net_cost/), base currency. */
 export type SupplyCostRow = {
   product: string
+  /** The line's catalog key («product:12», «raw_material:3»; "" when it matches no live item). */
+  key: string
   /** Linko's product.code (shown under the name), when the product has one. */
   code: string
   qty: number
@@ -74,6 +76,7 @@ export async function supplyCostRows(id: number): Promise<SupplyCostRow[] | null
     }
     return {
       product: item.product,
+      key,
       code: codeOf.get(key) ?? "",
       qty: item.qty,
       purchasePrice: round6(item.cost * rate),

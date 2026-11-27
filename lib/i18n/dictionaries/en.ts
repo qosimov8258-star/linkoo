@@ -7119,4 +7119,8 @@ export const en: Record<string, string> = {
   "Смены работников": "Worker shifts",
   "Факт этого типа KPI не рассчитывается": "The fact of this KPI type is not calculated",
   "Факт.": "Fact.",
+  "1.Сначала рассчитывается умножение на число:": "1. First, multiplication by number is calculated:",
+  "Если умножение не указано, возвращается само значение цены.": "If multiplication is not specified, the price value is returned.",
+  "2.Затем рассчитывается наценка:": "2. Then the markup is calculated:",
+  "3.После выполняется округление.": "3. Then rounding is performed.",
 }

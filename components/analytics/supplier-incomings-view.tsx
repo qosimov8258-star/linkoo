@@ -1,7 +1,7 @@
 "use client"
 
 import { ChangeEvent, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { RI, RefAppliedFilter, RefButton, RefCard, RefHeader, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
 import type { LinkoOption } from "@/components/ref/linko-select-fields"
 
@@ -26,7 +26,8 @@ import {
   type IncomingLog,
   type IncomingStatus as Status,
 } from "./supplier-incomings-data"
-import { currencyChoices, IncomingExpenseDialog, IncomingRepriceDialog, useCurrencyCodes } from "./supplier-incoming-dialogs"
+import { currencyChoices, IncomingExpenseDialog, useCurrencyCodes } from "./supplier-incoming-dialogs"
+import { IncomingRepriceDialog } from "./supplier-incoming-reprice"
 import {
   SupplyDownloadMenu,
   SupplyEditMenu,
@@ -291,6 +292,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [quickAddOrganizationOpen, setQuickAddOrganizationOpen] = useState(false)
   // Create dialog opened from "Входящие счет фактуры" (?openCreateDialog=true&invoiceId=N).
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [optionsLoaded, setOptionsLoaded] = useState(false)
   const [fromInvoice, setFromInvoice] = useState<InvoiceSupplyDraft | null>(null)
   const invoiceHandled = useRef<string | null>(null)
@@ -628,7 +630,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     // Linko's row link keeps the list's query (#/supply/350?page=1&pageSize=25&provider=79); the card's own
     // parameters stay with the card.
     const params = new URLSearchParams(window.location.search)
-    for (const name of ["tab", "openUpdateDialog", "openInvoiceDialog"]) params.delete(name)
+    for (const name of ["tab", "openUpdateDialog", "openInvoiceDialog", "openRepriceDialog", "typeCost"]) params.delete(name)
     const search = params.toString()
     window.history.pushState(null, "", `${next === null ? "/analytics/supplier-incomings" : `/analytics/supplier-incomings/${next}`}${search ? `?${search}` : ""}`)
   }
@@ -652,6 +654,21 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     if (!embedded) setUrlParam("tab", TAB_PARAM[tab], true)
   }
   const invoiceRow = searchParams.get("openInvoiceDialog") === "true" && expandedId !== null ? rows.find((item) => item.id === expandedId) : undefined
+  // «Наценка» lives in the address like Linko's (?openRepriceDialog=true, its base price in ?typeCost=); the embedded
+  // list keeps it in state.
+  const repriceRow =
+    markupTarget ??
+    (!embedded && canReprice && searchParams.get("openRepriceDialog") === "true" && expandedId !== null ? rows.find((item) => item.id === expandedId) : undefined)
+  function openReprice(row: Incoming) {
+    // Linko's replaceUrl: the sheet does not add a history step.
+    if (embedded) setMarkupTarget(row)
+    else setUrlParam("openRepriceDialog", "true")
+  }
+  function closeReprice() {
+    setMarkupTarget(null)
+    // ?typeCost= stays: the sheet reopens on the same base, as in Linko.
+    if (!embedded) setUrlParam("openRepriceDialog", "false")
+  }
 
   function openCreate() {
     if (!embedded) {
@@ -977,7 +994,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               </SupplyAction>
                             )}
                             {canReprice && (
-                              <SupplyAction onClick={() => setMarkupTarget(row)} icon="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z">
+                              <SupplyAction onClick={() => openReprice(row)} icon="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z">
                                 <span>{t("Наценка")}</span>
                               </SupplyAction>
                             )}
@@ -1163,14 +1180,16 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         />
       </RefCard>
 
-      {markupTarget && (
+      {repriceRow && (
         <IncomingRepriceDialog
-          incoming={markupTarget}
-          units={productUnits}
-          onClose={() => setMarkupTarget(null)}
-          onSaved={() => {
-            setMarkupTarget(null)
+          key={repriceRow.id}
+          incoming={repriceRow}
+          onClose={closeReprice}
+          onSaved={(repricingId) => {
+            closeReprice()
             setDetailVersion((value) => value + 1)
+            // Linko then opens the new Переоценка document.
+            if (repricingId !== null) router.push(`/analytics/repricing/${repricingId}`)
           }}
         />
       )}

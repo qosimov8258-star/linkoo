@@ -7101,4 +7101,8 @@ export const uz: Record<string, string> = {
   "Смены работников": "Ishchilar smenalari",
   "Факт этого типа KPI не рассчитывается": "Bu turdagi KPI fakti hisoblanmaydi",
   "Факт.": "Fakt.",
+  "1.Сначала рассчитывается умножение на число:": "1.Avval songa ko'paytirish hisoblanadi:",
+  "Если умножение не указано, возвращается само значение цены.": "Agar ko'paytirish ko'rsatilmagan bo'lsa, narxning o'zi qaytariladi.",
+  "2.Затем рассчитывается наценка:": "2.Keyin ustama hisoblanadi:",
+  "3.После выполняется округление.": "3.Keyin yaxlitlash bajariladi.",
 }

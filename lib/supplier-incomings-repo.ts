@@ -29,6 +29,7 @@ import { ensureRepricingsSchema } from "@/lib/repricings-read"
 import { availableByKey } from "@/lib/repricings-items"
 import { createRepricingTx } from "@/lib/repricings-repo"
 import { getItemCosts, latestScopeCosts, loadCostLedger, refreshProductCostCache } from "@/lib/stock/costs"
+import { loadStockCatalog } from "@/lib/stock/catalog"
 import { ensureStockSchema } from "@/lib/stock/schema"
 import { notifySafely } from "@/lib/notify-event"
 import type { SupplierIncomingBody, IncomingExpenseBody } from "@/lib/supplier-incomings-api"
@@ -1220,12 +1221,18 @@ export async function listIncomingLogs(incomingId: number): Promise<IncomingLog[
 // Наценка (repricing from a supply)
 // ---------------------------------------------------------------------------
 
-export type RepriceInput = { priceListId: number; currency: string; comment: string; prices: Array<{ product: string; price: number }> }
+/** A line of the «Наценка» sheet: the supply line's catalog key («product:12», «raw_material:3») and its name (older
+ * clients send only the name). */
+export type RepriceInput = { priceListId: number; currency: string; comment: string; prices: Array<{ product: string; key?: string; price: number }> }
 
 /** Writes the calculated selling prices into the chosen price list as one
  * finished repricing (Переоценка) document, so it can be viewed and cancelled
  * there like any other repricing. */
-export async function repriceFromIncoming(incomingId: number, input: RepriceInput, userName: string): Promise<{ updated: number; missing: string[] } | "not_found" | "price_list_not_found"> {
+export async function repriceFromIncoming(
+  incomingId: number,
+  input: RepriceInput,
+  userName: string,
+): Promise<{ updated: number; missing: string[]; repricingId: number | null } | "not_found" | "price_list_not_found"> {
   await incomingsDb()
   await ensureRepricingsSchema()
   const available = await availableByKey()
@@ -1235,18 +1242,27 @@ export async function repriceFromIncoming(incomingId: number, input: RepriceInpu
     const priceList = (await tx.prepare("SELECT id, name FROM price_lists WHERE id = ?").get(input.priceListId)) as { id: number; name: string } | undefined
     if (!priceList) return "price_list_not_found"
     const missing: string[] = []
-    const products: Array<{ kind: "product"; id: number; price: number }> = []
+    const products: Array<{ kind: "product" | "raw_material"; id: number; price: number }> = []
+    // Live catalog items (products and raw materials) by key: a supply line can be either, like Linko's product id.
+    const live = new Map((await loadStockCatalog(tx)).map((item) => [item.key as string, item]))
     for (const line of input.prices) {
       if (!(line.price >= 0)) continue
+      const item = line.key ? live.get(line.key) : undefined
+      if (item) {
+        products.push({ kind: item.kind, id: Number(item.key.slice(item.key.indexOf(":") + 1)), price: line.price })
+        continue
+      }
       const product = (await tx.prepare("SELECT id FROM products WHERE fin_key(name) = fin_key(?) AND COALESCE(deleted, 0) = 0 ORDER BY id LIMIT 1").get(line.product)) as { id: number } | undefined
       if (product) products.push({ kind: "product", id: product.id, price: line.price })
       else missing.push(line.product)
     }
+    let repricingId: number | null = null
     if (products.length) {
-      await createRepricingTx(tx, { priceListId: priceList.id, currency: input.currency, comment: input.comment, products, connected: false }, userName, available, "supplier_incoming")
+      repricingId = (await createRepricingTx(tx, { priceListId: priceList.id, currency: input.currency, comment: input.comment, products, connected: false }, userName, available, "supplier_incoming")).id
     }
     await addLog(tx, incomingId, "repriced", userName, `${priceList.name}: ${products.length}${input.comment ? ` — ${input.comment}` : ""}`, incoming.status)
-    return { updated: products.length, missing }
+    // The new Переоценка document: the card opens it after saving, as Linko does.
+    return { updated: products.length, missing, repricingId }
   })
 }
 

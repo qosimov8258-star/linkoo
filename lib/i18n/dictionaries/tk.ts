@@ -7118,4 +7118,8 @@ export const tk: Record<string, string> = {
   "Смены работников": "Işgärleriň çalyşyklary",
   "Факт этого типа KPI не рассчитывается": "Bu görnüşdäki KPI-niň hakyky görkezijisi hasaplanmaýar",
   "Факт.": "Hakyky.",
+  "1.Сначала рассчитывается умножение на число:": "1.Ilki sana köpeltmek hasaplanýar:",
+  "Если умножение не указано, возвращается само значение цены.": "Köpeltmek görkezilmedik bolsa, bahanyň özi gaýtarylýar.",
+  "2.Затем рассчитывается наценка:": "2.Soňra goýum hasaplanýar:",
+  "3.После выполняется округление.": "3.Soňra tegeleklenýär.",
 }
